@@ -11,5 +11,7 @@ vite.config.d.ts
 vite.config.js.timestamp-*
 server/*.js
 server/*.d.ts
+src/lib/**/*.js
+src/lib/**/*.d.ts
 src/types/*.js
 src/types/*.d.ts
