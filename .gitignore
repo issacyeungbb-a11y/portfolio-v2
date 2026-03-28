@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+.DS_Store
+*.log
+vite.config.js
+vite.config.d.ts
+vite.config.js.timestamp-*
+server/*.js
+server/*.d.ts
+src/types/*.js
+src/types/*.d.ts

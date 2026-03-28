@@ -1,0 +1,138 @@
+import {
+  formatCurrency,
+  formatPercent,
+  getAssetTypeLabel,
+} from '../../data/mockPortfolio';
+import type { PendingPriceUpdateReview } from '../../types/priceUpdates';
+
+interface PriceUpdateReviewPanelProps {
+  reviews: PendingPriceUpdateReview[];
+  onConfirm: (review: PendingPriceUpdateReview) => Promise<void> | void;
+  onDismiss: (assetId: string) => Promise<void> | void;
+  confirmingAssetIds: string[];
+  dismissingAssetIds: string[];
+  actionError: string | null;
+  actionSuccess: string | null;
+}
+
+export function PriceUpdateReviewPanel({
+  reviews,
+  onConfirm,
+  onDismiss,
+  confirmingAssetIds,
+  dismissingAssetIds,
+  actionError,
+  actionSuccess,
+}: PriceUpdateReviewPanelProps) {
+  if (reviews.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="card">
+      <div className="section-heading">
+        <div>
+          <p className="eyebrow">Price Review</p>
+          <h2>待確認價格更新</h2>
+          <p className="table-hint">
+            AI 只會先產生候選價格，不會直接覆寫正式價格。你確認後先會寫入資產資料。
+          </p>
+        </div>
+        <span className="chip chip-strong">{reviews.length} 項待確認</span>
+      </div>
+
+      {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}
+      {actionSuccess ? <p className="status-message status-message-success">{actionSuccess}</p> : null}
+
+      <div className="extract-preview-list">
+        {reviews.map((review) => {
+          const isConfirming = confirmingAssetIds.includes(review.assetId);
+          const isDismissing = dismissingAssetIds.includes(review.assetId);
+          const diffTone = review.diffPct >= 0.15 ? 'caution' : 'positive';
+
+          return (
+            <article key={review.assetId} className="extract-preview-card">
+              <div className="extract-preview-header">
+                <div>
+                  <p className="holding-symbol">{review.ticker}</p>
+                  <h3>{review.assetName}</h3>
+                </div>
+                <div className="button-row">
+                  <span className="chip chip-soft">{getAssetTypeLabel(review.assetType)}</span>
+                  <span className={review.needsReview ? 'chip chip-strong' : 'chip chip-soft'}>
+                    {review.needsReview ? '需要人工檢查' : '可直接確認'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="holding-grid">
+                <div>
+                  <p className="muted-label">現有價格</p>
+                  <strong>{formatCurrency(review.currentPrice, review.currency)}</strong>
+                </div>
+                <div>
+                  <p className="muted-label">AI 建議價格</p>
+                  <strong>
+                    {review.price == null
+                      ? '未提供價格'
+                      : formatCurrency(review.price, review.currency)}
+                  </strong>
+                </div>
+                <div>
+                  <p className="muted-label">價格差距</p>
+                  <strong data-tone={diffTone}>{formatPercent(review.diffPct * 100)}</strong>
+                </div>
+                <div>
+                  <p className="muted-label">可信度</p>
+                  <strong>{formatPercent((review.confidence ?? 0) * 100)}</strong>
+                </div>
+              </div>
+
+              <div className="roadmap-list">
+                <div className="roadmap-item">
+                  <strong>來源</strong>
+                  <p>{review.sourceName || '未提供來源名稱'}</p>
+                  {review.sourceUrl ? (
+                    <a
+                      className="text-link review-source-link"
+                      href={review.sourceUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {review.sourceUrl}
+                    </a>
+                  ) : (
+                    <p>未提供來源網址</p>
+                  )}
+                </div>
+                <div className="roadmap-item">
+                  <strong>價格時間</strong>
+                  <p>{review.asOf || '未提供 asOf'}</p>
+                </div>
+              </div>
+
+              <div className="form-actions">
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={() => onConfirm(review)}
+                  disabled={isConfirming || isDismissing}
+                >
+                  {isConfirming ? '確認中...' : '確認寫入正式價格'}
+                </button>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => onDismiss(review.assetId)}
+                  disabled={isConfirming || isDismissing}
+                >
+                  {isDismissing ? '略過中...' : '略過這次更新'}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}

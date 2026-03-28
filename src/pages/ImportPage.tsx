@@ -1,0 +1,348 @@
+import { useEffect, useState, type ChangeEvent } from 'react';
+
+import { ExtractedAssetsEditor } from '../components/import/ExtractedAssetsEditor';
+import { getImportStatusLabel, mockPortfolio } from '../data/mockPortfolio';
+import { useAnonymousAuth } from '../hooks/useAnonymousAuth';
+import { callPortfolioFunction } from '../lib/api/vercelFunctions';
+import { createPortfolioAssets, getFirebaseAssetsErrorMessage } from '../lib/firebase/assets';
+import type { AccountSource } from '../types/portfolio';
+import {
+  buildPortfolioAssetInputFromExtractedAsset,
+  createEditableExtractedAsset,
+  getMissingExtractedAssetFields,
+  type EditableExtractedAsset,
+  type ExtractAssetsRequest,
+  type ExtractAssetsResponse,
+} from '../types/extractAssets';
+
+type ExtractStatus = 'idle' | 'loading' | 'success' | 'error';
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error('無法讀取圖片資料，請重新上傳。'));
+    };
+
+    reader.onerror = () => {
+      reject(new Error('讀取圖片失敗，請重新上傳。'));
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function getBase64FromDataUrl(dataUrl: string) {
+  const [, base64 = ''] = dataUrl.split(',');
+  return base64;
+}
+
+function inferAccountSource(fileName: string): AccountSource {
+  const normalized = fileName.toLowerCase();
+
+  if (normalized.includes('futu')) {
+    return 'Futu';
+  }
+
+  if (normalized.includes('ib')) {
+    return 'IB';
+  }
+
+  if (normalized.includes('crypto') || normalized.includes('wallet')) {
+    return 'Crypto';
+  }
+
+  return 'Other';
+}
+
+export function ImportPage() {
+  const { uid } = useAnonymousAuth();
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [accountSource, setAccountSource] = useState<AccountSource>('Other');
+  const [extractStatus, setExtractStatus] = useState<ExtractStatus>('idle');
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [extractResponse, setExtractResponse] = useState<ExtractAssetsResponse | null>(null);
+  const [editableAssets, setEditableAssets] = useState<EditableExtractedAsset[]>([]);
+  const [confirmStatus, setConfirmStatus] = useState<'idle' | 'loading' | 'success' | 'error'>(
+    'idle',
+  );
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
+
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const nextPreviewUrl = URL.createObjectURL(file);
+
+      if (previewUrl) {
+        URL.revokeObjectURL(previewUrl);
+      }
+
+      setSelectedFile(file);
+      setPreviewUrl(nextPreviewUrl);
+      setImageBase64(getBase64FromDataUrl(dataUrl));
+      setAccountSource(inferAccountSource(file.name));
+      setExtractStatus('idle');
+      setExtractError(null);
+      setExtractResponse(null);
+      setEditableAssets([]);
+      setConfirmStatus('idle');
+      setConfirmError(null);
+      setConfirmSuccess(null);
+    } catch (error) {
+      setExtractStatus('error');
+      setExtractError(
+        error instanceof Error ? error.message : '讀取圖片失敗，請重新上傳。',
+      );
+    }
+  }
+
+  function handleAssetChange(
+    assetId: string,
+    field: keyof EditableExtractedAsset,
+    value: string,
+  ) {
+    setEditableAssets((current) =>
+      current.map((asset) =>
+        asset.id === assetId
+          ? {
+              ...asset,
+              [field]:
+                field === 'ticker' || field === 'currency'
+                  ? value.toUpperCase()
+                  : value,
+            }
+          : asset,
+      ),
+    );
+    setConfirmStatus('idle');
+    setConfirmError(null);
+    setConfirmSuccess(null);
+  }
+
+  async function handleExtractAssets() {
+    if (!selectedFile || !imageBase64) {
+      setExtractStatus('error');
+      setExtractError('請先上傳一張截圖，再開始解析。');
+      return;
+    }
+
+    setExtractStatus('loading');
+    setExtractError(null);
+    setConfirmStatus('idle');
+    setConfirmError(null);
+    setConfirmSuccess(null);
+
+    try {
+      const payload: ExtractAssetsRequest = {
+        fileName: selectedFile.name,
+        mimeType: selectedFile.type || 'image/png',
+        imageBase64,
+      };
+      const response = (await callPortfolioFunction(
+        'extract-assets',
+        payload,
+      )) as ExtractAssetsResponse;
+      const nextAssets = response.assets.map((asset, index) =>
+        createEditableExtractedAsset(asset, index),
+      );
+
+      setExtractResponse(response);
+      setEditableAssets(nextAssets);
+      setExtractStatus('success');
+    } catch (error) {
+      setExtractStatus('error');
+      setExtractError(
+        error instanceof Error ? error.message : '解析截圖失敗，請稍後再試。',
+      );
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!uid) {
+      setConfirmStatus('error');
+      setConfirmError('匿名身份尚未完成，請稍後再試。');
+      return;
+    }
+
+    const hasMissingFields = editableAssets.some(
+      (asset) => getMissingExtractedAssetFields(asset).length > 0,
+    );
+
+    if (hasMissingFields) {
+      setConfirmStatus('error');
+      setConfirmError('仍有缺少欄位，請先補齊再確認匯入。');
+      return;
+    }
+
+    setConfirmStatus('loading');
+    setConfirmError(null);
+    setConfirmSuccess(null);
+
+    try {
+      const payloads = editableAssets.map((asset) =>
+        buildPortfolioAssetInputFromExtractedAsset(asset, accountSource),
+      );
+
+      await createPortfolioAssets(uid, payloads);
+
+      setConfirmStatus('success');
+      setConfirmSuccess(`已成功寫入 Firestore，共 ${payloads.length} 項資產。`);
+    } catch (error) {
+      setConfirmStatus('error');
+      setConfirmError(getFirebaseAssetsErrorMessage(error));
+    }
+  }
+
+  return (
+    <div className="page-stack">
+      <section className="hero-panel">
+        <div>
+          <p className="eyebrow">Screenshot Import</p>
+          <h2>截圖轉資產資料</h2>
+          <p className="hero-copy">
+            而家可以上傳單張截圖，呼叫 `/api/extract-assets` 做解析，先預覽再確認寫入 Firestore。
+          </p>
+        </div>
+        <div className="upload-dropzone">
+          <strong>上傳單張截圖</strong>
+          <p>支援券商持倉截圖、月結單、錢包畫面。暫時先處理單張圖片。</p>
+          <label className="button button-secondary upload-button">
+            選擇圖片
+            <input
+              className="visually-hidden"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={handleFileChange}
+            />
+          </label>
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={handleExtractAssets}
+            disabled={extractStatus === 'loading' || !selectedFile}
+          >
+            {extractStatus === 'loading' ? '解析中...' : '開始解析'}
+          </button>
+          {selectedFile ? (
+            <div className="upload-file-meta">
+              <strong>{selectedFile.name}</strong>
+              <p>{selectedFile.type || 'image/*'}</p>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      {extractError ? <p className="status-message status-message-error">{extractError}</p> : null}
+
+      <section className="content-grid">
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Preview Image</p>
+              <h2>截圖預覽</h2>
+            </div>
+            <span className="chip chip-soft">
+              {selectedFile ? '已選擇圖片' : '未選擇圖片'}
+            </span>
+          </div>
+
+          {previewUrl ? (
+            <img className="upload-preview-image" src={previewUrl} alt="Uploaded portfolio screenshot" />
+          ) : (
+            <p className="status-message">
+              先選擇一張截圖，呢度會顯示圖片預覽，之後再交去 `/api/extract-assets`。
+            </p>
+          )}
+        </article>
+
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Flow</p>
+              <h2>匯入步驟</h2>
+            </div>
+            <span className="chip chip-soft">
+              {extractResponse ? `模型 ${extractResponse.model}` : '等待解析'}
+            </span>
+          </div>
+
+          <div className="roadmap-list">
+            <div className="roadmap-item">
+              <strong>1. 上傳截圖</strong>
+              <p>前端暫時只處理單張圖片，未接 Storage。</p>
+            </div>
+            <div className="roadmap-item">
+              <strong>2. Gemini 抽取固定 JSON</strong>
+              <p>後端只要求輸出 `name、ticker、type、quantity、currency、costBasis`。</p>
+            </div>
+            <div className="roadmap-item">
+              <strong>3. 人工確認再寫入</strong>
+              <p>缺少欄位會標記並可手動補資料，確認後才會寫入 Firestore。</p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      {extractStatus === 'success' ? (
+        <ExtractedAssetsEditor
+          assets={editableAssets}
+          accountSource={accountSource}
+          onChangeAsset={handleAssetChange}
+          onChangeAccountSource={setAccountSource}
+          onConfirm={handleConfirmImport}
+          isConfirming={confirmStatus === 'loading'}
+          confirmError={confirmError}
+          confirmSuccess={confirmSuccess}
+        />
+      ) : null}
+
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Recent Jobs</p>
+            <h2>最近匯入紀錄</h2>
+          </div>
+        </div>
+
+        <div className="stack-list">
+          {mockPortfolio.importJobs.map((job) => (
+            <article key={job.id} className="import-job">
+              <div>
+                <p className="holding-symbol">{job.broker}</p>
+                <h3>{job.fileName}</h3>
+              </div>
+              <div className="import-job-meta">
+                <span className="chip chip-soft">{getImportStatusLabel(job.status)}</span>
+                <strong>{job.detectedCount} 項資產</strong>
+                <span>{job.updatedAt}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}

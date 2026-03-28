@@ -1,0 +1,21 @@
+import type { Holding, PortfolioAssetInput } from '../../types/portfolio';
+export declare function buildHoldingFromInput(id: string, payload: PortfolioAssetInput): Holding;
+export declare function recalculateHoldingAllocations(holdings: Holding[], getHoldingValue?: (holding: Holding) => number): {
+    allocation: number;
+    id: string;
+    marketValue: number;
+    unrealizedPnl: number;
+    unrealizedPct: number;
+    name: string;
+    symbol: string;
+    assetType: import("../../types/portfolio").AssetType;
+    accountSource: import("../../types/portfolio").AccountSource;
+    currency: string;
+    quantity: number;
+    averageCost: number;
+    currentPrice: number;
+}[];
+export declare function getFirebaseAssetsErrorMessage(error?: unknown): string;
+export declare function subscribeToPortfolioAssets(uid: string, onData: (holdings: Holding[]) => void, onError: (error: unknown) => void): import("@firebase/firestore").Unsubscribe;
+export declare function createPortfolioAsset(uid: string, payload: PortfolioAssetInput): Promise<void>;
+export declare function createPortfolioAssets(uid: string, payloads: PortfolioAssetInput[]): Promise<void>;
