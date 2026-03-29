@@ -17,6 +17,11 @@ import {
 
 type ExtractStatus = 'idle' | 'loading' | 'success' | 'error';
 
+const MAX_UPLOAD_DIMENSION = 1600;
+const MAX_UPLOAD_BYTES = 3_200_000;
+const COMPRESSED_MIME_TYPE = 'image/jpeg';
+const COMPRESSED_QUALITY = 0.82;
+
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -43,6 +48,58 @@ function getBase64FromDataUrl(dataUrl: string) {
   return base64;
 }
 
+function loadImage(dataUrl: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('無法讀取截圖內容，請換另一張圖片再試。'));
+    image.src = dataUrl;
+  });
+}
+
+async function compressScreenshot(file: File) {
+  const originalDataUrl = await readFileAsDataUrl(file);
+
+  if (!file.type.startsWith('image/')) {
+    return {
+      dataUrl: originalDataUrl,
+      mimeType: file.type || 'image/png',
+    };
+  }
+
+  const image = await loadImage(originalDataUrl);
+  const scale = Math.min(1, MAX_UPLOAD_DIMENSION / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return {
+      dataUrl: originalDataUrl,
+      mimeType: file.type || 'image/png',
+    };
+  }
+
+  context.drawImage(image, 0, 0, width, height);
+
+  let quality = COMPRESSED_QUALITY;
+  let compressedDataUrl = canvas.toDataURL(COMPRESSED_MIME_TYPE, quality);
+
+  while (compressedDataUrl.length > MAX_UPLOAD_BYTES && quality > 0.5) {
+    quality -= 0.08;
+    compressedDataUrl = canvas.toDataURL(COMPRESSED_MIME_TYPE, quality);
+  }
+
+  return {
+    dataUrl: compressedDataUrl,
+    mimeType: COMPRESSED_MIME_TYPE,
+  };
+}
+
 function inferAccountSource(fileName: string): AccountSource {
   const normalized = fileName.toLowerCase();
 
@@ -66,6 +123,7 @@ export function ImportPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [uploadMimeType, setUploadMimeType] = useState<string>('image/png');
   const [accountSource, setAccountSource] = useState<AccountSource>('Other');
   const [extractStatus, setExtractStatus] = useState<ExtractStatus>('idle');
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -93,7 +151,7 @@ export function ImportPage() {
     }
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const compressedImage = await compressScreenshot(file);
       const nextPreviewUrl = URL.createObjectURL(file);
 
       if (previewUrl) {
@@ -102,7 +160,8 @@ export function ImportPage() {
 
       setSelectedFile(file);
       setPreviewUrl(nextPreviewUrl);
-      setImageBase64(getBase64FromDataUrl(dataUrl));
+      setImageBase64(getBase64FromDataUrl(compressedImage.dataUrl));
+      setUploadMimeType(compressedImage.mimeType);
       setAccountSource(inferAccountSource(file.name));
       setExtractStatus('idle');
       setExtractError(null);
@@ -158,7 +217,7 @@ export function ImportPage() {
     try {
       const payload: ExtractAssetsRequest = {
         fileName: selectedFile.name,
-        mimeType: selectedFile.type || 'image/png',
+        mimeType: uploadMimeType,
         imageBase64,
       };
       const response = (await callPortfolioFunction(
@@ -228,7 +287,7 @@ export function ImportPage() {
         </div>
         <div className="upload-dropzone">
           <strong>上傳單張截圖</strong>
-          <p>支援券商持倉截圖、月結單、錢包畫面。暫時先處理單張圖片。</p>
+          <p>支援券商持倉截圖、月結單、錢包畫面。上傳前會先壓縮，減低部署版請求過大機會。</p>
           <label className="button button-secondary upload-button">
             選擇圖片
             <input
@@ -249,7 +308,12 @@ export function ImportPage() {
           {selectedFile ? (
             <div className="upload-file-meta">
               <strong>{selectedFile.name}</strong>
-              <p>{selectedFile.type || 'image/*'}</p>
+              <p>
+                {selectedFile.type || 'image/*'}
+                {uploadMimeType !== (selectedFile.type || 'image/png')
+                  ? ` -> ${uploadMimeType}`
+                  : ''}
+              </p>
             </div>
           ) : null}
         </div>

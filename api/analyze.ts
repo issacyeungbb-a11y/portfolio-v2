@@ -1,3 +1,4 @@
+import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from './_shared';
 import {
   analyzePortfolio,
   getAnalyzePortfolioErrorResponse,
@@ -5,35 +6,34 @@ import {
 import {
   getFirebaseApiAuthErrorResponse,
   isFirebaseApiAuthError,
-  requireFirebaseUserFromRequest,
+  requireFirebaseUserFromNodeRequest,
 } from '../server/requireFirebaseUser';
 
-export default async function handler(request: Request) {
+export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/analyze';
 
   if (request.method !== 'POST') {
-    return Response.json(
-      {
-        ok: false,
-        route,
-        message: 'Method not allowed',
-      },
-      { status: 405 },
-    );
+    sendJson(response, 405, {
+      ok: false,
+      route,
+      message: 'Method not allowed',
+    });
+    return;
   }
 
   try {
-    await requireFirebaseUserFromRequest(request, route);
-    const payload = await request.json();
-    const response = await analyzePortfolio(payload);
-    return Response.json(response);
+    await requireFirebaseUserFromNodeRequest(request, route);
+    const payload = await readJsonBody(request);
+    const result = await analyzePortfolio(payload);
+    sendJson(response, 200, result);
   } catch (error) {
     if (isFirebaseApiAuthError(error)) {
       const authError = getFirebaseApiAuthErrorResponse(error, route);
-      return Response.json(authError.body, { status: authError.status });
+      sendJson(response, authError.status, authError.body);
+      return;
     }
 
     const formatted = getAnalyzePortfolioErrorResponse(error);
-    return Response.json(formatted.body, { status: formatted.status });
+    sendJson(response, formatted.status, formatted.body);
   }
 }
