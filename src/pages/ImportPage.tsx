@@ -201,6 +201,13 @@ export function ImportPage() {
     setConfirmSuccess(null);
   }
 
+  function handleRemoveAsset(assetId: string) {
+    setEditableAssets((current) => current.filter((asset) => asset.id !== assetId));
+    setConfirmStatus('idle');
+    setConfirmError(null);
+    setConfirmSuccess(null);
+  }
+
   async function handleExtractAssets() {
     if (!selectedFile || !imageBase64) {
       setExtractStatus('error');
@@ -375,6 +382,7 @@ export function ImportPage() {
           assets={editableAssets}
           accountSource={accountSource}
           onChangeAsset={handleAssetChange}
+          onRemoveAsset={handleRemoveAsset}
           onChangeAccountSource={setAccountSource}
           onConfirm={handleConfirmImport}
           isConfirming={confirmStatus === 'loading'}

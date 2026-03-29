@@ -976,6 +976,20 @@ h3 {
   gap: 1rem;
 }
 
+.extract-empty-state {
+  padding: 1rem;
+  border-radius: 1.2rem;
+  border: 1px dashed rgba(118, 96, 77, 0.22);
+  background: rgba(255, 255, 255, 0.44);
+  color: var(--text-muted);
+}
+
+.extract-empty-state strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--text-main);
+}
+
 .extract-preview-card {
   display: flex;
   flex-direction: column;
@@ -992,6 +1006,12 @@ h3 {
 .extract-preview-header h3 {
   margin-top: 0.2rem;
   font-size: 1.15rem;
+}
+
+.button-danger-text {
+  color: #a64024;
+  border-color: rgba(166, 64, 36, 0.18);
+  background: rgba(166, 64, 36, 0.08);
 }
 
 .holdings-table-shell {

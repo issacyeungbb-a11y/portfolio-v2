@@ -20,6 +20,7 @@ interface ExtractedAssetsEditorProps {
     field: keyof EditableExtractedAsset,
     value: string,
   ) => void;
+  onRemoveAsset: (assetId: string) => void;
   onChangeAccountSource: (value: AccountSource) => void;
   onConfirm: () => Promise<void> | void;
   isConfirming: boolean;
@@ -43,6 +44,7 @@ export function ExtractedAssetsEditor({
   assets,
   accountSource,
   onChangeAsset,
+  onRemoveAsset,
   onChangeAccountSource,
   onConfirm,
   isConfirming,
@@ -96,6 +98,13 @@ export function ExtractedAssetsEditor({
       </div>
 
       <div className="extract-preview-list">
+        {assets.length === 0 ? (
+          <div className="extract-empty-state">
+            <strong>已清空解析結果</strong>
+            <p>如果呢次辨識到的資產都唔需要，可以重新上傳截圖再試。</p>
+          </div>
+        ) : null}
+
         {assets.map((asset, index) => {
           const missingFields = getMissingExtractedAssetFields(asset);
 
@@ -107,6 +116,14 @@ export function ExtractedAssetsEditor({
                   <h3>{asset.ticker || asset.name || '待補資料的資產'}</h3>
                 </div>
                 <div className="button-row">
+                  <button
+                    className="button button-secondary button-danger-text"
+                    type="button"
+                    onClick={() => onRemoveAsset(asset.id)}
+                    disabled={isConfirming}
+                  >
+                    刪除資產
+                  </button>
                   <span className="chip chip-soft">
                     {asset.type ? getAssetTypeLabel(asset.type) : '未分類'}
                   </span>
