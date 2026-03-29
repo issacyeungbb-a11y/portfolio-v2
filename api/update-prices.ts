@@ -1,13 +1,13 @@
-import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from './_shared';
+import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
 import {
   generatePriceUpdates,
   getUpdatePricesErrorResponse,
-} from '../server/updatePrices';
+} from '../server/updatePrices.js';
 import {
   getFirebaseApiAuthErrorResponse,
   isFirebaseApiAuthError,
   requireFirebaseUserFromNodeRequest,
-} from '../server/requireFirebaseUser';
+} from '../server/requireFirebaseUser.js';
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/update-prices';

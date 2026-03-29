@@ -5,7 +5,7 @@ import type { DecodedIdToken } from 'firebase-admin/auth';
 import {
   getFirebaseAdminSetupErrorMessage,
   verifyFirebaseIdToken,
-} from './firebaseAdmin';
+} from './firebaseAdmin.js';
 
 class FirebaseApiAuthError extends Error {
   status: number;

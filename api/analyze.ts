@@ -1,13 +1,13 @@
-import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from './_shared';
+import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
 import {
   analyzePortfolio,
   getAnalyzePortfolioErrorResponse,
-} from '../server/analyzePortfolio';
+} from '../server/analyzePortfolio.js';
 import {
   getFirebaseApiAuthErrorResponse,
   isFirebaseApiAuthError,
   requireFirebaseUserFromNodeRequest,
-} from '../server/requireFirebaseUser';
+} from '../server/requireFirebaseUser.js';
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/analyze';

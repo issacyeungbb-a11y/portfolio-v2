@@ -1,5 +1,5 @@
-import { sendJson, type ApiRequest, type ApiResponse } from './_shared';
-import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses';
+import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
+import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'GET') {
