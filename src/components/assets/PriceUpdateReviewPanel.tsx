@@ -33,12 +33,12 @@ export function PriceUpdateReviewPanel({
       <div className="section-heading">
         <div>
           <p className="eyebrow">Price Review</p>
-          <h2>待確認價格更新</h2>
+          <h2>未能自動更新</h2>
           <p className="table-hint">
-            AI 只會先產生候選價格，不會直接覆寫正式價格。你確認後先會寫入資產資料。
+            有效價格會即時寫入資產。下面係仍然需要你手動處理嘅項目。
           </p>
         </div>
-        <span className="chip chip-strong">{reviews.length} 項待確認</span>
+        <span className="chip chip-strong">{reviews.length} 項待處理</span>
       </div>
 
       {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}

@@ -43,6 +43,10 @@ function sanitizeOptionalString(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
+function hasValidSuggestedPrice(review: PendingPriceUpdateReview) {
+  return review.price != null && review.price > 0 && !review.invalidReason;
+}
+
 function normalizePendingReview(assetId: string, value: Record<string, unknown>): PendingPriceUpdateReview {
   return {
     id: assetId,
@@ -117,6 +121,10 @@ export async function savePendingPriceUpdateReviews(
     throw createMissingConfigError();
   }
 
+  if (reviews.length === 0) {
+    return;
+  }
+
   const reviewsCollection = getSharedPriceReviewsCollectionRef();
   const batch = writeBatch(reviewsCollection.firestore);
 
@@ -137,7 +145,13 @@ export async function savePendingPriceUpdateReviews(
   await batch.commit();
 }
 
-export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview) {
+export async function applyPriceUpdateReviews(
+  reviews: PendingPriceUpdateReview[],
+  options?: {
+    priceSource?: 'ai_auto_applied' | 'ai_review_confirmed';
+    status?: 'confirmed' | 'pending';
+  },
+) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
@@ -145,32 +159,54 @@ export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview)
   const assetsCollection = getSharedAssetsCollectionRef();
   const reviewsCollection = getSharedPriceReviewsCollectionRef();
   const batch = writeBatch(assetsCollection.firestore);
-  const assetRef = doc(assetsCollection, review.assetId);
-  const reviewRef = doc(reviewsCollection, review.assetId);
+  const appliedReviews = reviews.filter(hasValidSuggestedPrice);
+  const status = options?.status ?? 'confirmed';
+  const priceSource = options?.priceSource ?? 'ai_auto_applied';
 
-  batch.update(assetRef, {
-    currentPrice: review.price,
-    updatedAt: serverTimestamp(),
-    lastPriceUpdatedAt: serverTimestamp(),
-    priceSource: 'ai_review_confirmed',
-    priceAsOf: review.asOf,
-    priceSourceName: review.sourceName,
-    priceSourceUrl: review.sourceUrl,
-    priceConfidence: review.confidence,
-  });
+  if (appliedReviews.length === 0) {
+    return;
+  }
 
-  batch.update(reviewRef, {
-    status: 'confirmed',
-    confirmedAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
+  for (const review of appliedReviews) {
+    const assetRef = doc(assetsCollection, review.assetId);
+    const reviewRef = doc(reviewsCollection, review.assetId);
+
+    batch.update(assetRef, {
+      currentPrice: review.price,
+      updatedAt: serverTimestamp(),
+      lastPriceUpdatedAt: serverTimestamp(),
+      priceSource,
+      priceAsOf: review.asOf,
+      priceSourceName: review.sourceName,
+      priceSourceUrl: review.sourceUrl,
+      priceConfidence: review.confidence,
+    });
+
+    batch.set(
+      reviewRef,
+      {
+        ...review,
+        status,
+        confirmedAt: status === 'confirmed' ? serverTimestamp() : null,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  }
 
   await batch.commit();
 
-  await recordAssetPriceHistory(review);
+  await Promise.all(appliedReviews.map((review) => recordAssetPriceHistory(review)));
 
   await capturePortfolioSnapshot({
     reason: 'price_update_confirmed',
+  });
+}
+
+export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview) {
+  await applyPriceUpdateReviews([review], {
+    priceSource: 'ai_review_confirmed',
+    status: 'confirmed',
   });
 }
 

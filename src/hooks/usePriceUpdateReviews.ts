@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import type { PendingPriceUpdateReview } from '../types/priceUpdates';
 import {
+  applyPriceUpdateReviews,
   confirmPriceUpdateReview,
   dismissPriceUpdateReview,
   getPriceReviewsErrorMessage,
@@ -71,6 +72,16 @@ export function usePriceUpdateReviews() {
     }
   }
 
+  async function applyReviews(reviews: PendingPriceUpdateReview[]) {
+    try {
+      await applyPriceUpdateReviews(reviews);
+    } catch (error) {
+      const message = getPriceReviewsErrorMessage(error);
+      setState((current) => ({ ...current, error: message }));
+      throw new Error(message);
+    }
+  }
+
   async function dismissReview(assetId: string) {
     try {
       await dismissPriceUpdateReview(assetId);
@@ -85,6 +96,7 @@ export function usePriceUpdateReviews() {
     ...state,
     hasPendingReviews: state.reviews.length > 0,
     saveReviews,
+    applyReviews,
     confirmReview,
     dismissReview,
   };

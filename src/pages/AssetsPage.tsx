@@ -71,6 +71,7 @@ export function AssetsPage() {
     error: reviewsError,
     hasPendingReviews,
     saveReviews,
+    applyReviews,
     confirmReview,
     dismissReview,
   } = usePriceUpdateReviews();
@@ -106,9 +107,8 @@ export function AssetsPage() {
     (holding) => holding.assetType !== 'cash' && !hasValidHoldingPrice(holding),
   ).length;
   const latestValidPriceUpdate =
-    [...holdings]
-      .filter((holding) => hasValidHoldingPrice(holding))
-      .map((holding) => holding.priceAsOf || holding.lastPriceUpdatedAt || '')
+    holdings
+      .map((holding) => holding.lastPriceUpdatedAt || '')
       .filter(Boolean)
       .sort((left, right) => right.localeCompare(left))[0] ?? null;
   const filteredValue = filteredHoldings.reduce(
@@ -189,9 +189,30 @@ export function AssetsPage() {
         'update-prices',
         buildPriceUpdateRequest(targetHoldings),
       )) as PriceUpdateResponse;
+      const validResults = response.results.filter(
+        (review) => review.price != null && review.price > 0 && !review.invalidReason,
+      );
+      const invalidResults = response.results.filter(
+        (review) => review.price == null || review.price <= 0 || Boolean(review.invalidReason),
+      );
 
-      await saveReviews(response.results);
-      setPriceUpdateSuccess(`已產生 ${response.results.length} 項待確認價格更新，請先檢查再確認。`);
+      if (validResults.length > 0) {
+        await applyReviews(validResults);
+      }
+
+      await saveReviews(invalidResults);
+
+      if (validResults.length > 0 && invalidResults.length > 0) {
+        setPriceUpdateSuccess(
+          `已自動更新 ${validResults.length} 項資產；${invalidResults.length} 項未能自動更新，請再檢查。`,
+        );
+      } else if (validResults.length > 0) {
+        setPriceUpdateSuccess(`已自動更新 ${validResults.length} 項資產價格。`);
+      } else if (invalidResults.length > 0) {
+        setPriceUpdateSuccess(`未能自動更新，現有 ${invalidResults.length} 項需要檢查。`);
+      } else {
+        setPriceUpdateSuccess('今次沒有可套用的價格更新。');
+      }
     } catch (error) {
       setPriceUpdateError(
         error instanceof Error ? error.message : 'AI 價格更新失敗，請稍後再試。',
