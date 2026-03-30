@@ -460,8 +460,6 @@ async function generatePriceResponseWithFallback(
       contents: prompt,
       config: {
         temperature: 0.1,
-        responseMimeType: 'application/json',
-        responseJsonSchema,
         tools: [{ googleSearch: {} }],
       },
     });
@@ -483,16 +481,26 @@ async function generateSingleAssetPriceResponse(
   model: string,
   prompt: string,
 ) {
-  return ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      temperature: 0,
-      responseMimeType: 'application/json',
-      responseJsonSchema: singleResultJsonSchema,
-      tools: [{ googleSearch: {} }],
-    },
-  });
+  try {
+    return await ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        temperature: 0,
+        tools: [{ googleSearch: {} }],
+      },
+    });
+  } catch {
+    return ai.models.generateContent({
+      model,
+      contents: prompt,
+      config: {
+        temperature: 0,
+        responseMimeType: 'application/json',
+        responseJsonSchema: singleResultJsonSchema,
+      },
+    });
+  }
 }
 
 function isUsableModelResult(asset: PriceUpdateRequestAsset, result: PriceUpdateModelResult) {

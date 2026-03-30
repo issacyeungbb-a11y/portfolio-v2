@@ -15,9 +15,18 @@ interface HoldingsTableProps {
 }
 
 function formatPriceUpdateLabel(holding: Holding) {
+  const staleWindowMs = holding.assetType === 'crypto'
+    ? 36 * 60 * 60 * 1000
+    : 4 * 24 * 60 * 60 * 1000;
+
   if (holding.priceAsOf) {
     try {
-      return formatDateLabel(holding.priceAsOf.slice(0, 10));
+      const parsed = new Date(holding.priceAsOf);
+      const isStale = !Number.isNaN(parsed.getTime())
+        && Date.now() - parsed.getTime() > staleWindowMs;
+      const formattedDate = formatDateLabel(holding.priceAsOf.slice(0, 10));
+
+      return isStale ? `過時 · ${formattedDate}` : formattedDate;
     } catch {
       return holding.priceAsOf;
     }
