@@ -225,8 +225,9 @@ Use this exact schema:
 Rules:
 - Return exactly one result for each input asset.
 - Keep assetName, ticker, assetType, and currency aligned with the input asset unless a correction is clearly needed.
-- price must be the latest reasonable market price per unit.
-- asOf must be an ISO-8601 datetime string if possible.
+- price must be the latest market price per unit from the most recent trading session or live quote available.
+- Never copy the input currentPrice unless you can verify that it is still the latest market price.
+- asOf must be the actual quote timestamp or most recent trading-session timestamp in ISO-8601 format.
 - sourceName should identify the source used.
 - sourceUrl should be a direct source URL when possible.
 - confidence must be between 0 and 1.
@@ -277,6 +278,33 @@ const responseJsonSchema = {
   },
 } as const;
 
+function parseAsOf(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getQuoteFreshnessWindowMs(assetType: AssetType) {
+  if (assetType === 'crypto') {
+    return 36 * 60 * 60 * 1000;
+  }
+
+  return 4 * 24 * 60 * 60 * 1000;
+}
+
+function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
+  const parsed = parseAsOf(asOf);
+
+  if (!parsed) {
+    return true;
+  }
+
+  return Date.now() - parsed.getTime() > getQuoteFreshnessWindowMs(assetType);
+}
+
 async function generatePriceResponseWithFallback(
   ai: GoogleGenAI,
   model: string,
@@ -321,6 +349,7 @@ function buildReviewResults(
       ) ?? modelResults[index];
 
     const nextPrice = matched?.price ?? null;
+    const staleQuote = isStaleQuote(matched?.asOf, asset.assetType);
     const diffPct =
       nextPrice != null && asset.currentPrice > 0
         ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
@@ -329,6 +358,7 @@ function buildReviewResults(
     const forcedNeedsReview =
       nextPrice == null ||
       nextPrice <= 0 ||
+      staleQuote ||
       diffPct >= threshold ||
       !matched?.sourceName ||
       !matched?.sourceUrl ||
@@ -340,12 +370,12 @@ function buildReviewResults(
       assetName: matched?.assetName ?? asset.assetName,
       ticker: matched?.ticker?.toUpperCase() ?? asset.ticker.toUpperCase(),
       assetType: matched?.assetType ?? asset.assetType,
-      price: nextPrice,
+      price: staleQuote ? null : nextPrice,
       currency: matched?.currency?.toUpperCase() ?? asset.currency,
-      asOf: matched?.asOf ?? new Date().toISOString(),
-      sourceName: matched?.sourceName ?? '',
+      asOf: staleQuote ? '' : matched?.asOf ?? new Date().toISOString(),
+      sourceName: staleQuote ? '報價過時，已拒絕使用' : matched?.sourceName ?? '',
       sourceUrl: matched?.sourceUrl ?? '',
-      confidence: matched?.confidence ?? 0,
+      confidence: staleQuote ? 0 : matched?.confidence ?? 0,
       needsReview: Boolean(matched?.needsReview) || forcedNeedsReview,
       currentPrice: asset.currentPrice,
       diffPct,
