@@ -5,6 +5,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  Timestamp,
   writeBatch,
 } from 'firebase/firestore';
 
@@ -33,9 +34,20 @@ function normalizePortfolioAssetInput(payload: PortfolioAssetInput): PortfolioAs
   };
 }
 
+function formatTimestamp(value: unknown) {
+  if (value instanceof Timestamp) {
+    return value.toDate().toISOString();
+  }
+
+  return typeof value === 'string' ? value : '';
+}
+
 export function buildHoldingFromInput(
   id: string,
-  payload: PortfolioAssetInput,
+  payload: PortfolioAssetInput & {
+    priceAsOf?: unknown;
+    lastPriceUpdatedAt?: unknown;
+  },
 ): Holding {
   const normalized = normalizePortfolioAssetInput(payload);
   const marketValue = normalized.quantity * normalized.currentPrice;
@@ -50,6 +62,8 @@ export function buildHoldingFromInput(
     unrealizedPnl,
     unrealizedPct,
     allocation: 0,
+    priceAsOf: formatTimestamp(payload.priceAsOf),
+    lastPriceUpdatedAt: formatTimestamp(payload.lastPriceUpdatedAt),
   };
 }
 

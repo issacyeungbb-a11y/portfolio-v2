@@ -23,6 +23,8 @@ export interface Holding extends PortfolioAssetInput {
   unrealizedPnl: number;
   unrealizedPct: number;
   allocation: number;
+  priceAsOf?: string;
+  lastPriceUpdatedAt?: string;
 }
 
 export interface PortfolioPerformancePoint {
