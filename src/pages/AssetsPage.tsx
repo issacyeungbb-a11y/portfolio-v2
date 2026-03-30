@@ -218,9 +218,6 @@ export function AssetsPage() {
         <div>
           <p className="eyebrow">Assets</p>
           <h2>手動管理資產</h2>
-          <p className="hero-copy">
-            而家資產管理會直接連到共享 Firestore，手動輸入後會寫入 `portfolio/app/assets`，所有已通過存取碼的裝置都會同步見到。
-          </p>
         </div>
         <div className="button-row">
           <button

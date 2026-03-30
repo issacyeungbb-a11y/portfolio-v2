@@ -13,7 +13,6 @@ const navItems = [
 
 interface RouteHandle {
   title?: string;
-  subtitle?: string;
 }
 
 export function AppShell() {
@@ -26,7 +25,6 @@ export function AppShell() {
         <div className="brand-block">
           <p className="eyebrow">Personal Tracker</p>
           <h2>Portfolio V2</h2>
-          <p>先用假資料打好資訊架構，再慢慢接上 Firebase、Gemini 與真實流程。</p>
         </div>
 
         <nav className="side-nav-links" aria-label="桌面導覽">
@@ -47,18 +45,10 @@ export function AppShell() {
           ))}
         </nav>
 
-        <section className="side-note card">
-          <p className="eyebrow">Roadmap</p>
-          <h3>下一輪可接的功能</h3>
-          <p>匿名登入、Firestore 資料、截圖上傳、Gemini 分析與每日價格同步。</p>
-        </section>
       </aside>
 
       <div className="shell-main">
-        <TopBar
-          title={currentHandle?.title ?? 'Portfolio V2'}
-          subtitle={currentHandle?.subtitle ?? '投資組合追蹤介面雛形'}
-        />
+        <TopBar title={currentHandle?.title ?? 'Portfolio V2'} />
         <main className="page-content">
           <Outlet />
         </main>

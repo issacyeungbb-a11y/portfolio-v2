@@ -50,7 +50,7 @@ export function FunctionTestCard({
         <div>
           <p className="eyebrow">Function Test</p>
           <h2>{title}</h2>
-          <p className="table-hint">{description}</p>
+          {description ? <p className="table-hint">{description}</p> : null}
         </div>
         <span className="chip chip-soft">
           {config.method} {config.path}
@@ -80,7 +80,7 @@ export function FunctionTestCard({
       <div className="function-test-block">
         <p className="muted-label">Mock JSON Response</p>
         <pre className="json-block">
-          {response ? JSON.stringify(response, null, 2) : '按一下上面按鈕，測試 Vercel Function 骨架。'}
+          {response ? JSON.stringify(response, null, 2) : '等待測試'}
         </pre>
       </div>
     </article>

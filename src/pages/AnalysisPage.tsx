@@ -221,17 +221,11 @@ export function AnalysisPage() {
         <div>
           <p className="eyebrow">AI Analysis</p>
           <h2>投資組合分析</h2>
-          <p className="hero-copy">
-            這一頁會直接帶入目前 Firestore 的資產、最新價格、分類和成本資料。當資產快照未變時，會優先顯示最近一次已快取分析。
-          </p>
         </div>
 
         <div className="analysis-action-panel">
           <div className="analysis-action-copy">
             <span className="chip chip-soft">目前資產 {holdings.length} 項</span>
-            <p>
-              分析只根據目前持倉與最新價格，不會假設歷史報酬或額外市場新聞，所以結果會較穩定、亦較適合之後逐步擴充。
-            </p>
           </div>
 
           <div className="button-row">

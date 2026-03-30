@@ -122,9 +122,6 @@ export function DashboardPage() {
         <div>
           <p className="eyebrow">Shared Portfolio</p>
           <h2>資產總覽</h2>
-          <p className="hero-copy">
-            呢一頁而家會直接使用共享 Firestore 資產資料，所以總資產、分佈同重點持倉都會同資產管理頁一致，並會同步到所有已輸入存取碼的裝置。
-          </p>
         </div>
         <div className="button-row">
           <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
@@ -147,7 +144,7 @@ export function DashboardPage() {
             檢視全部資產
           </Link>
           <Link className="button button-secondary" to="/import">
-            預覽截圖匯入
+            截圖匯入
           </Link>
         </div>
       </section>

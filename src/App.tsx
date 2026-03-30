@@ -30,9 +30,6 @@ function App() {
         <div className="app-auth-card">
           <p className="eyebrow">Shared Access</p>
           <h1>輸入共享存取碼</h1>
-          <p className="app-auth-copy">
-            呢個投資組合已改成單一共享資料模式。每部新裝置只需要輸入一次存取碼，之後通常可以直接進入系統並同步資料。
-          </p>
 
           <label className="form-field">
             <span>共享存取碼</span>

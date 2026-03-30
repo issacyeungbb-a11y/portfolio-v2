@@ -280,13 +280,9 @@ export function ImportPage() {
         <div>
           <p className="eyebrow">Screenshot Import</p>
           <h2>截圖轉資產資料</h2>
-          <p className="hero-copy">
-            而家可以上傳單張截圖，呼叫 `/api/extract-assets` 做解析，先預覽再確認寫入 Firestore。
-          </p>
         </div>
         <div className="upload-dropzone">
           <strong>上傳單張截圖</strong>
-          <p>支援券商持倉截圖、月結單、錢包畫面。上傳前會先壓縮，減低部署版請求過大機會。</p>
           <label className="button button-secondary upload-button">
             選擇圖片
             <input
@@ -336,7 +332,7 @@ export function ImportPage() {
             <img className="upload-preview-image" src={previewUrl} alt="Uploaded portfolio screenshot" />
           ) : (
             <p className="status-message">
-              先選擇一張截圖，呢度會顯示圖片預覽，之後再交去 `/api/extract-assets`。
+              先選擇一張截圖。
             </p>
           )}
         </article>
@@ -350,21 +346,6 @@ export function ImportPage() {
             <span className="chip chip-soft">
               {extractResponse ? `模型 ${extractResponse.model}` : '等待解析'}
             </span>
-          </div>
-
-          <div className="roadmap-list">
-            <div className="roadmap-item">
-              <strong>1. 上傳截圖</strong>
-              <p>前端暫時只處理單張圖片，未接 Storage。</p>
-            </div>
-            <div className="roadmap-item">
-              <strong>2. Gemini 抽取固定 JSON</strong>
-              <p>後端只要求輸出 `name、ticker、type、quantity、currency、costBasis`。</p>
-            </div>
-            <div className="roadmap-item">
-              <strong>3. 人工確認再寫入</strong>
-              <p>缺少欄位會標記並可手動補資料，確認後才會寫入 Firestore。</p>
-            </div>
           </div>
         </article>
       </section>

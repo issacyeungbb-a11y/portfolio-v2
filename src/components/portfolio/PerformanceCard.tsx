@@ -51,11 +51,7 @@ export function PerformanceCard({
 
         <div className="performance-empty">
           <strong>暫未有足夠歷史資料</strong>
-          <p>
-            目前總覽已改用真實持倉，但未有 `priceHistory` 或每日快照，所以未能正確計算
-            7日、30日、半年同 1 年變動。
-          </p>
-          <p>下一步接入價格歷史後，呢張卡就會用同一套 Firestore 資料準確計算。</p>
+          <p>未能計算所選區間。</p>
         </div>
       </article>
     );
@@ -103,7 +99,6 @@ export function PerformanceCard({
           區間: {formatDateLabel(summary.startDate)} 至 {formatDateLabel(summary.endDate)}
         </p>
         <p>{flowLabel}</p>
-        <p>算法: 期末總值 - 期初總值 - 期間淨入金，再用時間加權基礎資金計回報率。</p>
       </div>
     </article>
   );
