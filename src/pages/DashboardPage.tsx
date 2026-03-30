@@ -154,9 +154,7 @@ export function DashboardPage() {
         <p className="status-message status-message-error">{snapshotsError}</p>
       ) : null}
       {isEmpty ? (
-        <p className="status-message">
-          你而家仲未有已儲存資產，所以總覽會先顯示空狀態。可以去資產管理頁新增第一筆資產。
-        </p>
+        <p className="status-message">未有資產。</p>
       ) : null}
 
       <section className="summary-grid">
@@ -188,7 +186,7 @@ export function DashboardPage() {
                 <h2>資產分布</h2>
               </div>
             </div>
-            <p className="status-message">正在同步 Firestore 資產資料，之後會顯示最新分布。</p>
+            <p className="status-message">同步中。</p>
           </article>
         ) : allocations.length > 0 ? (
           <AllocationCard
@@ -206,9 +204,7 @@ export function DashboardPage() {
                 <h2>資產分布</h2>
               </div>
             </div>
-            <p className="status-message">
-              未有可顯示的資產分布。當你喺資產管理頁加入資產後，呢度會按相同類別即時分組顯示。
-            </p>
+            <p className="status-message">未有分布資料。</p>
           </article>
         )}
 
@@ -225,7 +221,7 @@ export function DashboardPage() {
 
           <div className="stack-list">
             {status === 'loading' ? (
-              <p className="status-message">正在同步持倉資料，完成後會顯示最新重點持倉。</p>
+              <p className="status-message">同步中。</p>
             ) : topHoldings.length > 0 ? (
               topHoldings.map((holding) => (
                 <HoldingCard
@@ -235,9 +231,7 @@ export function DashboardPage() {
                 />
               ))
             ) : (
-              <p className="status-message">
-                未有持倉資料。新增資產後，呢度會顯示市值最高的幾項資產。
-              </p>
+              <p className="status-message">未有持倉資料。</p>
             )}
           </div>
         </article>
@@ -261,9 +255,7 @@ export function DashboardPage() {
                 <InsightCard key={insight.id} insight={insight} />
               ))
             ) : (
-              <p className="status-message">
-                當你加入第一批共享資產後，呢度會根據實際持倉集中度、幣別分布同現金比例生成觀察。
-              </p>
+              <p className="status-message">未有可顯示內容。</p>
             )}
           </div>
         </article>

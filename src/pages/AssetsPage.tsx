@@ -301,9 +301,6 @@ export function AssetsPage() {
           <div>
             <p className="eyebrow">Holdings List</p>
             <h2>全部持倉</h2>
-            <p className="table-hint">
-              改為 Firestore 同步模式。手機可左右滑動睇齊全部欄位，新輸入的資產會即時同步返資料庫。
-            </p>
           </div>
           <span className={status === 'error' ? 'chip chip-strong' : 'chip chip-soft'}>
             {status === 'loading'
@@ -316,9 +313,7 @@ export function AssetsPage() {
 
         {error ? <p className="status-message status-message-error">{error}</p> : null}
         {isEmpty ? (
-          <p className="status-message">
-            你而家仲未有已儲存資產，可以先用上面表單新增第一筆資料。
-          </p>
+          <p className="status-message">未有資產。</p>
         ) : null}
 
         <div className="filter-row">

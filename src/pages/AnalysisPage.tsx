@@ -261,16 +261,14 @@ export function AnalysisPage() {
       ) : null}
       {hasCachedAnalysis && !analysisSuccess ? (
         <p className="status-message">
-          資產快照未變，優先顯示最近一次分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}
+          最近分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}
         </p>
       ) : null}
       {assetsStatus === 'loading' ? (
-        <p className="status-message">正在同步 Firestore 資產資料，完成後就可以開始分析。</p>
+        <p className="status-message">同步中。</p>
       ) : null}
       {isEmpty ? (
-        <p className="status-message">
-          目前仲未有可分析資產，請先去資產管理頁新增至少一筆持倉。
-        </p>
+        <p className="status-message">未有可分析資產。</p>
       ) : null}
 
       <section className="summary-grid">

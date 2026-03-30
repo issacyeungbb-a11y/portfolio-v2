@@ -331,9 +331,7 @@ export function ImportPage() {
           {previewUrl ? (
             <img className="upload-preview-image" src={previewUrl} alt="Uploaded portfolio screenshot" />
           ) : (
-            <p className="status-message">
-              先選擇一張截圖。
-            </p>
+            <p className="status-message">未選擇圖片。</p>
           )}
         </article>
 
