@@ -26,9 +26,12 @@ export interface Holding extends PortfolioAssetInput {
 }
 
 export interface PortfolioPerformancePoint {
+  id?: string;
   date: string;
   totalValue: number;
   netExternalFlow: number;
+  assetCount?: number;
+  reason?: 'asset_created' | 'assets_imported' | 'price_update_confirmed' | 'snapshot';
 }
 
 export interface PortfolioPerformanceSummary {

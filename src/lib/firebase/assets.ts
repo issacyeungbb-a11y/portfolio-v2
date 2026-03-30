@@ -9,7 +9,9 @@ import {
 } from 'firebase/firestore';
 
 import type { Holding, PortfolioAssetInput } from '../../types/portfolio';
+import { convertCurrency } from '../../data/mockPortfolio';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
+import { capturePortfolioSnapshot } from './portfolioSnapshots';
 import { getSharedAssetsCollectionRef } from './sharedPortfolio';
 
 function createMissingConfigError() {
@@ -108,11 +110,21 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
   }
 
   const normalized = normalizePortfolioAssetInput(payload);
+  const createdHolding = buildHoldingFromInput('pending', normalized);
 
   await addDoc(getSharedAssetsCollectionRef(), {
     ...normalized,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  });
+
+  await capturePortfolioSnapshot({
+    netExternalFlowHKD: convertCurrency(
+      createdHolding.quantity * createdHolding.averageCost,
+      createdHolding.currency,
+      'HKD',
+    ),
+    reason: 'asset_created',
   });
 }
 
@@ -136,4 +148,21 @@ export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
   }
 
   await batch.commit();
+
+  const importedFlowHKD = payloads.reduce((sum, payload) => {
+    const normalized = normalizePortfolioAssetInput(payload);
+    return (
+      sum +
+      convertCurrency(
+        normalized.quantity * normalized.averageCost,
+        normalized.currency,
+        'HKD',
+      )
+    );
+  }, 0);
+
+  await capturePortfolioSnapshot({
+    netExternalFlowHKD: importedFlowHKD,
+    reason: 'assets_imported',
+  });
 }

@@ -8,6 +8,7 @@ import { PerformanceCard } from '../components/portfolio/PerformanceCard';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
   buildAllocationSlices,
+  calculatePortfolioPerformance,
   getHoldingValueInCurrency,
   getPortfolioTotalCost,
   getPortfolioTotalValue,
@@ -15,6 +16,7 @@ import {
 } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
+import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
@@ -34,6 +36,7 @@ import type {
 
 export function DashboardPage() {
   const { holdings: firestoreHoldings, status, error, isEmpty } = usePortfolioAssets();
+  const { history: portfolioHistory, error: snapshotsError } = usePortfolioSnapshots();
   const { reviews } = usePriceUpdateReviews();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [selectedRange, setSelectedRange] = useState<PerformanceRange>('30d');
@@ -101,6 +104,10 @@ export function DashboardPage() {
     hasAnalysisCache: hasCachedAnalysis,
     pendingPriceReviewCount: reviews.length,
   });
+  const performanceSummary =
+    portfolioHistory.length > 1
+      ? calculatePortfolioPerformance(portfolioHistory, selectedRange)
+      : null;
 
   const syncHint =
     status === 'loading'
@@ -146,6 +153,9 @@ export function DashboardPage() {
       </section>
 
       {error ? <p className="status-message status-message-error">{error}</p> : null}
+      {snapshotsError ? (
+        <p className="status-message status-message-error">{snapshotsError}</p>
+      ) : null}
       {isEmpty ? (
         <p className="status-message">
           你而家仲未有已儲存資產，所以總覽會先顯示空狀態。可以去資產管理頁新增第一筆資產。
@@ -167,7 +177,7 @@ export function DashboardPage() {
         <PerformanceCard
           displayCurrency={displayCurrency}
           selectedRange={selectedRange}
-          summary={null}
+          summary={performanceSummary}
           onSelectRange={setSelectedRange}
         />
       </section>

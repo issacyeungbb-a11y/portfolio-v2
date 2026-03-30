@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore';
 
 import type { PendingPriceUpdateReview } from '../../types/priceUpdates';
+import { capturePortfolioSnapshot } from './portfolioSnapshots';
 import { firebaseDb, hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import {
   getSharedAssetsCollectionRef,
@@ -159,6 +160,10 @@ export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview)
   });
 
   await batch.commit();
+
+  await capturePortfolioSnapshot({
+    reason: 'price_update_confirmed',
+  });
 }
 
 export async function dismissPriceUpdateReview(assetId: string) {

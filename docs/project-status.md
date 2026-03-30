@@ -33,6 +33,8 @@
 - `src/lib/firebase/assets.ts`
 - `src/lib/firebase/sharedPortfolio.ts`
 - `src/lib/portfolio/dashboardInsights.ts`
+- `src/lib/firebase/portfolioSnapshots.ts`
+- `src/hooks/usePortfolioSnapshots.ts`
 
 目前已經有:
 
@@ -41,6 +43,8 @@
 - 多頁共用同一份資產資料
 - Dashboard 與 Assets 同步顯示同一批持倉
 - Dashboard insight / system status 已改為根據真持倉與快取狀態生成
+- 新增資產、匯入資產、確認價格更新後會寫入 `portfolio/app/portfolioSnapshots`
+- Dashboard `PerformanceCard` 已可讀取真實 snapshot history 計算變動
 
 ### 3. 價格更新審核流程
 
@@ -93,11 +97,11 @@
 
 ### 2. 歷史價格能力未完成
 
-目前只有最新價格更新與人工確認，未見完整:
+目前已經有第一版 portfolio snapshot history，但仍未算完整:
 
-- price history collection 設計
-- 組合快照歷史
-- 7d / 30d / 半年 / 1年真實績效回算
+- 單資產 `price_history` collection 設計
+- 更細緻的每日定時 snapshot，而唔係只靠寫入事件觸發
+- 7d / 30d / 半年 / 1年資料密度仍取決於你有幾多次寫入或價格確認
 
 ### 3. 權限模式剛轉型
 
