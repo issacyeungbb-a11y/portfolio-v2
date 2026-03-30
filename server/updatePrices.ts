@@ -350,6 +350,12 @@ function buildReviewResults(
 
     const nextPrice = matched?.price ?? null;
     const staleQuote = isStaleQuote(matched?.asOf, asset.assetType);
+    const invalidReason =
+      nextPrice == null || nextPrice <= 0
+        ? 'AI 未取得有效最新價格'
+        : staleQuote
+          ? '報價過時，已拒絕使用'
+          : '';
     const diffPct =
       nextPrice != null && asset.currentPrice > 0
         ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
@@ -379,6 +385,7 @@ function buildReviewResults(
       needsReview: Boolean(matched?.needsReview) || forcedNeedsReview,
       currentPrice: asset.currentPrice,
       diffPct,
+      invalidReason,
       status: 'pending',
     };
   });

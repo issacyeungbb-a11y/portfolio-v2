@@ -47,6 +47,7 @@ export interface PendingPriceUpdateReview extends PriceUpdateModelResult {
   sourceUrl: string;
   confidence: number;
   diffPct: number;
+  invalidReason?: string;
   status: 'pending' | 'confirmed' | 'dismissed';
 }
 

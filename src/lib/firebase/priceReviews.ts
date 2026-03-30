@@ -39,6 +39,10 @@ function sanitizeBoolean(value: unknown) {
   return typeof value === 'boolean' ? value : false;
 }
 
+function sanitizeOptionalString(value: unknown) {
+  return typeof value === 'string' ? value : '';
+}
+
 function normalizePendingReview(assetId: string, value: Record<string, unknown>): PendingPriceUpdateReview {
   return {
     id: assetId,
@@ -55,6 +59,7 @@ function normalizePendingReview(assetId: string, value: Record<string, unknown>)
     needsReview: sanitizeBoolean(value.needsReview),
     currentPrice: sanitizeNumber(value.currentPrice),
     diffPct: sanitizeNumber(value.diffPct),
+    invalidReason: sanitizeOptionalString(value.invalidReason),
     status:
       value.status === 'confirmed' || value.status === 'dismissed'
         ? value.status

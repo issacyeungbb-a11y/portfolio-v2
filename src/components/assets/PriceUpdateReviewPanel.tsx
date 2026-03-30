@@ -48,6 +48,7 @@ export function PriceUpdateReviewPanel({
         {reviews.map((review) => {
           const isConfirming = confirmingAssetIds.includes(review.assetId);
           const isDismissing = dismissingAssetIds.includes(review.assetId);
+          const hasValidSuggestedPrice = review.price != null && review.price > 0 && !review.invalidReason;
           const diffTone = review.diffPct >= 0.15 ? 'caution' : 'positive';
 
           return (
@@ -73,9 +74,9 @@ export function PriceUpdateReviewPanel({
                 <div>
                   <p className="muted-label">AI 建議價格</p>
                   <strong>
-                    {review.price == null
-                      ? '未提供價格'
-                      : formatCurrency(review.price, review.currency)}
+                    {!hasValidSuggestedPrice
+                      ? '未取得'
+                      : formatCurrency(review.price as number, review.currency)}
                   </strong>
                 </div>
                 <div>
@@ -89,6 +90,12 @@ export function PriceUpdateReviewPanel({
               </div>
 
               <div className="roadmap-list">
+                {review.invalidReason ? (
+                  <div className="roadmap-item">
+                    <strong>結果</strong>
+                    <p>{review.invalidReason}</p>
+                  </div>
+                ) : null}
                 <div className="roadmap-item">
                   <strong>來源</strong>
                   <p>{review.sourceName || '未提供來源名稱'}</p>
@@ -116,9 +123,9 @@ export function PriceUpdateReviewPanel({
                   className="button button-primary"
                   type="button"
                   onClick={() => onConfirm(review)}
-                  disabled={isConfirming || isDismissing}
+                  disabled={isConfirming || isDismissing || !hasValidSuggestedPrice}
                 >
-                  {isConfirming ? '確認中...' : '確認寫入正式價格'}
+                  {isConfirming ? '確認中...' : hasValidSuggestedPrice ? '確認寫入正式價格' : '無法確認'}
                 </button>
                 <button
                   className="button button-secondary"
