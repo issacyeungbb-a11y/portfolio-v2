@@ -198,6 +198,61 @@ function sanitizePriceUpdateResults(rawPayload: unknown) {
   });
 }
 
+function sanitizeSinglePriceUpdateResult(rawPayload: unknown) {
+  if (
+    typeof rawPayload !== 'object' ||
+    rawPayload === null ||
+    !('result' in rawPayload) ||
+    typeof rawPayload.result !== 'object' ||
+    rawPayload.result === null
+  ) {
+    throw new UpdatePricesError('Gemini 回傳格式不正確，未找到 result 物件。', 502);
+  }
+
+  const value = rawPayload.result as Record<string, unknown>;
+
+  return {
+    assetName: sanitizeString(value.assetName),
+    ticker: sanitizeString(value.ticker),
+    assetType: sanitizeAssetType(value.assetType),
+    price: sanitizeNumber(value.price),
+    currency: sanitizeString(value.currency)?.toUpperCase() ?? null,
+    asOf: sanitizeString(value.asOf),
+    sourceName: sanitizeString(value.sourceName),
+    sourceUrl: sanitizeString(value.sourceUrl),
+    confidence: sanitizeConfidence(value.confidence),
+    needsReview: Boolean(value.needsReview),
+  } satisfies PriceUpdateModelResult;
+}
+
+function buildAssetSearchHints(asset: PriceUpdateRequestAsset) {
+  const hints = [
+    `${asset.ticker} latest price`,
+    `${asset.assetName} latest price`,
+  ];
+
+  if (asset.ticker.endsWith('.HK')) {
+    hints.push(`${asset.ticker} HKEX latest price`);
+  } else if (asset.currency === 'USD') {
+    hints.push(`${asset.ticker} NASDAQ latest price`);
+    hints.push(`${asset.ticker} NYSE latest price`);
+  }
+
+  if (asset.assetType === 'etf') {
+    hints.push(`${asset.ticker} ETF latest market price`);
+  }
+
+  if (asset.assetType === 'bond') {
+    hints.push(`${asset.ticker} bond ETF latest market price`);
+  }
+
+  if (asset.assetType === 'crypto') {
+    hints.push(`${asset.ticker} crypto USD latest price`);
+  }
+
+  return hints;
+}
+
 function buildPrompt(assets: PriceUpdateRequestAsset[]) {
   return `
 You are an AI price update assistant.
@@ -239,6 +294,59 @@ ${JSON.stringify(assets, null, 2)}
   `.trim();
 }
 
+function buildSingleAssetPrompt(
+  asset: PriceUpdateRequestAsset,
+  mode: 'primary' | 'retry',
+) {
+  const extraRetryRules =
+    mode === 'retry'
+      ? `
+- Retry mode: search more aggressively and prefer the official exchange, Google Finance, Yahoo Finance market pages, or issuer/market pages.
+- Do not return a result unless you found a fresh quote timestamp or clearly current market page.
+- If you still cannot verify a fresh quote, return price as 0, confidence as 0, needsReview as true, and explain failure in sourceName.
+`
+      : '';
+
+  return `
+You are an AI price update assistant for a single asset.
+
+Return ONLY raw JSON. Do not use markdown fences. Do not include any explanation.
+
+Use this exact schema:
+{
+  "result": {
+    "assetName": string,
+    "ticker": string,
+    "assetType": "stock" | "etf" | "bond" | "crypto" | "cash",
+    "price": number,
+    "currency": string,
+    "asOf": string,
+    "sourceName": string,
+    "sourceUrl": string,
+    "confidence": number,
+    "needsReview": boolean
+  }
+}
+
+Rules:
+- Find the latest market price for this asset.
+- Use the most recent trading session or live quote available.
+- Never copy the input currentPrice unless you verified it from an external source.
+- asOf must be the actual quote timestamp or latest trading-session timestamp in ISO-8601 format.
+- sourceName should clearly name the source used.
+- sourceUrl should be a direct source URL when possible.
+- confidence must be between 0 and 1.
+- needsReview should be true if there is any uncertainty.
+${extraRetryRules}
+
+Asset:
+${JSON.stringify(asset, null, 2)}
+
+Suggested searches:
+${JSON.stringify(buildAssetSearchHints(asset), null, 2)}
+  `.trim();
+}
+
 const responseJsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -273,6 +381,42 @@ const responseJsonSchema = {
           confidence: { type: 'number', minimum: 0, maximum: 1 },
           needsReview: { type: 'boolean' },
         },
+      },
+    },
+  },
+} as const;
+
+const singleResultJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['result'],
+  properties: {
+    result: {
+      type: 'object',
+      additionalProperties: false,
+      required: [
+        'assetName',
+        'ticker',
+        'assetType',
+        'price',
+        'currency',
+        'asOf',
+        'sourceName',
+        'sourceUrl',
+        'confidence',
+        'needsReview',
+      ],
+      properties: {
+        assetName: { type: 'string' },
+        ticker: { type: 'string' },
+        assetType: { type: 'string', enum: ['stock', 'etf', 'bond', 'crypto', 'cash'] },
+        price: { type: 'number' },
+        currency: { type: 'string' },
+        asOf: { type: 'string' },
+        sourceName: { type: 'string' },
+        sourceUrl: { type: 'string' },
+        confidence: { type: 'number', minimum: 0, maximum: 1 },
+        needsReview: { type: 'boolean' },
       },
     },
   },
@@ -332,6 +476,60 @@ async function generatePriceResponseWithFallback(
       },
     });
   }
+}
+
+async function generateSingleAssetPriceResponse(
+  ai: GoogleGenAI,
+  model: string,
+  prompt: string,
+) {
+  return ai.models.generateContent({
+    model,
+    contents: prompt,
+    config: {
+      temperature: 0,
+      responseMimeType: 'application/json',
+      responseJsonSchema: singleResultJsonSchema,
+      tools: [{ googleSearch: {} }],
+    },
+  });
+}
+
+function isUsableModelResult(asset: PriceUpdateRequestAsset, result: PriceUpdateModelResult) {
+  return (
+    result.price != null &&
+    result.price > 0 &&
+    Boolean(result.sourceName) &&
+    Boolean(result.sourceUrl) &&
+    (result.confidence ?? 0) >= 0.75 &&
+    !isStaleQuote(result.asOf, asset.assetType)
+  );
+}
+
+async function generateBestPriceForAsset(
+  ai: GoogleGenAI,
+  model: string,
+  asset: PriceUpdateRequestAsset,
+) {
+  const primaryPrompt = buildSingleAssetPrompt(asset, 'primary');
+  const primaryResponse = await generateSingleAssetPriceResponse(ai, model, primaryPrompt);
+  const primaryResult = sanitizeSinglePriceUpdateResult(parseModelJson(primaryResponse.text ?? ''));
+
+  if (isUsableModelResult(asset, primaryResult)) {
+    return primaryResult;
+  }
+
+  const retryPrompt = buildSingleAssetPrompt(asset, 'retry');
+  const retryResponse = await generateSingleAssetPriceResponse(ai, model, retryPrompt);
+  const retryResult = sanitizeSinglePriceUpdateResult(parseModelJson(retryResponse.text ?? ''));
+
+  if (isUsableModelResult(asset, retryResult)) {
+    return retryResult;
+  }
+
+  return (retryResult.confidence ?? 0) >= (primaryResult.confidence ?? 0)
+    ? retryResult
+    : primaryResult;
 }
 
 function buildReviewResults(
@@ -430,9 +628,43 @@ export async function generatePriceUpdates(payload: unknown) {
   const model = getPriceUpdateModel();
   const ai = new GoogleGenAI({ apiKey });
   const prompt = buildPrompt(request.assets);
-  const response = await generatePriceResponseWithFallback(ai, model, prompt);
-  const raw = parseModelJson(response.text ?? '');
-  const sanitizedResults = sanitizePriceUpdateResults(raw);
+  let sanitizedResults: PriceUpdateModelResult[];
+
+  try {
+    const response = await generatePriceResponseWithFallback(ai, model, prompt);
+    const raw = parseModelJson(response.text ?? '');
+    sanitizedResults = sanitizePriceUpdateResults(raw);
+  } catch {
+    sanitizedResults = [];
+  }
+
+  const missingOrWeakAssets = request.assets.filter((asset) => {
+    const matched = sanitizedResults.find(
+      (item) =>
+        item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
+        item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
+    );
+
+    return !matched || !isUsableModelResult(asset, matched);
+  });
+
+  if (missingOrWeakAssets.length > 0) {
+    const focusedResults = await Promise.all(
+      missingOrWeakAssets.map((asset) => generateBestPriceForAsset(ai, model, asset)),
+    );
+
+    sanitizedResults = [
+      ...sanitizedResults.filter((item) =>
+        !missingOrWeakAssets.some(
+          (asset) =>
+            item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
+            item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
+        ),
+      ),
+      ...focusedResults,
+    ];
+  }
+
   const results = buildReviewResults(request.assets, sanitizedResults);
 
   return {
