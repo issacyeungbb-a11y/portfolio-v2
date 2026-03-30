@@ -1,7 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 
 import { ExtractedAssetsEditor } from '../components/import/ExtractedAssetsEditor';
-import { getImportStatusLabel, mockPortfolio } from '../data/mockPortfolio';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { createPortfolioAssets, getFirebaseAssetsErrorMessage } from '../lib/firebase/assets';
 import type { AccountSource } from '../types/portfolio';
@@ -316,36 +315,22 @@ export function ImportPage() {
 
       {extractError ? <p className="status-message status-message-error">{extractError}</p> : null}
 
-      <section className="content-grid">
-        <article className="card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Preview Image</p>
-              <h2>截圖預覽</h2>
-            </div>
-            <span className="chip chip-soft">
-              {selectedFile ? '已選擇圖片' : '未選擇圖片'}
-            </span>
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Preview</p>
+            <h2>截圖預覽</h2>
           </div>
+          <span className="chip chip-soft">
+            {extractResponse ? `模型 ${extractResponse.model}` : selectedFile ? '已選擇圖片' : '未選擇圖片'}
+          </span>
+        </div>
 
-          {previewUrl ? (
-            <img className="upload-preview-image" src={previewUrl} alt="Uploaded portfolio screenshot" />
-          ) : (
-            <p className="status-message">未選擇圖片。</p>
-          )}
-        </article>
-
-        <article className="card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Flow</p>
-              <h2>匯入步驟</h2>
-            </div>
-            <span className="chip chip-soft">
-              {extractResponse ? `模型 ${extractResponse.model}` : '等待解析'}
-            </span>
-          </div>
-        </article>
+        {previewUrl ? (
+          <img className="upload-preview-image" src={previewUrl} alt="Uploaded portfolio screenshot" />
+        ) : (
+          <p className="status-message">未選擇圖片。</p>
+        )}
       </section>
 
       {extractStatus === 'success' ? (
@@ -362,30 +347,6 @@ export function ImportPage() {
         />
       ) : null}
 
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Recent Jobs</p>
-            <h2>最近匯入紀錄</h2>
-          </div>
-        </div>
-
-        <div className="stack-list">
-          {mockPortfolio.importJobs.map((job) => (
-            <article key={job.id} className="import-job">
-              <div>
-                <p className="holding-symbol">{job.broker}</p>
-                <h3>{job.fileName}</h3>
-              </div>
-              <div className="import-job-meta">
-                <span className="chip chip-soft">{getImportStatusLabel(job.status)}</span>
-                <strong>{job.detectedCount} 項資產</strong>
-                <span>{job.updatedAt}</span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

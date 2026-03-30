@@ -17,11 +17,9 @@ import {
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
-import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
   buildDashboardInsights,
-  buildDashboardStatusItems,
 } from '../lib/portfolio/dashboardInsights';
 import {
   createPortfolioSnapshotHash,
@@ -37,7 +35,6 @@ import type {
 export function DashboardPage() {
   const { holdings: firestoreHoldings, status, error, isEmpty } = usePortfolioAssets();
   const { history: portfolioHistory, error: snapshotsError } = usePortfolioSnapshots();
-  const { reviews } = usePriceUpdateReviews();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [selectedRange, setSelectedRange] = useState<PerformanceRange>('30d');
   const [selectedAllocationKey, setSelectedAllocationKey] = useState<AllocationBucketKey>('stock');
@@ -98,12 +95,6 @@ export function DashboardPage() {
   }, [snapshotSignature]);
 
   const { hasCachedAnalysis } = useAnalysisCache(snapshotHash);
-  const dashboardStatusItems = buildDashboardStatusItems({
-    holdings: syncedHoldings,
-    assetsStatus: status,
-    hasAnalysisCache: hasCachedAnalysis,
-    pendingPriceReviewCount: reviews.length,
-  });
   const performanceSummary =
     portfolioHistory.length > 1
       ? calculatePortfolioPerformance(portfolioHistory, selectedRange)
@@ -237,7 +228,7 @@ export function DashboardPage() {
         </article>
       </section>
 
-      <section className="content-grid">
+      <section>
         <article className="card">
           <div className="section-heading">
             <div>
@@ -266,17 +257,6 @@ export function DashboardPage() {
               <p className="eyebrow">System Status</p>
               <h2>目前系統狀態</h2>
             </div>
-          </div>
-
-          <div className="roadmap-list">
-            {dashboardStatusItems.map((item, index) => (
-              <div key={item.id} className="roadmap-item">
-                <strong>
-                  {index + 1}. {item.title}
-                </strong>
-                <p>{item.summary}</p>
-              </div>
-            ))}
           </div>
         </article>
       </section>

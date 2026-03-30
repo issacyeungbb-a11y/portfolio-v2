@@ -359,21 +359,7 @@ export function AnalysisPage() {
               <h2>等你開始第一次分析</h2>
             </div>
           </div>
-
-          <div className="roadmap-list">
-            <div className="roadmap-item">
-              <strong>會帶入哪些資料</strong>
-              <p>目前持倉、最新價格、資產類別、帳戶來源、數量、平均成本。</p>
-            </div>
-            <div className="roadmap-item">
-              <strong>結果會回傳什麼</strong>
-              <p>組合摘要、主要風險、配置觀察、貨幣曝險，以及下一步值得追問的問題。</p>
-            </div>
-            <div className="roadmap-item">
-              <strong>快取規則</strong>
-              <p>如果資產未變，就直接顯示最近一次分析；資產一改，系統就會建立新的快照再分析。</p>
-            </div>
-          </div>
+          <p className="status-message">準備好後直接開始分析。</p>
         </section>
       )}
     </div>
