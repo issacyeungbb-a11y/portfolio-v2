@@ -11,6 +11,7 @@ import {
 
 import type { Holding, PortfolioAssetInput } from '../../types/portfolio';
 import { convertCurrency } from '../../data/mockPortfolio';
+import { getEffectiveHoldingPrice } from '../portfolio/priceValidity';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { capturePortfolioSnapshot } from './portfolioSnapshots';
 import { getSharedAssetsCollectionRef } from './sharedPortfolio';
@@ -50,7 +51,17 @@ export function buildHoldingFromInput(
   },
 ): Holding {
   const normalized = normalizePortfolioAssetInput(payload);
-  const marketValue = normalized.quantity * normalized.currentPrice;
+  const effectiveCurrentPrice = getEffectiveHoldingPrice({
+    id,
+    ...normalized,
+    marketValue: 0,
+    unrealizedPnl: 0,
+    unrealizedPct: 0,
+    allocation: 0,
+    priceAsOf: formatTimestamp(payload.priceAsOf),
+    lastPriceUpdatedAt: formatTimestamp(payload.lastPriceUpdatedAt),
+  });
+  const marketValue = normalized.quantity * effectiveCurrentPrice;
   const costBasis = normalized.quantity * normalized.averageCost;
   const unrealizedPnl = marketValue - costBasis;
   const unrealizedPct = costBasis === 0 ? 0 : (unrealizedPnl / costBasis) * 100;
@@ -58,6 +69,7 @@ export function buildHoldingFromInput(
   return {
     id,
     ...normalized,
+    currentPrice: effectiveCurrentPrice,
     marketValue,
     unrealizedPnl,
     unrealizedPct,

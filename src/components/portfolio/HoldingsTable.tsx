@@ -6,6 +6,7 @@ import {
   formatPercent,
   getHoldingValueLabel,
 } from '../../data/mockPortfolio';
+import { hasValidHoldingPrice, isHoldingPriceStale } from '../../lib/portfolio/priceValidity';
 import type { Holding } from '../../types/portfolio';
 
 interface HoldingsTableProps {
@@ -15,18 +16,11 @@ interface HoldingsTableProps {
 }
 
 function formatPriceUpdateLabel(holding: Holding) {
-  const staleWindowMs = holding.assetType === 'crypto'
-    ? 36 * 60 * 60 * 1000
-    : 4 * 24 * 60 * 60 * 1000;
-
   if (holding.priceAsOf) {
     try {
-      const parsed = new Date(holding.priceAsOf);
-      const isStale = !Number.isNaN(parsed.getTime())
-        && Date.now() - parsed.getTime() > staleWindowMs;
       const formattedDate = formatDateLabel(holding.priceAsOf.slice(0, 10));
 
-      return isStale ? `過時 · ${formattedDate}` : formattedDate;
+      return isHoldingPriceStale(holding) ? `過時 · ${formattedDate}` : formattedDate;
     } catch {
       return holding.priceAsOf;
     }
@@ -81,7 +75,7 @@ export function HoldingsTable({
             {holdings.map((holding) => {
               const pnlTone = holding.unrealizedPnl >= 0 ? 'positive' : 'caution';
               const isUpdating = updatingAssetIds.includes(holding.id);
-              const hasPendingPrice = holding.assetType !== 'cash' && holding.currentPrice <= 0;
+              const hasPendingPrice = !hasValidHoldingPrice(holding);
 
               return (
                 <tr key={holding.id}>
