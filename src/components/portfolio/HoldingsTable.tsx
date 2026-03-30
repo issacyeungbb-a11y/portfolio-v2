@@ -2,42 +2,16 @@ import {
   getAccountSourceLabel,
   getAssetTypeLabel,
   formatCurrency,
-  formatDateLabel,
   formatPercent,
   getHoldingValueLabel,
 } from '../../data/mockPortfolio';
-import { hasValidHoldingPrice, isHoldingPriceStale } from '../../lib/portfolio/priceValidity';
+import { hasValidHoldingPrice } from '../../lib/portfolio/priceValidity';
 import type { Holding } from '../../types/portfolio';
 
 interface HoldingsTableProps {
   holdings: Holding[];
   onUpdatePrice?: (holding: Holding) => Promise<void> | void;
   updatingAssetIds?: string[];
-}
-
-function formatPriceUpdateLabel(holding: Holding) {
-  if (holding.priceAsOf) {
-    try {
-      const formattedDate = formatDateLabel(holding.priceAsOf.slice(0, 10));
-
-      return isHoldingPriceStale(holding) ? `過時 · ${formattedDate}` : formattedDate;
-    } catch {
-      return holding.priceAsOf;
-    }
-  }
-
-  if (holding.lastPriceUpdatedAt) {
-    try {
-      return new Intl.DateTimeFormat('zh-HK', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(new Date(holding.lastPriceUpdatedAt));
-    } catch {
-      return holding.lastPriceUpdatedAt;
-    }
-  }
-
-  return '未更新';
 }
 
 export function HoldingsTable({
@@ -55,7 +29,6 @@ export function HoldingsTable({
               <th>持倉</th>
               <th>平均成本</th>
               <th>現價</th>
-              <th>價格更新</th>
               <th>市值</th>
               <th>損益</th>
               <th>比重</th>
@@ -67,7 +40,7 @@ export function HoldingsTable({
           <tbody>
             {holdings.length === 0 ? (
               <tr>
-                <td className="table-empty" colSpan={11}>
+                <td className="table-empty" colSpan={10}>
                   目前沒有符合條件的資產，你可以調整篩選或手動新增一筆資產。
                 </td>
               </tr>
@@ -88,7 +61,6 @@ export function HoldingsTable({
                   <td>{holding.quantity}</td>
                   <td>{formatCurrency(holding.averageCost, holding.currency)}</td>
                   <td>{hasPendingPrice ? '待更新' : formatCurrency(holding.currentPrice, holding.currency)}</td>
-                  <td>{formatPriceUpdateLabel(holding)}</td>
                   <td>{hasPendingPrice ? '待更新' : getHoldingValueLabel(holding)}</td>
                   <td>
                     {hasPendingPrice ? (

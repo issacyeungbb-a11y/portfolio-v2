@@ -8,6 +8,7 @@ import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
+import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
 import { HoldingsTable } from '../components/portfolio/HoldingsTable';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
@@ -41,6 +42,21 @@ const accountFilterOptions: Array<{ value: AccountSource | 'all'; label: string 
   { value: 'Crypto', label: 'Crypto' },
   { value: 'Other', label: '其他' },
 ];
+
+function formatLatestPriceUpdate(value: string | null) {
+  if (!value) {
+    return '未更新';
+  }
+
+  try {
+    return new Intl.DateTimeFormat('zh-HK', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
 
 export function AssetsPage() {
   const {
@@ -86,6 +102,15 @@ export function AssetsPage() {
   });
 
   const accountCount = new Set(holdings.map((holding) => holding.accountSource)).size;
+  const pendingPriceCount = holdings.filter(
+    (holding) => holding.assetType !== 'cash' && !hasValidHoldingPrice(holding),
+  ).length;
+  const latestValidPriceUpdate =
+    [...holdings]
+      .filter((holding) => hasValidHoldingPrice(holding))
+      .map((holding) => holding.priceAsOf || holding.lastPriceUpdatedAt || '')
+      .filter(Boolean)
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
   const filteredValue = filteredHoldings.reduce(
     (sum, holding) => sum + getHoldingValueInCurrency(holding, mockPortfolio.baseCurrency),
     0,
@@ -300,12 +325,14 @@ export function AssetsPage() {
           hint={`目前選擇：${getAssetTypeLabel(assetFilter)}`}
         />
         <SummaryCard
-          label="帳戶來源總值"
-          value={formatCurrency(accountValue, mockPortfolio.baseCurrency)}
+          label="價格更新"
+          value={formatLatestPriceUpdate(latestValidPriceUpdate)}
           hint={
             hasPendingReviews
-              ? `目前有 ${reviews.length} 項待確認價格更新，共 ${accountCount} 類帳戶來源`
-              : `目前選擇：${getAccountSourceLabel(accountFilter)}，共 ${accountCount} 類帳戶來源`
+              ? `目前有 ${reviews.length} 項待確認，${pendingPriceCount} 項待更新`
+              : pendingPriceCount > 0
+                ? `${pendingPriceCount} 項待更新`
+                : `共 ${accountCount} 類帳戶來源`
           }
         />
       </section>
