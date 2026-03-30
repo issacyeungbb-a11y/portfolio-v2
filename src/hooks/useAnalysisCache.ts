@@ -15,15 +15,15 @@ interface AnalysisCacheState {
   error: string | null;
 }
 
-export function useAnalysisCache(uid: string | null, snapshotHash: string | null) {
+export function useAnalysisCache(snapshotHash: string | null) {
   const [state, setState] = useState<AnalysisCacheState>({
-    status: uid && snapshotHash ? 'loading' : 'idle',
+    status: snapshotHash ? 'loading' : 'idle',
     analysis: null,
     error: null,
   });
 
   useEffect(() => {
-    if (!uid || !snapshotHash) {
+    if (!snapshotHash) {
       setState({
         status: 'idle',
         analysis: null,
@@ -39,7 +39,6 @@ export function useAnalysisCache(uid: string | null, snapshotHash: string | null
     }));
 
     const unsubscribe = subscribeToAnalysisCache(
-      uid,
       snapshotHash,
       (analysis) => {
         setState({
@@ -58,15 +57,11 @@ export function useAnalysisCache(uid: string | null, snapshotHash: string | null
     );
 
     return unsubscribe;
-  }, [uid, snapshotHash]);
+  }, [snapshotHash]);
 
   async function persistAnalysis(analysis: CachedPortfolioAnalysis) {
-    if (!uid) {
-      throw new Error('匿名身份尚未完成，請稍後再試。');
-    }
-
     try {
-      await saveAnalysisCache(uid, analysis);
+      await saveAnalysisCache(analysis);
     } catch (error) {
       const message = getAnalysisCacheErrorMessage(error);
       setState((current) => ({ ...current, error: message }));

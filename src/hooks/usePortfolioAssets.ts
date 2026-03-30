@@ -15,23 +15,14 @@ interface PortfolioAssetsState {
   error: string | null;
 }
 
-export function usePortfolioAssets(uid: string | null) {
+export function usePortfolioAssets() {
   const [state, setState] = useState<PortfolioAssetsState>({
-    status: uid ? 'loading' : 'idle',
+    status: 'loading',
     holdings: [],
     error: null,
   });
 
   useEffect(() => {
-    if (!uid) {
-      setState({
-        status: 'idle',
-        holdings: [],
-        error: null,
-      });
-      return;
-    }
-
     setState((current) => ({
       status: 'loading',
       holdings: current.holdings,
@@ -39,7 +30,6 @@ export function usePortfolioAssets(uid: string | null) {
     }));
 
     const unsubscribe = subscribeToPortfolioAssets(
-      uid,
       (holdings) => {
         setState({
           status: 'ready',
@@ -57,15 +47,11 @@ export function usePortfolioAssets(uid: string | null) {
     );
 
     return unsubscribe;
-  }, [uid]);
+  }, []);
 
   async function addAsset(payload: PortfolioAssetInput) {
-    if (!uid) {
-      throw new Error('匿名身份尚未完成，請稍後再試。');
-    }
-
     try {
-      await createPortfolioAsset(uid, payload);
+      await createPortfolioAsset(payload);
     } catch (error) {
       const message = getFirebaseAssetsErrorMessage(error);
       setState((current) => ({

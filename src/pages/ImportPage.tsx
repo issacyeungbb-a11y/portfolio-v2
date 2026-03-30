@@ -2,7 +2,6 @@ import { useEffect, useState, type ChangeEvent } from 'react';
 
 import { ExtractedAssetsEditor } from '../components/import/ExtractedAssetsEditor';
 import { getImportStatusLabel, mockPortfolio } from '../data/mockPortfolio';
-import { useAnonymousAuth } from '../hooks/useAnonymousAuth';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { createPortfolioAssets, getFirebaseAssetsErrorMessage } from '../lib/firebase/assets';
 import type { AccountSource } from '../types/portfolio';
@@ -119,7 +118,6 @@ function inferAccountSource(fileName: string): AccountSource {
 }
 
 export function ImportPage() {
-  const { uid } = useAnonymousAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
@@ -247,12 +245,6 @@ export function ImportPage() {
   }
 
   async function handleConfirmImport() {
-    if (!uid) {
-      setConfirmStatus('error');
-      setConfirmError('匿名身份尚未完成，請稍後再試。');
-      return;
-    }
-
     const hasMissingFields = editableAssets.some(
       (asset) => getMissingExtractedAssetFields(asset).length > 0,
     );
@@ -272,7 +264,7 @@ export function ImportPage() {
         buildPortfolioAssetInputFromExtractedAsset(asset, accountSource),
       );
 
-      await createPortfolioAssets(uid, payloads);
+      await createPortfolioAssets(payloads);
 
       setConfirmStatus('success');
       setConfirmSuccess(`已成功寫入 Firestore，共 ${payloads.length} 項資產。`);

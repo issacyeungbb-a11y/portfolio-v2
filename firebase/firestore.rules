@@ -2,30 +2,22 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    match /users/{userId} {
-      allow read, create, update: if isOwner(userId);
+    match /portfolio/{portfolioId} {
+      allow read, create, update: if true;
       allow delete: if false;
 
       match /assets/{assetId} {
-        allow read, create, update: if isOwner(userId);
+        allow read, create, update: if true;
         allow delete: if false;
       }
 
       match /priceUpdateReviews/{assetId} {
-        allow read, create, update: if isOwner(userId);
+        allow read, create, update: if true;
         allow delete: if false;
       }
 
       match /analysisCache/{snapshotHash} {
-        allow read, create, update: if isOwner(userId);
+        allow read, create, update: if true;
         allow delete: if false;
       }
     }

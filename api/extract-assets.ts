@@ -4,10 +4,10 @@ import {
   getExtractAssetsErrorResponse,
 } from '../server/extractAssets.js';
 import {
-  getFirebaseApiAuthErrorResponse,
-  isFirebaseApiAuthError,
-  requireFirebaseUserFromNodeRequest,
-} from '../server/requireFirebaseUser.js';
+  getPortfolioAccessErrorResponse,
+  isPortfolioAccessError,
+  requirePortfolioAccess,
+} from '../server/requirePortfolioAccess.js';
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/extract-assets';
@@ -22,13 +22,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   try {
-    await requireFirebaseUserFromNodeRequest(request, route);
+    await requirePortfolioAccess(request, route);
     const payload = await readJsonBody(request);
     const result = await extractAssetsFromScreenshot(payload);
     sendJson(response, 200, result);
   } catch (error) {
-    if (isFirebaseApiAuthError(error)) {
-      const authError = getFirebaseApiAuthErrorResponse(error, route);
+    if (isPortfolioAccessError(error)) {
+      const authError = getPortfolioAccessErrorResponse(error, route);
       sendJson(response, authError.status, authError.body);
       return;
     }

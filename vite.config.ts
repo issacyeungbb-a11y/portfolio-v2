@@ -19,10 +19,10 @@ import {
   getUpdatePricesErrorResponse,
 } from './server/updatePrices';
 import {
-  getFirebaseApiAuthErrorResponse,
-  isFirebaseApiAuthError,
-  requireFirebaseUserFromNodeRequest,
-} from './server/requireFirebaseUser';
+  getPortfolioAccessErrorResponse,
+  isPortfolioAccessError,
+  requirePortfolioAccess,
+} from './server/requirePortfolioAccess';
 
 function sendJson(
   response: ServerResponse<IncomingMessage>,
@@ -54,13 +54,13 @@ export default defineConfig(({ mode }) => {
 
             if (request.method === 'POST' && pathname === '/api/extract-assets') {
               try {
-                await requireFirebaseUserFromNodeRequest(request, '/api/extract-assets');
+                await requirePortfolioAccess(request, '/api/extract-assets');
                 const body = await readJsonBody(request);
                 const result = await extractAssetsFromScreenshot(body);
                 sendJson(response, 200, result);
               } catch (error) {
-                if (isFirebaseApiAuthError(error)) {
-                  const authError = getFirebaseApiAuthErrorResponse(error, '/api/extract-assets');
+                if (isPortfolioAccessError(error)) {
+                  const authError = getPortfolioAccessErrorResponse(error, '/api/extract-assets');
                   sendJson(response, authError.status, authError.body);
                   return;
                 }
@@ -73,13 +73,13 @@ export default defineConfig(({ mode }) => {
 
             if (request.method === 'POST' && pathname === '/api/update-prices') {
               try {
-                await requireFirebaseUserFromNodeRequest(request, '/api/update-prices');
+                await requirePortfolioAccess(request, '/api/update-prices');
                 const body = await readJsonBody(request);
                 const result = await generatePriceUpdates(body);
                 sendJson(response, 200, result);
               } catch (error) {
-                if (isFirebaseApiAuthError(error)) {
-                  const authError = getFirebaseApiAuthErrorResponse(error, '/api/update-prices');
+                if (isPortfolioAccessError(error)) {
+                  const authError = getPortfolioAccessErrorResponse(error, '/api/update-prices');
                   sendJson(response, authError.status, authError.body);
                   return;
                 }
@@ -92,13 +92,13 @@ export default defineConfig(({ mode }) => {
 
             if (request.method === 'POST' && pathname === '/api/analyze') {
               try {
-                await requireFirebaseUserFromNodeRequest(request, '/api/analyze');
+                await requirePortfolioAccess(request, '/api/analyze');
                 const body = await readJsonBody(request);
                 const result = await analyzePortfolio(body);
                 sendJson(response, 200, result);
               } catch (error) {
-                if (isFirebaseApiAuthError(error)) {
-                  const authError = getFirebaseApiAuthErrorResponse(error, '/api/analyze');
+                if (isPortfolioAccessError(error)) {
+                  const authError = getPortfolioAccessErrorResponse(error, '/api/analyze');
                   sendJson(response, authError.status, authError.body);
                   return;
                 }

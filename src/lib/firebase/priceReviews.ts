@@ -1,15 +1,17 @@
 import {
-  collection,
   doc,
   onSnapshot,
   serverTimestamp,
-  setDoc,
   updateDoc,
   writeBatch,
 } from 'firebase/firestore';
 
 import type { PendingPriceUpdateReview } from '../../types/priceUpdates';
 import { firebaseDb, hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
+import {
+  getSharedAssetsCollectionRef,
+  getSharedPriceReviewsCollectionRef,
+} from './sharedPortfolio';
 
 function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
@@ -65,7 +67,7 @@ export function getPriceReviewsErrorMessage(error?: unknown) {
 
   if (error instanceof Error) {
     if (error.message.includes('permission-denied')) {
-      return 'Firestore 權限被拒絕，請確認 rules 已容許匿名使用者讀寫自己的價格待確認結果。';
+      return 'Firestore 權限被拒絕，請確認 rules 已容許共享投資組合讀寫 `portfolio/app/priceUpdateReviews`。';
     }
 
     return error.message;
@@ -75,7 +77,6 @@ export function getPriceReviewsErrorMessage(error?: unknown) {
 }
 
 export function subscribeToPriceUpdateReviews(
-  uid: string,
   onData: (reviews: PendingPriceUpdateReview[]) => void,
   onError: (error: unknown) => void,
 ) {
@@ -83,8 +84,8 @@ export function subscribeToPriceUpdateReviews(
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
-  const reviewsRef = collection(db, 'users', uid, 'priceUpdateReviews');
+  getRequiredFirebaseDb();
+  const reviewsRef = getSharedPriceReviewsCollectionRef();
 
   return onSnapshot(
     reviewsRef,
@@ -103,18 +104,17 @@ export function subscribeToPriceUpdateReviews(
 }
 
 export async function savePendingPriceUpdateReviews(
-  uid: string,
   reviews: PendingPriceUpdateReview[],
 ) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
-  const batch = writeBatch(db);
+  const reviewsCollection = getSharedPriceReviewsCollectionRef();
+  const batch = writeBatch(reviewsCollection.firestore);
 
   for (const review of reviews) {
-    const reviewRef = doc(db, 'users', uid, 'priceUpdateReviews', review.assetId);
+    const reviewRef = doc(reviewsCollection, review.assetId);
     batch.set(
       reviewRef,
       {
@@ -130,15 +130,16 @@ export async function savePendingPriceUpdateReviews(
   await batch.commit();
 }
 
-export async function confirmPriceUpdateReview(uid: string, review: PendingPriceUpdateReview) {
+export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
-  const batch = writeBatch(db);
-  const assetRef = doc(db, 'users', uid, 'assets', review.assetId);
-  const reviewRef = doc(db, 'users', uid, 'priceUpdateReviews', review.assetId);
+  const assetsCollection = getSharedAssetsCollectionRef();
+  const reviewsCollection = getSharedPriceReviewsCollectionRef();
+  const batch = writeBatch(assetsCollection.firestore);
+  const assetRef = doc(assetsCollection, review.assetId);
+  const reviewRef = doc(reviewsCollection, review.assetId);
 
   batch.update(assetRef, {
     currentPrice: review.price,
@@ -160,13 +161,13 @@ export async function confirmPriceUpdateReview(uid: string, review: PendingPrice
   await batch.commit();
 }
 
-export async function dismissPriceUpdateReview(uid: string, assetId: string) {
+export async function dismissPriceUpdateReview(assetId: string) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
-  const reviewRef = doc(db, 'users', uid, 'priceUpdateReviews', assetId);
+  const reviewsCollection = getSharedPriceReviewsCollectionRef();
+  const reviewRef = doc(reviewsCollection, assetId);
 
   await updateDoc(reviewRef, {
     status: 'dismissed',

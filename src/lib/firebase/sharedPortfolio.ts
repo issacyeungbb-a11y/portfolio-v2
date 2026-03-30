@@ -1,0 +1,49 @@
+import { collection, doc } from 'firebase/firestore';
+
+import { firebaseDb, hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
+
+export const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
+export const SHARED_PORTFOLIO_DOC_ID = 'app';
+
+function createMissingConfigError() {
+  return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
+}
+
+export function getRequiredFirebaseDb() {
+  if (!hasFirebaseConfig || !firebaseDb) {
+    throw createMissingConfigError();
+  }
+
+  return firebaseDb;
+}
+
+export function getSharedPortfolioDocRef() {
+  const db = getRequiredFirebaseDb();
+  return doc(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID);
+}
+
+export function getSharedAssetsCollectionRef() {
+  const db = getRequiredFirebaseDb();
+  return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'assets');
+}
+
+export function getSharedPriceReviewsCollectionRef() {
+  const db = getRequiredFirebaseDb();
+  return collection(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'priceUpdateReviews',
+  );
+}
+
+export function getSharedAnalysisCacheDocRef(snapshotHash: string) {
+  const db = getRequiredFirebaseDb();
+  return doc(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'analysisCache',
+    snapshotHash,
+  );
+}

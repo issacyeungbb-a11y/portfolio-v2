@@ -9,7 +9,6 @@ import {
   mockPortfolio,
 } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
-import { useAnonymousAuth } from '../hooks/useAnonymousAuth';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
@@ -89,13 +88,12 @@ function AnalysisListCard({
 }
 
 export function AnalysisPage() {
-  const { uid } = useAnonymousAuth();
   const {
     holdings: firestoreHoldings,
     status: assetsStatus,
     error: assetsError,
     isEmpty,
-  } = usePortfolioAssets(uid);
+  } = usePortfolioAssets();
   const [snapshotHash, setSnapshotHash] = useState<string | null>(null);
   const [snapshotHashStatus, setSnapshotHashStatus] = useState<SnapshotHashStatus>('idle');
   const [snapshotHashError, setSnapshotHashError] = useState<string | null>(null);
@@ -161,7 +159,7 @@ export function AnalysisPage() {
     error: cacheError,
     hasCachedAnalysis,
     persistAnalysis,
-  } = useAnalysisCache(uid, snapshotHash);
+  } = useAnalysisCache(snapshotHash);
 
   const displayedAnalysis = localAnalysis ?? cachedAnalysis;
   const hasAnalysis = Boolean(displayedAnalysis);

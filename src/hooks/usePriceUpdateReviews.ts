@@ -17,23 +17,14 @@ interface PriceReviewState {
   error: string | null;
 }
 
-export function usePriceUpdateReviews(uid: string | null) {
+export function usePriceUpdateReviews() {
   const [state, setState] = useState<PriceReviewState>({
-    status: uid ? 'loading' : 'idle',
+    status: 'loading',
     reviews: [],
     error: null,
   });
 
   useEffect(() => {
-    if (!uid) {
-      setState({
-        status: 'idle',
-        reviews: [],
-        error: null,
-      });
-      return;
-    }
-
     setState((current) => ({
       status: 'loading',
       reviews: current.reviews,
@@ -41,7 +32,6 @@ export function usePriceUpdateReviews(uid: string | null) {
     }));
 
     const unsubscribe = subscribeToPriceUpdateReviews(
-      uid,
       (reviews) => {
         setState({
           status: 'ready',
@@ -59,15 +49,11 @@ export function usePriceUpdateReviews(uid: string | null) {
     );
 
     return unsubscribe;
-  }, [uid]);
+  }, []);
 
   async function saveReviews(reviews: PendingPriceUpdateReview[]) {
-    if (!uid) {
-      throw new Error('匿名身份尚未完成，請稍後再試。');
-    }
-
     try {
-      await savePendingPriceUpdateReviews(uid, reviews);
+      await savePendingPriceUpdateReviews(reviews);
     } catch (error) {
       const message = getPriceReviewsErrorMessage(error);
       setState((current) => ({ ...current, error: message }));
@@ -76,12 +62,8 @@ export function usePriceUpdateReviews(uid: string | null) {
   }
 
   async function confirmReview(review: PendingPriceUpdateReview) {
-    if (!uid) {
-      throw new Error('匿名身份尚未完成，請稍後再試。');
-    }
-
     try {
-      await confirmPriceUpdateReview(uid, review);
+      await confirmPriceUpdateReview(review);
     } catch (error) {
       const message = getPriceReviewsErrorMessage(error);
       setState((current) => ({ ...current, error: message }));
@@ -90,12 +72,8 @@ export function usePriceUpdateReviews(uid: string | null) {
   }
 
   async function dismissReview(assetId: string) {
-    if (!uid) {
-      throw new Error('匿名身份尚未完成，請稍後再試。');
-    }
-
     try {
-      await dismissPriceUpdateReview(uid, assetId);
+      await dismissPriceUpdateReview(assetId);
     } catch (error) {
       const message = getPriceReviewsErrorMessage(error);
       setState((current) => ({ ...current, error: message }));

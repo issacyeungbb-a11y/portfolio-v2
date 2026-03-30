@@ -1,23 +1,15 @@
 import {
-  doc,
   onSnapshot,
   serverTimestamp,
   setDoc,
 } from 'firebase/firestore';
 
 import type { CachedPortfolioAnalysis } from '../../types/portfolioAnalysis';
-import { firebaseDb, hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
+import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
+import { getSharedAnalysisCacheDocRef } from './sharedPortfolio';
 
 function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
-}
-
-function getRequiredFirebaseDb() {
-  if (!firebaseDb) {
-    throw createMissingConfigError();
-  }
-
-  return firebaseDb;
 }
 
 function normalizeCachedAnalysis(
@@ -50,7 +42,7 @@ export function getAnalysisCacheErrorMessage(error?: unknown) {
 
   if (error instanceof Error) {
     if (error.message.includes('permission-denied')) {
-      return 'Firestore 權限被拒絕，請確認 rules 已容許匿名使用者讀寫自己的分析快取。';
+      return 'Firestore 權限被拒絕，請確認 rules 已容許共享投資組合讀寫 `portfolio/app/analysisCache`。';
     }
 
     return error.message;
@@ -60,7 +52,6 @@ export function getAnalysisCacheErrorMessage(error?: unknown) {
 }
 
 export function subscribeToAnalysisCache(
-  uid: string,
   snapshotHash: string,
   onData: (analysis: CachedPortfolioAnalysis | null) => void,
   onError: (error: unknown) => void,
@@ -69,8 +60,7 @@ export function subscribeToAnalysisCache(
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
-  const cacheRef = doc(db, 'users', uid, 'analysisCache', snapshotHash);
+  const cacheRef = getSharedAnalysisCacheDocRef(snapshotHash);
 
   return onSnapshot(
     cacheRef,
@@ -87,15 +77,13 @@ export function subscribeToAnalysisCache(
 }
 
 export async function saveAnalysisCache(
-  uid: string,
   analysis: CachedPortfolioAnalysis,
 ) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
-  const cacheRef = doc(db, 'users', uid, 'analysisCache', analysis.snapshotHash);
+  const cacheRef = getSharedAnalysisCacheDocRef(analysis.snapshotHash);
 
   await setDoc(
     cacheRef,

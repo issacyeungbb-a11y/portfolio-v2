@@ -1,130 +1,60 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { RouterProvider } from 'react-router-dom';
 
-import { useAnonymousAuth } from './hooks/useAnonymousAuth';
-import {
-  ensureUserDocument,
-  getFirebaseUserBootstrapErrorMessage,
-} from './lib/firebase/users';
+import { usePortfolioAccess } from './hooks/usePortfolioAccess';
 import { router } from './router';
 
-const USER_BOOTSTRAP_TIMEOUT_MS = 10000;
-
-function withUserBootstrapTimeout<T>(promise: Promise<T>) {
-  return new Promise<T>((resolve, reject) => {
-    const timeoutId = globalThis.setTimeout(() => {
-      reject(new Error('FIRESTORE_USER_BOOTSTRAP_TIMEOUT'));
-    }, USER_BOOTSTRAP_TIMEOUT_MS);
-
-    promise
-      .then((value) => {
-        globalThis.clearTimeout(timeoutId);
-        resolve(value);
-      })
-      .catch((error) => {
-        globalThis.clearTimeout(timeoutId);
-        reject(error);
-      });
-  });
-}
-
 function App() {
-  const { status, error, uid } = useAnonymousAuth();
-  const [userDocStatus, setUserDocStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
-    'idle',
-  );
-  const [userDocError, setUserDocError] = useState<string | null>(null);
+  const { status, error, unlock, hasConfiguredPortfolioAccessCode } = usePortfolioAccess();
+  const [accessCodeInput, setAccessCodeInput] = useState('');
 
-  useEffect(() => {
-    if (status !== 'authenticated' || !uid) {
-      if (status !== 'authenticated') {
-        setUserDocStatus('idle');
-        setUserDocError(null);
-      }
-      return;
-    }
-
-    let isActive = true;
-    setUserDocStatus('loading');
-    setUserDocError(null);
-
-    withUserBootstrapTimeout(ensureUserDocument(uid))
-      .then(() => {
-        if (!isActive) {
-          return;
-        }
-
-        setUserDocStatus('ready');
-      })
-      .catch((bootstrapError) => {
-        if (!isActive) {
-          return;
-        }
-
-        setUserDocStatus('error');
-        setUserDocError(getFirebaseUserBootstrapErrorMessage(bootstrapError));
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [status, uid]);
-
-  if (status === 'loading') {
+  if (status === 'error' || !hasConfiguredPortfolioAccessCode) {
     return (
       <div className="app-auth-shell">
         <div className="app-auth-card">
-          <p className="eyebrow">Firebase Auth</p>
-          <h1>正在啟動匿名身份</h1>
-          <p className="app-auth-copy">
-            應用程式會在開啟時自動匿名登入，之後再進入主介面。
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (status === 'error') {
-    return (
-      <div className="app-auth-shell">
-        <div className="app-auth-card">
-          <p className="eyebrow">Firebase Auth</p>
-          <h1>匿名登入未完成</h1>
+          <p className="eyebrow">Shared Access</p>
+          <h1>共享模式尚未設定完成</h1>
           <p className="app-auth-copy">{error}</p>
           <p className="app-auth-note">
-            請先把 Firebase 設定填入 `.env.local` 或 `.env`，再重新啟動開發伺服器。
+            請先在 `.env.local` 或 Vercel 環境變數加入 `VITE_PORTFOLIO_ACCESS_CODE` 與
+            `PORTFOLIO_ACCESS_CODE`，再重新部署。
           </p>
         </div>
       </div>
     );
   }
 
-  if (status === 'authenticated' && userDocStatus !== 'ready') {
+  if (status !== 'unlocked') {
     return (
       <div className="app-auth-shell">
         <div className="app-auth-card">
-          <p className="eyebrow">Firestore User</p>
-          <h1>
-            {userDocStatus === 'error' ? '用戶資料初始化未完成' : '正在建立匿名用戶資料'}
-          </h1>
+          <p className="eyebrow">Shared Access</p>
+          <h1>輸入共享存取碼</h1>
           <p className="app-auth-copy">
-            {userDocStatus === 'error'
-              ? userDocError
-              : '匿名登入已完成，正在同步 users/{uid} 文件。'}
+            呢個投資組合已改成單一共享資料模式。每部新裝置只需要輸入一次存取碼，之後通常可以直接進入系統並同步資料。
           </p>
-          {uid ? <p className="app-auth-note">UID: {uid}</p> : null}
-          {userDocStatus === 'error' ? (
-            <div className="roadmap-list">
-              <div className="roadmap-item">
-                <strong>先檢查 Firestore Database</strong>
-                <p>去 Firebase Console 的 Build → Firestore Database，確認你已建立 Cloud Firestore。</p>
-              </div>
-              <div className="roadmap-item">
-                <strong>再檢查 Firestore rules</strong>
-                <p>確認匿名登入後，已容許使用者讀寫自己的 `users/{'{uid}'}` 與 `users/{'{uid}'}/assets`。</p>
-              </div>
-            </div>
-          ) : null}
+
+          <label className="form-field">
+            <span>共享存取碼</span>
+            <input
+              type="password"
+              value={accessCodeInput}
+              onChange={(event) => setAccessCodeInput(event.target.value)}
+              placeholder="輸入存取碼"
+            />
+          </label>
+
+          {error ? <p className="status-message status-message-error">{error}</p> : null}
+
+          <div className="form-actions">
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={() => unlock(accessCodeInput)}
+            >
+              進入投資組合
+            </button>
+          </div>
         </div>
       </div>
     );

@@ -6,6 +6,7 @@ dist/
 *.tsbuildinfo
 .DS_Store
 *.log
+.tsbuild/
 vite.config.js
 vite.config.d.ts
 vite.config.js.timestamp-*

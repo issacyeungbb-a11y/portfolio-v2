@@ -7,13 +7,14 @@
     "moduleResolution": "Bundler",
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
+    "outDir": ".tsbuild/node",
     "types": ["node", "vite/client"]
   },
   "include": [
     "vite.config.ts",
-    "src/lib/api/**/*.ts",
-    "src/lib/firebase/**/*.ts",
+    "src/lib/api/mockFunctionResponses.ts",
     "server/**/*.ts",
+    "api/**/*.ts",
     "src/types/**/*.ts"
   ]
 }

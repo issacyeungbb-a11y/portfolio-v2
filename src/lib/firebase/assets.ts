@@ -1,6 +1,5 @@
 import {
   addDoc,
-  collection,
   doc,
   onSnapshot,
   orderBy,
@@ -10,24 +9,13 @@ import {
 } from 'firebase/firestore';
 
 import type { Holding, PortfolioAssetInput } from '../../types/portfolio';
-import {
-  firebaseDb,
-  hasFirebaseConfig,
-  missingFirebaseEnvKeys,
-} from './client';
+import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
+import { getSharedAssetsCollectionRef } from './sharedPortfolio';
 
 function createMissingConfigError() {
   return new Error(
     `Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`,
   );
-}
-
-function getRequiredFirebaseDb() {
-  if (!firebaseDb) {
-    throw createMissingConfigError();
-  }
-
-  return firebaseDb;
 }
 
 function normalizePortfolioAssetInput(payload: PortfolioAssetInput): PortfolioAssetInput {
@@ -82,7 +70,7 @@ export function getFirebaseAssetsErrorMessage(error?: unknown) {
 
   if (error instanceof Error) {
     if (error.message.includes('permission-denied')) {
-      return 'Firestore 權限被拒絕，請確認 rules 已容許匿名使用者讀寫自己的 users/{uid}/assets。';
+      return 'Firestore 權限被拒絕，請確認 rules 已容許共享投資組合讀寫 `portfolio/app/assets`。';
     }
 
     return error.message;
@@ -92,7 +80,6 @@ export function getFirebaseAssetsErrorMessage(error?: unknown) {
 }
 
 export function subscribeToPortfolioAssets(
-  uid: string,
   onData: (holdings: Holding[]) => void,
   onError: (error: unknown) => void,
 ) {
@@ -100,8 +87,7 @@ export function subscribeToPortfolioAssets(
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
-  const assetsRef = collection(db, 'users', uid, 'assets');
+  const assetsRef = getSharedAssetsCollectionRef();
   const assetsQuery = query(assetsRef, orderBy('updatedAt', 'desc'));
 
   return onSnapshot(
@@ -116,29 +102,27 @@ export function subscribeToPortfolioAssets(
   );
 }
 
-export async function createPortfolioAsset(uid: string, payload: PortfolioAssetInput) {
+export async function createPortfolioAsset(payload: PortfolioAssetInput) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
   const normalized = normalizePortfolioAssetInput(payload);
 
-  await addDoc(collection(db, 'users', uid, 'assets'), {
+  await addDoc(getSharedAssetsCollectionRef(), {
     ...normalized,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 }
 
-export async function createPortfolioAssets(uid: string, payloads: PortfolioAssetInput[]) {
+export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
-  const db = getRequiredFirebaseDb();
-  const batch = writeBatch(db);
-  const assetsCollection = collection(db, 'users', uid, 'assets');
+  const assetsCollection = getSharedAssetsCollectionRef();
+  const batch = writeBatch(assetsCollection.firestore);
 
   for (const payload of payloads) {
     const normalized = normalizePortfolioAssetInput(payload);

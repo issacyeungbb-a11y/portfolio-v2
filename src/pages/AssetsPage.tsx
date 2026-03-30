@@ -4,7 +4,6 @@ import {
   AssetInputForm,
 } from '../components/assets/AssetInputForm';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
-import { useAnonymousAuth } from '../hooks/useAnonymousAuth';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
@@ -44,14 +43,13 @@ const accountFilterOptions: Array<{ value: AccountSource | 'all'; label: string 
 ];
 
 export function AssetsPage() {
-  const { uid } = useAnonymousAuth();
   const {
     holdings: firestoreHoldings,
     status,
     error,
     isEmpty,
     addAsset,
-  } = usePortfolioAssets(uid);
+  } = usePortfolioAssets();
   const {
     reviews,
     error: reviewsError,
@@ -59,7 +57,7 @@ export function AssetsPage() {
     saveReviews,
     confirmReview,
     dismissReview,
-  } = usePriceUpdateReviews(uid);
+  } = usePriceUpdateReviews();
   const [assetFilter, setAssetFilter] = useState<AssetType | 'all'>('all');
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -221,7 +219,7 @@ export function AssetsPage() {
           <p className="eyebrow">Assets</p>
           <h2>手動管理資產</h2>
           <p className="hero-copy">
-            而家資產管理會直接連到 Firestore，手動輸入後會寫入 `users/{'{uid}'}/assets`，方便你開始測試真實資料流程。
+            而家資產管理會直接連到共享 Firestore，手動輸入後會寫入 `portfolio/app/assets`，所有已通過存取碼的裝置都會同步見到。
           </p>
         </div>
         <div className="button-row">

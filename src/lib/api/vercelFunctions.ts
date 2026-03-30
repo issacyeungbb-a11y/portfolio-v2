@@ -1,4 +1,4 @@
-import { getFirebaseIdToken } from '../firebase/auth';
+import { getCurrentPortfolioAccessCode } from '../access/accessCode';
 
 export type PortfolioFunctionKey =
   | 'health'
@@ -49,8 +49,13 @@ export async function callPortfolioFunction(
   }
 
   if (key !== 'health') {
-    const idToken = await getFirebaseIdToken();
-    headers.Authorization = `Bearer ${idToken}`;
+    const accessCode = getCurrentPortfolioAccessCode();
+
+    if (!accessCode) {
+      throw new Error('尚未設定共享存取碼，請先設定 VITE_PORTFOLIO_ACCESS_CODE。');
+    }
+
+    headers['x-portfolio-access-code'] = accessCode;
   }
 
   const response = await fetch(config.path, {

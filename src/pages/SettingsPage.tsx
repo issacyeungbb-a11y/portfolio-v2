@@ -1,17 +1,17 @@
 import { FunctionTestCard } from '../components/dev/FunctionTestCard';
-import { useAnonymousAuth } from '../hooks/useAnonymousAuth';
+import { usePortfolioAccess } from '../hooks/usePortfolioAccess';
 
 export function SettingsPage() {
-  const { uid, isAnonymous, status } = useAnonymousAuth();
+  const { status, lock } = usePortfolioAccess();
 
   return (
     <div className="page-stack">
       <section className="hero-panel">
         <div>
           <p className="eyebrow">Settings</p>
-          <h2>匿名身份與偏好設定</h2>
+          <h2>共享模式與偏好設定</h2>
           <p className="hero-copy">
-            這裡先把未來的基準貨幣、資料保留、價格更新偏好與匿名身份說明整理成清楚的卡片式介面。
+            這裡會整理共享存取碼模式、資料同步方式與價格更新偏好，讓你在不同裝置都能用同一份投資組合資料。
           </p>
         </div>
       </section>
@@ -54,48 +54,48 @@ export function SettingsPage() {
           <div className="section-heading">
             <div>
               <p className="eyebrow">Identity</p>
-              <h2>匿名身份</h2>
+              <h2>共享存取</h2>
             </div>
           </div>
 
           <div className="settings-list">
             <div className="setting-row">
               <div>
-                <strong>目前身份</strong>
-                <p>應用程式開啟時自動匿名登入，不需要正式登入頁。</p>
+                <strong>目前模式</strong>
+                <p>改為共享投資組合模式，不再使用匿名 Firebase Auth。</p>
               </div>
               <span className="chip chip-soft">
-                {isAnonymous ? 'Anonymous' : status}
+                {status === 'unlocked' ? 'Access Code' : status}
               </span>
             </div>
             <div className="setting-row">
               <div>
-                <strong>匿名 UID</strong>
-                <p className="mono-value">{uid ?? '尚未取得 UID'}</p>
+                <strong>共享資料路徑</strong>
+                <p className="mono-value">portfolio/app</p>
               </div>
-              <span className="chip chip-strong">users/{'{uid}'}</span>
+              <span className="chip chip-strong">Shared</span>
             </div>
           </div>
 
           <div className="roadmap-list">
             <div className="roadmap-item">
-              <strong>Firestore 初始化</strong>
-              <p>登入成功後會自動建立或更新 `users/{'{uid}'}` 文件。</p>
+              <strong>共享模式</strong>
+              <p>所有已輸入存取碼的裝置都會讀寫同一份 `portfolio/app` Firestore 資料。</p>
             </div>
           </div>
 
           <div className="roadmap-list">
             <div className="roadmap-item">
               <strong>免正式登入</strong>
-              <p>正式版會用 Firebase Anonymous Auth 建立輕量身份。</p>
+              <p>每部新裝置只需輸入一次共享存取碼，之後通常可直接進入系統。</p>
             </div>
             <div className="roadmap-item">
-              <strong>資料與裝置綁定</strong>
-              <p>若清除瀏覽器資料或換裝置，匿名帳號可能無法直接找回。</p>
+              <strong>跨裝置同步</strong>
+              <p>手機、平板、電腦會共用同一套共享投資組合資料。</p>
             </div>
             <div className="roadmap-item">
-              <strong>未來可升級帳號</strong>
-              <p>等 MVP 穩定後，再考慮把匿名身份升級為正式登入。</p>
+              <strong>重新鎖定裝置</strong>
+              <p>如需在本機重新輸入存取碼，可以手動清除已驗證狀態。</p>
             </div>
           </div>
         </article>
@@ -113,8 +113,8 @@ export function SettingsPage() {
           <button className="button button-secondary" type="button">
             匯出資產資料
           </button>
-          <button className="button button-secondary" type="button">
-            清除本機假資料
+          <button className="button button-secondary" type="button" onClick={lock}>
+            重新鎖定此裝置
           </button>
         </div>
       </section>
