@@ -47,6 +47,7 @@ export function HoldingsTable({
             {holdings.map((holding) => {
               const pnlTone = holding.unrealizedPnl >= 0 ? 'positive' : 'caution';
               const isUpdating = updatingAssetIds.includes(holding.id);
+              const hasPendingPrice = holding.assetType !== 'cash' && holding.currentPrice <= 0;
 
               return (
                 <tr key={holding.id}>
@@ -58,13 +59,19 @@ export function HoldingsTable({
                   </td>
                   <td>{holding.quantity}</td>
                   <td>{formatCurrency(holding.averageCost, holding.currency)}</td>
-                  <td>{formatCurrency(holding.currentPrice, holding.currency)}</td>
-                  <td>{getHoldingValueLabel(holding)}</td>
+                  <td>{hasPendingPrice ? '待更新' : formatCurrency(holding.currentPrice, holding.currency)}</td>
+                  <td>{hasPendingPrice ? '待更新' : getHoldingValueLabel(holding)}</td>
                   <td>
-                    <strong data-tone={pnlTone}>
-                      {formatCurrency(holding.unrealizedPnl, holding.currency)}
-                    </strong>
-                    <span className="table-subtext">{formatPercent(holding.unrealizedPct)}</span>
+                    {hasPendingPrice ? (
+                      <span className="table-subtext">待更新</span>
+                    ) : (
+                      <>
+                        <strong data-tone={pnlTone}>
+                          {formatCurrency(holding.unrealizedPnl, holding.currency)}
+                        </strong>
+                        <span className="table-subtext">{formatPercent(holding.unrealizedPct)}</span>
+                      </>
+                    )}
                   </td>
                   <td>{holding.allocation.toFixed(1)}%</td>
                   <td>

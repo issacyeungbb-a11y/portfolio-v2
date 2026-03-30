@@ -99,15 +99,16 @@ export function buildPortfolioAssetInputFromExtractedAsset(
 ): PortfolioAssetInput {
   const normalizedCurrency = asset.currency.trim().toUpperCase();
   const normalizedCostBasis = Number(asset.costBasis);
+  const normalizedAssetType = asset.type as AssetType;
 
   return {
     name: asset.name.trim(),
     symbol: asset.ticker.trim().toUpperCase(),
-    assetType: asset.type as AssetType,
+    assetType: normalizedAssetType,
     accountSource,
     currency: normalizedCurrency,
     quantity: Number(asset.quantity),
     averageCost: normalizedCostBasis,
-    currentPrice: normalizedCostBasis,
+    currentPrice: normalizedAssetType === 'cash' ? normalizedCostBasis : 0,
   };
 }

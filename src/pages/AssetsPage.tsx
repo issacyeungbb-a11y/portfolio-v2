@@ -64,6 +64,7 @@ export function AssetsPage() {
   const [isSavingAsset, setIsSavingAsset] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isUpdatingAllPrices, setIsUpdatingAllPrices] = useState(false);
+  const [isBulkUpdateConfirmOpen, setIsBulkUpdateConfirmOpen] = useState(false);
   const [updatingAssetIds, setUpdatingAssetIds] = useState<string[]>([]);
   const [priceUpdateError, setPriceUpdateError] = useState<string | null>(null);
   const [priceUpdateSuccess, setPriceUpdateSuccess] = useState<string | null>(null);
@@ -178,6 +179,11 @@ export function AssetsPage() {
     }
   }
 
+  async function handleConfirmBulkPriceUpdate() {
+    setIsBulkUpdateConfirmOpen(false);
+    await handleRunPriceUpdates(holdings);
+  }
+
   async function handleConfirmReview(review: PendingPriceUpdateReview) {
     setReviewActionError(null);
     setReviewActionSuccess(null);
@@ -233,13 +239,50 @@ export function AssetsPage() {
           <button
             className="button button-secondary"
             type="button"
-            onClick={() => handleRunPriceUpdates(holdings)}
+            onClick={() => setIsBulkUpdateConfirmOpen(true)}
             disabled={isUpdatingAllPrices || holdings.length === 0}
           >
             {isUpdatingAllPrices ? '更新全部資產中...' : '更新全部資產'}
           </button>
         </div>
       </section>
+
+      {isBulkUpdateConfirmOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-price-update-title"
+          >
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Confirm</p>
+                <h2 id="bulk-price-update-title">確認更新全部資產？</h2>
+              </div>
+            </div>
+            <p className="status-message">
+              會為目前全部 {holdings.length} 項資產產生最新價格建議，之後仍需逐項確認先會正式寫入。
+            </p>
+            <div className="button-row">
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={handleConfirmBulkPriceUpdate}
+              >
+                確認更新
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setIsBulkUpdateConfirmOpen(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="summary-grid">
         <SummaryCard

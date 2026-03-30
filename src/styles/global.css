@@ -842,6 +842,26 @@ h3 {
   color: var(--accent);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(29, 26, 23, 0.28);
+  backdrop-filter: blur(10px);
+}
+
+.modal-card {
+  width: min(100%, 30rem);
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1.5rem;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow);
+}
+
 .asset-form-panel {
   padding: 1.15rem;
   border: 1px solid var(--border);

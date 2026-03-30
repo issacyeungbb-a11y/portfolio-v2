@@ -89,10 +89,9 @@ export function ExtractedAssetsEditor({
         </label>
 
         <div className="extract-meta-note">
-          <strong>寫入 Firestore 時的補充規則</strong>
+          <strong>匯入規則</strong>
           <p>
-            因為 `/api/extract-assets` 只回傳固定 JSON，確認匯入時會先用
-            `costBasis` 當成 `averageCost` 同初始 `currentPrice`，之後你可以再到資產管理頁更新價格。
+            匯入時會先將 `costBasis` 寫成平均成本。股票、ETF、債券同加密貨幣的現價會標示為待更新，之後請到資產頁更新價格。
           </p>
         </div>
       </div>
