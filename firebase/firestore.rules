@@ -9,6 +9,11 @@ service cloud.firestore {
       match /assets/{assetId} {
         allow read, create, update: if true;
         allow delete: if false;
+
+        match /priceHistory/{entryId} {
+          allow read, create, update: if true;
+          allow delete: if false;
+        }
       }
 
       match /priceUpdateReviews/{assetId} {

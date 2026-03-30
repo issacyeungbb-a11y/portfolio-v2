@@ -7,6 +7,7 @@ import {
 } from 'firebase/firestore';
 
 import type { PendingPriceUpdateReview } from '../../types/priceUpdates';
+import { recordAssetPriceHistory } from './priceHistory';
 import { capturePortfolioSnapshot } from './portfolioSnapshots';
 import { firebaseDb, hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import {
@@ -160,6 +161,8 @@ export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview)
   });
 
   await batch.commit();
+
+  await recordAssetPriceHistory(review);
 
   await capturePortfolioSnapshot({
     reason: 'price_update_confirmed',

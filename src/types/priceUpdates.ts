@@ -49,3 +49,18 @@ export interface PendingPriceUpdateReview extends PriceUpdateModelResult {
   diffPct: number;
   status: 'pending' | 'confirmed' | 'dismissed';
 }
+
+export interface AssetPriceHistoryEntry {
+  id: string;
+  assetId: string;
+  assetName: string;
+  ticker: string;
+  assetType: AssetType;
+  price: number;
+  currency: string;
+  asOf: string;
+  sourceName: string;
+  sourceUrl: string;
+  confidence: number;
+  recordedAt: string;
+}

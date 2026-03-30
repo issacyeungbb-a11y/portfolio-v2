@@ -57,3 +57,15 @@ export function getSharedPortfolioSnapshotsCollectionRef() {
     'portfolioSnapshots',
   );
 }
+
+export function getSharedAssetPriceHistoryCollectionRef(assetId: string) {
+  const db = getRequiredFirebaseDb();
+  return collection(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'assets',
+    assetId,
+    'priceHistory',
+  );
+}

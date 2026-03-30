@@ -50,6 +50,8 @@
 
 - `src/hooks/usePriceUpdateReviews.ts`
 - `src/lib/firebase/priceReviews.ts`
+- `src/lib/firebase/priceHistory.ts`
+- `src/hooks/useAssetPriceHistory.ts`
 - `src/pages/AssetsPage.tsx`
 - `api/update-prices.ts`
 
@@ -58,6 +60,7 @@
 - 針對單項或全部資產觸發價格更新
 - 將 AI 建議先存成待審核資料
 - 人手確認或略過更新
+- 確認價格後，會同步把新價格寫入該資產的 `priceHistory`
 
 ### 4. 截圖匯入流程
 
@@ -97,10 +100,10 @@
 
 ### 2. 歷史價格能力未完成
 
-目前已經有第一版 portfolio snapshot history，但仍未算完整:
+目前已經有第一版 portfolio snapshot history 同 asset price history，但仍未算完整:
 
-- 單資產 `price_history` collection 設計
 - 更細緻的每日定時 snapshot，而唔係只靠寫入事件觸發
+- 定時背景價格更新，令 `priceHistory` 唔只依賴人工確認
 - 7d / 30d / 半年 / 1年資料密度仍取決於你有幾多次寫入或價格確認
 
 ### 3. 權限模式剛轉型
