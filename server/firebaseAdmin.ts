@@ -1,5 +1,6 @@
 import { cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 
 const ADMIN_ENV_KEYS = [
   'FIREBASE_ADMIN_PROJECT_ID',
@@ -106,7 +107,7 @@ export function getFirebaseAdminSetupErrorMessage(error?: unknown) {
   return `未設定 Firebase Admin 憑證。請設定 FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON，或 ${ADMIN_ENV_KEYS.join('、')}。`;
 }
 
-function getFirebaseAdminApp() {
+export function getFirebaseAdminApp() {
   if (getApps().length > 0) {
     return getApp();
   }
@@ -128,4 +129,8 @@ function getFirebaseAdminApp() {
 export async function verifyFirebaseIdToken(idToken: string) {
   const auth = getAuth(getFirebaseAdminApp());
   return auth.verifyIdToken(idToken);
+}
+
+export function getFirebaseAdminDb() {
+  return getFirestore(getFirebaseAdminApp());
 }

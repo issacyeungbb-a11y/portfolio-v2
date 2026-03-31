@@ -58,9 +58,10 @@
 目前已經有:
 
 - 針對單項或全部資產觸發價格更新
-- 將 AI 建議先存成待審核資料
-- 人手確認或略過更新
+- 有效 AI 價格會自動寫入正式 `currentPrice`
+- 無效或不可信結果才保留做人手檢查
 - 確認價格後，會同步把新價格寫入該資產的 `priceHistory`
+- 已加入 Vercel Cron，每日香港時間早上 6 點自動更新全部非現金資產價格
 
 ### 4. 截圖匯入流程
 
@@ -100,10 +101,9 @@
 
 ### 2. 歷史價格能力未完成
 
-目前已經有第一版 portfolio snapshot history 同 asset price history，但仍未算完整:
+目前已經有第一版 portfolio snapshot history、asset price history 同每日自動價格更新，但仍未算完整:
 
 - 更細緻的每日定時 snapshot，而唔係只靠寫入事件觸發
-- 定時背景價格更新，令 `priceHistory` 唔只依賴人工確認
 - 7d / 30d / 半年 / 1年資料密度仍取決於你有幾多次寫入或價格確認
 
 ### 3. 權限模式剛轉型

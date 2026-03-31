@@ -31,6 +31,14 @@ Set one of these in Vercel Project Settings -> Environment Variables:
 
 Do not put Firebase Admin credentials in `VITE_*` variables.
 
+## 3.1 Cron security
+
+For daily auto price updates, also set:
+
+- `CRON_SECRET`
+
+Vercel Cron will call `/api/cron-update-prices` with this secret. Keep it only in server-side env vars.
+
 ## 4. Frontend env vars
 
 Keep the existing Firebase Web SDK variables:
