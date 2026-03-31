@@ -242,6 +242,47 @@ h3 {
   margin-top: 0.2rem;
 }
 
+.assets-hero-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.assets-title-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.assets-price-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.assets-price-status-label,
+.assets-price-status-item {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.9rem;
+  padding: 0.32rem 0.68rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.assets-price-status-label {
+  color: var(--accent);
+  background: rgba(15, 118, 110, 0.12);
+}
+
+.assets-price-status-item {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(118, 96, 77, 0.1);
+}
+
 .hero-copy {
   margin-top: 0.65rem;
   color: var(--text-muted);
@@ -1305,6 +1346,17 @@ h3 {
   .hero-panel {
     grid-template-columns: 1.25fr 0.95fr;
     align-items: end;
+  }
+
+  .assets-title-row {
+    flex-direction: row;
+    align-items: end;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .assets-price-status {
+    justify-content: flex-end;
   }
 
   .asset-form-grid {

@@ -15,12 +15,13 @@ import {
   formatCurrency,
   getAccountSourceLabel,
   getAssetTypeLabel,
+  getHoldingCostInCurrency,
   getHoldingValueInCurrency,
-  mockPortfolio,
 } from '../data/mockPortfolio';
 import type {
   AccountSource,
   AssetType,
+  DisplayCurrency,
   Holding,
   PortfolioAssetInput,
 } from '../types/portfolio';
@@ -77,6 +78,7 @@ export function AssetsPage() {
   } = usePriceUpdateReviews();
   const [assetFilter, setAssetFilter] = useState<AssetType | 'all'>('all');
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
+  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSavingAsset, setIsSavingAsset] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -92,7 +94,7 @@ export function AssetsPage() {
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
-    (holding) => getHoldingValueInCurrency(holding, mockPortfolio.baseCurrency),
+    (holding) => getHoldingValueInCurrency(holding, 'HKD'),
   );
 
   const filteredHoldings = holdings.filter((holding) => {
@@ -103,6 +105,8 @@ export function AssetsPage() {
   });
 
   const accountCount = new Set(holdings.map((holding) => holding.accountSource)).size;
+  const nonCashHoldings = holdings.filter((holding) => holding.assetType !== 'cash');
+  const pricedHoldingsCount = nonCashHoldings.filter((holding) => hasValidHoldingPrice(holding)).length;
   const pendingPriceCount = holdings.filter(
     (holding) => holding.assetType !== 'cash' && !hasValidHoldingPrice(holding),
   ).length;
@@ -112,21 +116,29 @@ export function AssetsPage() {
       .filter(Boolean)
       .sort((left, right) => right.localeCompare(left))[0] ?? null;
   const filteredValue = filteredHoldings.reduce(
-    (sum, holding) => sum + getHoldingValueInCurrency(holding, mockPortfolio.baseCurrency),
+    (sum, holding) => sum + getHoldingValueInCurrency(holding, displayCurrency),
     0,
   );
   const assetTypeValue = holdings
     .filter((holding) => assetFilter === 'all' || holding.assetType === assetFilter)
     .reduce(
-      (sum, holding) => sum + getHoldingValueInCurrency(holding, mockPortfolio.baseCurrency),
+      (sum, holding) => sum + getHoldingValueInCurrency(holding, displayCurrency),
       0,
     );
   const accountValue = holdings
     .filter((holding) => accountFilter === 'all' || holding.accountSource === accountFilter)
     .reduce(
-      (sum, holding) => sum + getHoldingValueInCurrency(holding, mockPortfolio.baseCurrency),
+      (sum, holding) => sum + getHoldingValueInCurrency(holding, displayCurrency),
       0,
     );
+  const filteredCost = filteredHoldings.reduce(
+    (sum, holding) => sum + getHoldingCostInCurrency(holding, displayCurrency),
+    0,
+  );
+  const filteredPnl = filteredValue - filteredCost;
+  const staleRatio =
+    nonCashHoldings.length === 0 ? 0 : Math.round((pendingPriceCount / nonCashHoldings.length) * 100);
+  const latestUpdateLabel = formatLatestPriceUpdate(latestValidPriceUpdate);
 
   async function handleAddHolding(payload: PortfolioAssetInput) {
     setIsSavingAsset(true);
@@ -267,11 +279,42 @@ export function AssetsPage() {
   return (
     <div className="page-stack">
       <section className="hero-panel">
-        <div>
-          <p className="eyebrow">Assets</p>
-          <h2>手動管理資產</h2>
+        <div className="assets-hero-header">
+          <div>
+            <p className="eyebrow">Assets</p>
+            <div className="assets-title-row">
+              <h2>手動管理資產</h2>
+              <div className="assets-price-status" aria-label="價格更新狀態">
+                <span className="assets-price-status-label">更新價格</span>
+                <span className="assets-price-status-item">最近 {latestUpdateLabel}</span>
+                <span className="assets-price-status-item">
+                  已同步 {pricedHoldingsCount}/{nonCashHoldings.length || 0}
+                </span>
+                <span className="assets-price-status-item">待更新 {pendingPriceCount}</span>
+                {hasPendingReviews ? (
+                  <span className="assets-price-status-item">待處理 {reviews.length}</span>
+                ) : null}
+              </div>
+            </div>
+          </div>
         </div>
         <div className="button-row">
+          <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
+            <button
+              className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
+              type="button"
+              onClick={() => setDisplayCurrency('HKD')}
+            >
+              HKD
+            </button>
+            <button
+              className={displayCurrency === 'USD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
+              type="button"
+              onClick={() => setDisplayCurrency('USD')}
+            >
+              USD
+            </button>
+          </div>
           <button
             className="button button-primary"
             type="button"
@@ -308,7 +351,7 @@ export function AssetsPage() {
               </div>
             </div>
             <p className="status-message">
-              會為目前全部 {holdings.length} 項資產產生最新價格建議，之後仍需逐項確認先會正式寫入。
+              會為目前全部 {holdings.length} 項資產檢查最新價格；有效結果會直接寫入，未能確認嘅項目先會保留畀你再檢查。
             </p>
             <div className="button-row">
               <button
@@ -337,24 +380,25 @@ export function AssetsPage() {
           hint={
             status === 'loading'
               ? '正在從 Firestore 同步資產資料'
-              : `篩選後總值 ${formatCurrency(filteredValue, mockPortfolio.baseCurrency)}`
+              : `篩選後總值 ${formatCurrency(filteredValue, displayCurrency)}`
           }
         />
         <SummaryCard
-          label="資產類別總值"
-          value={formatCurrency(assetTypeValue, mockPortfolio.baseCurrency)}
+          label={`資產類別總值 ${displayCurrency}`}
+          value={formatCurrency(assetTypeValue, displayCurrency)}
           hint={`目前選擇：${getAssetTypeLabel(assetFilter)}`}
         />
         <SummaryCard
-          label="價格更新"
-          value={formatLatestPriceUpdate(latestValidPriceUpdate)}
+          label={`篩選損益 ${displayCurrency}`}
+          value={formatCurrency(filteredPnl, displayCurrency)}
           hint={
             hasPendingReviews
-              ? `目前有 ${reviews.length} 項待確認，${pendingPriceCount} 項待更新`
+              ? `待處理 ${reviews.length} 項，價格覆蓋率 ${100 - staleRatio}%`
               : pendingPriceCount > 0
-                ? `${pendingPriceCount} 項待更新`
+                ? `待更新 ${pendingPriceCount} 項，價格覆蓋率 ${100 - staleRatio}%`
                 : `共 ${accountCount} 類帳戶來源`
           }
+          tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
         />
       </section>
 
@@ -421,7 +465,7 @@ export function AssetsPage() {
         </div>
         <p className="filter-total">
           資產類別總值: {getAssetTypeLabel(assetFilter)} ·{' '}
-          {formatCurrency(assetTypeValue, mockPortfolio.baseCurrency)}
+          {formatCurrency(assetTypeValue, displayCurrency)}
         </p>
 
         <div className="filter-row">
@@ -438,11 +482,12 @@ export function AssetsPage() {
         </div>
         <p className="filter-total">
           帳戶來源總值: {getAccountSourceLabel(accountFilter)} ·{' '}
-          {formatCurrency(accountValue, mockPortfolio.baseCurrency)}
+          {formatCurrency(accountValue, displayCurrency)}
         </p>
 
         <HoldingsTable
           holdings={filteredHoldings}
+          displayCurrency={displayCurrency}
           onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
           updatingAssetIds={updatingAssetIds}
         />

@@ -1,21 +1,25 @@
 import {
+  convertCurrency,
   getAccountSourceLabel,
   getAssetTypeLabel,
   formatCurrency,
   formatPercent,
-  getHoldingValueLabel,
+  getHoldingCostInCurrency,
+  getHoldingValueInCurrency,
 } from '../../data/mockPortfolio';
 import { hasValidHoldingPrice } from '../../lib/portfolio/priceValidity';
-import type { Holding } from '../../types/portfolio';
+import type { DisplayCurrency, Holding } from '../../types/portfolio';
 
 interface HoldingsTableProps {
   holdings: Holding[];
+  displayCurrency: DisplayCurrency;
   onUpdatePrice?: (holding: Holding) => Promise<void> | void;
   updatingAssetIds?: string[];
 }
 
 export function HoldingsTable({
   holdings,
+  displayCurrency,
   onUpdatePrice,
   updatingAssetIds = [],
 }: HoldingsTableProps) {
@@ -46,9 +50,23 @@ export function HoldingsTable({
               </tr>
             ) : null}
             {holdings.map((holding) => {
-              const pnlTone = holding.unrealizedPnl >= 0 ? 'positive' : 'caution';
               const isUpdating = updatingAssetIds.includes(holding.id);
               const hasPendingPrice = !hasValidHoldingPrice(holding);
+              const averageCost = convertCurrency(
+                holding.averageCost,
+                holding.currency,
+                displayCurrency,
+              );
+              const currentPrice = convertCurrency(
+                holding.currentPrice,
+                holding.currency,
+                displayCurrency,
+              );
+              const marketValue = getHoldingValueInCurrency(holding, displayCurrency);
+              const costValue = getHoldingCostInCurrency(holding, displayCurrency);
+              const unrealizedPnl = marketValue - costValue;
+              const unrealizedPct = costValue === 0 ? 0 : (unrealizedPnl / costValue) * 100;
+              const pnlTone = unrealizedPnl >= 0 ? 'positive' : 'caution';
 
               return (
                 <tr key={holding.id}>
@@ -59,18 +77,18 @@ export function HoldingsTable({
                     </div>
                   </td>
                   <td>{holding.quantity}</td>
-                  <td>{formatCurrency(holding.averageCost, holding.currency)}</td>
-                  <td>{hasPendingPrice ? '待更新' : formatCurrency(holding.currentPrice, holding.currency)}</td>
-                  <td>{hasPendingPrice ? '待更新' : getHoldingValueLabel(holding)}</td>
+                  <td>{formatCurrency(averageCost, displayCurrency)}</td>
+                  <td>{hasPendingPrice ? '待更新' : formatCurrency(currentPrice, displayCurrency)}</td>
+                  <td>{hasPendingPrice ? '待更新' : formatCurrency(marketValue, displayCurrency)}</td>
                   <td>
                     {hasPendingPrice ? (
                       <span className="table-subtext">待更新</span>
                     ) : (
                       <>
                         <strong data-tone={pnlTone}>
-                          {formatCurrency(holding.unrealizedPnl, holding.currency)}
+                          {formatCurrency(unrealizedPnl, displayCurrency)}
                         </strong>
-                        <span className="table-subtext">{formatPercent(holding.unrealizedPct)}</span>
+                        <span className="table-subtext">{formatPercent(unrealizedPct)}</span>
                       </>
                     )}
                   </td>
