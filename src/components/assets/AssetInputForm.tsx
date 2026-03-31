@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import {
   formatCurrency,
@@ -13,6 +13,10 @@ interface AssetInputFormProps {
   onCancel: () => void;
   isSubmitting?: boolean;
   error?: string | null;
+  title?: string;
+  submitLabel?: string;
+  cancelLabel?: string;
+  initialValue?: PortfolioAssetInput | null;
 }
 
 interface AssetFormState {
@@ -45,8 +49,43 @@ export function AssetInputForm({
   onCancel,
   isSubmitting = false,
   error = null,
+  title = '輸入資產',
+  submitLabel = '加入資產',
+  cancelLabel = '取消',
+  initialValue = null,
 }: AssetInputFormProps) {
-  const [form, setForm] = useState(initialFormState);
+  const [form, setForm] = useState<AssetFormState>(() =>
+    initialValue
+      ? {
+          name: initialValue.name,
+          symbol: initialValue.symbol,
+          assetType: initialValue.assetType,
+          accountSource: initialValue.accountSource,
+          currency: initialValue.currency,
+          quantity: String(initialValue.quantity),
+          averageCost: String(initialValue.averageCost),
+          currentPrice: String(initialValue.currentPrice),
+        }
+      : initialFormState,
+  );
+
+  useEffect(() => {
+    if (!initialValue) {
+      setForm(initialFormState);
+      return;
+    }
+
+    setForm({
+      name: initialValue.name,
+      symbol: initialValue.symbol,
+      assetType: initialValue.assetType,
+      accountSource: initialValue.accountSource,
+      currency: initialValue.currency,
+      quantity: String(initialValue.quantity),
+      averageCost: String(initialValue.averageCost),
+      currentPrice: String(initialValue.currentPrice),
+    });
+  }, [initialValue]);
 
   const quantity = Number(form.quantity) || 0;
   const averageCost = Number(form.averageCost) || 0;
@@ -76,7 +115,9 @@ export function AssetInputForm({
         currentPrice,
       });
 
-      setForm(initialFormState);
+      if (!initialValue) {
+        setForm(initialFormState);
+      }
     } catch {
       return;
     }
@@ -87,11 +128,11 @@ export function AssetInputForm({
       <div className="section-heading">
         <div>
           <p className="eyebrow">Manual Input</p>
-          <h2>輸入資產</h2>
+          <h2>{title}</h2>
           <p className="table-hint">填好核心資料後，市值、損益與配置比重會由前端即時計算。</p>
         </div>
         <button className="button button-secondary" type="button" onClick={onCancel}>
-          收起表單
+          {cancelLabel}
         </button>
       </div>
 
@@ -231,7 +272,7 @@ export function AssetInputForm({
 
         <div className="form-actions">
           <button className="button button-primary" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? '儲存中...' : '加入資產'}
+            {isSubmitting ? '儲存中...' : submitLabel}
           </button>
           <button
             className="button button-secondary"
@@ -239,7 +280,7 @@ export function AssetInputForm({
             onClick={onCancel}
             disabled={isSubmitting}
           >
-            取消
+            {cancelLabel}
           </button>
         </div>
       </form>

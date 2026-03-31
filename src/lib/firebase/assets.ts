@@ -6,6 +6,7 @@ import {
   query,
   serverTimestamp,
   Timestamp,
+  updateDoc,
   writeBatch,
 } from 'firebase/firestore';
 
@@ -190,5 +191,23 @@ export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
   await capturePortfolioSnapshot({
     netExternalFlowHKD: importedFlowHKD,
     reason: 'assets_imported',
+  });
+}
+
+export async function updatePortfolioAsset(assetId: string, payload: PortfolioAssetInput) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const normalized = normalizePortfolioAssetInput(payload);
+  const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
+
+  await updateDoc(assetRef, {
+    ...normalized,
+    updatedAt: serverTimestamp(),
+  });
+
+  await capturePortfolioSnapshot({
+    reason: 'snapshot',
   });
 }

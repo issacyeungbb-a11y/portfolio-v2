@@ -14,6 +14,7 @@ interface HoldingsTableProps {
   holdings: Holding[];
   displayCurrency: DisplayCurrency;
   onUpdatePrice?: (holding: Holding) => Promise<void> | void;
+  onEdit?: (holding: Holding) => void;
   updatingAssetIds?: string[];
 }
 
@@ -21,6 +22,7 @@ export function HoldingsTable({
   holdings,
   displayCurrency,
   onUpdatePrice,
+  onEdit,
   updatingAssetIds = [],
 }: HoldingsTableProps) {
   return (
@@ -30,10 +32,10 @@ export function HoldingsTable({
           <thead>
             <tr>
               <th>資產</th>
-              <th>持倉</th>
-              <th>平均成本</th>
               <th>現價</th>
+              <th>持倉</th>
               <th>市值</th>
+              <th>平均成本</th>
               <th>損益</th>
               <th>比重</th>
               <th>類型</th>
@@ -76,10 +78,10 @@ export function HoldingsTable({
                       <span>{holding.name}</span>
                     </div>
                   </td>
-                  <td>{holding.quantity}</td>
-                  <td>{formatCurrency(averageCost, displayCurrency)}</td>
                   <td>{hasPendingPrice ? '待更新' : formatCurrency(currentPrice, displayCurrency)}</td>
+                  <td>{holding.quantity}</td>
                   <td>{hasPendingPrice ? '待更新' : formatCurrency(marketValue, displayCurrency)}</td>
+                  <td>{formatCurrency(averageCost, displayCurrency)}</td>
                   <td>
                     {hasPendingPrice ? (
                       <span className="table-subtext">待更新</span>
@@ -102,14 +104,24 @@ export function HoldingsTable({
                     </span>
                   </td>
                   <td>
-                    <button
-                      className="button button-secondary table-action-button"
-                      type="button"
-                      onClick={() => onUpdatePrice?.(holding)}
-                      disabled={!onUpdatePrice || isUpdating}
-                    >
-                      {isUpdating ? '更新中...' : '更新單一資產'}
-                    </button>
+                    <div className="table-action-stack">
+                      <button
+                        className="button button-secondary table-action-button"
+                        type="button"
+                        onClick={() => onUpdatePrice?.(holding)}
+                        disabled={!onUpdatePrice || isUpdating}
+                      >
+                        {isUpdating ? '更新中...' : '更新單一資產'}
+                      </button>
+                      <button
+                        className="button button-secondary table-action-button"
+                        type="button"
+                        onClick={() => onEdit?.(holding)}
+                        disabled={!onEdit || isUpdating}
+                      >
+                        編輯
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

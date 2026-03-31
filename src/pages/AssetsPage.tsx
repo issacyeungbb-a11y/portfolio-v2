@@ -66,6 +66,7 @@ export function AssetsPage() {
     error,
     isEmpty,
     addAsset,
+    editAsset,
   } = usePortfolioAssets();
   const {
     reviews,
@@ -81,6 +82,8 @@ export function AssetsPage() {
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSavingAsset, setIsSavingAsset] = useState(false);
+  const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
+  const [isEditingAsset, setIsEditingAsset] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isUpdatingAllPrices, setIsUpdatingAllPrices] = useState(false);
   const [isBulkUpdateConfirmOpen, setIsBulkUpdateConfirmOpen] = useState(false);
@@ -160,6 +163,31 @@ export function AssetsPage() {
         : new Error(message);
     } finally {
       setIsSavingAsset(false);
+    }
+  }
+
+  async function handleEditHolding(payload: PortfolioAssetInput) {
+    if (!editingHolding) {
+      return;
+    }
+
+    setIsEditingAsset(true);
+    setSaveError(null);
+
+    try {
+      await editAsset(editingHolding.id, payload);
+      setEditingHolding(null);
+    } catch (submissionError) {
+      const message =
+        submissionError instanceof Error
+          ? submissionError.message
+          : '更新資產失敗，請稍後再試。';
+      setSaveError(message);
+      throw submissionError instanceof Error
+        ? submissionError
+        : new Error(message);
+    } finally {
+      setIsEditingAsset(false);
     }
   }
 
@@ -411,6 +439,35 @@ export function AssetsPage() {
         />
       ) : null}
 
+      {editingHolding ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card modal-card-wide" role="dialog" aria-modal="true">
+            <AssetInputForm
+              initialValue={{
+                name: editingHolding.name,
+                symbol: editingHolding.symbol,
+                assetType: editingHolding.assetType,
+                accountSource: editingHolding.accountSource,
+                currency: editingHolding.currency,
+                quantity: editingHolding.quantity,
+                averageCost: editingHolding.averageCost,
+                currentPrice: editingHolding.currentPrice,
+              }}
+              title={`編輯 ${editingHolding.symbol}`}
+              submitLabel="儲存變更"
+              cancelLabel="關閉"
+              onSubmit={handleEditHolding}
+              onCancel={() => {
+                setSaveError(null);
+                setEditingHolding(null);
+              }}
+              isSubmitting={isEditingAsset}
+              error={saveError}
+            />
+          </div>
+        </div>
+      ) : null}
+
       {priceUpdateError ? (
         <p className="status-message status-message-error">{priceUpdateError}</p>
       ) : null}
@@ -488,6 +545,10 @@ export function AssetsPage() {
         <HoldingsTable
           holdings={filteredHoldings}
           displayCurrency={displayCurrency}
+          onEdit={(holding) => {
+            setSaveError(null);
+            setEditingHolding(holding);
+          }}
           onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
           updatingAssetIds={updatingAssetIds}
         />

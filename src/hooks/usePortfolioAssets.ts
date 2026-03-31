@@ -5,6 +5,7 @@ import {
   createPortfolioAsset,
   getFirebaseAssetsErrorMessage,
   subscribeToPortfolioAssets,
+  updatePortfolioAsset,
 } from '../lib/firebase/assets';
 
 type PortfolioAssetsStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -62,9 +63,23 @@ export function usePortfolioAssets() {
     }
   }
 
+  async function editAsset(assetId: string, payload: PortfolioAssetInput) {
+    try {
+      await updatePortfolioAsset(assetId, payload);
+    } catch (error) {
+      const message = getFirebaseAssetsErrorMessage(error);
+      setState((current) => ({
+        ...current,
+        error: message,
+      }));
+      throw new Error(message);
+    }
+  }
+
   return {
     ...state,
     isEmpty: state.status === 'ready' && state.holdings.length === 0,
     addAsset,
+    editAsset,
   };
 }
