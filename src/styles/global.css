@@ -1089,14 +1089,14 @@ h3 {
 
 .holdings-table {
   width: 100%;
-  min-width: 940px;
+  min-width: 760px;
   border-collapse: separate;
   border-spacing: 0;
 }
 
 .holdings-table th,
 .holdings-table td {
-  padding: 0.85rem 0.9rem;
+  padding: 0.62rem 0.65rem;
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid rgba(118, 96, 77, 0.1);
@@ -1106,8 +1106,8 @@ h3 {
   position: sticky;
   top: 0;
   z-index: 2;
-  font-size: 0.78rem;
-  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-muted);
   background: rgba(245, 239, 231, 0.96);
@@ -1143,12 +1143,13 @@ h3 {
 .asset-primary {
   display: flex;
   flex-direction: column;
-  gap: 0.22rem;
-  min-width: 12rem;
+  gap: 0.15rem;
+  min-width: 9rem;
 }
 
 .asset-primary strong {
-  font-size: 0.98rem;
+  font-size: 0.92rem;
+  line-height: 1.15;
 }
 
 .asset-primary span,
@@ -1158,8 +1159,26 @@ h3 {
 
 .table-subtext {
   display: block;
-  margin-top: 0.18rem;
-  font-size: 0.84rem;
+  margin-top: 0.12rem;
+  font-size: 0.76rem;
+}
+
+.table-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.table-metric-primary {
+  font-size: 0.92rem;
+  line-height: 1.15;
+  font-weight: 700;
+}
+
+.table-metric-secondary {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  line-height: 1.1;
 }
 
 .holdings-table strong[data-tone="positive"] {
@@ -1173,12 +1192,12 @@ h3 {
 .table-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 1.8rem;
-  padding: 0.3rem 0.65rem;
+  min-height: 1.55rem;
+  padding: 0.22rem 0.5rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.78);
   border: 1px solid rgba(118, 96, 77, 0.12);
-  font-size: 0.76rem;
+  font-size: 0.7rem;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -1190,13 +1209,14 @@ h3 {
 
 .table-action-button {
   white-space: nowrap;
-  padding: 0.6rem 0.85rem;
+  padding: 0.42rem 0.6rem;
+  font-size: 0.74rem;
 }
 
 .table-action-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
+  gap: 0.3rem;
   align-items: stretch;
 }
 
@@ -1399,7 +1419,7 @@ h3 {
 
   .holdings-table th,
   .holdings-table td {
-    padding: 0.9rem 1rem;
+    padding: 0.68rem 0.76rem;
   }
 }
 

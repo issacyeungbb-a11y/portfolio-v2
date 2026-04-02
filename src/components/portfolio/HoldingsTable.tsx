@@ -32,10 +32,8 @@ export function HoldingsTable({
           <thead>
             <tr>
               <th>資產</th>
-              <th>現價</th>
-              <th>持倉</th>
-              <th>市值</th>
-              <th>平均成本</th>
+              <th>市值 / 數量</th>
+              <th>現價 / 成本</th>
               <th>損益</th>
               <th>比重</th>
               <th>類型</th>
@@ -46,7 +44,7 @@ export function HoldingsTable({
           <tbody>
             {holdings.length === 0 ? (
               <tr>
-                <td className="table-empty" colSpan={10}>
+                <td className="table-empty" colSpan={8}>
                   目前沒有符合條件的資產，你可以調整篩選或手動新增一筆資產。
                 </td>
               </tr>
@@ -74,24 +72,41 @@ export function HoldingsTable({
                 <tr key={holding.id}>
                   <td className="asset-cell asset-cell-sticky">
                     <div className="asset-primary">
-                      <strong>{holding.symbol}</strong>
-                      <span>{holding.name}</span>
+                      <strong>{holding.name}</strong>
+                      <span>{holding.symbol}</span>
                     </div>
                   </td>
-                  <td>{hasPendingPrice ? '待更新' : formatCurrency(currentPrice, displayCurrency)}</td>
-                  <td>{holding.quantity}</td>
-                  <td>{hasPendingPrice ? '待更新' : formatCurrency(marketValue, displayCurrency)}</td>
-                  <td>{formatCurrency(averageCost, displayCurrency)}</td>
+                  <td>
+                    <div className="table-metric">
+                      <strong className="table-metric-primary">
+                        {hasPendingPrice ? '待更新' : formatCurrency(marketValue, displayCurrency)}
+                      </strong>
+                      <span className="table-metric-secondary">{holding.quantity}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="table-metric">
+                      <strong className="table-metric-primary">
+                        {hasPendingPrice ? '待更新' : formatCurrency(currentPrice, displayCurrency)}
+                      </strong>
+                      <span className="table-metric-secondary">
+                        {formatCurrency(averageCost, displayCurrency)}
+                      </span>
+                    </div>
+                  </td>
                   <td>
                     {hasPendingPrice ? (
-                      <span className="table-subtext">待更新</span>
+                      <div className="table-metric">
+                        <strong className="table-metric-primary">待更新</strong>
+                        <span className="table-metric-secondary">--</span>
+                      </div>
                     ) : (
-                      <>
-                        <strong data-tone={pnlTone}>
+                      <div className="table-metric">
+                        <strong className="table-metric-primary" data-tone={pnlTone}>
                           {formatCurrency(unrealizedPnl, displayCurrency)}
                         </strong>
-                        <span className="table-subtext">{formatPercent(unrealizedPct)}</span>
-                      </>
+                        <span className="table-metric-secondary">{formatPercent(unrealizedPct)}</span>
+                      </div>
                     )}
                   </td>
                   <td>{holding.allocation.toFixed(1)}%</td>
