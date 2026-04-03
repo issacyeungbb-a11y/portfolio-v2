@@ -67,6 +67,7 @@ export function AssetsPage() {
     isEmpty,
     addAsset,
     editAsset,
+    removeAsset,
   } = usePortfolioAssets();
   const {
     reviews,
@@ -79,11 +80,13 @@ export function AssetsPage() {
   } = usePriceUpdateReviews();
   const [assetFilter, setAssetFilter] = useState<AssetType | 'all'>('all');
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
-  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
+  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('USD');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSavingAsset, setIsSavingAsset] = useState(false);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [isEditingAsset, setIsEditingAsset] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isDeletingAsset, setIsDeletingAsset] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isUpdatingAllPrices, setIsUpdatingAllPrices] = useState(false);
   const [isBulkUpdateConfirmOpen, setIsBulkUpdateConfirmOpen] = useState(false);
@@ -189,6 +192,32 @@ export function AssetsPage() {
         : new Error(message);
     } finally {
       setIsEditingAsset(false);
+    }
+  }
+
+  async function handleDeleteHolding() {
+    if (!editingHolding) {
+      return;
+    }
+
+    setIsDeletingAsset(true);
+    setSaveError(null);
+
+    try {
+      await removeAsset(editingHolding.id);
+      setIsDeleteConfirmOpen(false);
+      setEditingHolding(null);
+    } catch (submissionError) {
+      const message =
+        submissionError instanceof Error
+          ? submissionError.message
+          : '刪除資產失敗，請稍後再試。';
+      setSaveError(message);
+      throw submissionError instanceof Error
+        ? submissionError
+        : new Error(message);
+    } finally {
+      setIsDeletingAsset(false);
     }
   }
 
@@ -334,18 +363,25 @@ export function AssetsPage() {
         <div className="button-row">
           <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
             <button
-              className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('HKD')}
-            >
-              HKD
-            </button>
-            <button
               className={displayCurrency === 'USD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
               type="button"
               onClick={() => setDisplayCurrency('USD')}
             >
               USD
+            </button>
+            <button
+              className={displayCurrency === 'JPY' ? 'currency-toggle-button active' : 'currency-toggle-button'}
+              type="button"
+              onClick={() => setDisplayCurrency('JPY')}
+            >
+              JPY
+            </button>
+            <button
+              className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
+              type="button"
+              onClick={() => setDisplayCurrency('HKD')}
+            >
+              HKD
             </button>
           </div>
           <button
@@ -461,14 +497,57 @@ export function AssetsPage() {
               title={`編輯 ${editingHolding.symbol}`}
               submitLabel="儲存變更"
               cancelLabel="關閉"
+              deleteLabel="刪除資產"
               onSubmit={handleEditHolding}
+              onDelete={() => setIsDeleteConfirmOpen(true)}
               onCancel={() => {
                 setSaveError(null);
+                setIsDeleteConfirmOpen(false);
                 setEditingHolding(null);
               }}
               isSubmitting={isEditingAsset}
+              isDeleting={isDeletingAsset}
               error={saveError}
             />
+          </div>
+        </div>
+      ) : null}
+
+      {isDeleteConfirmOpen && editingHolding ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-asset-title"
+          >
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Warning</p>
+                <h2 id="delete-asset-title">是否刪除資產？</h2>
+              </div>
+            </div>
+            <p className="status-message status-message-error">
+              會刪除 {editingHolding.name} ({editingHolding.symbol})。
+            </p>
+            <div className="button-row">
+              <button
+                className="button button-secondary button-danger-text"
+                type="button"
+                onClick={handleDeleteHolding}
+                disabled={isDeletingAsset}
+              >
+                {isDeletingAsset ? '刪除中...' : '確認刪除'}
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setIsDeleteConfirmOpen(false)}
+                disabled={isDeletingAsset}
+              >
+                取消
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

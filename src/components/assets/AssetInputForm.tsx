@@ -11,11 +11,14 @@ import type { AccountSource, AssetType, PortfolioAssetInput } from '../../types/
 interface AssetInputFormProps {
   onSubmit: (payload: PortfolioAssetInput) => Promise<void> | void;
   onCancel: () => void;
+  onDelete?: () => Promise<void> | void;
   isSubmitting?: boolean;
+  isDeleting?: boolean;
   error?: string | null;
   title?: string;
   submitLabel?: string;
   cancelLabel?: string;
+  deleteLabel?: string;
   initialValue?: PortfolioAssetInput | null;
 }
 
@@ -47,11 +50,14 @@ const accountSourceOptions: AccountSource[] = ['Futu', 'IB', 'Crypto', 'Other'];
 export function AssetInputForm({
   onSubmit,
   onCancel,
+  onDelete,
   isSubmitting = false,
+  isDeleting = false,
   error = null,
   title = '輸入資產',
   submitLabel = '加入資產',
   cancelLabel = '取消',
+  deleteLabel = '刪除資產',
   initialValue = null,
 }: AssetInputFormProps) {
   const [form, setForm] = useState<AssetFormState>(() =>
@@ -274,11 +280,21 @@ export function AssetInputForm({
           <button className="button button-primary" type="submit" disabled={isSubmitting}>
             {isSubmitting ? '儲存中...' : submitLabel}
           </button>
+          {onDelete ? (
+            <button
+              className="button button-secondary button-danger-text"
+              type="button"
+              onClick={() => onDelete()}
+              disabled={isSubmitting || isDeleting}
+            >
+              {isDeleting ? '刪除中...' : deleteLabel}
+            </button>
+          ) : null}
           <button
             className="button button-secondary"
             type="button"
             onClick={onCancel}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isDeleting}
           >
             {cancelLabel}
           </button>

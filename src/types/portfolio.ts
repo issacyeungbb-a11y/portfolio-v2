@@ -1,7 +1,7 @@
 export type AssetType = 'stock' | 'etf' | 'bond' | 'crypto' | 'cash';
 export type AccountSource = 'Futu' | 'IB' | 'Crypto' | 'Other';
 export type PerformanceRange = '7d' | '30d' | '6m' | '1y';
-export type DisplayCurrency = 'HKD' | 'USD';
+export type DisplayCurrency = 'HKD' | 'USD' | 'JPY';
 export type AllocationBucketKey = AssetType;
 export type InsightTone = 'positive' | 'neutral' | 'caution';
 export type ImportStatus = 'completed' | 'processing' | 'review';

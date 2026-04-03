@@ -1,5 +1,6 @@
 import {
   addDoc,
+  deleteDoc,
   doc,
   onSnapshot,
   orderBy,
@@ -206,6 +207,19 @@ export async function updatePortfolioAsset(assetId: string, payload: PortfolioAs
     ...normalized,
     updatedAt: serverTimestamp(),
   });
+
+  await capturePortfolioSnapshot({
+    reason: 'snapshot',
+  });
+}
+
+export async function deletePortfolioAsset(assetId: string) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
+  await deleteDoc(assetRef);
 
   await capturePortfolioSnapshot({
     reason: 'snapshot',

@@ -25,3 +25,4 @@ export declare function subscribeToPortfolioAssets(onData: (holdings: Holding[])
 export declare function createPortfolioAsset(payload: PortfolioAssetInput): Promise<void>;
 export declare function createPortfolioAssets(payloads: PortfolioAssetInput[]): Promise<void>;
 export declare function updatePortfolioAsset(assetId: string, payload: PortfolioAssetInput): Promise<void>;
+export declare function deletePortfolioAsset(assetId: string): Promise<void>;

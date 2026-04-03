@@ -1,4 +1,4 @@
-import { addDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc, writeBatch, } from 'firebase/firestore';
+import { addDoc, deleteDoc, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc, writeBatch, } from 'firebase/firestore';
 import { convertCurrency } from '../../data/mockPortfolio';
 import { getEffectiveHoldingPrice } from '../portfolio/priceValidity';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
@@ -135,6 +135,16 @@ export async function updatePortfolioAsset(assetId, payload) {
         ...normalized,
         updatedAt: serverTimestamp(),
     });
+    await capturePortfolioSnapshot({
+        reason: 'snapshot',
+    });
+}
+export async function deletePortfolioAsset(assetId) {
+    if (!hasFirebaseConfig) {
+        throw createMissingConfigError();
+    }
+    const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
+    await deleteDoc(assetRef);
     await capturePortfolioSnapshot({
         reason: 'snapshot',
     });

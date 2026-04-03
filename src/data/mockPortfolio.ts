@@ -14,6 +14,7 @@ import type {
 const FX_TO_HKD: Record<string, number> = {
   HKD: 1,
   USD: 7.8,
+  JPY: 0.052,
 };
 
 const bucketMeta: Record<AllocationBucketKey, { label: string; color: string }> = {

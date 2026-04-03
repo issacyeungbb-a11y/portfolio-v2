@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { Holding, PortfolioAssetInput } from '../types/portfolio';
 import {
   createPortfolioAsset,
+  deletePortfolioAsset,
   getFirebaseAssetsErrorMessage,
   subscribeToPortfolioAssets,
   updatePortfolioAsset,
@@ -76,10 +77,24 @@ export function usePortfolioAssets() {
     }
   }
 
+  async function removeAsset(assetId: string) {
+    try {
+      await deletePortfolioAsset(assetId);
+    } catch (error) {
+      const message = getFirebaseAssetsErrorMessage(error);
+      setState((current) => ({
+        ...current,
+        error: message,
+      }));
+      throw new Error(message);
+    }
+  }
+
   return {
     ...state,
     isEmpty: state.status === 'ready' && state.holdings.length === 0,
     addAsset,
     editAsset,
+    removeAsset,
   };
 }
