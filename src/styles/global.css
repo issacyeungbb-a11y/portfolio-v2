@@ -1173,10 +1173,6 @@ h3 {
   overflow-x: auto;
 }
 
-.holdings-mobile-list {
-  display: none;
-}
-
 .holdings-table {
   width: 100%;
   min-width: 760px;
@@ -1416,72 +1412,6 @@ h3 {
   .filter-chip {
     padding: 0.62rem 0.8rem;
     font-size: 0.84rem;
-  }
-
-  .holdings-table-desktop {
-    display: none;
-  }
-
-  .holdings-mobile-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-    padding: 0.65rem;
-  }
-
-  .holding-mobile-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 0.78rem 0.8rem;
-    border-radius: 1.05rem;
-    border: 1px solid rgba(118, 96, 77, 0.08);
-    background: rgba(255, 253, 249, 0.92);
-  }
-
-  .holding-mobile-top,
-  .holding-mobile-footer {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.8rem;
-  }
-
-  .holding-mobile-pnl {
-    text-align: right;
-    margin-left: auto;
-  }
-
-  .holding-mobile-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.72rem;
-  }
-
-  .holding-mobile-label {
-    color: var(--text-muted);
-    font-size: 0.7rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
-  .holding-mobile-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.35rem;
-  }
-
-  .holding-mobile-actions {
-    flex-shrink: 0;
-  }
-
-  .holding-mobile-actions .table-action-button {
-    padding-inline: 0.62rem;
-  }
-
-  .holdings-mobile-empty {
-    margin: 0;
   }
 
   .form-actions {
