@@ -17,6 +17,23 @@ const FX_TO_HKD: Record<string, number> = {
   JPY: 0.052,
 };
 
+const CURRENCY_ALIASES: Record<string, string> = {
+  HK$: 'HKD',
+  HKD: 'HKD',
+  USD: 'USD',
+  US$: 'USD',
+  JPY: 'JPY',
+  JPY100: 'JPY',
+  YEN: 'JPY',
+  YENS: 'JPY',
+  '¥': 'JPY',
+  '￥': 'JPY',
+  '円': 'JPY',
+  '日圓': 'JPY',
+  '日元': 'JPY',
+  '日幣': 'JPY',
+};
+
 const bucketMeta: Record<AllocationBucketKey, { label: string; color: string }> = {
   stock: { label: '股票', color: '#0f766e' },
   etf: { label: 'ETF', color: '#d97706' },
@@ -221,10 +238,13 @@ function shiftDate(date: Date, range: PerformanceRange) {
 }
 
 export function convertCurrency(amount: number, fromCurrency: string, toCurrency: string) {
-  if (fromCurrency === toCurrency) return amount;
+  const normalizedFromCurrency = normalizeCurrencyCode(fromCurrency);
+  const normalizedToCurrency = normalizeCurrencyCode(toCurrency);
 
-  const fromRate = FX_TO_HKD[fromCurrency];
-  const toRate = FX_TO_HKD[toCurrency];
+  if (normalizedFromCurrency === normalizedToCurrency) return amount;
+
+  const fromRate = FX_TO_HKD[normalizedFromCurrency];
+  const toRate = FX_TO_HKD[normalizedToCurrency];
 
   if (!fromRate || !toRate) return amount;
 
@@ -233,17 +253,24 @@ export function convertCurrency(amount: number, fromCurrency: string, toCurrency
 }
 
 export function formatCurrency(value: number, currency: string) {
+  const normalizedCurrency = normalizeCurrencyCode(currency);
+
   try {
     return new Intl.NumberFormat('zh-HK', {
       style: 'currency',
-      currency,
-      maximumFractionDigits: currency === 'JPY' ? 0 : 2,
+      currency: normalizedCurrency,
+      maximumFractionDigits: normalizedCurrency === 'JPY' ? 0 : 2,
     }).format(value);
   } catch {
     return `${new Intl.NumberFormat('zh-HK', {
       maximumFractionDigits: 2,
-    }).format(value)} ${currency}`.trim();
+    }).format(value)} ${normalizedCurrency}`.trim();
   }
+}
+
+export function normalizeCurrencyCode(currency: string) {
+  const normalized = currency.trim().toUpperCase().replace(/\s+/g, '');
+  return CURRENCY_ALIASES[normalized] ?? normalized;
 }
 
 export function formatPercent(value: number) {
