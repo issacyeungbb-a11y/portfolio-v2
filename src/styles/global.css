@@ -1125,6 +1125,38 @@ h3 {
   backdrop-filter: blur(10px);
 }
 
+.table-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.table-sort-indicator {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.table-sort-button:hover,
+.table-sort-button:focus-visible {
+  color: var(--text-main);
+}
+
+.table-sort-button:focus-visible {
+  outline: 2px solid rgba(15, 118, 110, 0.24);
+  outline-offset: 0.18rem;
+  border-radius: 0.35rem;
+}
+
 .holdings-table tbody tr:last-child td {
   border-bottom: none;
 }

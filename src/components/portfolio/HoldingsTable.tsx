@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import {
   convertCurrency,
   getAccountSourceLabel,
@@ -18,6 +20,17 @@ interface HoldingsTableProps {
   updatingAssetIds?: string[];
 }
 
+type HoldingsSortKey =
+  | 'name'
+  | 'marketValue'
+  | 'currentPrice'
+  | 'unrealizedPnl'
+  | 'allocation'
+  | 'assetType'
+  | 'accountSource';
+
+type HoldingsSortDirection = 'asc' | 'desc';
+
 export function HoldingsTable({
   holdings,
   displayCurrency,
@@ -25,19 +38,121 @@ export function HoldingsTable({
   onEdit,
   updatingAssetIds = [],
 }: HoldingsTableProps) {
+  const [sortKey, setSortKey] = useState<HoldingsSortKey>('marketValue');
+  const [sortDirection, setSortDirection] = useState<HoldingsSortDirection>('desc');
+
+  function handleSort(nextKey: HoldingsSortKey) {
+    if (sortKey === nextKey) {
+      setSortDirection((current) => (current === 'desc' ? 'asc' : 'desc'));
+      return;
+    }
+
+    setSortKey(nextKey);
+    setSortDirection(nextKey === 'name' || nextKey === 'assetType' || nextKey === 'accountSource' ? 'asc' : 'desc');
+  }
+
+  function getSortIndicator(key: HoldingsSortKey) {
+    if (sortKey !== key) {
+      return '↕';
+    }
+
+    return sortDirection === 'desc' ? '↓' : '↑';
+  }
+
+  const sortedHoldings = [...holdings].sort((left, right) => {
+    const leftMarketValue = getHoldingValueInCurrency(left, displayCurrency);
+    const rightMarketValue = getHoldingValueInCurrency(right, displayCurrency);
+    const leftCurrentPrice = convertCurrency(left.currentPrice, left.currency, displayCurrency);
+    const rightCurrentPrice = convertCurrency(right.currentPrice, right.currency, displayCurrency);
+    const leftCost = getHoldingCostInCurrency(left, displayCurrency);
+    const rightCost = getHoldingCostInCurrency(right, displayCurrency);
+    const leftPnl = leftMarketValue - leftCost;
+    const rightPnl = rightMarketValue - rightCost;
+
+    let comparison = 0;
+
+    switch (sortKey) {
+      case 'name':
+        comparison = left.symbol.localeCompare(right.symbol, 'en', { sensitivity: 'base' });
+        break;
+      case 'marketValue':
+        comparison = leftMarketValue - rightMarketValue;
+        break;
+      case 'currentPrice':
+        comparison = leftCurrentPrice - rightCurrentPrice;
+        break;
+      case 'unrealizedPnl':
+        comparison = leftPnl - rightPnl;
+        break;
+      case 'allocation':
+        comparison = left.allocation - right.allocation;
+        break;
+      case 'assetType':
+        comparison = getAssetTypeLabel(left.assetType).localeCompare(getAssetTypeLabel(right.assetType), 'zh-HK');
+        break;
+      case 'accountSource':
+        comparison = getAccountSourceLabel(left.accountSource).localeCompare(
+          getAccountSourceLabel(right.accountSource),
+          'zh-HK',
+        );
+        break;
+    }
+
+    if (comparison === 0) {
+      comparison = left.symbol.localeCompare(right.symbol, 'en', { sensitivity: 'base' });
+    }
+
+    return sortDirection === 'desc' ? -comparison : comparison;
+  });
+
   return (
     <div className="holdings-table-shell">
       <div className="table-scroll">
         <table className="holdings-table">
           <thead>
             <tr>
-              <th>資產</th>
-              <th>市值 / 數量</th>
-              <th>現價 / 成本</th>
-              <th>損益</th>
-              <th>比重</th>
-              <th>類型</th>
-              <th>帳戶</th>
+              <th>
+                <button className="table-sort-button" type="button" onClick={() => handleSort('name')}>
+                  資產
+                  <span className="table-sort-indicator">{getSortIndicator('name')}</span>
+                </button>
+              </th>
+              <th>
+                <button className="table-sort-button" type="button" onClick={() => handleSort('marketValue')}>
+                  市值 / 數量
+                  <span className="table-sort-indicator">{getSortIndicator('marketValue')}</span>
+                </button>
+              </th>
+              <th>
+                <button className="table-sort-button" type="button" onClick={() => handleSort('currentPrice')}>
+                  現價 / 成本
+                  <span className="table-sort-indicator">{getSortIndicator('currentPrice')}</span>
+                </button>
+              </th>
+              <th>
+                <button className="table-sort-button" type="button" onClick={() => handleSort('unrealizedPnl')}>
+                  損益
+                  <span className="table-sort-indicator">{getSortIndicator('unrealizedPnl')}</span>
+                </button>
+              </th>
+              <th>
+                <button className="table-sort-button" type="button" onClick={() => handleSort('allocation')}>
+                  比重
+                  <span className="table-sort-indicator">{getSortIndicator('allocation')}</span>
+                </button>
+              </th>
+              <th>
+                <button className="table-sort-button" type="button" onClick={() => handleSort('assetType')}>
+                  類型
+                  <span className="table-sort-indicator">{getSortIndicator('assetType')}</span>
+                </button>
+              </th>
+              <th>
+                <button className="table-sort-button" type="button" onClick={() => handleSort('accountSource')}>
+                  帳戶
+                  <span className="table-sort-indicator">{getSortIndicator('accountSource')}</span>
+                </button>
+              </th>
               <th>操作</th>
             </tr>
           </thead>
@@ -49,7 +164,7 @@ export function HoldingsTable({
                 </td>
               </tr>
             ) : null}
-            {holdings.map((holding) => {
+            {sortedHoldings.map((holding) => {
               const isUpdating = updatingAssetIds.includes(holding.id);
               const hasPendingPrice = !hasValidHoldingPrice(holding);
               const averageCost = convertCurrency(
