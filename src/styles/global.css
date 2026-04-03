@@ -1215,9 +1215,10 @@ h3 {
 
 .table-action-stack {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 0.3rem;
-  align-items: stretch;
+  align-items: center;
 }
 
 .modal-card-wide {
