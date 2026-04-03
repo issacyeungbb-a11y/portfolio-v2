@@ -90,6 +90,7 @@ export function AssetsPage() {
   const [updatingAssetIds, setUpdatingAssetIds] = useState<string[]>([]);
   const [priceUpdateError, setPriceUpdateError] = useState<string | null>(null);
   const [priceUpdateSuccess, setPriceUpdateSuccess] = useState<string | null>(null);
+  const [priceUpdateModel, setPriceUpdateModel] = useState<string | null>(null);
   const [confirmingAssetIds, setConfirmingAssetIds] = useState<string[]>([]);
   const [dismissingAssetIds, setDismissingAssetIds] = useState<string[]>([]);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
@@ -229,6 +230,7 @@ export function AssetsPage() {
         'update-prices',
         buildPriceUpdateRequest(targetHoldings),
       )) as PriceUpdateResponse;
+      setPriceUpdateModel(response.model);
       const validResults = response.results.filter(
         (review) => review.price != null && review.price > 0 && !review.invalidReason,
       );
@@ -314,6 +316,9 @@ export function AssetsPage() {
               <h2>手動管理資產</h2>
               <div className="assets-price-status" aria-label="價格更新狀態">
                 <span className="assets-price-status-label">更新價格</span>
+                {priceUpdateModel ? (
+                  <span className="assets-price-status-item">模型 {priceUpdateModel}</span>
+                ) : null}
                 <span className="assets-price-status-item">最近 {latestUpdateLabel}</span>
                 <span className="assets-price-status-item">
                   已同步 {pricedHoldingsCount}/{nonCashHoldings.length || 0}

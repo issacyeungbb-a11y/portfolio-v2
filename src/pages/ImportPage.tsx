@@ -281,6 +281,11 @@ export function ImportPage() {
           <h2>截圖轉資產資料</h2>
         </div>
         <div className="upload-dropzone">
+          {extractResponse ? (
+            <span className="chip chip-strong">模型 {extractResponse.model}</span>
+          ) : (
+            <span className="chip chip-soft">模型 gemini-2.5-flash-lite</span>
+          )}
           <strong>上傳單張截圖</strong>
           <label className="button button-secondary upload-button">
             選擇圖片

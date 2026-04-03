@@ -226,6 +226,9 @@ export function AnalysisPage() {
         <div className="analysis-action-panel">
           <div className="analysis-action-copy">
             <span className="chip chip-soft">目前資產 {holdings.length} 項</span>
+            <span className={displayedAnalysis?.model ? 'chip chip-strong' : 'chip chip-soft'}>
+              模型 {displayedAnalysis?.model ?? 'gemini-2.5-pro'}
+            </span>
           </div>
 
           <div className="button-row">
