@@ -57,6 +57,10 @@ Keep the existing Firebase Web SDK variables:
 - `users/{uid}/priceUpdateReviews/{assetId}`
 - `users/{uid}/analysisCache/{snapshotHash}`
 
+For the shared portfolio path now in use, asset delete also requires published rules allowing:
+
+- `portfolio/app/assets/{assetId}` -> `delete`
+
 ## 6. Still to add later
 
 When you implement screenshot import history or Storage-backed uploads, add rules for:
