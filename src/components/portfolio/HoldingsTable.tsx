@@ -105,9 +105,37 @@ export function HoldingsTable({
     return sortDirection === 'desc' ? -comparison : comparison;
   });
 
+  function renderPnlMetric(
+    marketValue: number,
+    costValue: number,
+    hasPendingPrice: boolean,
+  ) {
+    const unrealizedPnl = marketValue - costValue;
+    const unrealizedPct = costValue === 0 ? 0 : (unrealizedPnl / costValue) * 100;
+    const pnlTone = unrealizedPnl >= 0 ? 'positive' : 'caution';
+
+    if (hasPendingPrice) {
+      return (
+        <div className="table-metric">
+          <strong className="table-metric-primary">待更新</strong>
+          <span className="table-metric-secondary">--</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className="table-metric">
+        <strong className="table-metric-primary" data-tone={pnlTone}>
+          {formatCurrency(unrealizedPnl, displayCurrency)}
+        </strong>
+        <span className="table-metric-secondary">{formatPercent(unrealizedPct)}</span>
+      </div>
+    );
+  }
+
   return (
     <div className="holdings-table-shell">
-      <div className="table-scroll">
+      <div className="table-scroll holdings-table-desktop">
         <table className="holdings-table">
           <thead>
             <tr>
@@ -179,9 +207,6 @@ export function HoldingsTable({
               );
               const marketValue = getHoldingValueInCurrency(holding, displayCurrency);
               const costValue = getHoldingCostInCurrency(holding, displayCurrency);
-              const unrealizedPnl = marketValue - costValue;
-              const unrealizedPct = costValue === 0 ? 0 : (unrealizedPnl / costValue) * 100;
-              const pnlTone = unrealizedPnl >= 0 ? 'positive' : 'caution';
 
               return (
                 <tr key={holding.id}>
@@ -210,19 +235,7 @@ export function HoldingsTable({
                     </div>
                   </td>
                   <td>
-                    {hasPendingPrice ? (
-                      <div className="table-metric">
-                        <strong className="table-metric-primary">待更新</strong>
-                        <span className="table-metric-secondary">--</span>
-                      </div>
-                    ) : (
-                      <div className="table-metric">
-                        <strong className="table-metric-primary" data-tone={pnlTone}>
-                          {formatCurrency(unrealizedPnl, displayCurrency)}
-                        </strong>
-                        <span className="table-metric-secondary">{formatPercent(unrealizedPct)}</span>
-                      </div>
-                    )}
+                    {renderPnlMetric(marketValue, costValue, hasPendingPrice)}
                   </td>
                   <td>{holding.allocation.toFixed(1)}%</td>
                   <td>
@@ -258,6 +271,83 @@ export function HoldingsTable({
             })}
           </tbody>
         </table>
+      </div>
+
+      <div className="holdings-mobile-list">
+        {holdings.length === 0 ? (
+          <div className="table-empty holdings-mobile-empty">
+            目前沒有符合條件的資產，你可以調整篩選或手動新增一筆資產。
+          </div>
+        ) : null}
+        {sortedHoldings.map((holding) => {
+          const isUpdating = updatingAssetIds.includes(holding.id);
+          const hasPendingPrice = !hasValidHoldingPrice(holding);
+          const averageCost = convertCurrency(holding.averageCost, holding.currency, displayCurrency);
+          const currentPrice = convertCurrency(holding.currentPrice, holding.currency, displayCurrency);
+          const marketValue = getHoldingValueInCurrency(holding, displayCurrency);
+          const costValue = getHoldingCostInCurrency(holding, displayCurrency);
+
+          return (
+            <article key={holding.id} className="holding-mobile-card">
+              <div className="holding-mobile-top">
+                <div className="asset-primary">
+                  <strong>{holding.name}</strong>
+                  <span>{holding.symbol}</span>
+                </div>
+                <div className="holding-mobile-pnl">
+                  {renderPnlMetric(marketValue, costValue, hasPendingPrice)}
+                </div>
+              </div>
+
+              <div className="holding-mobile-grid">
+                <div className="table-metric">
+                  <span className="holding-mobile-label">市值 / 數量</span>
+                  <strong className="table-metric-primary">
+                    {hasPendingPrice ? '待更新' : formatCurrency(marketValue, displayCurrency)}
+                  </strong>
+                  <span className="table-metric-secondary">{holding.quantity}</span>
+                </div>
+                <div className="table-metric">
+                  <span className="holding-mobile-label">現價 / 成本</span>
+                  <strong className="table-metric-primary">
+                    {hasPendingPrice ? '待更新' : formatCurrency(currentPrice, displayCurrency)}
+                  </strong>
+                  <span className="table-metric-secondary">
+                    {formatCurrency(averageCost, displayCurrency)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="holding-mobile-footer">
+                <div className="holding-mobile-tags">
+                  <span className="table-chip">{getAssetTypeLabel(holding.assetType)}</span>
+                  <span className="table-chip table-chip-strong">
+                    {getAccountSourceLabel(holding.accountSource)}
+                  </span>
+                  <span className="table-chip">{holding.allocation.toFixed(1)}%</span>
+                </div>
+                <div className="table-action-stack holding-mobile-actions">
+                  <button
+                    className="button button-secondary table-action-button"
+                    type="button"
+                    onClick={() => onUpdatePrice?.(holding)}
+                    disabled={!onUpdatePrice || isUpdating}
+                  >
+                    {isUpdating ? '更新中...' : '更新'}
+                  </button>
+                  <button
+                    className="button button-secondary table-action-button"
+                    type="button"
+                    onClick={() => onEdit?.(holding)}
+                    disabled={!onEdit || isUpdating}
+                  >
+                    編輯
+                  </button>
+                </div>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </div>
   );

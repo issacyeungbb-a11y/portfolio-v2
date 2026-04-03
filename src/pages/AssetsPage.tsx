@@ -146,6 +146,9 @@ export function AssetsPage() {
   const staleRatio =
     nonCashHoldings.length === 0 ? 0 : Math.round((pendingPriceCount / nonCashHoldings.length) * 100);
   const latestUpdateLabel = formatLatestPriceUpdate(latestValidPriceUpdate);
+  const coverageLabel =
+    nonCashHoldings.length === 0 ? '未有可更新資產' : `${100 - staleRatio}% 已同步`;
+  const activeFilterLabel = `${getAssetTypeLabel(assetFilter)} · ${getAccountSourceLabel(accountFilter)}`;
 
   async function handleAddHolding(payload: PortfolioAssetInput) {
     setIsSavingAsset(true);
@@ -337,30 +340,33 @@ export function AssetsPage() {
 
   return (
     <div className="page-stack">
-      <section className="hero-panel">
-        <div className="assets-hero-header">
-          <div>
+      <section className="card assets-toolbar">
+        <div className="assets-toolbar-main">
+          <div className="assets-toolbar-copy">
             <p className="eyebrow">Assets</p>
-            <div className="assets-title-row">
+            <div className="assets-toolbar-heading">
               <h2>手動管理資產</h2>
-              <div className="assets-price-status" aria-label="價格更新狀態">
-                <span className="assets-price-status-label">更新價格</span>
-                {priceUpdateModel ? (
-                  <span className="assets-price-status-item">模型 {priceUpdateModel}</span>
-                ) : null}
-                <span className="assets-price-status-item">最近 {latestUpdateLabel}</span>
-                <span className="assets-price-status-item">
-                  已同步 {pricedHoldingsCount}/{nonCashHoldings.length || 0}
-                </span>
-                <span className="assets-price-status-item">待更新 {pendingPriceCount}</span>
-                {hasPendingReviews ? (
-                  <span className="assets-price-status-item">待處理 {reviews.length}</span>
-                ) : null}
-              </div>
+              <span className="assets-toolbar-subtle">
+                {filteredHoldings.length} 項 · {activeFilterLabel}
+              </span>
             </div>
           </div>
+          <div className="assets-price-status" aria-label="價格更新狀態">
+            <span className="assets-price-status-label">更新價格</span>
+            <span className="assets-price-status-item">最近 {latestUpdateLabel}</span>
+            <span className="assets-price-status-item">{coverageLabel}</span>
+            <span className="assets-price-status-item">待更新 {pendingPriceCount}</span>
+            {hasPendingReviews ? (
+              <span className="assets-price-status-item">待處理 {reviews.length}</span>
+            ) : null}
+            {priceUpdateModel ? (
+              <span className="assets-price-status-item assets-model-badge">
+                {priceUpdateModel}
+              </span>
+            ) : null}
+          </div>
         </div>
-        <div className="button-row">
+        <div className="assets-toolbar-actions">
           <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
             <button
               className={displayCurrency === 'USD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
@@ -444,30 +450,27 @@ export function AssetsPage() {
 
       <section className="summary-grid">
         <SummaryCard
-          label="顯示結果"
-          value={`${filteredHoldings.length} 項`}
-          hint={
-            status === 'loading'
-              ? '正在從 Firestore 同步資產資料'
-              : `篩選後總值 ${formatCurrency(filteredValue, displayCurrency)}`
-          }
+          label={`總資產 ${displayCurrency}`}
+          value={formatCurrency(filteredValue, displayCurrency)}
+          hint={`${filteredHoldings.length} 項 · ${activeFilterLabel}`}
         />
         <SummaryCard
-          label={`資產類別總值 ${displayCurrency}`}
-          value={formatCurrency(assetTypeValue, displayCurrency)}
-          hint={`目前選擇：${getAssetTypeLabel(assetFilter)}`}
-        />
-        <SummaryCard
-          label={`篩選損益 ${displayCurrency}`}
+          label={`總損益 ${displayCurrency}`}
           value={formatCurrency(filteredPnl, displayCurrency)}
+          hint={`成本 ${formatCurrency(filteredCost, displayCurrency)}`}
+          tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
+        />
+        <SummaryCard
+          label="更新狀態"
+          value={coverageLabel}
           hint={
             hasPendingReviews
-              ? `待處理 ${reviews.length} 項，價格覆蓋率 ${100 - staleRatio}%`
+              ? `待處理 ${reviews.length} 項`
               : pendingPriceCount > 0
-                ? `待更新 ${pendingPriceCount} 項，價格覆蓋率 ${100 - staleRatio}%`
+                ? `待更新 ${pendingPriceCount} 項`
                 : `共 ${accountCount} 類帳戶來源`
           }
-          tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
+          tone={pendingPriceCount > 0 || hasPendingReviews ? 'caution' : 'positive'}
         />
       </section>
 
@@ -592,39 +595,45 @@ export function AssetsPage() {
           <p className="status-message">未有資產。</p>
         ) : null}
 
-        <div className="filter-row">
-          {assetFilterOptions.map((option) => (
-            <button
-              key={option.value}
-              className={assetFilter === option.value ? 'filter-chip active' : 'filter-chip'}
-              type="button"
-              onClick={() => setAssetFilter(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <p className="filter-total">
-          資產類別總值: {getAssetTypeLabel(assetFilter)} ·{' '}
-          {formatCurrency(assetTypeValue, displayCurrency)}
-        </p>
+        <div className="assets-filter-panel">
+          <div className="assets-filter-block">
+            <span className="assets-filter-label">資產類別</span>
+            <div className="filter-row">
+              {assetFilterOptions.map((option) => (
+                <button
+                  key={option.value}
+                  className={assetFilter === option.value ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  onClick={() => setAssetFilter(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="filter-total">
+              {getAssetTypeLabel(assetFilter)} · {formatCurrency(assetTypeValue, displayCurrency)}
+            </p>
+          </div>
 
-        <div className="filter-row">
-          {accountFilterOptions.map((option) => (
-            <button
-              key={option.value}
-              className={accountFilter === option.value ? 'filter-chip active' : 'filter-chip'}
-              type="button"
-              onClick={() => setAccountFilter(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
+          <div className="assets-filter-block">
+            <span className="assets-filter-label">帳戶來源</span>
+            <div className="filter-row">
+              {accountFilterOptions.map((option) => (
+                <button
+                  key={option.value}
+                  className={accountFilter === option.value ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  onClick={() => setAccountFilter(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="filter-total">
+              {getAccountSourceLabel(accountFilter)} · {formatCurrency(accountValue, displayCurrency)}
+            </p>
+          </div>
         </div>
-        <p className="filter-total">
-          帳戶來源總值: {getAccountSourceLabel(accountFilter)} ·{' '}
-          {formatCurrency(accountValue, displayCurrency)}
-        </p>
 
         <HoldingsTable
           holdings={filteredHoldings}
