@@ -890,17 +890,22 @@ h3 {
   display: grid;
   place-items: center;
   padding: 1rem;
+  overflow-y: auto;
   background: rgba(29, 26, 23, 0.28);
   backdrop-filter: blur(10px);
+  -webkit-overflow-scrolling: touch;
 }
 
 .modal-card {
   width: min(100%, 30rem);
+  max-height: calc(100dvh - 2rem);
   padding: 1rem;
   border: 1px solid var(--border);
   border-radius: 1.5rem;
   background: var(--surface-strong);
   box-shadow: var(--shadow);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .asset-form-panel {
@@ -1001,6 +1006,12 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+  position: sticky;
+  bottom: 0;
+  padding-top: 0.85rem;
+  padding-bottom: max(0.15rem, env(safe-area-inset-bottom));
+  background:
+    linear-gradient(180deg, rgba(255, 249, 242, 0) 0%, rgba(255, 249, 242, 0.92) 18%, rgba(255, 249, 242, 0.98) 100%);
 }
 
 .extract-meta-row {
@@ -1223,6 +1234,46 @@ h3 {
 
 .modal-card-wide {
   width: min(100%, 48rem);
+}
+
+@media (max-width: 720px) {
+  .modal-backdrop {
+    place-items: start center;
+    padding: 0.75rem;
+  }
+
+  .modal-card,
+  .modal-card-wide {
+    width: 100%;
+    max-height: calc(100dvh - 1.5rem);
+    border-radius: 1.2rem;
+  }
+
+  .asset-form-panel {
+    padding: 0.95rem;
+    border-radius: 1.25rem;
+  }
+
+  .section-heading {
+    gap: 0.75rem;
+  }
+
+  .section-heading h2 {
+    font-size: 1.75rem;
+  }
+
+  .table-hint {
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+
+  .form-actions {
+    gap: 0.55rem;
+  }
+
+  .form-actions .button {
+    flex: 1 1 calc(50% - 0.55rem);
+  }
 }
 
 .review-source-link {
