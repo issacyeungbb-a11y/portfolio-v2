@@ -3,6 +3,7 @@ import { getCurrentPortfolioAccessCode } from '../access/accessCode';
 export type PortfolioFunctionKey =
   | 'health'
   | 'extract-assets'
+  | 'parse-assets-command'
   | 'update-prices'
   | 'analyze';
 
@@ -12,6 +13,7 @@ export const portfolioFunctionConfig: Record<
 > = {
   health: { path: '/api/health', method: 'GET' },
   'extract-assets': { path: '/api/extract-assets', method: 'POST' },
+  'parse-assets-command': { path: '/api/parse-assets-command', method: 'POST' },
   'update-prices': { path: '/api/update-prices', method: 'POST' },
   analyze: { path: '/api/analyze', method: 'POST' },
 };

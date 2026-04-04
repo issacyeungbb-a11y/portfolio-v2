@@ -6,6 +6,10 @@ export interface ExtractAssetsRequest {
   imageBase64: string;
 }
 
+export interface ParseAssetsCommandRequest {
+  text: string;
+}
+
 export interface ExtractedAssetCandidate {
   name: string | null;
   ticker: string | null;
@@ -13,11 +17,20 @@ export interface ExtractedAssetCandidate {
   quantity: number | null;
   currency: string | null;
   costBasis: number | null;
+  currentPrice: number | null;
 }
 
 export interface ExtractAssetsResponse {
   ok: boolean;
   route: '/api/extract-assets';
+  mode: 'live';
+  model: string;
+  assets: ExtractedAssetCandidate[];
+}
+
+export interface ParseAssetsCommandResponse {
+  ok: boolean;
+  route: '/api/parse-assets-command';
   mode: 'live';
   model: string;
   assets: ExtractedAssetCandidate[];
@@ -29,7 +42,8 @@ export type EditableExtractedAssetField =
   | 'type'
   | 'quantity'
   | 'currency'
-  | 'costBasis';
+  | 'costBasis'
+  | 'currentPrice';
 
 export interface EditableExtractedAsset {
   id: string;
@@ -39,6 +53,7 @@ export interface EditableExtractedAsset {
   quantity: string;
   currency: string;
   costBasis: string;
+  currentPrice: string;
 }
 
 export interface ConfirmExtractedAssetsInput {
@@ -58,6 +73,7 @@ export function createEditableExtractedAsset(
     quantity: asset.quantity == null ? '' : String(asset.quantity),
     currency: asset.currency ?? '',
     costBasis: asset.costBasis == null ? '' : String(asset.costBasis),
+    currentPrice: asset.currentPrice == null ? '' : String(asset.currentPrice),
   };
 }
 
@@ -100,6 +116,11 @@ export function buildPortfolioAssetInputFromExtractedAsset(
   const normalizedCurrency = asset.currency.trim().toUpperCase();
   const normalizedCostBasis = Number(asset.costBasis);
   const normalizedAssetType = asset.type as AssetType;
+  const normalizedCurrentPrice = asset.currentPrice.trim()
+    ? Number(asset.currentPrice)
+    : normalizedAssetType === 'cash'
+      ? normalizedCostBasis
+      : 0;
 
   return {
     name: asset.name.trim(),
@@ -109,6 +130,6 @@ export function buildPortfolioAssetInputFromExtractedAsset(
     currency: normalizedCurrency,
     quantity: Number(asset.quantity),
     averageCost: normalizedCostBasis,
-    currentPrice: normalizedAssetType === 'cash' ? normalizedCostBasis : 0,
+    currentPrice: normalizedCurrentPrice,
   };
 }

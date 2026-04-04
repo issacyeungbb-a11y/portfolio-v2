@@ -803,6 +803,16 @@ h3 {
   background: rgba(255, 255, 255, 0.48);
 }
 
+.import-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.import-command-box {
+  align-items: stretch;
+}
+
 .upload-button {
   position: relative;
   overflow: hidden;

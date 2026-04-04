@@ -1,35 +1,35 @@
 import { GoogleGenAI } from '@google/genai';
 
 import type {
-  ExtractAssetsRequest,
-  ExtractAssetsResponse,
   ExtractedAssetCandidate,
+  ParseAssetsCommandRequest,
+  ParseAssetsCommandResponse,
 } from '../src/types/extractAssets';
 import type { AssetType } from '../src/types/portfolio';
 
-const EXTRACT_ROUTE = '/api/extract-assets' as const;
-const DEFAULT_EXTRACT_MODEL = 'gemini-2.5-flash-lite';
+const PARSE_ROUTE = '/api/parse-assets-command' as const;
+const DEFAULT_PARSE_MODEL = 'gemini-2.5-flash-lite';
 
-class ExtractAssetsError extends Error {
+class ParseAssetsCommandError extends Error {
   status: number;
 
   constructor(message: string, status = 500) {
     super(message);
-    this.name = 'ExtractAssetsError';
+    this.name = 'ParseAssetsCommandError';
     this.status = status;
   }
 }
 
-function getExtractModel() {
-  return process.env.GEMINI_EXTRACT_MODEL?.trim() || DEFAULT_EXTRACT_MODEL;
+function getParseModel() {
+  return process.env.GEMINI_EXTRACT_MODEL?.trim() || DEFAULT_PARSE_MODEL;
 }
 
 function getGeminiApiKey() {
   const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
 
   if (!apiKey) {
-    throw new ExtractAssetsError(
-      '未設定 GEMINI_API_KEY 或 GOOGLE_API_KEY，暫時無法解析截圖。',
+    throw new ParseAssetsCommandError(
+      '未設定 GEMINI_API_KEY 或 GOOGLE_API_KEY，暫時無法解析文字指令。',
       500,
     );
   }
@@ -37,28 +37,19 @@ function getGeminiApiKey() {
   return apiKey;
 }
 
-function normalizeExtractAssetsRequest(payload: unknown): ExtractAssetsRequest {
+function normalizeParseAssetsCommandRequest(payload: unknown): ParseAssetsCommandRequest {
   if (typeof payload !== 'object' || payload === null) {
-    throw new ExtractAssetsError('截圖解析請求格式不正確。', 400);
+    throw new ParseAssetsCommandError('文字匯入請求格式不正確。', 400);
   }
 
   const value = payload as Record<string, unknown>;
-  const fileName =
-    typeof value.fileName === 'string' ? value.fileName.trim() : '';
-  const mimeType =
-    typeof value.mimeType === 'string' ? value.mimeType.trim() : '';
-  const imageBase64 =
-    typeof value.imageBase64 === 'string' ? value.imageBase64.trim() : '';
+  const text = typeof value.text === 'string' ? value.text.trim() : '';
 
-  if (!fileName || !mimeType || !imageBase64) {
-    throw new ExtractAssetsError('缺少必要的截圖資料，請重新上傳圖片。', 400);
+  if (!text) {
+    throw new ParseAssetsCommandError('請先輸入文字或語音內容，再開始解析。', 400);
   }
 
-  return {
-    fileName,
-    mimeType,
-    imageBase64,
-  };
+  return { text };
 }
 
 function sanitizeString(value: unknown) {
@@ -95,7 +86,12 @@ function sanitizeType(value: unknown): AssetType | null {
 
   const normalized = value.trim().toLowerCase();
 
-  if (normalized === 'stock' || normalized === 'stocks' || normalized === 'equity') {
+  if (
+    normalized === 'stock' ||
+    normalized === 'stocks' ||
+    normalized === 'equity' ||
+    normalized === '股票'
+  ) {
     return 'stock';
   }
 
@@ -103,15 +99,25 @@ function sanitizeType(value: unknown): AssetType | null {
     return 'etf';
   }
 
-  if (normalized === 'bond' || normalized === 'bonds' || normalized === 'fixed income') {
+  if (
+    normalized === 'bond' ||
+    normalized === 'bonds' ||
+    normalized === 'fixed income' ||
+    normalized === '債券'
+  ) {
     return 'bond';
   }
 
-  if (normalized === 'crypto' || normalized === 'cryptocurrency' || normalized === 'coin') {
+  if (
+    normalized === 'crypto' ||
+    normalized === 'cryptocurrency' ||
+    normalized === 'coin' ||
+    normalized === '加密貨幣'
+  ) {
     return 'crypto';
   }
 
-  if (normalized === 'cash') {
+  if (normalized === 'cash' || normalized === '現金') {
     return 'cash';
   }
 
@@ -121,34 +127,6 @@ function sanitizeType(value: unknown): AssetType | null {
 function sanitizeCurrency(value: unknown) {
   const normalized = sanitizeString(value);
   return normalized ? normalized.toUpperCase() : null;
-}
-
-function sanitizeExtractedAssets(rawPayload: unknown): ExtractedAssetCandidate[] {
-  if (
-    typeof rawPayload !== 'object' ||
-    rawPayload === null ||
-    !('assets' in rawPayload) ||
-    !Array.isArray(rawPayload.assets)
-  ) {
-    throw new ExtractAssetsError('Gemini 回傳格式不正確，未找到 assets 陣列。', 502);
-  }
-
-  return rawPayload.assets.map((asset) => {
-    const value =
-      typeof asset === 'object' && asset !== null
-        ? (asset as Record<string, unknown>)
-        : {};
-
-    return {
-      name: sanitizeString(value.name),
-      ticker: sanitizeString(value.ticker),
-      type: sanitizeType(value.type),
-      quantity: sanitizeNumber(value.quantity),
-      currency: sanitizeCurrency(value.currency),
-      costBasis: sanitizeNumber(value.costBasis),
-      currentPrice: sanitizeNumber(value.currentPrice),
-    };
-  });
 }
 
 function stripJsonFence(text: string) {
@@ -170,13 +148,41 @@ function parseGeminiJson(text: string) {
   try {
     return JSON.parse(normalized) as unknown;
   } catch {
-    throw new ExtractAssetsError('Gemini 未回傳可解析的 JSON，請換一張更清晰的截圖再試。', 502);
+    throw new ParseAssetsCommandError('AI 未回傳可解析的 JSON，請重新描述一次。', 502);
   }
 }
 
-function buildExtractionPrompt(fileName: string) {
+function sanitizeExtractedAssets(rawPayload: unknown): ExtractedAssetCandidate[] {
+  if (
+    typeof rawPayload !== 'object' ||
+    rawPayload === null ||
+    !('assets' in rawPayload) ||
+    !Array.isArray(rawPayload.assets)
+  ) {
+    throw new ParseAssetsCommandError('AI 回傳格式不正確，未找到 assets 陣列。', 502);
+  }
+
+  return rawPayload.assets.map((asset) => {
+    const value =
+      typeof asset === 'object' && asset !== null
+        ? (asset as Record<string, unknown>)
+        : {};
+
+    return {
+      name: sanitizeString(value.name),
+      ticker: sanitizeString(value.ticker),
+      type: sanitizeType(value.type),
+      quantity: sanitizeNumber(value.quantity),
+      currency: sanitizeCurrency(value.currency),
+      costBasis: sanitizeNumber(value.costBasis),
+      currentPrice: sanitizeNumber(value.currentPrice),
+    };
+  });
+}
+
+function buildParsePrompt(text: string) {
   return `
-You are extracting portfolio holdings from a brokerage or wallet screenshot.
+You are converting a user's natural-language portfolio instruction into structured asset records.
 
 Return ONLY raw JSON. Do not use markdown fences. Do not add any explanation.
 
@@ -196,26 +202,28 @@ Use this exact shape:
 }
 
 Rules:
-- Extract only assets that are actually visible in the screenshot.
-- If a field is not visible or uncertain, set it to null.
+- Parse only the assets explicitly mentioned by the user.
+- The user may write in Traditional Chinese, Cantonese, or English.
 - "costBasis" means average cost per unit, not total cost.
-- "currentPrice" means the current market price per unit if it is clearly visible.
-- "currency" should be an uppercase currency code like HKD or USD when visible.
-- "type" must be one of: stock, etf, bond, crypto, cash, or null.
+- "currentPrice" means current market price per unit if the user explicitly mentions it.
+- If a field is missing or uncertain, set it to null.
 - Keep numbers as JSON numbers, not strings.
+- "currency" should be an uppercase currency code like HKD, USD, JPY.
 - Do not include fields outside the fixed schema.
+- If the text sounds like voice transcription, infer punctuation and asset boundaries conservatively.
 
-Screenshot filename: ${fileName}
+User instruction:
+${text}
   `.trim();
 }
 
-export function getExtractAssetsErrorResponse(error: unknown) {
-  if (error instanceof ExtractAssetsError) {
+export function getParseAssetsCommandErrorResponse(error: unknown) {
+  if (error instanceof ParseAssetsCommandError) {
     return {
       status: error.status,
       body: {
         ok: false,
-        route: EXTRACT_ROUTE,
+        route: PARSE_ROUTE,
         message: error.message,
       },
     };
@@ -226,7 +234,7 @@ export function getExtractAssetsErrorResponse(error: unknown) {
       status: 500,
       body: {
         ok: false,
-        route: EXTRACT_ROUTE,
+        route: PARSE_ROUTE,
         message: error.message,
       },
     };
@@ -236,33 +244,23 @@ export function getExtractAssetsErrorResponse(error: unknown) {
     status: 500,
     body: {
       ok: false,
-      route: EXTRACT_ROUTE,
-      message: '截圖解析失敗，請稍後再試。',
+      route: PARSE_ROUTE,
+      message: '文字匯入失敗，請稍後再試。',
     },
   };
 }
 
-export async function extractAssetsFromScreenshot(
+export async function parseAssetsFromCommand(
   payload: unknown,
-): Promise<ExtractAssetsResponse> {
-  const normalizedPayload = normalizeExtractAssetsRequest(payload);
+): Promise<ParseAssetsCommandResponse> {
+  const normalizedPayload = normalizeParseAssetsCommandRequest(payload);
 
   const apiKey = getGeminiApiKey();
   const ai = new GoogleGenAI({ apiKey });
-  const model = getExtractModel();
+  const model = getParseModel();
   const result = await ai.models.generateContent({
     model,
-    contents: [
-      {
-        text: buildExtractionPrompt(normalizedPayload.fileName),
-      },
-      {
-        inlineData: {
-          mimeType: normalizedPayload.mimeType,
-          data: normalizedPayload.imageBase64,
-        },
-      },
-    ],
+    contents: buildParsePrompt(normalizedPayload.text),
     config: {
       temperature: 0.1,
     },
@@ -273,7 +271,7 @@ export async function extractAssetsFromScreenshot(
 
   return {
     ok: true,
-    route: EXTRACT_ROUTE,
+    route: PARSE_ROUTE,
     mode: 'live',
     model,
     assets,

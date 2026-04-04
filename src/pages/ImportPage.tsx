@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 
 import { ExtractedAssetsEditor } from '../components/import/ExtractedAssetsEditor';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
@@ -11,9 +11,40 @@ import {
   type EditableExtractedAsset,
   type ExtractAssetsRequest,
   type ExtractAssetsResponse,
+  type ParseAssetsCommandRequest,
+  type ParseAssetsCommandResponse,
 } from '../types/extractAssets';
 
 type ExtractStatus = 'idle' | 'loading' | 'success' | 'error';
+type ImportInputMode = 'image' | 'text';
+type AssetParseResponse = ExtractAssetsResponse | ParseAssetsCommandResponse;
+
+interface SpeechRecognitionResultLike {
+  readonly isFinal: boolean;
+  readonly 0: {
+    readonly transcript: string;
+  };
+}
+
+interface SpeechRecognitionEventLike extends Event {
+  readonly resultIndex: number;
+  readonly results: ArrayLike<SpeechRecognitionResultLike>;
+}
+
+interface SpeechRecognitionLike extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+}
+
+interface SpeechRecognitionConstructorLike {
+  new (): SpeechRecognitionLike;
+}
 
 const MAX_UPLOAD_DIMENSION = 1600;
 const MAX_UPLOAD_BYTES = 3_200_000;
@@ -117,28 +148,74 @@ function inferAccountSource(fileName: string): AccountSource {
 }
 
 export function ImportPage() {
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const [inputMode, setInputMode] = useState<ImportInputMode>('image');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [uploadMimeType, setUploadMimeType] = useState<string>('image/png');
+  const [commandText, setCommandText] = useState('');
   const [accountSource, setAccountSource] = useState<AccountSource>('Other');
   const [extractStatus, setExtractStatus] = useState<ExtractStatus>('idle');
   const [extractError, setExtractError] = useState<string | null>(null);
-  const [extractResponse, setExtractResponse] = useState<ExtractAssetsResponse | null>(null);
+  const [extractResponse, setExtractResponse] = useState<AssetParseResponse | null>(null);
   const [editableAssets, setEditableAssets] = useState<EditableExtractedAsset[]>([]);
   const [confirmStatus, setConfirmStatus] = useState<'idle' | 'loading' | 'success' | 'error'>(
     'idle',
   );
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
+  const [speechError, setSpeechError] = useState<string | null>(null);
+  const [isListening, setIsListening] = useState(false);
+
+  const canUseSpeechInput =
+    typeof window !== 'undefined' &&
+    Boolean((window as Window & {
+      SpeechRecognition?: SpeechRecognitionConstructorLike;
+      webkitSpeechRecognition?: SpeechRecognitionConstructorLike;
+    }).SpeechRecognition ||
+      (window as Window & {
+        SpeechRecognition?: SpeechRecognitionConstructorLike;
+        webkitSpeechRecognition?: SpeechRecognitionConstructorLike;
+      }).webkitSpeechRecognition);
 
   useEffect(() => {
     return () => {
       if (previewUrl) {
         URL.revokeObjectURL(previewUrl);
       }
+
+      recognitionRef.current?.stop();
     };
   }, [previewUrl]);
+
+  function resetParseState() {
+    setExtractStatus('idle');
+    setExtractError(null);
+    setExtractResponse(null);
+    setEditableAssets([]);
+    setConfirmStatus('idle');
+    setConfirmError(null);
+    setConfirmSuccess(null);
+  }
+
+  function applyParsedAssets(response: AssetParseResponse) {
+    const nextAssets = response.assets.map((asset, index) =>
+      createEditableExtractedAsset(asset, index),
+    );
+
+    setExtractResponse(response);
+    setEditableAssets(nextAssets);
+    setExtractStatus('success');
+  }
+
+  function handleChangeInputMode(mode: ImportInputMode) {
+    setInputMode(mode);
+    setSpeechError(null);
+    setIsListening(false);
+    recognitionRef.current?.stop();
+    resetParseState();
+  }
 
   async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -160,13 +237,7 @@ export function ImportPage() {
       setImageBase64(getBase64FromDataUrl(compressedImage.dataUrl));
       setUploadMimeType(compressedImage.mimeType);
       setAccountSource(inferAccountSource(file.name));
-      setExtractStatus('idle');
-      setExtractError(null);
-      setExtractResponse(null);
-      setEditableAssets([]);
-      setConfirmStatus('idle');
-      setConfirmError(null);
-      setConfirmSuccess(null);
+      resetParseState();
     } catch (error) {
       setExtractStatus('error');
       setExtractError(
@@ -228,19 +299,100 @@ export function ImportPage() {
         'extract-assets',
         payload,
       )) as ExtractAssetsResponse;
-      const nextAssets = response.assets.map((asset, index) =>
-        createEditableExtractedAsset(asset, index),
-      );
-
-      setExtractResponse(response);
-      setEditableAssets(nextAssets);
-      setExtractStatus('success');
+      applyParsedAssets(response);
     } catch (error) {
       setExtractStatus('error');
       setExtractError(
         error instanceof Error ? error.message : '解析截圖失敗，請稍後再試。',
       );
     }
+  }
+
+  async function handleParseCommand() {
+    if (!commandText.trim()) {
+      setExtractStatus('error');
+      setExtractError('請先輸入文字或語音內容，再開始解析。');
+      return;
+    }
+
+    setExtractStatus('loading');
+    setExtractError(null);
+    setConfirmStatus('idle');
+    setConfirmError(null);
+    setConfirmSuccess(null);
+
+    try {
+      const payload: ParseAssetsCommandRequest = {
+        text: commandText.trim(),
+      };
+      const response = (await callPortfolioFunction(
+        'parse-assets-command',
+        payload,
+      )) as ParseAssetsCommandResponse;
+      applyParsedAssets(response);
+    } catch (error) {
+      setExtractStatus('error');
+      setExtractError(
+        error instanceof Error ? error.message : '解析文字內容失敗，請稍後再試。',
+      );
+    }
+  }
+
+  function handleStartListening() {
+    if (!canUseSpeechInput) {
+      setSpeechError('目前瀏覽器唔支援語音輸入，請改用文字輸入。');
+      return;
+    }
+
+    const speechWindow = window as Window & {
+      SpeechRecognition?: SpeechRecognitionConstructorLike;
+      webkitSpeechRecognition?: SpeechRecognitionConstructorLike;
+    };
+    const Recognition =
+      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+
+    if (!Recognition) {
+      setSpeechError('目前瀏覽器唔支援語音輸入，請改用文字輸入。');
+      return;
+    }
+
+    setSpeechError(null);
+
+    if (!recognitionRef.current) {
+      const recognition = new Recognition();
+      recognition.lang = 'zh-HK';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event) => {
+        let transcript = '';
+
+        for (let index = 0; index < event.results.length; index += 1) {
+          transcript += event.results[index][0].transcript;
+        }
+
+        setCommandText(transcript.trim());
+      };
+
+      recognition.onerror = () => {
+        setSpeechError('語音輸入失敗，請再試一次或直接改用文字輸入。');
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    }
+
+    setIsListening(true);
+    recognitionRef.current.start();
+  }
+
+  function handleStopListening() {
+    recognitionRef.current?.stop();
+    setIsListening(false);
   }
 
   async function handleConfirmImport() {
@@ -277,8 +429,24 @@ export function ImportPage() {
     <div className="page-stack">
       <section className="hero-panel">
         <div>
-          <p className="eyebrow">Screenshot Import</p>
-          <h2>截圖轉資產資料</h2>
+          <p className="eyebrow">AI Import</p>
+          <h2>圖片、文字、語音轉資產資料</h2>
+        </div>
+        <div className="import-mode-row" role="tablist" aria-label="選擇匯入方式">
+          <button
+            className={inputMode === 'image' ? 'filter-chip active' : 'filter-chip'}
+            type="button"
+            onClick={() => handleChangeInputMode('image')}
+          >
+            圖片分析
+          </button>
+          <button
+            className={inputMode === 'text' ? 'filter-chip active' : 'filter-chip'}
+            type="button"
+            onClick={() => handleChangeInputMode('text')}
+          >
+            文字 / 語音輸入
+          </button>
         </div>
         <div className="upload-dropzone">
           {extractResponse ? (
@@ -286,35 +454,73 @@ export function ImportPage() {
           ) : (
             <span className="chip chip-soft">模型 gemini-2.5-flash-lite</span>
           )}
-          <strong>上傳單張截圖</strong>
-          <label className="button button-secondary upload-button">
-            選擇圖片
-            <input
-              className="visually-hidden"
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={handleFileChange}
-            />
-          </label>
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={handleExtractAssets}
-            disabled={extractStatus === 'loading' || !selectedFile}
-          >
-            {extractStatus === 'loading' ? '解析中...' : '開始解析'}
-          </button>
-          {selectedFile ? (
-            <div className="upload-file-meta">
-              <strong>{selectedFile.name}</strong>
-              <p>
-                {selectedFile.type || 'image/*'}
-                {uploadMimeType !== (selectedFile.type || 'image/png')
-                  ? ` -> ${uploadMimeType}`
-                  : ''}
+
+          {inputMode === 'image' ? (
+            <>
+              <strong>上傳單張截圖</strong>
+              <label className="button button-secondary upload-button">
+                選擇圖片
+                <input
+                  className="visually-hidden"
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  onChange={handleFileChange}
+                />
+              </label>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={handleExtractAssets}
+                disabled={extractStatus === 'loading' || !selectedFile}
+              >
+                {extractStatus === 'loading' ? '解析中...' : '開始解析'}
+              </button>
+              {selectedFile ? (
+                <div className="upload-file-meta">
+                  <strong>{selectedFile.name}</strong>
+                  <p>
+                    {selectedFile.type || 'image/*'}
+                    {uploadMimeType !== (selectedFile.type || 'image/png')
+                      ? ` -> ${uploadMimeType}`
+                      : ''}
+                  </p>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="prompt-box import-command-box">
+              <strong>描述你要加入或整理的資產</strong>
+              <p className="table-hint">
+                例如：加入 TSLA 10 股，美元，平均成本 225.3；再加入 2800.HK 200 股，成本 18.9 港元。
               </p>
+              <textarea
+                value={commandText}
+                onChange={(event) => {
+                  setCommandText(event.target.value);
+                  resetParseState();
+                }}
+                placeholder="輸入文字，或者先按語音輸入再讓 AI 整理成資產草稿。"
+              />
+              <div className="button-row">
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={isListening ? handleStopListening : handleStartListening}
+                >
+                  {isListening ? '停止語音輸入' : '語音輸入'}
+                </button>
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={handleParseCommand}
+                  disabled={extractStatus === 'loading' || !commandText.trim()}
+                >
+                  {extractStatus === 'loading' ? '解析中...' : '開始解析'}
+                </button>
+              </div>
+              {speechError ? <p className="status-message status-message-error">{speechError}</p> : null}
             </div>
-          ) : null}
+          )}
         </div>
       </section>
 
@@ -324,18 +530,35 @@ export function ImportPage() {
         <div className="section-heading">
           <div>
             <p className="eyebrow">Preview</p>
-            <h2>截圖預覽</h2>
+            <h2>{inputMode === 'image' ? '截圖預覽' : '文字內容預覽'}</h2>
           </div>
           <span className="chip chip-soft">
-            {extractResponse ? `模型 ${extractResponse.model}` : selectedFile ? '已選擇圖片' : '未選擇圖片'}
+            {extractResponse
+              ? `模型 ${extractResponse.model}`
+              : inputMode === 'image'
+                ? selectedFile
+                  ? '已選擇圖片'
+                  : '未選擇圖片'
+                : commandText.trim()
+                  ? '已輸入文字'
+                  : '未輸入內容'}
           </span>
         </div>
 
-        {previewUrl ? (
+        {inputMode === 'image' && previewUrl ? (
           <img className="upload-preview-image" src={previewUrl} alt="Uploaded portfolio screenshot" />
-        ) : (
-          <p className="status-message">未選擇圖片。</p>
-        )}
+        ) : null}
+        {inputMode === 'image' && !previewUrl ? <p className="status-message">未選擇圖片。</p> : null}
+        {inputMode === 'text' ? (
+          commandText.trim() ? (
+            <div className="extract-meta-note">
+              <strong>語音 / 文字內容</strong>
+              <p>{commandText}</p>
+            </div>
+          ) : (
+            <p className="status-message">未輸入文字或語音內容。</p>
+          )
+        ) : null}
       </section>
 
       {extractStatus === 'success' ? (

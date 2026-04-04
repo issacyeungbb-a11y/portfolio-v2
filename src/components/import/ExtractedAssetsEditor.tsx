@@ -38,6 +38,7 @@ const fieldLabels: Record<EditableExtractedAssetField, string> = {
   quantity: '數量',
   currency: '幣別',
   costBasis: 'Cost Basis',
+  currentPrice: '現價',
 };
 
 export function ExtractedAssetsEditor({
@@ -91,7 +92,7 @@ export function ExtractedAssetsEditor({
         <div className="extract-meta-note">
           <strong>匯入規則</strong>
           <p>
-            匯入時會先將 `costBasis` 寫成平均成本。股票、ETF、債券同加密貨幣的現價會標示為待更新，之後請到資產頁更新價格。
+            匯入時會將 `costBasis` 寫成平均成本；如果 AI 有讀到 `現價`，會一併寫入，否則資產頁會顯示待更新。
           </p>
         </div>
       </div>
@@ -236,6 +237,18 @@ export function ExtractedAssetsEditor({
                     onChange={(event) => onChangeAsset(asset.id, 'costBasis', event.target.value)}
                     disabled={isConfirming}
                     placeholder="例如 184.9"
+                  />
+                </label>
+
+                <label className="form-field">
+                  <span>現價</span>
+                  <input
+                    type="number"
+                    step="any"
+                    value={asset.currentPrice}
+                    onChange={(event) => onChangeAsset(asset.id, 'currentPrice', event.target.value)}
+                    disabled={isConfirming}
+                    placeholder="可留空，之後更新"
                   />
                 </label>
               </div>
