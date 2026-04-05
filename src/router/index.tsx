@@ -4,6 +4,7 @@ import { AppShell } from '../layout/AppShell';
 import { AnalysisPage } from '../pages/AnalysisPage';
 import { AssetsPage } from '../pages/AssetsPage';
 import { DashboardPage } from '../pages/DashboardPage';
+import { FundsPage } from '../pages/FundsPage';
 import { ImportPage } from '../pages/ImportPage';
 import { SettingsPage } from '../pages/SettingsPage';
 
@@ -31,6 +32,13 @@ export const router = createBrowserRouter([
         element: <ImportPage />,
         handle: {
           title: '截圖匯入',
+        },
+      },
+      {
+        path: 'funds',
+        element: <FundsPage />,
+        handle: {
+          title: '資金流水',
         },
       },
       {

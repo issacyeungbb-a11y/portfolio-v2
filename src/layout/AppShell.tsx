@@ -7,6 +7,7 @@ const navItems = [
   { to: '/', label: '總覽', icon: 'O1' },
   { to: '/assets', label: '資產', icon: 'A2' },
   { to: '/import', label: '匯入', icon: 'I3' },
+  { to: '/funds', label: '資金', icon: 'F4' },
   { to: '/analysis', label: '分析', icon: 'AI' },
   { to: '/settings', label: '設定', icon: 'S5' },
 ];

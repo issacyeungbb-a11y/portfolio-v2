@@ -16,6 +16,7 @@ import {
   formatCurrency,
 } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
+import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
@@ -28,11 +29,20 @@ import {
   createPortfolioSnapshotSignature,
 } from '../lib/portfolio/analysisSnapshot';
 import type {
+  AccountCashFlowEntry,
   AllocationBucketKey,
   DisplayCurrency,
   Holding,
   PerformanceRange,
 } from '../types/portfolio';
+
+function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
+  if (entry.type === 'withdrawal') {
+    return -Math.abs(entry.amount);
+  }
+
+  return entry.amount;
+}
 
 export function DashboardPage() {
   const { holdings: firestoreHoldings, status, error, isEmpty } = usePortfolioAssets();
@@ -40,6 +50,7 @@ export function DashboardPage() {
     entries: accountPrincipals,
     error: accountPrincipalsError,
   } = useAccountPrincipals();
+  const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
   const { history: portfolioHistory, error: snapshotsError } = usePortfolioSnapshots();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [selectedRange, setSelectedRange] = useState<PerformanceRange>('30d');
@@ -53,11 +64,22 @@ export function DashboardPage() {
   const totalValue = getPortfolioTotalValue(syncedHoldings, displayCurrency);
   const totalCost = getPortfolioTotalCost(syncedHoldings, displayCurrency);
   const totalPnl = totalValue - totalCost;
-  const totalPrincipal = accountPrincipals.reduce(
-    (sum, entry) =>
-      sum + convertCurrency(entry.principalAmount, entry.currency, displayCurrency),
-    0,
-  );
+  const totalPrincipal =
+    accountPrincipals.reduce(
+      (sum, entry) =>
+        sum + convertCurrency(entry.principalAmount, entry.currency, displayCurrency),
+      0,
+    ) +
+    accountCashFlows.reduce(
+      (sum, entry) =>
+        sum +
+        convertCurrency(
+          getCashFlowSignedAmount(entry),
+          entry.currency,
+          displayCurrency,
+        ),
+      0,
+    );
   const principalPnl = totalValue - totalPrincipal;
   const snapshotSignature =
     syncedHoldings.length > 0 ? createPortfolioSnapshotSignature(syncedHoldings) : '';
@@ -158,6 +180,9 @@ export function DashboardPage() {
       ) : null}
       {accountPrincipalsError ? (
         <p className="status-message status-message-error">{accountPrincipalsError}</p>
+      ) : null}
+      {accountCashFlowsError ? (
+        <p className="status-message status-message-error">{accountCashFlowsError}</p>
       ) : null}
       {isEmpty ? (
         <p className="status-message">未有資產。</p>

@@ -5,6 +5,7 @@ export type DisplayCurrency = 'HKD' | 'USD' | 'JPY';
 export type AllocationBucketKey = AssetType;
 export type InsightTone = 'positive' | 'neutral' | 'caution';
 export type ImportStatus = 'completed' | 'processing' | 'review';
+export type AccountCashFlowType = 'deposit' | 'withdrawal' | 'adjustment';
 export interface PortfolioAssetInput {
     name: string;
     symbol: string;
@@ -28,6 +29,17 @@ export interface AccountPrincipalEntry {
     accountSource: AccountSource;
     principalAmount: number;
     currency: string;
+    updatedAt?: string;
+}
+export interface AccountCashFlowEntry {
+    id: string;
+    accountSource: AccountSource;
+    type: AccountCashFlowType;
+    amount: number;
+    currency: string;
+    date: string;
+    note?: string;
+    createdAt?: string;
     updatedAt?: string;
 }
 export interface PortfolioPerformancePoint {
