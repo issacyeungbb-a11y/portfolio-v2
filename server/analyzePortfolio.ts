@@ -2,13 +2,30 @@ import { GoogleGenAI } from '@google/genai';
 
 import type { AssetType } from '../src/types/portfolio';
 import type {
+  PortfolioAnalysisModel,
+  PortfolioAnalysisProvider,
   PortfolioAnalysisRequest,
   PortfolioAnalysisResponse,
   PortfolioAnalysisResult,
 } from '../src/types/portfolioAnalysis';
 
 const ANALYZE_ROUTE = '/api/analyze' as const;
-const DEFAULT_ANALYZE_MODEL = 'gemini-2.5-pro';
+const DEFAULT_GEMINI_ANALYZE_MODEL = 'gemini-3.1-pro-preview' as const;
+const DEFAULT_CLAUDE_ANALYZE_MODEL = 'claude-opus-4-6' as const;
+
+const SUPPORTED_ANALYSIS_MODELS: Record<
+  PortfolioAnalysisModel,
+  { provider: PortfolioAnalysisProvider; label: string }
+> = {
+  'gemini-3.1-pro-preview': {
+    provider: 'google',
+    label: 'Google Gemini 3.1 Pro Preview',
+  },
+  'claude-opus-4-6': {
+    provider: 'anthropic',
+    label: 'Claude Opus 4.6',
+  },
+};
 
 class AnalyzePortfolioError extends Error {
   status: number;
@@ -20,8 +37,15 @@ class AnalyzePortfolioError extends Error {
   }
 }
 
-function getAnalyzeModel() {
-  return process.env.GEMINI_ANALYZE_MODEL?.trim() || DEFAULT_ANALYZE_MODEL;
+function getGeminiAnalyzeModel(requestedModel: PortfolioAnalysisModel) {
+  return requestedModel === 'gemini-3.1-pro-preview'
+    ? requestedModel
+    : DEFAULT_GEMINI_ANALYZE_MODEL;
+}
+
+function getClaudeAnalyzeModel() {
+  const model = process.env.CLAUDE_ANALYZE_MODEL?.trim() || DEFAULT_CLAUDE_ANALYZE_MODEL;
+  return model === 'claude-opus-4-6' ? model : DEFAULT_CLAUDE_ANALYZE_MODEL;
 }
 
 function getGeminiApiKey() {
@@ -30,6 +54,19 @@ function getGeminiApiKey() {
   if (!apiKey) {
     throw new AnalyzePortfolioError(
       '未設定 GEMINI_API_KEY 或 GOOGLE_API_KEY，暫時無法分析投資組合。',
+      500,
+    );
+  }
+
+  return apiKey;
+}
+
+function getAnthropicApiKey() {
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new AnalyzePortfolioError(
+      '未設定 ANTHROPIC_API_KEY，暫時無法使用 Claude 分析投資組合。',
       500,
     );
   }
@@ -54,6 +91,14 @@ function sanitizeNumber(value: unknown) {
   if (typeof value === 'string') {
     const parsed = Number(value.replace(/,/g, '').trim());
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function sanitizeAnalysisModel(value: unknown): PortfolioAnalysisModel | null {
+  if (value === 'gemini-3.1-pro-preview' || value === 'claude-opus-4-6') {
+    return value;
   }
 
   return null;
@@ -93,13 +138,24 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   }
 
   const value = payload as Record<string, unknown>;
+  const cacheKey = sanitizeString(value.cacheKey);
   const snapshotHash = sanitizeString(value.snapshotHash);
+  const analysisModel = sanitizeAnalysisModel(value.analysisModel);
+  const analysisInstruction = sanitizeString(value.analysisInstruction) ?? '';
   const assetCount = sanitizeNumber(value.assetCount);
   const totalValueHKD = sanitizeNumber(value.totalValueHKD);
   const totalCostHKD = sanitizeNumber(value.totalCostHKD);
 
+  if (!cacheKey) {
+    throw new AnalyzePortfolioError('缺少分析快取識別碼，請重新整理後再試。', 400);
+  }
+
   if (!snapshotHash) {
     throw new AnalyzePortfolioError('缺少投資組合快照識別碼，請重新整理後再試。', 400);
+  }
+
+  if (!analysisModel) {
+    throw new AnalyzePortfolioError('分析模型設定不正確，請重新選擇後再試。', 400);
   }
 
   if (!Array.isArray(value.holdings) || value.holdings.length === 0) {
@@ -220,7 +276,10 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
     : [];
 
   return {
+    cacheKey,
     snapshotHash,
+    analysisModel,
+    analysisInstruction,
     assetCount: assetCount ?? holdings.length,
     totalValueHKD: totalValueHKD ?? 0,
     totalCostHKD: totalCostHKD ?? 0,
@@ -247,13 +306,13 @@ function parseModelJson(text: string) {
   try {
     return JSON.parse(stripJsonFence(text)) as unknown;
   } catch {
-    throw new AnalyzePortfolioError('Gemini 未回傳可解析的分析 JSON，請稍後再試。', 502);
+    throw new AnalyzePortfolioError('模型未回傳可解析的分析 JSON，請稍後再試。', 502);
   }
 }
 
 function sanitizeAnalysisResult(rawPayload: unknown): PortfolioAnalysisResult {
   if (typeof rawPayload !== 'object' || rawPayload === null) {
-    throw new AnalyzePortfolioError('Gemini 回傳格式不正確。', 502);
+    throw new AnalyzePortfolioError('模型回傳格式不正確。', 502);
   }
 
   const value = rawPayload as Record<string, unknown>;
@@ -264,7 +323,7 @@ function sanitizeAnalysisResult(rawPayload: unknown): PortfolioAnalysisResult {
   const nextQuestions = sanitizeStringList(value.nextQuestions, 1);
 
   if (!summary || !topRisks || !allocationInsights || !currencyExposure || !nextQuestions) {
-    throw new AnalyzePortfolioError('Gemini 回傳欄位不完整，請稍後再試。', 502);
+    throw new AnalyzePortfolioError('模型回傳欄位不完整，請稍後再試。', 502);
   }
 
   return {
@@ -303,6 +362,10 @@ Rules:
 - nextQuestions should contain 3 to 5 short, actionable follow-up questions the user may want to ask next.
 - If the data lacks price history or cash-flow history, mention that limitation briefly where relevant.
 - Keep the tone practical, calm, and beginner-friendly.
+- Prioritize the user's analysis instruction when deciding what to emphasize, but do not invent any external facts or unsupported claims.
+
+User analysis instruction:
+${request.analysisInstruction || '未提供額外指示，請做一般投資組合分析。'}
 
 Portfolio snapshot:
 ${JSON.stringify(request, null, 2)}
@@ -344,6 +407,83 @@ const responseJsonSchema = {
   },
 } as const;
 
+function getModelProvider(model: PortfolioAnalysisModel): PortfolioAnalysisProvider {
+  return SUPPORTED_ANALYSIS_MODELS[model].provider;
+}
+
+async function analyzeWithGemini(
+  prompt: string,
+  model: Extract<PortfolioAnalysisModel, 'gemini-3.1-pro-preview'>,
+) {
+  const apiKey = getGeminiApiKey();
+  const ai = new GoogleGenAI({ apiKey });
+  const response = await ai.models.generateContent({
+    model,
+    contents: prompt,
+    config: {
+      temperature: 0.3,
+      responseMimeType: 'application/json',
+      responseJsonSchema,
+    },
+  });
+
+  return parseModelJson(response.text ?? '');
+}
+
+async function analyzeWithClaude(
+  prompt: string,
+  model: Extract<PortfolioAnalysisModel, 'claude-opus-4-6'>,
+) {
+  const apiKey = getAnthropicApiKey();
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1400,
+      temperature: 0.3,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    }),
+  });
+
+  const payload = (await response.json()) as Record<string, unknown>;
+
+  if (!response.ok) {
+    const errorMessage =
+      typeof payload.error === 'object' &&
+      payload.error !== null &&
+      'message' in payload.error &&
+      typeof payload.error.message === 'string'
+        ? payload.error.message
+        : 'Claude 分析請求失敗，請稍後再試。';
+
+    throw new AnalyzePortfolioError(errorMessage, response.status);
+  }
+
+  const content = Array.isArray(payload.content) ? payload.content : [];
+  const text = content
+    .map((item) => {
+      if (typeof item !== 'object' || item === null) {
+        return '';
+      }
+
+      const value = item as Record<string, unknown>;
+      return value.type === 'text' && typeof value.text === 'string' ? value.text : '';
+    })
+    .join('\n');
+
+  return parseModelJson(text);
+}
+
 export function getAnalyzePortfolioErrorResponse(error: unknown) {
   if (error instanceof AnalyzePortfolioError) {
     return {
@@ -381,28 +521,27 @@ export async function analyzePortfolio(
   payload: unknown,
 ): Promise<PortfolioAnalysisResponse> {
   const request = normalizeAnalysisRequest(payload);
-  const apiKey = getGeminiApiKey();
-  const model = getAnalyzeModel();
-  const ai = new GoogleGenAI({ apiKey });
   const prompt = buildPrompt(request);
-  const response = await ai.models.generateContent({
-    model,
-    contents: prompt,
-    config: {
-      temperature: 0.3,
-      responseMimeType: 'application/json',
-      responseJsonSchema,
-    },
-  });
-  const raw = parseModelJson(response.text ?? '');
+  const provider = getModelProvider(request.analysisModel);
+  const resolvedModel =
+    request.analysisModel === 'claude-opus-4-6'
+      ? getClaudeAnalyzeModel()
+      : getGeminiAnalyzeModel(request.analysisModel);
+  const raw =
+    provider === 'anthropic'
+      ? await analyzeWithClaude(prompt, resolvedModel as 'claude-opus-4-6')
+      : await analyzeWithGemini(prompt, resolvedModel as 'gemini-3.1-pro-preview');
   const result = sanitizeAnalysisResult(raw);
 
   return {
     ok: true,
     route: ANALYZE_ROUTE,
     mode: 'live',
-    model,
+    cacheKey: request.cacheKey,
+    provider,
+    model: resolvedModel,
     snapshotHash: request.snapshotHash,
+    analysisInstruction: request.analysisInstruction,
     generatedAt: new Date().toISOString(),
     ...result,
   };

@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 
 import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
-  formatCurrency,
   formatCurrencyRounded,
   getHoldingValueInCurrency,
   getPortfolioTotalValue,
@@ -15,16 +14,35 @@ import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
   buildPortfolioAnalysisRequest,
+  createPortfolioAnalysisCacheKey,
   createPortfolioSnapshotHash,
   createPortfolioSnapshotSignature,
 } from '../lib/portfolio/analysisSnapshot';
 import type { Holding } from '../types/portfolio';
 import type {
   CachedPortfolioAnalysis,
+  PortfolioAnalysisModel,
   PortfolioAnalysisResponse,
 } from '../types/portfolioAnalysis';
 
 type SnapshotHashStatus = 'idle' | 'loading' | 'ready' | 'error';
+
+const analysisModelOptions: Array<{
+  value: PortfolioAnalysisModel;
+  label: string;
+  hint: string;
+}> = [
+  {
+    value: 'gemini-3.1-pro-preview',
+    label: 'Google Gemini',
+    hint: '3.1 Pro Preview',
+  },
+  {
+    value: 'claude-opus-4-6',
+    label: 'Claude Opus',
+    hint: '4.6',
+  },
+];
 
 function formatAnalysisTime(value: string) {
   if (!value) {
@@ -97,7 +115,13 @@ export function AnalysisPage() {
   } = usePortfolioAssets();
   const [snapshotHash, setSnapshotHash] = useState<string | null>(null);
   const [snapshotHashStatus, setSnapshotHashStatus] = useState<SnapshotHashStatus>('idle');
+  const [analysisCacheKey, setAnalysisCacheKey] = useState<string | null>(null);
+  const [analysisCacheKeyStatus, setAnalysisCacheKeyStatus] = useState<SnapshotHashStatus>('idle');
   const [snapshotHashError, setSnapshotHashError] = useState<string | null>(null);
+  const [analysisInstruction, setAnalysisInstruction] = useState(
+    '請重點分析本金損益、集中風險、幣別配置，以及下一步最值得跟進嘅調整建議。',
+  );
+  const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('gemini-3.1-pro-preview');
   const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisSuccess, setAnalysisSuccess] = useState<string | null>(null);
@@ -115,7 +139,7 @@ export function AnalysisPage() {
     setLocalAnalysis(null);
     setAnalysisError(null);
     setAnalysisSuccess(null);
-  }, [snapshotSignature]);
+  }, [snapshotSignature, selectedModel, analysisInstruction]);
 
   useEffect(() => {
     if (!snapshotSignature) {
@@ -155,12 +179,49 @@ export function AnalysisPage() {
     };
   }, [snapshotSignature, holdings.length]);
 
+  useEffect(() => {
+    if (!snapshotHash) {
+      setAnalysisCacheKey(null);
+      setAnalysisCacheKeyStatus('idle');
+      return;
+    }
+
+    let isActive = true;
+    setAnalysisCacheKeyStatus('loading');
+
+    createPortfolioAnalysisCacheKey(
+      snapshotHash,
+      selectedModel,
+      analysisInstruction,
+    )
+      .then((cacheKey) => {
+        if (!isActive) {
+          return;
+        }
+
+        setAnalysisCacheKey(cacheKey);
+        setAnalysisCacheKeyStatus('ready');
+      })
+      .catch(() => {
+        if (!isActive) {
+          return;
+        }
+
+        setAnalysisCacheKey(null);
+        setAnalysisCacheKeyStatus('error');
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [snapshotHash, selectedModel, analysisInstruction]);
+
   const {
     analysis: cachedAnalysis,
     error: cacheError,
     hasCachedAnalysis,
     persistAnalysis,
-  } = useAnalysisCache(snapshotHash);
+  } = useAnalysisCache(analysisCacheKey);
 
   const displayedAnalysis = localAnalysis ?? cachedAnalysis;
   const hasAnalysis = Boolean(displayedAnalysis);
@@ -173,10 +234,11 @@ export function AnalysisPage() {
     assetsStatus === 'ready' &&
     holdings.length > 0 &&
     snapshotHashStatus === 'ready' &&
+    analysisCacheKeyStatus === 'ready' &&
     !isAnalyzing;
 
   async function handleAnalyzePortfolio() {
-    if (!snapshotHash || holdings.length === 0) {
+    if (!snapshotHash || !analysisCacheKey || holdings.length === 0) {
       setAnalysisError('目前沒有完整的資產快照可供分析。');
       return;
     }
@@ -186,15 +248,24 @@ export function AnalysisPage() {
     setIsAnalyzing(true);
 
     try {
-      const request = buildPortfolioAnalysisRequest(holdings, snapshotHash);
+      const request = buildPortfolioAnalysisRequest(
+        holdings,
+        snapshotHash,
+        analysisCacheKey,
+        selectedModel,
+        analysisInstruction,
+      );
       const response = (await callPortfolioFunction(
         'analyze',
         request,
       )) as PortfolioAnalysisResponse;
 
       const cachedResult: CachedPortfolioAnalysis = {
+        cacheKey: response.cacheKey,
         snapshotHash: response.snapshotHash,
+        provider: response.provider,
         model: response.model,
+        analysisInstruction: response.analysisInstruction,
         generatedAt: response.generatedAt,
         assetCount: holdings.length,
         summary: response.summary,
@@ -228,8 +299,36 @@ export function AnalysisPage() {
           <div className="analysis-action-copy">
             <span className="chip chip-soft">目前資產 {holdings.length} 項</span>
             <span className={displayedAnalysis?.model ? 'chip chip-strong' : 'chip chip-soft'}>
-              模型 {displayedAnalysis?.model ?? 'gemini-2.5-pro'}
+              模型 {displayedAnalysis?.model ?? selectedModel}
             </span>
+          </div>
+
+          <div className="asset-form-grid">
+            <label className="form-field">
+              <span>分析模型</span>
+              <select
+                value={selectedModel}
+                onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
+                disabled={isAnalyzing}
+              >
+                {analysisModelOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label} · {option.hint}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+              <span>分析指示</span>
+              <textarea
+                value={analysisInstruction}
+                onChange={(event) => setAnalysisInstruction(event.target.value)}
+                placeholder="例如：重點分析本金損益、持倉是否過度集中、下一步可減倉或加倉方向。"
+                rows={4}
+                disabled={isAnalyzing}
+              />
+            </label>
           </div>
 
           <div className="button-row">
@@ -280,9 +379,9 @@ export function AnalysisPage() {
           label="分析狀態"
           value={analysisStatusLabel}
           hint={
-            snapshotHashStatus === 'ready'
+            snapshotHashStatus === 'ready' && analysisCacheKeyStatus === 'ready'
               ? '資產快照已準備好，可直接呼叫 /api/analyze'
-              : snapshotHashStatus === 'loading'
+              : snapshotHashStatus === 'loading' || analysisCacheKeyStatus === 'loading'
                 ? '正在建立目前資產快照'
                 : '等待資產資料完成同步'
           }
@@ -298,7 +397,7 @@ export function AnalysisPage() {
           hint={
             hasAnalysis
               ? `模型 ${displayedAnalysis?.model ?? ''}`
-              : '當資產未變時會優先顯示最近一次快取分析'
+              : '快取會按資產快照、模型與分析指示分開保存'
           }
         />
       </section>

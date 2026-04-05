@@ -44,6 +44,25 @@ export async function createPortfolioSnapshotHash(signature: string) {
   return bytesToHex(new Uint8Array(digest));
 }
 
+export async function createPortfolioAnalysisCacheKey(
+  snapshotHash: string,
+  analysisModel: string,
+  analysisInstruction: string,
+) {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(
+      JSON.stringify({
+        snapshotHash,
+        analysisModel,
+        analysisInstruction: analysisInstruction.trim(),
+      }),
+    ),
+  );
+
+  return bytesToHex(new Uint8Array(digest));
+}
+
 function buildAnalysisRequestAsset(holding: Holding): PortfolioAnalysisRequestAsset {
   return {
     id: holding.id,
@@ -63,6 +82,9 @@ function buildAnalysisRequestAsset(holding: Holding): PortfolioAnalysisRequestAs
 export function buildPortfolioAnalysisRequest(
   holdings: Holding[],
   snapshotHash: string,
+  cacheKey: string,
+  analysisModel: PortfolioAnalysisRequest['analysisModel'],
+  analysisInstruction: string,
 ): PortfolioAnalysisRequest {
   const requestAssets = [...holdings]
     .map(buildAnalysisRequestAsset)
@@ -96,7 +118,10 @@ export function buildPortfolioAnalysisRequest(
   }
 
   return {
+    cacheKey,
     snapshotHash,
+    analysisModel,
+    analysisInstruction: analysisInstruction.trim(),
     assetCount: holdings.length,
     totalValueHKD,
     totalCostHKD,

@@ -13,12 +13,19 @@ function createMissingConfigError() {
 }
 
 function normalizeCachedAnalysis(
-  snapshotHash: string,
+  cacheKey: string,
   value: Record<string, unknown>,
 ): CachedPortfolioAnalysis {
   return {
-    snapshotHash,
+    cacheKey,
+    snapshotHash: typeof value.snapshotHash === 'string' ? value.snapshotHash : '',
+    provider:
+      value.provider === 'anthropic'
+        ? 'anthropic'
+        : 'google',
     model: typeof value.model === 'string' ? value.model : '',
+    analysisInstruction:
+      typeof value.analysisInstruction === 'string' ? value.analysisInstruction : '',
     generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : '',
     assetCount: typeof value.assetCount === 'number' ? value.assetCount : 0,
     summary: typeof value.summary === 'string' ? value.summary : '',
@@ -52,7 +59,7 @@ export function getAnalysisCacheErrorMessage(error?: unknown) {
 }
 
 export function subscribeToAnalysisCache(
-  snapshotHash: string,
+  cacheKey: string,
   onData: (analysis: CachedPortfolioAnalysis | null) => void,
   onError: (error: unknown) => void,
 ) {
@@ -60,7 +67,7 @@ export function subscribeToAnalysisCache(
     throw createMissingConfigError();
   }
 
-  const cacheRef = getSharedAnalysisCacheDocRef(snapshotHash);
+  const cacheRef = getSharedAnalysisCacheDocRef(cacheKey);
 
   return onSnapshot(
     cacheRef,
@@ -83,7 +90,7 @@ export async function saveAnalysisCache(
     throw createMissingConfigError();
   }
 
-  const cacheRef = getSharedAnalysisCacheDocRef(analysis.snapshotHash);
+  const cacheRef = getSharedAnalysisCacheDocRef(analysis.cacheKey);
 
   await setDoc(
     cacheRef,

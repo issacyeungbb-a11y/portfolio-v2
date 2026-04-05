@@ -15,15 +15,15 @@ interface AnalysisCacheState {
   error: string | null;
 }
 
-export function useAnalysisCache(snapshotHash: string | null) {
+export function useAnalysisCache(cacheKey: string | null) {
   const [state, setState] = useState<AnalysisCacheState>({
-    status: snapshotHash ? 'loading' : 'idle',
+    status: cacheKey ? 'loading' : 'idle',
     analysis: null,
     error: null,
   });
 
   useEffect(() => {
-    if (!snapshotHash) {
+    if (!cacheKey) {
       setState({
         status: 'idle',
         analysis: null,
@@ -39,7 +39,7 @@ export function useAnalysisCache(snapshotHash: string | null) {
     }));
 
     const unsubscribe = subscribeToAnalysisCache(
-      snapshotHash,
+      cacheKey,
       (analysis) => {
         setState({
           status: 'ready',
@@ -57,7 +57,7 @@ export function useAnalysisCache(snapshotHash: string | null) {
     );
 
     return unsubscribe;
-  }, [snapshotHash]);
+  }, [cacheKey]);
 
   async function persistAnalysis(analysis: CachedPortfolioAnalysis) {
     try {

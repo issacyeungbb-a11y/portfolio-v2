@@ -1,5 +1,10 @@
 import type { Holding } from './portfolio';
 
+export type PortfolioAnalysisProvider = 'google' | 'anthropic';
+export type PortfolioAnalysisModel =
+  | 'gemini-3.1-pro-preview'
+  | 'claude-opus-4-6';
+
 export interface PortfolioAnalysisRequestAsset {
   id: string;
   name: string;
@@ -15,7 +20,10 @@ export interface PortfolioAnalysisRequestAsset {
 }
 
 export interface PortfolioAnalysisRequest {
+  cacheKey: string;
   snapshotHash: string;
+  analysisModel: PortfolioAnalysisModel;
+  analysisInstruction?: string;
   assetCount: number;
   totalValueHKD: number;
   totalCostHKD: number;
@@ -44,14 +52,20 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
   ok: boolean;
   route: '/api/analyze';
   mode: 'live';
+  cacheKey: string;
+  provider: PortfolioAnalysisProvider;
   model: string;
   snapshotHash: string;
+  analysisInstruction: string;
   generatedAt: string;
 }
 
 export interface CachedPortfolioAnalysis extends PortfolioAnalysisResult {
+  cacheKey: string;
   snapshotHash: string;
+  provider: PortfolioAnalysisProvider;
   model: string;
+  analysisInstruction: string;
   generatedAt: string;
   assetCount: number;
 }
