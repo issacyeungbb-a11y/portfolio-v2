@@ -63,7 +63,6 @@ export function DashboardPage() {
   const allocations = buildAllocationSlices(syncedHoldings);
   const totalValue = getPortfolioTotalValue(syncedHoldings, displayCurrency);
   const totalCost = getPortfolioTotalCost(syncedHoldings, displayCurrency);
-  const totalPnl = totalValue - totalCost;
   const totalPrincipal =
     accountPrincipals.reduce(
       (sum, entry) =>
@@ -138,8 +137,8 @@ export function DashboardPage() {
     status === 'loading'
       ? '正在同步 Firestore 資產資料'
       : `已同步 ${syncedHoldings.length} 項資產，資料與資產管理頁一致`;
-  const totalPnlTone =
-    totalPnl > 0 ? 'positive' : totalPnl < 0 ? 'caution' : 'default';
+  const principalPnlTone =
+    principalPnl > 0 ? 'positive' : principalPnl < 0 ? 'caution' : 'default';
 
   return (
     <div className="page-stack">
@@ -195,16 +194,16 @@ export function DashboardPage() {
           hint={syncHint}
         />
         <SummaryCard
-          label="累積損益"
-          value={formatCurrency(totalPnl, displayCurrency)}
-          hint={`投入成本 ${formatCurrency(totalCost, displayCurrency)}`}
-          tone={totalPnlTone}
+          label="本金損益"
+          value={formatCurrency(principalPnl, displayCurrency)}
+          hint={`總本金 ${formatCurrency(totalPrincipal, displayCurrency)}`}
+          tone={principalPnlTone}
         />
         <SummaryCard
           label={`總本金 ${displayCurrency}`}
           value={formatCurrency(totalPrincipal, displayCurrency)}
-          hint={`相對本金 ${formatCurrency(principalPnl, displayCurrency)}`}
-          tone={principalPnl > 0 ? 'positive' : principalPnl < 0 ? 'caution' : 'default'}
+          hint={`持倉成本 ${formatCurrency(totalCost, displayCurrency)}`}
+          tone={principalPnlTone}
         />
         <PerformanceCard
           displayCurrency={displayCurrency}

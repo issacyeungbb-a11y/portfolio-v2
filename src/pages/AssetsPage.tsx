@@ -4,6 +4,8 @@ import {
   AssetInputForm,
 } from '../components/assets/AssetInputForm';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
+import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
+import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
@@ -12,6 +14,7 @@ import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
 import { HoldingsTable } from '../components/portfolio/HoldingsTable';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
+  convertCurrency,
   formatCurrency,
   getAccountSourceLabel,
   getAssetTypeLabel,
@@ -19,6 +22,7 @@ import {
   getHoldingValueInCurrency,
 } from '../data/mockPortfolio';
 import type {
+  AccountCashFlowEntry,
   AccountSource,
   AssetType,
   DisplayCurrency,
@@ -59,6 +63,14 @@ function formatLatestPriceUpdate(value: string | null) {
   }
 }
 
+function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
+  if (entry.type === 'withdrawal') {
+    return -Math.abs(entry.amount);
+  }
+
+  return entry.amount;
+}
+
 export function AssetsPage() {
   const {
     holdings: firestoreHoldings,
@@ -69,6 +81,8 @@ export function AssetsPage() {
     editAsset,
     removeAsset,
   } = usePortfolioAssets();
+  const { entries: accountPrincipals, error: accountPrincipalsError } = useAccountPrincipals();
+  const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
   const {
     reviews,
     error: reviewsError,
@@ -111,7 +125,6 @@ export function AssetsPage() {
     return matchesAssetType && matchesAccount;
   });
 
-  const accountCount = new Set(holdings.map((holding) => holding.accountSource)).size;
   const nonCashHoldings = holdings.filter((holding) => holding.assetType !== 'cash');
   const pricedHoldingsCount = nonCashHoldings.filter((holding) => hasValidHoldingPrice(holding)).length;
   const pendingPriceCount = holdings.filter(
@@ -142,7 +155,31 @@ export function AssetsPage() {
     (sum, holding) => sum + getHoldingCostInCurrency(holding, displayCurrency),
     0,
   );
-  const filteredPnl = filteredValue - filteredCost;
+  const principalEntries =
+    accountFilter === 'all'
+      ? accountPrincipals
+      : accountPrincipals.filter((entry) => entry.accountSource === accountFilter);
+  const cashFlowEntries =
+    accountFilter === 'all'
+      ? accountCashFlows
+      : accountCashFlows.filter((entry) => entry.accountSource === accountFilter);
+  const filteredPrincipal =
+    principalEntries.reduce(
+      (sum, entry) =>
+        sum + convertCurrency(entry.principalAmount, entry.currency, displayCurrency),
+      0,
+    ) +
+    cashFlowEntries.reduce(
+      (sum, entry) =>
+        sum +
+        convertCurrency(
+          getCashFlowSignedAmount(entry),
+          entry.currency,
+          displayCurrency,
+        ),
+      0,
+    );
+  const filteredPnl = filteredValue - filteredPrincipal;
   const staleRatio =
     nonCashHoldings.length === 0 ? 0 : Math.round((pendingPriceCount / nonCashHoldings.length) * 100);
   const latestUpdateLabel = formatLatestPriceUpdate(latestValidPriceUpdate);
@@ -455,9 +492,9 @@ export function AssetsPage() {
           hint={`${filteredHoldings.length} 項 · ${activeFilterLabel}`}
         />
         <SummaryCard
-          label={`總損益 ${displayCurrency}`}
+          label={`本金損益 ${displayCurrency}`}
           value={formatCurrency(filteredPnl, displayCurrency)}
-          hint={`成本 ${formatCurrency(filteredCost, displayCurrency)}`}
+          hint={`本金 ${formatCurrency(filteredPrincipal, displayCurrency)}`}
           tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
         />
         <SummaryCard
@@ -468,7 +505,7 @@ export function AssetsPage() {
               ? `待處理 ${reviews.length} 項`
               : pendingPriceCount > 0
                 ? `待更新 ${pendingPriceCount} 項`
-                : `共 ${accountCount} 類帳戶來源`
+                : `成本 ${formatCurrency(filteredCost, displayCurrency)}`
           }
           tone={pendingPriceCount > 0 || hasPendingReviews ? 'caution' : 'positive'}
         />
@@ -557,6 +594,12 @@ export function AssetsPage() {
 
       {priceUpdateError ? (
         <p className="status-message status-message-error">{priceUpdateError}</p>
+      ) : null}
+      {accountPrincipalsError ? (
+        <p className="status-message status-message-error">{accountPrincipalsError}</p>
+      ) : null}
+      {accountCashFlowsError ? (
+        <p className="status-message status-message-error">{accountCashFlowsError}</p>
       ) : null}
       {priceUpdateSuccess ? (
         <p className="status-message status-message-success">{priceUpdateSuccess}</p>
