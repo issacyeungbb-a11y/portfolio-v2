@@ -14,6 +14,7 @@ import {
   getPortfolioTotalCost,
   getPortfolioTotalValue,
   formatCurrency,
+  formatCurrencyRounded,
 } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
@@ -190,18 +191,18 @@ export function DashboardPage() {
       <section className="summary-grid">
         <SummaryCard
           label={`總資產 ${displayCurrency}`}
-          value={formatCurrency(totalValue, displayCurrency)}
+          value={formatCurrencyRounded(totalValue, displayCurrency)}
           hint={syncHint}
         />
         <SummaryCard
           label="本金損益"
-          value={formatCurrency(principalPnl, displayCurrency)}
+          value={formatCurrencyRounded(principalPnl, displayCurrency)}
           hint={`總本金 ${formatCurrency(totalPrincipal, displayCurrency)}`}
           tone={principalPnlTone}
         />
         <SummaryCard
           label={`總本金 ${displayCurrency}`}
-          value={formatCurrency(totalPrincipal, displayCurrency)}
+          value={formatCurrencyRounded(totalPrincipal, displayCurrency)}
           hint={`持倉成本 ${formatCurrency(totalCost, displayCurrency)}`}
           tone={principalPnlTone}
         />

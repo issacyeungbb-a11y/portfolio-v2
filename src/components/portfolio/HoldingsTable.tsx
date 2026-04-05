@@ -5,6 +5,7 @@ import {
   getAccountSourceLabel,
   getAssetTypeLabel,
   formatCurrency,
+  formatCurrencyRounded,
   formatPercent,
   getHoldingCostInCurrency,
   getHoldingValueInCurrency,
@@ -126,7 +127,7 @@ export function HoldingsTable({
     return (
       <div className="table-metric">
         <strong className="table-metric-primary" data-tone={pnlTone}>
-          {formatCurrency(unrealizedPnl, displayCurrency)}
+          {formatCurrencyRounded(unrealizedPnl, displayCurrency)}
         </strong>
         <span className="table-metric-secondary">{formatPercent(unrealizedPct)}</span>
       </div>
@@ -219,7 +220,7 @@ export function HoldingsTable({
                   <td>
                     <div className="table-metric">
                       <strong className="table-metric-primary">
-                        {hasPendingPrice ? '待更新' : formatCurrency(marketValue, displayCurrency)}
+                        {hasPendingPrice ? '待更新' : formatCurrencyRounded(marketValue, displayCurrency)}
                       </strong>
                       <span className="table-metric-secondary">{holding.quantity}</span>
                     </div>

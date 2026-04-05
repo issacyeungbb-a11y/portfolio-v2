@@ -1,6 +1,7 @@
 import {
   convertCurrency,
   formatCurrency,
+  formatCurrencyRounded,
   formatPercent,
   getAccountSourceLabel,
   getAssetTypeLabel,
@@ -37,7 +38,7 @@ export function HoldingCard({ holding, displayCurrency }: HoldingCardProps) {
       <div className="holding-grid">
         <div>
           <p className="muted-label">市值</p>
-          <strong>{formatCurrency(marketValue, activeCurrency)}</strong>
+          <strong>{formatCurrencyRounded(marketValue, activeCurrency)}</strong>
         </div>
         <div>
           <p className="muted-label">持倉</p>
@@ -48,7 +49,7 @@ export function HoldingCard({ holding, displayCurrency }: HoldingCardProps) {
         <div>
           <p className="muted-label">未實現損益</p>
           <strong data-tone={pnlTone}>
-            {formatCurrency(unrealizedPnl, activeCurrency)} ({formatPercent(holding.unrealizedPct)})
+            {formatCurrencyRounded(unrealizedPnl, activeCurrency)} ({formatPercent(holding.unrealizedPct)})
           </strong>
         </div>
         <div>

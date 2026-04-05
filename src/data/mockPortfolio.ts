@@ -268,6 +268,24 @@ export function formatCurrency(value: number, currency: string) {
   }
 }
 
+export function formatCurrencyRounded(value: number, currency: string) {
+  const normalizedCurrency = normalizeCurrencyCode(currency);
+
+  try {
+    return new Intl.NumberFormat('zh-HK', {
+      style: 'currency',
+      currency: normalizedCurrency,
+      maximumFractionDigits: 0,
+      minimumFractionDigits: 0,
+    }).format(value);
+  } catch {
+    return `${new Intl.NumberFormat('zh-HK', {
+      maximumFractionDigits: 0,
+      minimumFractionDigits: 0,
+    }).format(value)} ${normalizedCurrency}`.trim();
+  }
+}
+
 export function normalizeCurrencyCode(currency: string) {
   const normalized = currency.trim().toUpperCase().replace(/\s+/g, '');
   return CURRENCY_ALIASES[normalized] ?? normalized;

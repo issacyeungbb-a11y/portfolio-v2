@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
   formatCurrency,
+  formatCurrencyRounded,
   getHoldingValueInCurrency,
   getPortfolioTotalValue,
   mockPortfolio,
@@ -289,7 +290,7 @@ export function AnalysisPage() {
         <SummaryCard
           label="目前資產"
           value={`${holdings.length} 項`}
-          hint={`總值 ${formatCurrency(totalValueHKD, 'HKD')}`}
+          hint={`總值 ${formatCurrencyRounded(totalValueHKD, 'HKD')}`}
         />
         <SummaryCard
           label="最近分析"

@@ -1,6 +1,7 @@
 import {
   convertCurrency,
   formatCurrency,
+  formatCurrencyRounded,
   formatDateLabel,
   formatPercent,
   getPerformanceRangeLabel,
@@ -90,7 +91,7 @@ export function PerformanceCard({
       </div>
 
       <div className="performance-value">
-        <strong>{formatCurrency(changeAmount, displayCurrency)}</strong>
+        <strong>{formatCurrencyRounded(changeAmount, displayCurrency)}</strong>
         <span>{formatPercent(summary.returnPct)}</span>
       </div>
 

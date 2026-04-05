@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import {
   formatCurrency,
+  formatCurrencyRounded,
   formatPercent,
   getAccountSourceLabel,
   getAssetTypeLabel,
@@ -256,12 +257,12 @@ export function AssetInputForm({
         <div className="derived-preview">
           <div className="derived-card">
             <span>預估市值</span>
-            <strong>{formatCurrency(marketValue, displayCurrency)}</strong>
+            <strong>{formatCurrencyRounded(marketValue, displayCurrency)}</strong>
           </div>
           <div className="derived-card">
             <span>預估損益</span>
             <strong data-tone={unrealizedPnl >= 0 ? 'positive' : 'caution'}>
-              {formatCurrency(unrealizedPnl, displayCurrency)}
+              {formatCurrencyRounded(unrealizedPnl, displayCurrency)}
             </strong>
             <small>{formatPercent(unrealizedPct)}</small>
           </div>

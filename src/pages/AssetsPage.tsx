@@ -16,6 +16,7 @@ import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
   convertCurrency,
   formatCurrency,
+  formatCurrencyRounded,
   getAccountSourceLabel,
   getAssetTypeLabel,
   getHoldingCostInCurrency,
@@ -488,12 +489,12 @@ export function AssetsPage() {
       <section className="summary-grid">
         <SummaryCard
           label={`總資產 ${displayCurrency}`}
-          value={formatCurrency(filteredValue, displayCurrency)}
+          value={formatCurrencyRounded(filteredValue, displayCurrency)}
           hint={`${filteredHoldings.length} 項 · ${activeFilterLabel}`}
         />
         <SummaryCard
           label={`本金損益 ${displayCurrency}`}
-          value={formatCurrency(filteredPnl, displayCurrency)}
+          value={formatCurrencyRounded(filteredPnl, displayCurrency)}
           hint={`本金 ${formatCurrency(filteredPrincipal, displayCurrency)}`}
           tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
         />
@@ -654,7 +655,7 @@ export function AssetsPage() {
               ))}
             </div>
             <p className="filter-total">
-              {getAssetTypeLabel(assetFilter)} · {formatCurrency(assetTypeValue, displayCurrency)}
+              {getAssetTypeLabel(assetFilter)} · {formatCurrencyRounded(assetTypeValue, displayCurrency)}
             </p>
           </div>
 
@@ -673,7 +674,7 @@ export function AssetsPage() {
               ))}
             </div>
             <p className="filter-total">
-              {getAccountSourceLabel(accountFilter)} · {formatCurrency(accountValue, displayCurrency)}
+              {getAccountSourceLabel(accountFilter)} · {formatCurrencyRounded(accountValue, displayCurrency)}
             </p>
           </div>
         </div>
