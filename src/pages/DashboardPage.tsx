@@ -9,12 +9,14 @@ import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
   buildAllocationSlices,
   calculatePortfolioPerformance,
+  convertCurrency,
   getHoldingValueInCurrency,
   getPortfolioTotalCost,
   getPortfolioTotalValue,
   formatCurrency,
 } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
+import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
@@ -34,6 +36,10 @@ import type {
 
 export function DashboardPage() {
   const { holdings: firestoreHoldings, status, error, isEmpty } = usePortfolioAssets();
+  const {
+    entries: accountPrincipals,
+    error: accountPrincipalsError,
+  } = useAccountPrincipals();
   const { history: portfolioHistory, error: snapshotsError } = usePortfolioSnapshots();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [selectedRange, setSelectedRange] = useState<PerformanceRange>('30d');
@@ -47,6 +53,12 @@ export function DashboardPage() {
   const totalValue = getPortfolioTotalValue(syncedHoldings, displayCurrency);
   const totalCost = getPortfolioTotalCost(syncedHoldings, displayCurrency);
   const totalPnl = totalValue - totalCost;
+  const totalPrincipal = accountPrincipals.reduce(
+    (sum, entry) =>
+      sum + convertCurrency(entry.principalAmount, entry.currency, displayCurrency),
+    0,
+  );
+  const principalPnl = totalValue - totalPrincipal;
   const snapshotSignature =
     syncedHoldings.length > 0 ? createPortfolioSnapshotSignature(syncedHoldings) : '';
   const topHoldings = [...syncedHoldings]
@@ -144,6 +156,9 @@ export function DashboardPage() {
       {snapshotsError ? (
         <p className="status-message status-message-error">{snapshotsError}</p>
       ) : null}
+      {accountPrincipalsError ? (
+        <p className="status-message status-message-error">{accountPrincipalsError}</p>
+      ) : null}
       {isEmpty ? (
         <p className="status-message">未有資產。</p>
       ) : null}
@@ -159,6 +174,12 @@ export function DashboardPage() {
           value={formatCurrency(totalPnl, displayCurrency)}
           hint={`投入成本 ${formatCurrency(totalCost, displayCurrency)}`}
           tone={totalPnlTone}
+        />
+        <SummaryCard
+          label={`總本金 ${displayCurrency}`}
+          value={formatCurrency(totalPrincipal, displayCurrency)}
+          hint={`相對本金 ${formatCurrency(principalPnl, displayCurrency)}`}
+          tone={principalPnl > 0 ? 'positive' : principalPnl < 0 ? 'caution' : 'default'}
         />
         <PerformanceCard
           displayCurrency={displayCurrency}

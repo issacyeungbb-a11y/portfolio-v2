@@ -27,6 +27,13 @@ export interface Holding extends PortfolioAssetInput {
   lastPriceUpdatedAt?: string;
 }
 
+export interface AccountPrincipalEntry {
+  accountSource: AccountSource;
+  principalAmount: number;
+  currency: string;
+  updatedAt?: string;
+}
+
 export interface PortfolioPerformancePoint {
   id?: string;
   date: string;

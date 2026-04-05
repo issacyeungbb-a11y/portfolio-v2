@@ -21,6 +21,14 @@ export interface Holding extends PortfolioAssetInput {
     unrealizedPnl: number;
     unrealizedPct: number;
     allocation: number;
+    priceAsOf?: string;
+    lastPriceUpdatedAt?: string;
+}
+export interface AccountPrincipalEntry {
+    accountSource: AccountSource;
+    principalAmount: number;
+    currency: string;
+    updatedAt?: string;
 }
 export interface PortfolioPerformancePoint {
     date: string;

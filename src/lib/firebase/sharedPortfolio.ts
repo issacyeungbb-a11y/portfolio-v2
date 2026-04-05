@@ -37,6 +37,16 @@ export function getSharedPriceReviewsCollectionRef() {
   );
 }
 
+export function getSharedAccountPrincipalsCollectionRef() {
+  const db = getRequiredFirebaseDb();
+  return collection(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'accountPrincipals',
+  );
+}
+
 export function getSharedAnalysisCacheDocRef(snapshotHash: string) {
   const db = getRequiredFirebaseDb();
   return doc(
