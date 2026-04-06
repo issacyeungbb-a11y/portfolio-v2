@@ -1750,17 +1750,42 @@ h3 {
     font-size: clamp(1.35rem, 3.6vw, 1.9rem);
   }
 
+  .dashboard-hero-panel {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+
+  .dashboard-hero-actions {
+    justify-content: flex-end;
+  }
+
+  .summary-cluster {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(240px, 1fr);
+    align-items: stretch;
+  }
+
   .summary-grid {
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
 
-  .summary-grid-primary,
+  .summary-grid-primary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .summary-grid-secondary {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    grid-template-columns: 1fr;
   }
 
   .content-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .assets-toolbar-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 0.9rem 1rem;
   }
 
   .assets-toolbar-top,
@@ -1771,6 +1796,10 @@ h3 {
     gap: 1rem;
   }
 
+  .assets-toolbar-top {
+    grid-column: 1 / -1;
+  }
+
   .assets-toolbar-heading {
     flex-direction: row;
     align-items: baseline;
@@ -1778,7 +1807,23 @@ h3 {
   }
 
   .assets-price-status {
+    grid-column: 1 / 2;
+    justify-content: flex-start;
+  }
+
+  .assets-toolbar-actions {
+    grid-column: 2 / 3;
     justify-content: flex-end;
+    align-self: start;
+  }
+
+  .assets-toolbar-actions .button {
+    flex: 0 0 auto;
+  }
+
+  .assets-price-status,
+  .assets-toolbar-actions {
+    min-width: 0;
   }
 
   .assets-filter-panel {
