@@ -378,8 +378,8 @@ export function AssetsPage() {
 
   return (
     <div className="page-stack">
-      <section className="card assets-toolbar">
-        <div className="assets-toolbar-main">
+      <section className="hero-panel assets-toolbar assets-toolbar-hero">
+        <div className="assets-toolbar-top">
           <div className="assets-toolbar-copy">
             <p className="eyebrow">Assets</p>
             <div className="assets-toolbar-heading">
@@ -389,20 +389,20 @@ export function AssetsPage() {
               </span>
             </div>
           </div>
-          <div className="assets-price-status" aria-label="價格更新狀態">
-            <span className="assets-price-status-label">更新價格</span>
-            <span className="assets-price-status-item">最近 {latestUpdateLabel}</span>
-            <span className="assets-price-status-item">{coverageLabel}</span>
-            <span className="assets-price-status-item">待更新 {pendingPriceCount}</span>
-            {hasPendingReviews ? (
-              <span className="assets-price-status-item">待處理 {reviews.length}</span>
-            ) : null}
-            {priceUpdateModel ? (
-              <span className="assets-price-status-item assets-model-badge">
-                {priceUpdateModel}
-              </span>
-            ) : null}
-          </div>
+        </div>
+        <div className="assets-price-status" aria-label="價格更新狀態">
+          <span className="assets-price-status-label">更新價格</span>
+          <span className="assets-price-status-item">最近 {latestUpdateLabel}</span>
+          <span className="assets-price-status-item">{coverageLabel}</span>
+          <span className="assets-price-status-item">待更新 {pendingPriceCount}</span>
+          {hasPendingReviews ? (
+            <span className="assets-price-status-item">待處理 {reviews.length}</span>
+          ) : null}
+          {priceUpdateModel ? (
+            <span className="assets-price-status-item assets-model-badge">
+              {priceUpdateModel}
+            </span>
+          ) : null}
         </div>
         <div className="assets-toolbar-actions">
           <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
@@ -486,30 +486,34 @@ export function AssetsPage() {
         </div>
       ) : null}
 
-      <section className="summary-grid">
-        <SummaryCard
-          label={`總資產 ${displayCurrency}`}
-          value={formatCurrencyRounded(filteredValue, displayCurrency)}
-          hint={`${filteredHoldings.length} 項 · ${activeFilterLabel}`}
-        />
-        <SummaryCard
-          label={`本金損益 ${displayCurrency}`}
-          value={formatCurrencyRounded(filteredPnl, displayCurrency)}
-          hint={`本金 ${formatCurrency(filteredPrincipal, displayCurrency)}`}
-          tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
-        />
-        <SummaryCard
-          label="更新狀態"
-          value={coverageLabel}
-          hint={
-            hasPendingReviews
-              ? `待處理 ${reviews.length} 項`
-              : pendingPriceCount > 0
-                ? `待更新 ${pendingPriceCount} 項`
-                : `成本 ${formatCurrency(filteredCost, displayCurrency)}`
-          }
-          tone={pendingPriceCount > 0 || hasPendingReviews ? 'caution' : 'positive'}
-        />
+      <section className="summary-cluster">
+        <div className="summary-grid summary-grid-primary">
+          <SummaryCard
+            label={`總資產 ${displayCurrency}`}
+            value={formatCurrencyRounded(filteredValue, displayCurrency)}
+            hint={`${filteredHoldings.length} 項 · ${activeFilterLabel}`}
+          />
+          <SummaryCard
+            label={`本金損益 ${displayCurrency}`}
+            value={formatCurrencyRounded(filteredPnl, displayCurrency)}
+            hint={`本金 ${formatCurrency(filteredPrincipal, displayCurrency)}`}
+            tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
+          />
+        </div>
+        <div className="summary-grid summary-grid-secondary">
+          <SummaryCard
+            label="更新狀態"
+            value={coverageLabel}
+            hint={
+              hasPendingReviews
+                ? `待處理 ${reviews.length} 項`
+                : pendingPriceCount > 0
+                  ? `待更新 ${pendingPriceCount} 項`
+                  : `成本 ${formatCurrency(filteredCost, displayCurrency)}`
+            }
+            tone={pendingPriceCount > 0 || hasPendingReviews ? 'caution' : 'positive'}
+          />
+        </div>
       </section>
 
       {isFormOpen ? (

@@ -143,12 +143,12 @@ export function DashboardPage() {
 
   return (
     <div className="page-stack">
-      <section className="hero-panel">
+      <section className="hero-panel dashboard-hero-panel">
         <div>
           <p className="eyebrow">Shared Portfolio</p>
           <h2>資產總覽</h2>
         </div>
-        <div className="button-row">
+        <div className="dashboard-hero-actions">
           <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
             <button
               className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
@@ -188,30 +188,34 @@ export function DashboardPage() {
         <p className="status-message">未有資產。</p>
       ) : null}
 
-      <section className="summary-grid">
-        <SummaryCard
-          label={`總資產 ${displayCurrency}`}
-          value={formatCurrencyRounded(totalValue, displayCurrency)}
-          hint={syncHint}
-        />
-        <SummaryCard
-          label="本金損益"
-          value={formatCurrencyRounded(principalPnl, displayCurrency)}
-          hint={`總本金 ${formatCurrency(totalPrincipal, displayCurrency)}`}
-          tone={principalPnlTone}
-        />
-        <SummaryCard
-          label={`總本金 ${displayCurrency}`}
-          value={formatCurrencyRounded(totalPrincipal, displayCurrency)}
-          hint={`持倉成本 ${formatCurrency(totalCost, displayCurrency)}`}
-          tone={principalPnlTone}
-        />
-        <PerformanceCard
-          displayCurrency={displayCurrency}
-          selectedRange={selectedRange}
-          summary={performanceSummary}
-          onSelectRange={setSelectedRange}
-        />
+      <section className="summary-cluster">
+        <div className="summary-grid summary-grid-primary">
+          <SummaryCard
+            label={`總資產 ${displayCurrency}`}
+            value={formatCurrencyRounded(totalValue, displayCurrency)}
+            hint={syncHint}
+          />
+          <SummaryCard
+            label="本金損益"
+            value={formatCurrencyRounded(principalPnl, displayCurrency)}
+            hint={`總本金 ${formatCurrency(totalPrincipal, displayCurrency)}`}
+            tone={principalPnlTone}
+          />
+        </div>
+        <div className="summary-grid summary-grid-secondary">
+          <SummaryCard
+            label={`總本金 ${displayCurrency}`}
+            value={formatCurrencyRounded(totalPrincipal, displayCurrency)}
+            hint={`持倉成本 ${formatCurrency(totalCost, displayCurrency)}`}
+            tone={principalPnlTone}
+          />
+          <PerformanceCard
+            displayCurrency={displayCurrency}
+            selectedRange={selectedRange}
+            summary={performanceSummary}
+            onSelectRange={setSelectedRange}
+          />
+        </div>
       </section>
 
       <section className="content-grid">
