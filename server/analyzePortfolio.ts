@@ -118,20 +118,6 @@ function sanitizeAssetType(value: unknown): AssetType | null {
   return null;
 }
 
-function sanitizeStringList(value: unknown, minimumItems: number) {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-
-  const items = value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 5);
-
-  return items.length >= minimumItems ? items : null;
-}
-
 function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   if (typeof payload !== 'object' || payload === null) {
     throw new AnalyzePortfolioError('投資組合分析請求格式不正確。', 400);
@@ -311,27 +297,28 @@ function parseModelJson(text: string) {
 }
 
 function sanitizeAnalysisResult(rawPayload: unknown): PortfolioAnalysisResult {
+  if (typeof rawPayload === 'string') {
+    const answer = rawPayload.trim();
+    if (!answer) {
+      throw new AnalyzePortfolioError('模型未有回傳分析內容。', 502);
+    }
+
+    return { answer };
+  }
+
   if (typeof rawPayload !== 'object' || rawPayload === null) {
     throw new AnalyzePortfolioError('模型回傳格式不正確。', 502);
   }
 
   const value = rawPayload as Record<string, unknown>;
-  const summary = sanitizeString(value.summary);
-  const topRisks = sanitizeStringList(value.topRisks, 1);
-  const allocationInsights = sanitizeStringList(value.allocationInsights, 1);
-  const currencyExposure = sanitizeStringList(value.currencyExposure, 1);
-  const nextQuestions = sanitizeStringList(value.nextQuestions, 1);
+  const answer = sanitizeString(value.answer);
 
-  if (!summary || !topRisks || !allocationInsights || !currencyExposure || !nextQuestions) {
-    throw new AnalyzePortfolioError('模型回傳欄位不完整，請稍後再試。', 502);
+  if (!answer) {
+    throw new AnalyzePortfolioError('模型未有回傳分析內容。', 502);
   }
 
   return {
-    summary,
-    topRisks,
-    allocationInsights,
-    currencyExposure,
-    nextQuestions,
+    answer,
   };
 }
 
@@ -344,25 +331,18 @@ Return ONLY raw JSON. Do not use markdown fences. Do not add any explanation out
 
 Use this exact schema:
 {
-  "summary": string,
-  "topRisks": string[],
-  "allocationInsights": string[],
-  "currencyExposure": string[],
-  "nextQuestions": string[]
+  "answer": string
 }
 
 Rules:
 - Write all output in Traditional Chinese.
 - Base your reasoning only on the provided holdings, latest prices, asset categories, currencies, and average costs.
 - Do not invent historical returns, dividends, macro news, or external facts that are not present in the input.
-- summary should be 2 to 4 sentences and should explicitly mention the biggest allocation or concentration pattern.
-- topRisks should contain 3 to 5 short bullets about concentration, diversification gaps, liquidity, or data limitations.
-- allocationInsights should contain 3 to 5 concrete observations tied to the actual asset type weights or cost structure.
-- currencyExposure should contain 2 to 4 short bullets about HKD/USD or other visible currency concentration.
-- nextQuestions should contain 3 to 5 short, actionable follow-up questions the user may want to ask next.
 - If the data lacks price history or cash-flow history, mention that limitation briefly where relevant.
 - Keep the tone practical, calm, and beginner-friendly.
 - Prioritize the user's analysis instruction when deciding what to emphasize, but do not invent any external facts or unsupported claims.
+- Answer the user's instruction directly. Do not force your response into sections unless the user's question naturally calls for it.
+- If the user's instruction asks for a comparison, recommendation, or explanation, answer that request directly in flowing prose or a natural list.
 
 User analysis instruction:
 ${request.analysisInstruction || '未提供額外指示，請做一般投資組合分析。'}
@@ -375,35 +355,9 @@ ${JSON.stringify(request, null, 2)}
 const responseJsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: [
-    'summary',
-    'topRisks',
-    'allocationInsights',
-    'currencyExposure',
-    'nextQuestions',
-  ],
+  required: ['answer'],
   properties: {
-    summary: { type: 'string' },
-    topRisks: {
-      type: 'array',
-      minItems: 1,
-      items: { type: 'string' },
-    },
-    allocationInsights: {
-      type: 'array',
-      minItems: 1,
-      items: { type: 'string' },
-    },
-    currencyExposure: {
-      type: 'array',
-      minItems: 1,
-      items: { type: 'string' },
-    },
-    nextQuestions: {
-      type: 'array',
-      minItems: 1,
-      items: { type: 'string' },
-    },
+    answer: { type: 'string' },
   },
 } as const;
 

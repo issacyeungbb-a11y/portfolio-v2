@@ -68,6 +68,16 @@ export function getSharedAnalysisCacheDocRef(snapshotHash: string) {
   );
 }
 
+export function getSharedAnalysisSessionsCollectionRef() {
+  const db = getRequiredFirebaseDb();
+  return collection(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'analysisSessions',
+  );
+}
+
 export function getSharedPortfolioSnapshotsCollectionRef() {
   const db = getRequiredFirebaseDb();
   return collection(

@@ -7,5 +7,6 @@ export declare function getSharedPriceReviewsCollectionRef(): import("@firebase/
 export declare function getSharedAccountPrincipalsCollectionRef(): import("@firebase/firestore").CollectionReference<import("@firebase/firestore").DocumentData, import("@firebase/firestore").DocumentData>;
 export declare function getSharedAccountCashFlowsCollectionRef(): import("@firebase/firestore").CollectionReference<import("@firebase/firestore").DocumentData, import("@firebase/firestore").DocumentData>;
 export declare function getSharedAnalysisCacheDocRef(snapshotHash: string): import("@firebase/firestore").DocumentReference<import("@firebase/firestore").DocumentData, import("@firebase/firestore").DocumentData>;
+export declare function getSharedAnalysisSessionsCollectionRef(): import("@firebase/firestore").CollectionReference<import("@firebase/firestore").DocumentData, import("@firebase/firestore").DocumentData>;
 export declare function getSharedPortfolioSnapshotsCollectionRef(): import("@firebase/firestore").CollectionReference<import("@firebase/firestore").DocumentData, import("@firebase/firestore").DocumentData>;
 export declare function getSharedAssetPriceHistoryCollectionRef(assetId: string): import("@firebase/firestore").CollectionReference<import("@firebase/firestore").DocumentData, import("@firebase/firestore").DocumentData>;

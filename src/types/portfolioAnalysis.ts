@@ -41,11 +41,7 @@ export interface PortfolioAnalysisRequest {
 }
 
 export interface PortfolioAnalysisResult {
-  summary: string;
-  topRisks: string[];
-  allocationInsights: string[];
-  currencyExposure: string[];
-  nextQuestions: string[];
+  answer: string;
 }
 
 export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {

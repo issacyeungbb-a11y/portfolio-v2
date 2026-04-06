@@ -188,6 +188,8 @@ const analysisSessions: AnalysisSession[] = [
     title: '風險集中度檢查',
     question: '如果科技股回調 12%，整個投資組合大概會受多少影響？',
     result: '目前單一風格仍以科技為主，若要降低波動，最有效的是提高 ETF 與現金比重，而不是再加更多同類型成長股。',
+    model: 'gemini-2.5-pro',
+    provider: 'google',
     updatedAt: '今天 08:45',
   },
   {
@@ -195,6 +197,8 @@ const analysisSessions: AnalysisSession[] = [
     title: '加倉優先順序',
     question: '下次有 10,000 HKD 可投資時，應先補 ETF 還是現有科技股？',
     result: '從配置角度看，先補 ETF 會更平衡，也能保留你對個股的既有信念部位。',
+    model: 'gemini-2.5-pro',
+    provider: 'google',
     updatedAt: '昨天 21:15',
   },
 ];

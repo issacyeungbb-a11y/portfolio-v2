@@ -28,17 +28,7 @@ function normalizeCachedAnalysis(
       typeof value.analysisInstruction === 'string' ? value.analysisInstruction : '',
     generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : '',
     assetCount: typeof value.assetCount === 'number' ? value.assetCount : 0,
-    summary: typeof value.summary === 'string' ? value.summary : '',
-    topRisks: Array.isArray(value.topRisks) ? value.topRisks.filter((item): item is string => typeof item === 'string') : [],
-    allocationInsights: Array.isArray(value.allocationInsights)
-      ? value.allocationInsights.filter((item): item is string => typeof item === 'string')
-      : [],
-    currencyExposure: Array.isArray(value.currencyExposure)
-      ? value.currencyExposure.filter((item): item is string => typeof item === 'string')
-      : [],
-    nextQuestions: Array.isArray(value.nextQuestions)
-      ? value.nextQuestions.filter((item): item is string => typeof item === 'string')
-      : [],
+    answer: typeof value.answer === 'string' ? value.answer : '',
   };
 }
 

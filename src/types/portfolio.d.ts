@@ -86,7 +86,11 @@ export interface AnalysisSession {
     title: string;
     question: string;
     result: string;
+    model: string;
+    provider?: 'google' | 'anthropic';
+    snapshotHash?: string;
     updatedAt: string;
+    createdAt?: string;
 }
 export interface PortfolioSnapshot {
     owner: string;

@@ -9,6 +9,7 @@ import {
   mockPortfolio,
 } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
+import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
@@ -18,7 +19,7 @@ import {
   createPortfolioSnapshotHash,
   createPortfolioSnapshotSignature,
 } from '../lib/portfolio/analysisSnapshot';
-import type { Holding } from '../types/portfolio';
+import type { AnalysisSession, Holding } from '../types/portfolio';
 import type {
   CachedPortfolioAnalysis,
   PortfolioAnalysisModel,
@@ -79,31 +80,14 @@ function getAnalysisStatusLabel(
   return '未分析';
 }
 
-function AnalysisListCard({
-  eyebrow,
-  title,
-  items,
-}: {
-  eyebrow: string;
-  title: string;
-  items: string[];
-}) {
-  return (
-    <article className="card analysis-result-card">
-      <div className="section-heading">
-        <div>
-          <p className="eyebrow">{eyebrow}</p>
-          <h2>{title}</h2>
-        </div>
-      </div>
+function createAnalysisTitle(question: string) {
+  const trimmed = question.trim();
 
-      <ul className="analysis-bullet-list">
-        {items.map((item, index) => (
-          <li key={`${title}-${index}`}>{item}</li>
-        ))}
-      </ul>
-    </article>
-  );
+  if (!trimmed) {
+    return '投資組合分析';
+  }
+
+  return trimmed.length > 26 ? `${trimmed.slice(0, 26)}...` : trimmed;
 }
 
 export function AnalysisPage() {
@@ -119,13 +103,14 @@ export function AnalysisPage() {
   const [analysisCacheKeyStatus, setAnalysisCacheKeyStatus] = useState<SnapshotHashStatus>('idle');
   const [snapshotHashError, setSnapshotHashError] = useState<string | null>(null);
   const [analysisInstruction, setAnalysisInstruction] = useState(
-    '請重點分析本金損益、集中風險、幣別配置，以及下一步最值得跟進嘅調整建議。',
+    '根據我目前資產，分析一下而家最值得留意嘅重點。',
   );
   const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('gemini-3.1-pro-preview');
   const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisSuccess, setAnalysisSuccess] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -222,6 +207,11 @@ export function AnalysisPage() {
     hasCachedAnalysis,
     persistAnalysis,
   } = useAnalysisCache(analysisCacheKey);
+  const {
+    entries: analysisSessions,
+    error: analysisSessionsError,
+    addAnalysisSession,
+  } = useAnalysisSessions();
 
   const displayedAnalysis = localAnalysis ?? cachedAnalysis;
   const hasAnalysis = Boolean(displayedAnalysis);
@@ -268,16 +258,21 @@ export function AnalysisPage() {
         analysisInstruction: response.analysisInstruction,
         generatedAt: response.generatedAt,
         assetCount: holdings.length,
-        summary: response.summary,
-        topRisks: response.topRisks,
-        allocationInsights: response.allocationInsights,
-        currencyExposure: response.currencyExposure,
-        nextQuestions: response.nextQuestions,
+        answer: response.answer,
       };
 
       setLocalAnalysis(cachedResult);
       await persistAnalysis(cachedResult);
-      setAnalysisSuccess('分析已完成，結果亦已快取到 Firestore。');
+      const savedSession: Omit<AnalysisSession, 'id' | 'updatedAt' | 'createdAt'> = {
+        title: createAnalysisTitle(response.analysisInstruction),
+        question: response.analysisInstruction,
+        result: response.answer,
+        model: response.model,
+        provider: response.provider,
+        snapshotHash: response.snapshotHash,
+      };
+      await addAnalysisSession(savedSession);
+      setAnalysisSuccess('分析已完成，結果已保存。');
     } catch (error) {
       setAnalysisError(
         error instanceof Error ? error.message : '投資組合分析失敗，請稍後再試。',
@@ -356,6 +351,9 @@ export function AnalysisPage() {
         <p className="status-message status-message-error">{snapshotHashError}</p>
       ) : null}
       {cacheError ? <p className="status-message status-message-error">{cacheError}</p> : null}
+      {analysisSessionsError ? (
+        <p className="status-message status-message-error">{analysisSessionsError}</p>
+      ) : null}
       {analysisError ? (
         <p className="status-message status-message-error">{analysisError}</p>
       ) : null}
@@ -397,7 +395,7 @@ export function AnalysisPage() {
           hint={
             hasAnalysis
               ? `模型 ${displayedAnalysis?.model ?? ''}`
-              : '快取會按資產快照、模型與分析指示分開保存'
+              : '每次完成分析後都會自動保存到分析紀錄'
           }
         />
       </section>
@@ -407,18 +405,24 @@ export function AnalysisPage() {
           <section className="card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Summary</p>
-                <h2>組合摘要</h2>
+                <p className="eyebrow">Answer</p>
+                <h2>分析回答</h2>
               </div>
               <span className="chip chip-strong">{displayedAnalysis?.model}</span>
             </div>
 
-            <p className="analysis-summary-text">{displayedAnalysis?.summary}</p>
+            <p className="analysis-summary-text" style={{ whiteSpace: 'pre-wrap' }}>
+              {displayedAnalysis?.answer}
+            </p>
 
             <div className="analysis-meta-grid">
               <div className="analysis-meta-item">
                 <span>分析時間</span>
                 <strong>{formatAnalysisTime(displayedAnalysis?.generatedAt ?? '')}</strong>
+              </div>
+              <div className="analysis-meta-item">
+                <span>提問內容</span>
+                <strong>{displayedAnalysis?.analysisInstruction || '未提供'}</strong>
               </div>
               <div className="analysis-meta-item">
                 <span>快照資產數</span>
@@ -429,29 +433,6 @@ export function AnalysisPage() {
                 <strong className="mono-value">{snapshotHash?.slice(0, 12) ?? ''}</strong>
               </div>
             </div>
-          </section>
-
-          <section className="analysis-result-grid">
-            <AnalysisListCard
-              eyebrow="Risks"
-              title="主要風險"
-              items={displayedAnalysis?.topRisks ?? []}
-            />
-            <AnalysisListCard
-              eyebrow="Allocation"
-              title="配置觀察"
-              items={displayedAnalysis?.allocationInsights ?? []}
-            />
-            <AnalysisListCard
-              eyebrow="Currency"
-              title="貨幣曝險"
-              items={displayedAnalysis?.currencyExposure ?? []}
-            />
-            <AnalysisListCard
-              eyebrow="Next Questions"
-              title="下一步可問"
-              items={displayedAnalysis?.nextQuestions ?? []}
-            />
           </section>
         </>
       ) : (
@@ -465,6 +446,51 @@ export function AnalysisPage() {
           <p className="status-message">準備好後直接開始分析。</p>
         </section>
       )}
+
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">History</p>
+            <h2>分析紀錄</h2>
+          </div>
+        </div>
+
+        <div className="settings-list">
+          {analysisSessions.length > 0 ? (
+            analysisSessions.slice(0, 20).map((session) => (
+              <button
+                key={session.id}
+                type="button"
+                className={selectedSessionId === session.id ? 'setting-row active' : 'setting-row'}
+                onClick={() => {
+                  setSelectedSessionId(session.id);
+                  setLocalAnalysis({
+                    cacheKey: session.id,
+                    snapshotHash: session.snapshotHash ?? '',
+                    provider: session.provider ?? 'google',
+                    model: session.model,
+                    analysisInstruction: session.question,
+                    generatedAt: session.updatedAt,
+                    assetCount: holdings.length,
+                    answer: session.result,
+                  });
+                }}
+              >
+                <div>
+                  <strong>{session.title}</strong>
+                  <p>{session.question}</p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <strong>{session.model}</strong>
+                  <p>{formatAnalysisTime(session.updatedAt)}</p>
+                </div>
+              </button>
+            ))
+          ) : (
+            <p className="status-message">未有分析紀錄。</p>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
