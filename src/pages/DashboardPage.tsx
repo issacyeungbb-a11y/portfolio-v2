@@ -144,10 +144,7 @@ export function DashboardPage() {
   return (
     <div className="page-stack">
       <section className="hero-panel dashboard-hero-panel">
-        <div>
-          <p className="eyebrow">Shared Portfolio</p>
-          <h2>資產總覽</h2>
-        </div>
+        <span className="chip chip-soft">{syncHint}</span>
         <div className="dashboard-hero-actions">
           <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
             <button

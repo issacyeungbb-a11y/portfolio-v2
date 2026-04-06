@@ -380,15 +380,9 @@ export function AssetsPage() {
     <div className="page-stack">
       <section className="hero-panel assets-toolbar assets-toolbar-hero">
         <div className="assets-toolbar-top">
-          <div className="assets-toolbar-copy">
-            <p className="eyebrow">Assets</p>
-            <div className="assets-toolbar-heading">
-              <h2>手動管理資產</h2>
-              <span className="assets-toolbar-subtle">
-                {filteredHoldings.length} 項 · {activeFilterLabel}
-              </span>
-            </div>
-          </div>
+          <span className="assets-toolbar-subtle">
+            {filteredHoldings.length} 項 · {activeFilterLabel}
+          </span>
         </div>
         <div className="assets-price-status" aria-label="價格更新狀態">
           <span className="assets-price-status-label">更新價格</span>

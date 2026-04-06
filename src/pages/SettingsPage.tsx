@@ -56,13 +56,6 @@ export function SettingsPage() {
 
   return (
     <div className="page-stack">
-      <section className="hero-panel">
-        <div>
-          <p className="eyebrow">Settings</p>
-          <h2>共享模式與偏好設定</h2>
-        </div>
-      </section>
-
       <section className="card">
         <div className="section-heading">
           <div>

@@ -115,13 +115,6 @@ export function FundsPage() {
 
   return (
     <div className="page-stack">
-      <section className="hero-panel">
-        <div>
-          <p className="eyebrow">Cash Flows</p>
-          <h2>資金流水</h2>
-        </div>
-      </section>
-
       {accountPrincipalsError ? (
         <p className="status-message status-message-error">{accountPrincipalsError}</p>
       ) : null}

@@ -5,7 +5,7 @@ interface TopBarProps {
 export function TopBar({ title }: TopBarProps) {
   return (
     <header className="top-bar">
-      <div>
+      <div className="top-bar-heading">
         <p className="eyebrow">Portfolio V2</p>
         <h1>{title}</h1>
       </div>

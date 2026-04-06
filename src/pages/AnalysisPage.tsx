@@ -285,11 +285,6 @@ export function AnalysisPage() {
   return (
     <div className="page-stack">
       <section className="hero-panel">
-        <div>
-          <p className="eyebrow">AI Analysis</p>
-          <h2>投資組合分析</h2>
-        </div>
-
         <div className="analysis-action-panel">
           <div className="analysis-action-copy">
             <span className="chip chip-soft">目前資產 {holdings.length} 項</span>

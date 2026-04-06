@@ -428,10 +428,6 @@ export function ImportPage() {
   return (
     <div className="page-stack">
       <section className="hero-panel">
-        <div>
-          <p className="eyebrow">AI Import</p>
-          <h2>圖片、文字、語音轉資產資料</h2>
-        </div>
         <div className="import-mode-row" role="tablist" aria-label="選擇匯入方式">
           <button
             className={inputMode === 'image' ? 'filter-chip active' : 'filter-chip'}
