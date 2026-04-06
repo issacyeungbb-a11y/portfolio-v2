@@ -6,6 +6,7 @@ export type AllocationBucketKey = AssetType;
 export type InsightTone = 'positive' | 'neutral' | 'caution';
 export type ImportStatus = 'completed' | 'processing' | 'review';
 export type AccountCashFlowType = 'deposit' | 'withdrawal' | 'adjustment';
+export type AssetChangeRange = '1d' | '7d' | '30d';
 
 export interface PortfolioAssetInput {
   name: string;
@@ -47,17 +48,38 @@ export interface AccountCashFlowEntry {
   updatedAt?: string;
 }
 
+export interface SnapshotHoldingPoint {
+  assetId: string;
+  name: string;
+  symbol: string;
+  assetType: AssetType;
+  accountSource: AccountSource;
+  currency: string;
+  quantity: number;
+  currentPrice: number;
+  averageCost: number;
+  marketValueHKD: number;
+}
+
 export interface PortfolioPerformancePoint {
   id?: string;
   date: string;
+  capturedAt?: string;
   totalValue: number;
   netExternalFlow: number;
   assetCount?: number;
-  reason?: 'asset_created' | 'assets_imported' | 'price_update_confirmed' | 'snapshot';
+  holdings?: SnapshotHoldingPoint[];
+  reason?:
+    | 'asset_created'
+    | 'assets_imported'
+    | 'price_update_confirmed'
+    | 'snapshot'
+    | 'daily_snapshot'
+    | 'cash_flow_recorded';
 }
 
 export interface PortfolioPerformanceSummary {
-  range: PerformanceRange;
+  range: PerformanceRange | AssetChangeRange;
   label: string;
   startDate: string;
   endDate: string;

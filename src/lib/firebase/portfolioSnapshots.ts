@@ -22,9 +22,23 @@ import {
   SHARED_PORTFOLIO_DOC_ID,
 } from './sharedPortfolio';
 import { getPortfolioTotalValue } from '../../data/mockPortfolio';
-import type { Holding, PortfolioPerformancePoint, PortfolioAssetInput } from '../../types/portfolio';
+import type {
+  Holding,
+  PortfolioPerformancePoint,
+  PortfolioAssetInput,
+  SnapshotHoldingPoint,
+} from '../../types/portfolio';
 
 type SnapshotReason = NonNullable<PortfolioPerformancePoint['reason']>;
+
+function getHongKongDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
 
 function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
@@ -36,10 +50,22 @@ function formatSnapshotDate(value: unknown) {
   }
 
   if (typeof value === 'string') {
-    return value;
+    return value.length >= 10 ? value.slice(0, 10) : value;
   }
 
   return new Date().toISOString().slice(0, 10);
+}
+
+function formatSnapshotTimestamp(value: unknown) {
+  if (value instanceof Timestamp) {
+    return value.toDate().toISOString();
+  }
+
+  if (typeof value === 'string' && value) {
+    return value;
+  }
+
+  return '';
 }
 
 function sanitizeNumber(value: unknown) {
@@ -51,12 +77,48 @@ function sanitizeReason(value: unknown): SnapshotReason {
     value === 'asset_created' ||
     value === 'assets_imported' ||
     value === 'price_update_confirmed' ||
-    value === 'snapshot'
+    value === 'snapshot' ||
+    value === 'daily_snapshot' ||
+    value === 'cash_flow_recorded'
   ) {
     return value;
   }
 
   return 'snapshot';
+}
+
+function normalizeSnapshotHolding(value: unknown): SnapshotHoldingPoint | null {
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const entry = value as Record<string, unknown>;
+
+  return {
+    assetId: typeof entry.assetId === 'string' ? entry.assetId : '',
+    name: typeof entry.name === 'string' ? entry.name : '',
+    symbol: typeof entry.symbol === 'string' ? entry.symbol : '',
+    assetType:
+      entry.assetType === 'stock' ||
+      entry.assetType === 'etf' ||
+      entry.assetType === 'bond' ||
+      entry.assetType === 'crypto' ||
+      entry.assetType === 'cash'
+        ? entry.assetType
+        : 'stock',
+    accountSource:
+      entry.accountSource === 'Futu' ||
+      entry.accountSource === 'IB' ||
+      entry.accountSource === 'Crypto' ||
+      entry.accountSource === 'Other'
+        ? entry.accountSource
+        : 'Other',
+    currency: typeof entry.currency === 'string' ? entry.currency : 'HKD',
+    quantity: sanitizeNumber(entry.quantity),
+    currentPrice: sanitizeNumber(entry.currentPrice),
+    averageCost: sanitizeNumber(entry.averageCost),
+    marketValueHKD: sanitizeNumber(entry.marketValueHKD),
+  };
 }
 
 function normalizePortfolioSnapshot(
@@ -66,9 +128,15 @@ function normalizePortfolioSnapshot(
   return {
     id,
     date: formatSnapshotDate(value.capturedAt ?? value.date),
+    capturedAt: formatSnapshotTimestamp(value.capturedAt),
     totalValue: sanitizeNumber(value.totalValueHKD ?? value.totalValue),
     netExternalFlow: sanitizeNumber(value.netExternalFlowHKD ?? value.netExternalFlow),
     assetCount: sanitizeNumber(value.assetCount),
+    holdings: Array.isArray(value.holdings)
+      ? value.holdings
+          .map((entry) => normalizeSnapshotHolding(entry))
+          .filter((entry): entry is SnapshotHoldingPoint => entry !== null)
+      : [],
     reason: sanitizeReason(value.reason),
   };
 }
@@ -99,6 +167,7 @@ export async function capturePortfolioSnapshot(params: {
   holdings?: Holding[];
   netExternalFlowHKD?: number;
   reason?: SnapshotReason;
+  snapshotId?: string;
 }) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
@@ -106,14 +175,28 @@ export async function capturePortfolioSnapshot(params: {
 
   const holdings = params.holdings ?? (await readCurrentPortfolioHoldings());
   const snapshotsCollection = getPortfolioSnapshotsCollectionRef();
-  const snapshotRef = doc(snapshotsCollection);
+  const snapshotRef = params.snapshotId
+    ? doc(snapshotsCollection, params.snapshotId)
+    : doc(snapshotsCollection);
 
   await setDoc(snapshotRef, {
     capturedAt: serverTimestamp(),
-    date: new Date().toISOString().slice(0, 10),
+    date: getHongKongDateKey(),
     totalValueHKD: getPortfolioTotalValue(holdings, 'HKD'),
     netExternalFlowHKD: params.netExternalFlowHKD ?? 0,
     assetCount: holdings.length,
+    holdings: holdings.map((holding) => ({
+      assetId: holding.id,
+      name: holding.name,
+      symbol: holding.symbol,
+      assetType: holding.assetType,
+      accountSource: holding.accountSource,
+      currency: holding.currency,
+      quantity: holding.quantity,
+      currentPrice: holding.currentPrice,
+      averageCost: holding.averageCost,
+      marketValueHKD: getPortfolioTotalValue([holding], 'HKD'),
+    })),
     reason: params.reason ?? 'snapshot',
     updatedAt: serverTimestamp(),
   });

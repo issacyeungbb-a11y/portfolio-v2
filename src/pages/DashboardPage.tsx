@@ -2,13 +2,12 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { AllocationCard } from '../components/portfolio/AllocationCard';
+import { AssetChangePanel } from '../components/portfolio/AssetChangePanel';
 import { HoldingCard } from '../components/portfolio/HoldingCard';
 import { InsightCard } from '../components/portfolio/InsightCard';
-import { PerformanceCard } from '../components/portfolio/PerformanceCard';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
   buildAllocationSlices,
-  calculatePortfolioPerformance,
   convertCurrency,
   getHoldingValueInCurrency,
   getPortfolioTotalCost,
@@ -22,6 +21,7 @@ import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
+import { createCurrentPortfolioPoint } from '../lib/portfolio/assetChange';
 import {
   buildDashboardInsights,
 } from '../lib/portfolio/dashboardInsights';
@@ -34,7 +34,6 @@ import type {
   AllocationBucketKey,
   DisplayCurrency,
   Holding,
-  PerformanceRange,
 } from '../types/portfolio';
 
 function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
@@ -54,7 +53,6 @@ export function DashboardPage() {
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
   const { history: portfolioHistory, error: snapshotsError } = usePortfolioSnapshots();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
-  const [selectedRange, setSelectedRange] = useState<PerformanceRange>('30d');
   const [selectedAllocationKey, setSelectedAllocationKey] = useState<AllocationBucketKey>('stock');
   const [snapshotHash, setSnapshotHash] = useState<string | null>(null);
   const syncedHoldings: Holding[] = recalculateHoldingAllocations(
@@ -129,11 +127,6 @@ export function DashboardPage() {
   }, [snapshotSignature]);
 
   const { hasCachedAnalysis } = useAnalysisCache(snapshotHash);
-  const performanceSummary =
-    portfolioHistory.length > 1
-      ? calculatePortfolioPerformance(portfolioHistory, selectedRange)
-      : null;
-
   const syncHint =
     status === 'loading'
       ? '正在同步 Firestore 資產資料'
@@ -206,14 +199,15 @@ export function DashboardPage() {
             hint={`持倉成本 ${formatCurrency(totalCost, displayCurrency)}`}
             tone={principalPnlTone}
           />
-          <PerformanceCard
-            displayCurrency={displayCurrency}
-            selectedRange={selectedRange}
-            summary={performanceSummary}
-            onSelectRange={setSelectedRange}
-          />
         </div>
       </section>
+
+      <AssetChangePanel
+        displayCurrency={displayCurrency}
+        history={portfolioHistory}
+        currentPoint={createCurrentPortfolioPoint(syncedHoldings)}
+        cashFlows={accountCashFlows}
+      />
 
       <section className="content-grid">
         {status === 'loading' ? (

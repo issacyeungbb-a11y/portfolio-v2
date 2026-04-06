@@ -2,17 +2,12 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 import { generatePriceUpdates } from './updatePrices.js';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
+import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/priceUpdates.js';
-import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio.js';
 
 const CRON_ROUTE = '/api/cron-update-prices' as const;
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
-
-type AdminPortfolioAsset = PortfolioAssetInput & {
-  priceAsOf?: string;
-  lastPriceUpdatedAt?: string;
-};
 
 class CronPriceUpdateError extends Error {
   status: number;
@@ -43,50 +38,9 @@ export function verifyCronRequest(authorizationHeader?: string) {
   }
 }
 
-function normalizeAssetType(value: unknown): AssetType {
-  if (value === 'stock' || value === 'etf' || value === 'bond' || value === 'crypto' || value === 'cash') {
-    return value;
-  }
-
-  return 'stock';
-}
-
-function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsset {
-  return {
-    name: typeof value.name === 'string' ? value.name : '',
-    symbol: typeof value.symbol === 'string' ? value.symbol : '',
-    assetType: normalizeAssetType(value.assetType),
-    accountSource:
-      value.accountSource === 'Futu' ||
-      value.accountSource === 'IB' ||
-      value.accountSource === 'Crypto' ||
-      value.accountSource === 'Other'
-        ? value.accountSource
-        : 'Other',
-    currency: typeof value.currency === 'string' ? value.currency : 'USD',
-    quantity: typeof value.quantity === 'number' ? value.quantity : 0,
-    averageCost: typeof value.averageCost === 'number' ? value.averageCost : 0,
-    currentPrice: typeof value.currentPrice === 'number' ? value.currentPrice : 0,
-    priceAsOf: typeof value.priceAsOf === 'string' ? value.priceAsOf : '',
-    lastPriceUpdatedAt:
-      typeof value.lastPriceUpdatedAt === 'string' ? value.lastPriceUpdatedAt : '',
-  };
-}
-
 async function readAssetsForPriceUpdate() {
-  const db = getFirebaseAdminDb();
-  const assetsSnapshot = await db
-    .collection(SHARED_PORTFOLIO_COLLECTION)
-    .doc(SHARED_PORTFOLIO_DOC_ID)
-    .collection('assets')
-    .get();
-
-  return assetsSnapshot.docs
-    .map((document) => ({
-      id: document.id,
-      ...normalizeAssetInput(document.data() as Record<string, unknown>),
-    }))
-    .filter((asset) => asset.assetType !== 'cash');
+  const assets = await readAdminPortfolioAssets();
+  return assets.filter((asset) => asset.assetType !== 'cash');
 }
 
 function buildPriceUpdateRequest(assets: Awaited<ReturnType<typeof readAssetsForPriceUpdate>>): PriceUpdateRequest {
@@ -104,39 +58,6 @@ function buildPriceUpdateRequest(assets: Awaited<ReturnType<typeof readAssetsFor
 
 function isValidReview(review: PendingPriceUpdateReview) {
   return review.price != null && review.price > 0 && !review.invalidReason;
-}
-
-async function captureCronSnapshot(assetCount: number) {
-  const db = getFirebaseAdminDb();
-  const assetsSnapshot = await db
-    .collection(SHARED_PORTFOLIO_COLLECTION)
-    .doc(SHARED_PORTFOLIO_DOC_ID)
-    .collection('assets')
-    .get();
-
-  const totalValueHKD = assetsSnapshot.docs.reduce((sum, document) => {
-    const value = document.data() as Record<string, unknown>;
-    const quantity = typeof value.quantity === 'number' ? value.quantity : 0;
-    const currentPrice = typeof value.currentPrice === 'number' ? value.currentPrice : 0;
-    const currency = typeof value.currency === 'string' ? value.currency.toUpperCase() : 'HKD';
-    const rate = currency === 'USD' ? 7.8 : 1;
-
-    return sum + quantity * currentPrice * rate;
-  }, 0);
-
-  await db
-    .collection(SHARED_PORTFOLIO_COLLECTION)
-    .doc(SHARED_PORTFOLIO_DOC_ID)
-    .collection('portfolioSnapshots')
-    .add({
-      capturedAt: FieldValue.serverTimestamp(),
-      date: new Date().toISOString().slice(0, 10),
-      totalValueHKD,
-      netExternalFlowHKD: 0,
-      assetCount,
-      reason: 'price_update_confirmed',
-      updatedAt: FieldValue.serverTimestamp(),
-    });
 }
 
 async function applyCronResults(results: PendingPriceUpdateReview[]) {
@@ -208,7 +129,9 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
   }
 
   if (validResults.length > 0) {
-    await captureCronSnapshot(validResults.length);
+    await captureAdminPortfolioSnapshot({
+      reason: 'price_update_confirmed',
+    });
   }
 
   return {
