@@ -576,6 +576,24 @@ h3 {
   background: rgba(255, 255, 255, 0.48);
 }
 
+.asset-change-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.asset-change-toggle strong {
+  color: var(--accent);
+  font-size: 0.82rem;
+}
+
 .asset-change-block-heading {
   display: flex;
   flex-wrap: wrap;
@@ -594,6 +612,12 @@ h3 {
 .asset-mover-value span {
   color: var(--text-muted);
   font-size: 0.8rem;
+}
+
+.asset-change-collapsed-note {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
 }
 
 .asset-change-overview-grid,
