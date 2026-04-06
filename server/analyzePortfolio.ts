@@ -275,27 +275,6 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   };
 }
 
-function stripJsonFence(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('```')) {
-    return trimmed;
-  }
-
-  return trimmed
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
-}
-
-function parseModelJson(text: string) {
-  try {
-    return JSON.parse(stripJsonFence(text)) as unknown;
-  } catch {
-    throw new AnalyzePortfolioError('模型未回傳可解析的分析 JSON，請稍後再試。', 502);
-  }
-}
-
 function sanitizeAnalysisResult(rawPayload: unknown): PortfolioAnalysisResult {
   if (typeof rawPayload === 'string') {
     const answer = rawPayload.trim();
@@ -327,12 +306,7 @@ function buildPrompt(request: PortfolioAnalysisRequest) {
 You are a portfolio analysis assistant.
 
 Analyze ONLY the portfolio snapshot provided below.
-Return ONLY raw JSON. Do not use markdown fences. Do not add any explanation outside JSON.
-
-Use this exact schema:
-{
-  "answer": string
-}
+Return ONLY the final answer text in Traditional Chinese. Do not use markdown code fences.
 
 Rules:
 - Write all output in Traditional Chinese.
@@ -352,15 +326,6 @@ ${JSON.stringify(request, null, 2)}
   `.trim();
 }
 
-const responseJsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['answer'],
-  properties: {
-    answer: { type: 'string' },
-  },
-} as const;
-
 function getModelProvider(model: PortfolioAnalysisModel): PortfolioAnalysisProvider {
   return SUPPORTED_ANALYSIS_MODELS[model].provider;
 }
@@ -376,12 +341,10 @@ async function analyzeWithGemini(
     contents: prompt,
     config: {
       temperature: 0.3,
-      responseMimeType: 'application/json',
-      responseJsonSchema,
     },
   });
 
-  return parseModelJson(response.text ?? '');
+  return response.text ?? '';
 }
 
 async function analyzeWithClaude(
@@ -435,7 +398,7 @@ async function analyzeWithClaude(
     })
     .join('\n');
 
-  return parseModelJson(text);
+  return text;
 }
 
 export function getAnalyzePortfolioErrorResponse(error: unknown) {
