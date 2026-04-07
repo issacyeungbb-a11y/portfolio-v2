@@ -78,7 +78,7 @@ export function AssetChangePanel({
         <section className="asset-change-block">
           <div className="asset-change-block-heading">
             <h3>總資產變動</h3>
-            <span>每日 6:30 快照 + 即時持倉</span>
+            <span>每日 7:00 快照 + 即時持倉</span>
           </div>
           <div className="asset-change-overview-grid">
             {overview.length > 0 ? (
