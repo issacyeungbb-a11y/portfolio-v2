@@ -6,7 +6,6 @@ import {
   formatPercent,
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
-import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
@@ -163,7 +162,6 @@ export function AssetTrendsPage() {
   const { holdings: firestoreHoldings, status, error } = usePortfolioAssets();
   const { history, error: snapshotsError } = usePortfolioSnapshots();
   const { entries: cashFlows, error: cashFlowsError } = useAccountCashFlows();
-  const { entries: assetTransactions, error: transactionsError } = useAssetTransactions();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [selectedRange, setSelectedRange] = useState<TrendRange | null>(null);
 
@@ -173,21 +171,9 @@ export function AssetTrendsPage() {
   );
   const currentPoint = createCurrentPortfolioPoint(holdings);
   const totalValue = convertCurrency(currentPoint.totalValue, 'HKD', displayCurrency);
-  const currentUnrealizedPnlHKD = holdings.reduce(
-    (sum, holding) =>
-      sum +
-      convertCurrency(
-        holding.quantity * (holding.currentPrice - holding.averageCost),
-        holding.currency,
-        'HKD',
-      ),
-    0,
-  );
-  const realizedPnlTotalHKD = assetTransactions.reduce(
-    (sum, entry) => sum + entry.realizedPnlHKD,
-    0,
-  );
   const netExternalFlowTotalHKD = sumSignedCashFlowsHKD(cashFlows);
+  const historicalReturnHKD = currentPoint.totalValue - netExternalFlowTotalHKD;
+  const historicalReturnPct = netExternalFlowTotalHKD === 0 ? 0 : (historicalReturnHKD / Math.abs(netExternalFlowTotalHKD)) * 100;
   const monthStartDate = `${currentPoint.date.slice(0, 7)}-01`;
   const monthlySnapshot = history
     .filter((point) => point.date >= monthStartDate)
@@ -200,18 +186,13 @@ export function AssetTrendsPage() {
 
     return sum + convertCurrency(getSignedCashFlowAmount(entry), entry.currency, 'HKD');
   }, 0);
+  const monthlyReturnHKD = currentPoint.totalValue - monthStartValueHKD - monthFlowsHKD;
+  const monthlyReturnPct = monthStartValueHKD === 0 ? 0 : (monthlyReturnHKD / monthStartValueHKD) * 100;
   const todaySummary = calculateAssetChangeSummary(history, currentPoint, cashFlows, '1d');
   const rangeSummary =
     selectedRange != null
       ? calculateAssetChangeSummary(history, currentPoint, cashFlows, selectedRange)
       : null;
-  const realizedRangeHKD =
-    selectedRange && rangeSummary
-      ? assetTransactions
-          .filter((entry) => entry.date > rangeSummary.startDate && entry.date <= rangeSummary.endDate)
-          .reduce((sum, entry) => sum + entry.realizedPnlHKD, 0)
-      : 0;
-  const unrealizedRangeHKD = rangeSummary ? rangeSummary.marketChange - realizedRangeHKD : 0;
   const trendSeries = selectedRange ? buildTrendSeries(history, currentPoint, selectedRange) : [];
   const linePath = buildLinePath(
     trendSeries.map((point) => convertCurrency(point.totalValue, 'HKD', displayCurrency)),
@@ -230,7 +211,6 @@ export function AssetTrendsPage() {
       {error ? <p className="status-message status-message-error">{error}</p> : null}
       {snapshotsError ? <p className="status-message status-message-error">{snapshotsError}</p> : null}
       {cashFlowsError ? <p className="status-message status-message-error">{cashFlowsError}</p> : null}
-      {transactionsError ? <p className="status-message status-message-error">{transactionsError}</p> : null}
 
       <section className="card trends-overview-card">
         <div className="trends-toolbar">
@@ -281,23 +261,23 @@ export function AssetTrendsPage() {
 
         <div className="trends-overview-grid">
           <div className="trends-overview-mini">
-            <span>已實現盈虧</span>
-            <strong className={realizedPnlTotalHKD >= 0 ? 'positive-text' : 'caution-text'}>
-              {realizedPnlTotalHKD >= 0 ? '+' : ''}
-              {formatCurrencyRounded(convertCurrency(realizedPnlTotalHKD, 'HKD', displayCurrency), displayCurrency)}
+            <span>本月收益</span>
+            <strong className={monthlyReturnHKD >= 0 ? 'positive-text' : 'caution-text'}>
+              {monthlyReturnHKD >= 0 ? '+' : ''}
+              {formatCurrencyRounded(convertCurrency(monthlyReturnHKD, 'HKD', displayCurrency), displayCurrency)}
             </strong>
-            <small>來自賣出交易</small>
+            <small>{formatPercent(monthlyReturnPct)}</small>
           </div>
           <div className="trends-overview-mini">
-            <span>未實現盈虧</span>
-            <strong className={currentUnrealizedPnlHKD >= 0 ? 'positive-text' : 'caution-text'}>
-              {currentUnrealizedPnlHKD >= 0 ? '+' : ''}
+            <span>歷史收益</span>
+            <strong className={historicalReturnHKD >= 0 ? 'positive-text' : 'caution-text'}>
+              {historicalReturnHKD >= 0 ? '+' : ''}
               {formatCurrencyRounded(
-                convertCurrency(currentUnrealizedPnlHKD, 'HKD', displayCurrency),
+                convertCurrency(historicalReturnHKD, 'HKD', displayCurrency),
                 displayCurrency,
               )}
             </strong>
-            <small>現有持倉浮動盈虧</small>
+            <small>{formatPercent(historicalReturnPct)}</small>
           </div>
           <div className="trends-overview-mini">
             <span>淨入金影響</span>
@@ -351,20 +331,15 @@ export function AssetTrendsPage() {
 
             <div className="trends-overview-grid">
               <div className="trends-overview-mini">
-                <span>已實現盈虧</span>
-                <strong className={realizedRangeHKD >= 0 ? 'positive-text' : 'caution-text'}>
-                  {realizedRangeHKD >= 0 ? '+' : ''}
-                  {formatCurrencyRounded(convertCurrency(realizedRangeHKD, 'HKD', displayCurrency), displayCurrency)}
+                <span>市場變動</span>
+                <strong className={rangeSummary.marketChange >= 0 ? 'positive-text' : 'caution-text'}>
+                  {rangeSummary.marketChange >= 0 ? '+' : ''}
+                  {formatCurrencyRounded(
+                    convertCurrency(rangeSummary.marketChange, 'HKD', displayCurrency),
+                    displayCurrency,
+                  )}
                 </strong>
-                <small>賣出交易</small>
-              </div>
-              <div className="trends-overview-mini">
-                <span>未實現盈虧</span>
-                <strong className={unrealizedRangeHKD >= 0 ? 'positive-text' : 'caution-text'}>
-                  {unrealizedRangeHKD >= 0 ? '+' : ''}
-                  {formatCurrencyRounded(convertCurrency(unrealizedRangeHKD, 'HKD', displayCurrency), displayCurrency)}
-                </strong>
-                <small>價格與持倉變動</small>
+                <small>快照與現有持倉變化</small>
               </div>
               <div className="trends-overview-mini">
                 <span>淨入金影響</span>
