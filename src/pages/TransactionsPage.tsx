@@ -39,6 +39,16 @@ export function TransactionsPage() {
           <strong className="summary-value">{formatCurrencyRounded(totalTradeAmountHKD, 'HKD')}</strong>
           <p className="summary-hint">按各筆成交價 x 數量換算 HKD 累計</p>
         </article>
+        <article className="summary-card">
+          <p className="summary-label">已實現盈虧</p>
+          <strong className="summary-value">
+            {formatCurrencyRounded(
+              entries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
+              'HKD',
+            )}
+          </strong>
+          <p className="summary-hint">賣出交易扣除手續費後累計</p>
+        </article>
       </section>
 
       <section className="card">
@@ -76,6 +86,9 @@ export function TransactionsPage() {
                     </strong>
                     <span className="table-metric-secondary">
                       總額 {formatCurrency(grossAmount, entry.currency)} · 手續費 {formatCurrency(entry.fees, entry.currency)}
+                    </span>
+                    <span className="table-metric-secondary">
+                      已實現 {formatCurrency(entry.realizedPnlHKD, 'HKD')}
                     </span>
                   </div>
                 </div>

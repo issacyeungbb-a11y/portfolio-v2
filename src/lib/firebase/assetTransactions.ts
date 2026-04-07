@@ -1,9 +1,12 @@
 import {
   addDoc,
+  doc,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  updateDoc,
   Timestamp,
 } from 'firebase/firestore';
 
@@ -11,10 +14,17 @@ import type {
   AccountSource,
   AssetTransactionEntry,
   AssetTransactionType,
+  Holding,
   AssetType,
 } from '../../types/portfolio';
+import { convertCurrency } from '../../data/mockPortfolio';
+import { buildHoldingFromInput } from './assets';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
-import { getSharedAssetTransactionsCollectionRef } from './sharedPortfolio';
+import { capturePortfolioSnapshot } from './portfolioSnapshots';
+import {
+  getSharedAssetTransactionsCollectionRef,
+  getSharedAssetsCollectionRef,
+} from './sharedPortfolio';
 
 function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
@@ -77,6 +87,7 @@ function normalizeAssetTransaction(
     fees: sanitizeNumber(value.fees),
     currency: sanitizeString(value.currency).toUpperCase() || 'HKD',
     date: sanitizeString(value.date) || new Date().toISOString().slice(0, 10),
+    realizedPnlHKD: sanitizeNumber(value.realizedPnlHKD),
     note: sanitizeString(value.note) || undefined,
     createdAt: formatTimestamp(value.createdAt),
     updatedAt: formatTimestamp(value.updatedAt),
@@ -124,11 +135,54 @@ export function subscribeToAssetTransactions(
 }
 
 export async function createAssetTransaction(
-  entry: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt'>,
+  entry: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt' | 'realizedPnlHKD'>,
 ) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
+
+  const assetRef = doc(getSharedAssetsCollectionRef(), entry.assetId);
+  const assetSnapshot = await getDoc(assetRef);
+
+  if (!assetSnapshot.exists()) {
+    throw new Error('找不到對應資產，請先確認該資產仍然存在。');
+  }
+
+  const currentHolding = buildHoldingFromInput(
+    assetSnapshot.id,
+    assetSnapshot.data() as unknown as Holding,
+  );
+  const quantity = Number(entry.quantity) || 0;
+  const price = Number(entry.price) || 0;
+  const fees = Number(entry.fees) || 0;
+  const existingQuantity = currentHolding.quantity;
+  const existingAverageCost = currentHolding.averageCost;
+
+  if (quantity <= 0 || price <= 0) {
+    throw new Error('交易數量同成交價都必須大過 0。');
+  }
+
+  if (entry.transactionType === 'sell' && quantity > existingQuantity) {
+    throw new Error('賣出數量不可大過現有持倉數量。');
+  }
+
+  let nextQuantity = existingQuantity;
+  let nextAverageCost = existingAverageCost;
+  let realizedPnl = 0;
+
+  if (entry.transactionType === 'buy') {
+    nextQuantity = existingQuantity + quantity;
+    nextAverageCost =
+      nextQuantity === 0
+        ? 0
+        : ((existingQuantity * existingAverageCost) + (quantity * price) + fees) / nextQuantity;
+  } else {
+    nextQuantity = Math.max(0, existingQuantity - quantity);
+    realizedPnl = (price - existingAverageCost) * quantity - fees;
+    nextAverageCost = nextQuantity === 0 ? 0 : existingAverageCost;
+  }
+
+  const realizedPnlHKD = convertCurrency(realizedPnl, entry.currency, 'HKD');
 
   await addDoc(getSharedAssetTransactionsCollectionRef(), {
     assetId: entry.assetId,
@@ -142,8 +196,21 @@ export async function createAssetTransaction(
     fees: Number(entry.fees) || 0,
     currency: entry.currency.trim().toUpperCase() || 'HKD',
     date: entry.date,
+    realizedPnlHKD,
     note: entry.note?.trim() || '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  });
+
+  await updateDoc(assetRef, {
+    quantity: nextQuantity,
+    averageCost: nextAverageCost,
+    currentPrice: price,
+    lastPriceUpdatedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  await capturePortfolioSnapshot({
+    reason: 'snapshot',
   });
 }

@@ -6,7 +6,7 @@ import type { AssetTransactionEntry, Holding } from '../../types/portfolio';
 interface AssetTransactionFormProps {
   holding: Holding;
   onSubmit: (
-    payload: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt'>,
+    payload: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt' | 'realizedPnlHKD'>,
   ) => Promise<void> | void;
   onCancel: () => void;
   isSubmitting?: boolean;

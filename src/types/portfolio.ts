@@ -62,6 +62,7 @@ export interface AssetTransactionEntry {
   fees: number;
   currency: string;
   date: string;
+  realizedPnlHKD: number;
   note?: string;
   createdAt?: string;
   updatedAt?: string;

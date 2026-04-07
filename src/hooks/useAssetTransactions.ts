@@ -49,7 +49,9 @@ export function useAssetTransactions() {
     return unsubscribe;
   }, []);
 
-  async function addTransaction(entry: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt'>) {
+  async function addTransaction(
+    entry: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt' | 'realizedPnlHKD'>,
+  ) {
     try {
       await createAssetTransaction(entry);
     } catch (error) {
