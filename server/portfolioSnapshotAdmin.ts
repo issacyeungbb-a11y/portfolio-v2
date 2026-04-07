@@ -1,4 +1,4 @@
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio.js';
@@ -6,7 +6,10 @@ import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio.js';
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 
-type AdminPortfolioAsset = PortfolioAssetInput;
+type AdminPortfolioAsset = PortfolioAssetInput & {
+  lastPriceUpdatedAt?: string;
+  archivedAt?: string;
+};
 
 function normalizeAssetType(value: unknown): AssetType {
   if (value === 'stock' || value === 'etf' || value === 'bond' || value === 'crypto' || value === 'cash') {
@@ -40,6 +43,19 @@ function getHongKongDateKey(date = new Date()) {
 }
 
 function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsset {
+  const lastPriceUpdatedAt =
+    value.lastPriceUpdatedAt instanceof Timestamp
+      ? value.lastPriceUpdatedAt.toDate().toISOString()
+      : typeof value.lastPriceUpdatedAt === 'string'
+        ? value.lastPriceUpdatedAt
+        : undefined;
+  const archivedAt =
+    value.archivedAt instanceof Timestamp
+      ? value.archivedAt.toDate().toISOString()
+      : typeof value.archivedAt === 'string'
+        ? value.archivedAt
+        : undefined;
+
   return {
     name: typeof value.name === 'string' ? value.name : '',
     symbol: typeof value.symbol === 'string' ? value.symbol : '',
@@ -55,6 +71,8 @@ function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsse
     quantity: typeof value.quantity === 'number' ? value.quantity : 0,
     averageCost: typeof value.averageCost === 'number' ? value.averageCost : 0,
     currentPrice: typeof value.currentPrice === 'number' ? value.currentPrice : 0,
+    lastPriceUpdatedAt,
+    archivedAt,
   };
 }
 
@@ -69,7 +87,7 @@ export async function readAdminPortfolioAssets() {
   return snapshot.docs.map((document) => ({
     id: document.id,
     ...normalizeAssetInput(document.data() as Record<string, unknown>),
-  }));
+  })).filter((asset) => !asset.archivedAt);
 }
 
 export async function captureAdminPortfolioSnapshot(params?: {
