@@ -96,6 +96,7 @@ export function AssetsPage() {
   const [assetFilter, setAssetFilter] = useState<AssetType | 'all'>('all');
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('USD');
+  const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isSavingAsset, setIsSavingAsset] = useState(false);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
@@ -637,45 +638,60 @@ export function AssetsPage() {
           <p className="status-message">未有資產。</p>
         ) : null}
 
-        <div className="assets-filter-panel">
-          <div className="assets-filter-block">
-            <span className="assets-filter-label">資產類別</span>
-            <div className="filter-row">
-              {assetFilterOptions.map((option) => (
-                <button
-                  key={option.value}
-                  className={assetFilter === option.value ? 'filter-chip active' : 'filter-chip'}
-                  type="button"
-                  onClick={() => setAssetFilter(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <p className="filter-total">
-              {getAssetTypeLabel(assetFilter)} · {formatCurrencyRounded(assetTypeValue, displayCurrency)}
-            </p>
-          </div>
-
-          <div className="assets-filter-block">
-            <span className="assets-filter-label">帳戶來源</span>
-            <div className="filter-row">
-              {accountFilterOptions.map((option) => (
-                <button
-                  key={option.value}
-                  className={accountFilter === option.value ? 'filter-chip active' : 'filter-chip'}
-                  type="button"
-                  onClick={() => setAccountFilter(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-            <p className="filter-total">
-              {getAccountSourceLabel(accountFilter)} · {formatCurrencyRounded(accountValue, displayCurrency)}
-            </p>
-          </div>
+        <div className="assets-filter-toggle-row">
+          <button
+            className={isFilterPanelOpen ? 'filter-chip active' : 'filter-chip'}
+            type="button"
+            onClick={() => setIsFilterPanelOpen((current) => !current)}
+          >
+            {isFilterPanelOpen ? '收起篩選' : '展開篩選'}
+          </button>
+          <p className="filter-total">
+            {getAssetTypeLabel(assetFilter)} · {getAccountSourceLabel(accountFilter)}
+          </p>
         </div>
+
+        {isFilterPanelOpen ? (
+          <div className="assets-filter-panel">
+            <div className="assets-filter-block">
+              <span className="assets-filter-label">資產類別</span>
+              <div className="filter-row">
+                {assetFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className={assetFilter === option.value ? 'filter-chip active' : 'filter-chip'}
+                    type="button"
+                    onClick={() => setAssetFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="filter-total">
+                {getAssetTypeLabel(assetFilter)} · {formatCurrencyRounded(assetTypeValue, displayCurrency)}
+              </p>
+            </div>
+
+            <div className="assets-filter-block">
+              <span className="assets-filter-label">帳戶來源</span>
+              <div className="filter-row">
+                {accountFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className={accountFilter === option.value ? 'filter-chip active' : 'filter-chip'}
+                    type="button"
+                    onClick={() => setAccountFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="filter-total">
+                {getAccountSourceLabel(accountFilter)} · {formatCurrencyRounded(accountValue, displayCurrency)}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         <HoldingsTable
           holdings={filteredHoldings}

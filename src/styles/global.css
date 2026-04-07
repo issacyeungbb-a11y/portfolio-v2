@@ -1356,6 +1356,15 @@ h3 {
   margin-bottom: 0.75rem;
 }
 
+.assets-filter-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+
 .assets-filter-block {
   display: flex;
   flex-direction: column;

@@ -113,6 +113,7 @@ export function FundsPage() {
       };
     });
   }, [accountPrincipals, cashFlows]);
+  const totalPrincipalHKD = accountSummaries.reduce((sum, summary) => sum + summary.totalPrincipalHKD, 0);
 
   async function handleSavePrincipal(entry: AccountPrincipalEntry) {
     setSavingAccountSource(entry.accountSource);
@@ -173,6 +174,11 @@ export function FundsPage() {
       ) : null}
 
       <section className="summary-grid">
+        <article className="summary-card">
+          <p className="summary-label">全部本金總數</p>
+          <strong className="summary-value">{formatCurrency(totalPrincipalHKD, 'HKD')}</strong>
+          <p className="summary-hint">已合併各帳戶本金基線與資金流水</p>
+        </article>
         {accountSummaries.map((summary) => (
           <article key={summary.accountSource} className="summary-card">
             <p className="summary-label">{getAccountSourceLabel(summary.accountSource)}</p>
