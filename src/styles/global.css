@@ -971,6 +971,10 @@ h3 {
   gap: 0.2rem;
 }
 
+.setting-row-wide {
+  gap: 0.7rem;
+}
+
 .setting-row-controls {
   display: flex;
   flex-wrap: wrap;
@@ -1784,6 +1788,17 @@ h3 {
   flex-wrap: nowrap;
   gap: 0.3rem;
   align-items: center;
+}
+
+.transaction-inline-form {
+  margin-top: 0.4rem;
+}
+
+.transaction-inline-form .asset-form-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .modal-card-wide {

@@ -8,6 +8,7 @@ export type ImportStatus = 'completed' | 'processing' | 'review';
 export type AccountCashFlowType = 'deposit' | 'withdrawal' | 'adjustment';
 export type AssetChangeRange = '1d' | '7d' | '30d';
 export type AssetTransactionType = 'buy' | 'sell';
+export type AssetTransactionRecordType = 'seed' | 'trade';
 
 export interface PortfolioAssetInput {
   name: string;
@@ -28,6 +29,7 @@ export interface Holding extends PortfolioAssetInput {
   allocation: number;
   priceAsOf?: string;
   lastPriceUpdatedAt?: string;
+  archivedAt?: string;
 }
 
 export interface AccountPrincipalEntry {
@@ -63,6 +65,9 @@ export interface AssetTransactionEntry {
   currency: string;
   date: string;
   realizedPnlHKD: number;
+  recordType?: AssetTransactionRecordType;
+  quantityAfter?: number;
+  averageCostAfter?: number;
   note?: string;
   createdAt?: string;
   updatedAt?: string;

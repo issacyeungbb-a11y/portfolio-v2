@@ -5,36 +5,60 @@ import type { AssetTransactionEntry, Holding } from '../../types/portfolio';
 
 interface AssetTransactionFormProps {
   holding: Holding;
+  initialValue?: Partial<AssetTransactionEntry>;
+  title?: string;
+  submitLabel?: string;
+  deleteLabel?: string;
   onSubmit: (
     payload: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt' | 'realizedPnlHKD'>,
   ) => Promise<void> | void;
+  onDelete?: () => Promise<void> | void;
   onCancel: () => void;
   isSubmitting?: boolean;
+  isDeleting?: boolean;
   error?: string | null;
 }
 
 export function AssetTransactionForm({
   holding,
+  initialValue,
+  title,
+  submitLabel = '儲存交易',
+  deleteLabel = '刪除交易',
   onSubmit,
+  onDelete,
   onCancel,
   isSubmitting = false,
+  isDeleting = false,
   error = null,
 }: AssetTransactionFormProps) {
-  const [transactionType, setTransactionType] = useState<'buy' | 'sell'>('buy');
+  const [transactionType, setTransactionType] = useState<'buy' | 'sell'>(initialValue?.transactionType ?? 'buy');
   const [quantity, setQuantity] = useState('');
-  const [price, setPrice] = useState(String(holding.currentPrice || holding.averageCost || ''));
-  const [fees, setFees] = useState('0');
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [note, setNote] = useState('');
+  const [price, setPrice] = useState(
+    String(initialValue?.price ?? holding.currentPrice ?? holding.averageCost ?? ''),
+  );
+  const [fees, setFees] = useState(String(initialValue?.fees ?? 0));
+  const [date, setDate] = useState(() => initialValue?.date ?? new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState(initialValue?.note ?? '');
 
   useEffect(() => {
-    setTransactionType('buy');
-    setQuantity('');
-    setPrice(String(holding.currentPrice || holding.averageCost || ''));
-    setFees('0');
-    setDate(new Date().toISOString().slice(0, 10));
-    setNote('');
-  }, [holding.id, holding.currentPrice, holding.averageCost]);
+    setTransactionType(initialValue?.transactionType ?? 'buy');
+    setQuantity(initialValue?.quantity != null ? String(initialValue.quantity) : '');
+    setPrice(String(initialValue?.price ?? holding.currentPrice ?? holding.averageCost ?? ''));
+    setFees(String(initialValue?.fees ?? 0));
+    setDate(initialValue?.date ?? new Date().toISOString().slice(0, 10));
+    setNote(initialValue?.note ?? '');
+  }, [
+    holding.id,
+    holding.currentPrice,
+    holding.averageCost,
+    initialValue?.transactionType,
+    initialValue?.quantity,
+    initialValue?.price,
+    initialValue?.fees,
+    initialValue?.date,
+    initialValue?.note,
+  ]);
 
   const quantityValue = Number(quantity) || 0;
   const priceValue = Number(price) || 0;
@@ -70,7 +94,7 @@ export function AssetTransactionForm({
       <div className="section-heading">
         <div>
           <p className="eyebrow">Trade Entry</p>
-          <h2>交易 {holding.symbol}</h2>
+          <h2>{title ?? `交易 ${holding.symbol}`}</h2>
           <p className="table-hint">
             {holding.name} · {getAssetTypeLabel(holding.assetType)} · {getAccountSourceLabel(holding.accountSource)}
           </p>
@@ -170,8 +194,18 @@ export function AssetTransactionForm({
 
         <div className="form-actions">
           <button className="button button-primary" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? '儲存中...' : '儲存交易'}
+            {isSubmitting ? '儲存中...' : submitLabel}
           </button>
+          {onDelete ? (
+            <button
+              className="button button-secondary button-danger-text"
+              type="button"
+              onClick={() => void onDelete()}
+              disabled={isSubmitting || isDeleting}
+            >
+              {isDeleting ? '刪除中...' : deleteLabel}
+            </button>
+          ) : null}
           <button className="button button-secondary" type="button" onClick={onCancel} disabled={isSubmitting}>
             取消
           </button>

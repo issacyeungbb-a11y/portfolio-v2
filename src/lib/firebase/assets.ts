@@ -16,7 +16,10 @@ import { convertCurrency } from '../../data/mockPortfolio';
 import { getEffectiveHoldingPrice } from '../portfolio/priceValidity';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { capturePortfolioSnapshot } from './portfolioSnapshots';
-import { getSharedAssetsCollectionRef } from './sharedPortfolio';
+import {
+  getSharedAssetTransactionsCollectionRef,
+  getSharedAssetsCollectionRef,
+} from './sharedPortfolio';
 
 function createMissingConfigError() {
   return new Error(
@@ -50,6 +53,7 @@ export function buildHoldingFromInput(
   payload: PortfolioAssetInput & {
     priceAsOf?: unknown;
     lastPriceUpdatedAt?: unknown;
+    archivedAt?: unknown;
   },
 ): Holding {
   const normalized = normalizePortfolioAssetInput(payload);
@@ -78,6 +82,7 @@ export function buildHoldingFromInput(
     allocation: 0,
     priceAsOf: formatTimestamp(payload.priceAsOf),
     lastPriceUpdatedAt: formatTimestamp(payload.lastPriceUpdatedAt),
+    archivedAt: formatTimestamp(payload.archivedAt),
   };
 }
 
@@ -126,7 +131,7 @@ export function subscribeToPortfolioAssets(
       const holdings = snapshot.docs.map((document) =>
         buildHoldingFromInput(document.id, document.data() as PortfolioAssetInput),
       );
-      onData(holdings);
+      onData(holdings.filter((holding) => !holding.archivedAt));
     },
     onError,
   );
@@ -139,12 +144,33 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
 
   const normalized = normalizePortfolioAssetInput(payload);
   const createdHolding = buildHoldingFromInput('pending', normalized);
-
-  await addDoc(getSharedAssetsCollectionRef(), {
+  const createdDoc = await addDoc(getSharedAssetsCollectionRef(), {
     ...normalized,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+  if (createdHolding.quantity > 0) {
+    await addDoc(getSharedAssetTransactionsCollectionRef(), {
+      assetId: createdDoc.id,
+      assetName: normalized.name,
+      symbol: normalized.symbol,
+      assetType: normalized.assetType,
+      accountSource: normalized.accountSource,
+      transactionType: 'buy',
+      recordType: 'seed',
+      quantity: normalized.quantity,
+      price: normalized.averageCost,
+      fees: 0,
+      currency: normalized.currency,
+      date: new Date().toISOString().slice(0, 10),
+      realizedPnlHKD: 0,
+      quantityAfter: normalized.quantity,
+      averageCostAfter: normalized.averageCost,
+      note: '建立資產',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
 
   await capturePortfolioSnapshot({
     netExternalFlowHKD: convertCurrency(
@@ -173,6 +199,29 @@ export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
+    if (normalized.quantity > 0) {
+      const transactionRef = doc(getSharedAssetTransactionsCollectionRef());
+      batch.set(transactionRef, {
+        assetId: assetRef.id,
+        assetName: normalized.name,
+        symbol: normalized.symbol,
+        assetType: normalized.assetType,
+        accountSource: normalized.accountSource,
+        transactionType: 'buy',
+        recordType: 'seed',
+        quantity: normalized.quantity,
+        price: normalized.averageCost,
+        fees: 0,
+        currency: normalized.currency,
+        date: new Date().toISOString().slice(0, 10),
+        realizedPnlHKD: 0,
+        quantityAfter: normalized.quantity,
+        averageCostAfter: normalized.averageCost,
+        note: '匯入資產',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    }
   }
 
   await batch.commit();

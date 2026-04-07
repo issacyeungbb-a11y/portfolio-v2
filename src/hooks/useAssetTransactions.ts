@@ -3,8 +3,10 @@ import { useEffect, useState } from 'react';
 import type { AssetTransactionEntry } from '../types/portfolio';
 import {
   createAssetTransaction,
+  deleteAssetTransaction,
   getAssetTransactionsErrorMessage,
   subscribeToAssetTransactions,
+  updateAssetTransaction,
 } from '../lib/firebase/assetTransactions';
 
 type AssetTransactionsStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -64,8 +66,39 @@ export function useAssetTransactions() {
     }
   }
 
+  async function editTransaction(
+    entryId: string,
+    entry: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt' | 'realizedPnlHKD'>,
+  ) {
+    try {
+      await updateAssetTransaction(entryId, entry);
+    } catch (error) {
+      const message = getAssetTransactionsErrorMessage(error);
+      setState((current) => ({
+        ...current,
+        error: message,
+      }));
+      throw new Error(message);
+    }
+  }
+
+  async function removeTransaction(entryId: string) {
+    try {
+      await deleteAssetTransaction(entryId);
+    } catch (error) {
+      const message = getAssetTransactionsErrorMessage(error);
+      setState((current) => ({
+        ...current,
+        error: message,
+      }));
+      throw new Error(message);
+    }
+  }
+
   return {
     ...state,
     addTransaction,
+    editTransaction,
+    removeTransaction,
   };
 }

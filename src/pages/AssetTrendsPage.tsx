@@ -279,18 +279,17 @@ export function AssetTrendsPage() {
             </strong>
             <small>{formatPercent(historicalReturnPct)}</small>
           </div>
-          <div className="trends-overview-mini">
-            <span>淨入金影響</span>
-            <strong className={netExternalFlowTotalHKD >= 0 ? 'positive-text' : 'caution-text'}>
-              {netExternalFlowTotalHKD >= 0 ? '+' : ''}
-              {formatCurrencyRounded(
-                convertCurrency(netExternalFlowTotalHKD, 'HKD', displayCurrency),
-                displayCurrency,
-              )}
-            </strong>
-            <small>全部資金流水累計</small>
-          </div>
         </div>
+        <p className="trends-calendar-summary">
+          淨入金影響{' '}
+          <span className={netExternalFlowTotalHKD >= 0 ? 'positive-text' : 'caution-text'}>
+            {netExternalFlowTotalHKD >= 0 ? '+' : ''}
+            {formatCurrencyRounded(
+              convertCurrency(netExternalFlowTotalHKD, 'HKD', displayCurrency),
+              displayCurrency,
+            )}
+          </span>
+        </p>
       </section>
 
       <section className="card trends-chart-card">
@@ -339,18 +338,13 @@ export function AssetTrendsPage() {
                     displayCurrency,
                   )}
                 </strong>
-                <small>快照與現有持倉變化</small>
-              </div>
-              <div className="trends-overview-mini">
-                <span>淨入金影響</span>
-                <strong className={rangeSummary.netExternalFlow >= 0 ? 'positive-text' : 'caution-text'}>
-                  {rangeSummary.netExternalFlow >= 0 ? '+' : ''}
-                  {formatCurrencyRounded(
+                <small>
+                  淨入金影響{' '}
+                  {`${rangeSummary.netExternalFlow >= 0 ? '+' : ''}${formatCurrencyRounded(
                     convertCurrency(rangeSummary.netExternalFlow, 'HKD', displayCurrency),
                     displayCurrency,
-                  )}
-                </strong>
-                <small>入金 / 提款 / 調整</small>
+                  )}`}
+                </small>
               </div>
             </div>
 
