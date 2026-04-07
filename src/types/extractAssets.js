@@ -10,6 +10,21 @@ export function createEditableExtractedAsset(asset, index) {
         currentPrice: asset.currentPrice == null ? '' : String(asset.currentPrice),
     };
 }
+export function createEditableExtractedTransaction(entry, index) {
+    return {
+        id: `extracted-transaction-${index}-${entry.ticker ?? 'transaction'}`,
+        name: entry.name ?? '',
+        ticker: entry.ticker ?? '',
+        type: entry.type ?? '',
+        transactionType: entry.transactionType ?? '',
+        quantity: entry.quantity == null ? '' : String(entry.quantity),
+        currency: entry.currency ?? '',
+        price: entry.price == null ? '' : String(entry.price),
+        fees: entry.fees == null ? '0' : String(entry.fees),
+        date: entry.date ?? new Date().toISOString().slice(0, 10),
+        note: entry.note ?? '',
+    };
+}
 export function getMissingExtractedAssetFields(asset) {
     const missing = [];
     if (!asset.name.trim()) {
@@ -29,6 +44,28 @@ export function getMissingExtractedAssetFields(asset) {
     }
     if (!asset.costBasis.trim()) {
         missing.push('costBasis');
+    }
+    return missing;
+}
+export function getMissingExtractedTransactionFields(entry) {
+    const missing = [];
+    if (!entry.ticker.trim()) {
+        missing.push('ticker');
+    }
+    if (!entry.transactionType) {
+        missing.push('transactionType');
+    }
+    if (!entry.quantity.trim()) {
+        missing.push('quantity');
+    }
+    if (!entry.currency.trim()) {
+        missing.push('currency');
+    }
+    if (!entry.price.trim()) {
+        missing.push('price');
+    }
+    if (!entry.date.trim()) {
+        missing.push('date');
     }
     return missing;
 }

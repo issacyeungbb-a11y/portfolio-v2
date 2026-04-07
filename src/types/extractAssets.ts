@@ -1,4 +1,5 @@
 import type { AssetType, AccountSource, PortfolioAssetInput } from './portfolio';
+import type { AssetTransactionType } from './portfolio';
 
 export interface ExtractAssetsRequest {
   fileName: string;
@@ -7,6 +8,16 @@ export interface ExtractAssetsRequest {
 }
 
 export interface ParseAssetsCommandRequest {
+  text: string;
+}
+
+export interface ExtractTransactionsRequest {
+  fileName: string;
+  mimeType: string;
+  imageBase64: string;
+}
+
+export interface ParseTransactionsCommandRequest {
   text: string;
 }
 
@@ -36,6 +47,35 @@ export interface ParseAssetsCommandResponse {
   assets: ExtractedAssetCandidate[];
 }
 
+export interface ExtractedTransactionCandidate {
+  name: string | null;
+  ticker: string | null;
+  type: AssetType | null;
+  transactionType: AssetTransactionType | null;
+  quantity: number | null;
+  currency: string | null;
+  price: number | null;
+  fees: number | null;
+  date: string | null;
+  note: string | null;
+}
+
+export interface ExtractTransactionsResponse {
+  ok: boolean;
+  route: '/api/extract-transactions';
+  mode: 'live';
+  model: string;
+  transactions: ExtractedTransactionCandidate[];
+}
+
+export interface ParseTransactionsCommandResponse {
+  ok: boolean;
+  route: '/api/parse-transactions-command';
+  mode: 'live';
+  model: string;
+  transactions: ExtractedTransactionCandidate[];
+}
+
 export type EditableExtractedAssetField =
   | 'name'
   | 'ticker'
@@ -56,6 +96,32 @@ export interface EditableExtractedAsset {
   currentPrice: string;
 }
 
+export type EditableExtractedTransactionField =
+  | 'name'
+  | 'ticker'
+  | 'type'
+  | 'transactionType'
+  | 'quantity'
+  | 'currency'
+  | 'price'
+  | 'fees'
+  | 'date'
+  | 'note';
+
+export interface EditableExtractedTransaction {
+  id: string;
+  name: string;
+  ticker: string;
+  type: AssetType | '';
+  transactionType: AssetTransactionType | '';
+  quantity: string;
+  currency: string;
+  price: string;
+  fees: string;
+  date: string;
+  note: string;
+}
+
 export interface ConfirmExtractedAssetsInput {
   accountSource: AccountSource;
   assets: EditableExtractedAsset[];
@@ -74,6 +140,25 @@ export function createEditableExtractedAsset(
     currency: asset.currency ?? '',
     costBasis: asset.costBasis == null ? '' : String(asset.costBasis),
     currentPrice: asset.currentPrice == null ? '' : String(asset.currentPrice),
+  };
+}
+
+export function createEditableExtractedTransaction(
+  entry: ExtractedTransactionCandidate,
+  index: number,
+): EditableExtractedTransaction {
+  return {
+    id: `extracted-transaction-${index}-${entry.ticker ?? 'transaction'}`,
+    name: entry.name ?? '',
+    ticker: entry.ticker ?? '',
+    type: entry.type ?? '',
+    transactionType: entry.transactionType ?? '',
+    quantity: entry.quantity == null ? '' : String(entry.quantity),
+    currency: entry.currency ?? '',
+    price: entry.price == null ? '' : String(entry.price),
+    fees: entry.fees == null ? '0' : String(entry.fees),
+    date: entry.date ?? new Date().toISOString().slice(0, 10),
+    note: entry.note ?? '',
   };
 }
 
@@ -132,4 +217,36 @@ export function buildPortfolioAssetInputFromExtractedAsset(
     averageCost: normalizedCostBasis,
     currentPrice: normalizedCurrentPrice,
   };
+}
+
+export function getMissingExtractedTransactionFields(
+  entry: EditableExtractedTransaction,
+): EditableExtractedTransactionField[] {
+  const missing: EditableExtractedTransactionField[] = [];
+
+  if (!entry.ticker.trim()) {
+    missing.push('ticker');
+  }
+
+  if (!entry.transactionType) {
+    missing.push('transactionType');
+  }
+
+  if (!entry.quantity.trim()) {
+    missing.push('quantity');
+  }
+
+  if (!entry.currency.trim()) {
+    missing.push('currency');
+  }
+
+  if (!entry.price.trim()) {
+    missing.push('price');
+  }
+
+  if (!entry.date.trim()) {
+    missing.push('date');
+  }
+
+  return missing;
 }

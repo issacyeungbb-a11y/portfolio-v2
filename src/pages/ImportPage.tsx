@@ -1,23 +1,38 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 
 import { ExtractedAssetsEditor } from '../components/import/ExtractedAssetsEditor';
+import { ExtractedTransactionsEditor } from '../components/import/ExtractedTransactionsEditor';
+import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
+import { createAssetTransaction, getAssetTransactionsErrorMessage } from '../lib/firebase/assetTransactions';
 import { createPortfolioAssets, getFirebaseAssetsErrorMessage } from '../lib/firebase/assets';
 import type { AccountSource } from '../types/portfolio';
 import {
   buildPortfolioAssetInputFromExtractedAsset,
   createEditableExtractedAsset,
+  createEditableExtractedTransaction,
   getMissingExtractedAssetFields,
+  getMissingExtractedTransactionFields,
   type EditableExtractedAsset,
+  type EditableExtractedTransaction,
   type ExtractAssetsRequest,
   type ExtractAssetsResponse,
+  type ExtractTransactionsRequest,
+  type ExtractTransactionsResponse,
   type ParseAssetsCommandRequest,
   type ParseAssetsCommandResponse,
+  type ParseTransactionsCommandRequest,
+  type ParseTransactionsCommandResponse,
 } from '../types/extractAssets';
 
 type ExtractStatus = 'idle' | 'loading' | 'success' | 'error';
 type ImportInputMode = 'image' | 'text';
-type AssetParseResponse = ExtractAssetsResponse | ParseAssetsCommandResponse;
+type ImportTarget = 'assets' | 'transactions';
+type ImportResponse =
+  | ExtractAssetsResponse
+  | ParseAssetsCommandResponse
+  | ExtractTransactionsResponse
+  | ParseTransactionsCommandResponse;
 
 interface SpeechRecognitionResultLike {
   readonly isFinal: boolean;
@@ -149,6 +164,8 @@ function inferAccountSource(fileName: string): AccountSource {
 
 export function ImportPage() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const { holdings } = usePortfolioAssets();
+  const [importTarget, setImportTarget] = useState<ImportTarget>('assets');
   const [inputMode, setInputMode] = useState<ImportInputMode>('image');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -158,8 +175,9 @@ export function ImportPage() {
   const [accountSource, setAccountSource] = useState<AccountSource>('Other');
   const [extractStatus, setExtractStatus] = useState<ExtractStatus>('idle');
   const [extractError, setExtractError] = useState<string | null>(null);
-  const [extractResponse, setExtractResponse] = useState<AssetParseResponse | null>(null);
+  const [extractResponse, setExtractResponse] = useState<ImportResponse | null>(null);
   const [editableAssets, setEditableAssets] = useState<EditableExtractedAsset[]>([]);
+  const [editableTransactions, setEditableTransactions] = useState<EditableExtractedTransaction[]>([]);
   const [confirmStatus, setConfirmStatus] = useState<'idle' | 'loading' | 'success' | 'error'>(
     'idle',
   );
@@ -167,6 +185,14 @@ export function ImportPage() {
   const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
+
+  const holdingsByTickerAndSource = useMemo(
+    () =>
+      new Map(
+        holdings.map((holding) => [`${holding.symbol}::${holding.accountSource}`, holding] as const),
+      ),
+    [holdings],
+  );
 
   const canUseSpeechInput =
     typeof window !== 'undefined' &&
@@ -194,23 +220,40 @@ export function ImportPage() {
     setExtractError(null);
     setExtractResponse(null);
     setEditableAssets([]);
+    setEditableTransactions([]);
     setConfirmStatus('idle');
     setConfirmError(null);
     setConfirmSuccess(null);
   }
 
-  function applyParsedAssets(response: AssetParseResponse) {
-    const nextAssets = response.assets.map((asset, index) =>
-      createEditableExtractedAsset(asset, index),
-    );
-
+  function applyParsedAssets(response: ExtractAssetsResponse | ParseAssetsCommandResponse) {
     setExtractResponse(response);
-    setEditableAssets(nextAssets);
+    setEditableAssets(response.assets.map((asset, index) => createEditableExtractedAsset(asset, index)));
+    setEditableTransactions([]);
+    setExtractStatus('success');
+  }
+
+  function applyParsedTransactions(
+    response: ExtractTransactionsResponse | ParseTransactionsCommandResponse,
+  ) {
+    setExtractResponse(response);
+    setEditableTransactions(
+      response.transactions.map((entry, index) => createEditableExtractedTransaction(entry, index)),
+    );
+    setEditableAssets([]);
     setExtractStatus('success');
   }
 
   function handleChangeInputMode(mode: ImportInputMode) {
     setInputMode(mode);
+    setSpeechError(null);
+    setIsListening(false);
+    recognitionRef.current?.stop();
+    resetParseState();
+  }
+
+  function handleChangeImportTarget(target: ImportTarget) {
+    setImportTarget(target);
     setSpeechError(null);
     setIsListening(false);
     recognitionRef.current?.stop();
@@ -240,26 +283,17 @@ export function ImportPage() {
       resetParseState();
     } catch (error) {
       setExtractStatus('error');
-      setExtractError(
-        error instanceof Error ? error.message : '讀取圖片失敗，請重新上傳。',
-      );
+      setExtractError(error instanceof Error ? error.message : '讀取圖片失敗，請重新上傳。');
     }
   }
 
-  function handleAssetChange(
-    assetId: string,
-    field: keyof EditableExtractedAsset,
-    value: string,
-  ) {
+  function handleAssetChange(assetId: string, field: keyof EditableExtractedAsset, value: string) {
     setEditableAssets((current) =>
       current.map((asset) =>
         asset.id === assetId
           ? {
               ...asset,
-              [field]:
-                field === 'ticker' || field === 'currency'
-                  ? value.toUpperCase()
-                  : value,
+              [field]: field === 'ticker' || field === 'currency' ? value.toUpperCase() : value,
             }
           : asset,
       ),
@@ -276,7 +310,35 @@ export function ImportPage() {
     setConfirmSuccess(null);
   }
 
-  async function handleExtractAssets() {
+  function handleTransactionChange(
+    transactionId: string,
+    field: keyof EditableExtractedTransaction,
+    value: string,
+  ) {
+    setEditableTransactions((current) =>
+      current.map((entry) =>
+        entry.id === transactionId
+          ? {
+              ...entry,
+              [field]:
+                field === 'ticker' || field === 'currency' ? value.toUpperCase() : value,
+            }
+          : entry,
+      ),
+    );
+    setConfirmStatus('idle');
+    setConfirmError(null);
+    setConfirmSuccess(null);
+  }
+
+  function handleRemoveTransaction(transactionId: string) {
+    setEditableTransactions((current) => current.filter((entry) => entry.id !== transactionId));
+    setConfirmStatus('idle');
+    setConfirmError(null);
+    setConfirmSuccess(null);
+  }
+
+  async function handleExtract() {
     if (!selectedFile || !imageBase64) {
       setExtractStatus('error');
       setExtractError('請先上傳一張截圖，再開始解析。');
@@ -290,20 +352,31 @@ export function ImportPage() {
     setConfirmSuccess(null);
 
     try {
-      const payload: ExtractAssetsRequest = {
-        fileName: selectedFile.name,
-        mimeType: uploadMimeType,
-        imageBase64,
-      };
-      const response = (await callPortfolioFunction(
-        'extract-assets',
-        payload,
-      )) as ExtractAssetsResponse;
-      applyParsedAssets(response);
+      if (importTarget === 'assets') {
+        const payload: ExtractAssetsRequest = {
+          fileName: selectedFile.name,
+          mimeType: uploadMimeType,
+          imageBase64,
+        };
+        const response = (await callPortfolioFunction('extract-assets', payload)) as ExtractAssetsResponse;
+        applyParsedAssets(response);
+      } else {
+        const payload: ExtractTransactionsRequest = {
+          fileName: selectedFile.name,
+          mimeType: uploadMimeType,
+          imageBase64,
+        };
+        const response = (await callPortfolioFunction('extract-transactions', payload)) as ExtractTransactionsResponse;
+        applyParsedTransactions(response);
+      }
     } catch (error) {
       setExtractStatus('error');
       setExtractError(
-        error instanceof Error ? error.message : '解析截圖失敗，請稍後再試。',
+        error instanceof Error
+          ? error.message
+          : importTarget === 'assets'
+            ? '解析截圖失敗，請稍後再試。'
+            : '解析交易截圖失敗，請稍後再試。',
       );
     }
   }
@@ -322,18 +395,26 @@ export function ImportPage() {
     setConfirmSuccess(null);
 
     try {
-      const payload: ParseAssetsCommandRequest = {
-        text: commandText.trim(),
-      };
-      const response = (await callPortfolioFunction(
-        'parse-assets-command',
-        payload,
-      )) as ParseAssetsCommandResponse;
-      applyParsedAssets(response);
+      if (importTarget === 'assets') {
+        const payload: ParseAssetsCommandRequest = { text: commandText.trim() };
+        const response = (await callPortfolioFunction('parse-assets-command', payload)) as ParseAssetsCommandResponse;
+        applyParsedAssets(response);
+      } else {
+        const payload: ParseTransactionsCommandRequest = { text: commandText.trim() };
+        const response = (await callPortfolioFunction(
+          'parse-transactions-command',
+          payload,
+        )) as ParseTransactionsCommandResponse;
+        applyParsedTransactions(response);
+      }
     } catch (error) {
       setExtractStatus('error');
       setExtractError(
-        error instanceof Error ? error.message : '解析文字內容失敗，請稍後再試。',
+        error instanceof Error
+          ? error.message
+          : importTarget === 'assets'
+            ? '解析文字內容失敗，請稍後再試。'
+            : '解析交易文字失敗，請稍後再試。',
       );
     }
   }
@@ -348,8 +429,7 @@ export function ImportPage() {
       SpeechRecognition?: SpeechRecognitionConstructorLike;
       webkitSpeechRecognition?: SpeechRecognitionConstructorLike;
     };
-    const Recognition =
-      speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
 
     if (!Recognition) {
       setSpeechError('目前瀏覽器唔支援語音輸入，請改用文字輸入。');
@@ -396,8 +476,39 @@ export function ImportPage() {
   }
 
   async function handleConfirmImport() {
-    const hasMissingFields = editableAssets.some(
-      (asset) => getMissingExtractedAssetFields(asset).length > 0,
+    if (importTarget === 'assets') {
+      const hasMissingFields = editableAssets.some(
+        (asset) => getMissingExtractedAssetFields(asset).length > 0,
+      );
+
+      if (hasMissingFields) {
+        setConfirmStatus('error');
+        setConfirmError('仍有缺少欄位，請先補齊再確認匯入。');
+        return;
+      }
+
+      setConfirmStatus('loading');
+      setConfirmError(null);
+      setConfirmSuccess(null);
+
+      try {
+        const payloads = editableAssets.map((asset) =>
+          buildPortfolioAssetInputFromExtractedAsset(asset, accountSource),
+        );
+
+        await createPortfolioAssets(payloads);
+        setConfirmStatus('success');
+        setConfirmSuccess(`已成功寫入 Firestore，共 ${payloads.length} 項資產。`);
+      } catch (error) {
+        setConfirmStatus('error');
+        setConfirmError(getFirebaseAssetsErrorMessage(error));
+      }
+
+      return;
+    }
+
+    const hasMissingFields = editableTransactions.some(
+      (entry) => getMissingExtractedTransactionFields(entry).length > 0,
     );
 
     if (hasMissingFields) {
@@ -411,23 +522,60 @@ export function ImportPage() {
     setConfirmSuccess(null);
 
     try {
-      const payloads = editableAssets.map((asset) =>
-        buildPortfolioAssetInputFromExtractedAsset(asset, accountSource),
-      );
+      for (const entry of editableTransactions) {
+        const symbol = entry.ticker.trim().toUpperCase();
+        const matchedHolding =
+          holdingsByTickerAndSource.get(`${symbol}::${accountSource}`) ??
+          holdings.find((holding) => holding.symbol === symbol);
 
-      await createPortfolioAssets(payloads);
+        if (!matchedHolding) {
+          throw new Error(`${symbol} 未有對應現有資產，請先新增資產再匯入交易。`);
+        }
+
+        await createAssetTransaction({
+          assetId: matchedHolding.id,
+          assetName: matchedHolding.name,
+          symbol: matchedHolding.symbol,
+          assetType: matchedHolding.assetType,
+          accountSource: matchedHolding.accountSource,
+          transactionType: entry.transactionType as 'buy' | 'sell',
+          quantity: Number(entry.quantity),
+          price: Number(entry.price),
+          fees: Number(entry.fees) || 0,
+          currency: entry.currency.trim().toUpperCase(),
+          date: entry.date,
+          note: entry.note.trim() || undefined,
+        });
+      }
 
       setConfirmStatus('success');
-      setConfirmSuccess(`已成功寫入 Firestore，共 ${payloads.length} 項資產。`);
+      setConfirmSuccess(`已成功寫入交易記錄，共 ${editableTransactions.length} 筆交易。`);
     } catch (error) {
       setConfirmStatus('error');
-      setConfirmError(getFirebaseAssetsErrorMessage(error));
+      setConfirmError(getAssetTransactionsErrorMessage(error));
     }
   }
 
   return (
     <div className="page-stack">
       <section className="hero-panel">
+        <div className="import-mode-row" role="tablist" aria-label="選擇匯入目標">
+          <button
+            className={importTarget === 'assets' ? 'filter-chip active' : 'filter-chip'}
+            type="button"
+            onClick={() => handleChangeImportTarget('assets')}
+          >
+            匯入資產
+          </button>
+          <button
+            className={importTarget === 'transactions' ? 'filter-chip active' : 'filter-chip'}
+            type="button"
+            onClick={() => handleChangeImportTarget('transactions')}
+          >
+            匯入交易
+          </button>
+        </div>
+
         <div className="import-mode-row" role="tablist" aria-label="選擇匯入方式">
           <button
             className={inputMode === 'image' ? 'filter-chip active' : 'filter-chip'}
@@ -444,6 +592,7 @@ export function ImportPage() {
             文字 / 語音輸入
           </button>
         </div>
+
         <div className="upload-dropzone">
           {extractResponse ? (
             <span className="chip chip-strong">模型 {extractResponse.model}</span>
@@ -453,7 +602,7 @@ export function ImportPage() {
 
           {inputMode === 'image' ? (
             <>
-              <strong>上傳單張截圖</strong>
+              <strong>{importTarget === 'assets' ? '上傳資產截圖' : '上傳交易截圖'}</strong>
               <label className="button button-secondary upload-button">
                 選擇圖片
                 <input
@@ -466,7 +615,7 @@ export function ImportPage() {
               <button
                 className="button button-primary"
                 type="button"
-                onClick={handleExtractAssets}
+                onClick={handleExtract}
                 disabled={extractStatus === 'loading' || !selectedFile}
               >
                 {extractStatus === 'loading' ? '解析中...' : '開始解析'}
@@ -476,18 +625,18 @@ export function ImportPage() {
                   <strong>{selectedFile.name}</strong>
                   <p>
                     {selectedFile.type || 'image/*'}
-                    {uploadMimeType !== (selectedFile.type || 'image/png')
-                      ? ` -> ${uploadMimeType}`
-                      : ''}
+                    {uploadMimeType !== (selectedFile.type || 'image/png') ? ` -> ${uploadMimeType}` : ''}
                   </p>
                 </div>
               ) : null}
             </>
           ) : (
             <div className="prompt-box import-command-box">
-              <strong>描述你要加入或整理的資產</strong>
+              <strong>{importTarget === 'assets' ? '描述你要加入或整理的資產' : '描述你要新增的交易'}</strong>
               <p className="table-hint">
-                例如：加入 TSLA 10 股，美元，平均成本 225.3；再加入 2800.HK 200 股，成本 18.9 港元。
+                {importTarget === 'assets'
+                  ? '例如：加入 TSLA 10 股，美元，平均成本 225.3；再加入 2800.HK 200 股，成本 18.9 港元。'
+                  : '例如：今天買入 TSLA 5 股，價格 240 美元，手續費 1.5；再賣出 2800.HK 100 股，價格 20.1 港元。'}
               </p>
               <textarea
                 value={commandText}
@@ -495,14 +644,14 @@ export function ImportPage() {
                   setCommandText(event.target.value);
                   resetParseState();
                 }}
-                placeholder="輸入文字，或者先按語音輸入再讓 AI 整理成資產草稿。"
+                placeholder={
+                  importTarget === 'assets'
+                    ? '輸入文字，或者先按語音輸入再讓 AI 整理成資產草稿。'
+                    : '輸入文字，或者先按語音輸入再讓 AI 整理成交易草稿。'
+                }
               />
               <div className="button-row">
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={isListening ? handleStopListening : handleStartListening}
-                >
+                <button className="button button-secondary" type="button" onClick={isListening ? handleStopListening : handleStartListening}>
                   {isListening ? '停止語音輸入' : '語音輸入'}
                 </button>
                 <button
@@ -542,7 +691,7 @@ export function ImportPage() {
         </div>
 
         {inputMode === 'image' && previewUrl ? (
-          <img className="upload-preview-image" src={previewUrl} alt="Uploaded portfolio screenshot" />
+          <img className="upload-preview-image" src={previewUrl} alt="Uploaded screenshot" />
         ) : null}
         {inputMode === 'image' && !previewUrl ? <p className="status-message">未選擇圖片。</p> : null}
         {inputMode === 'text' ? (
@@ -557,7 +706,7 @@ export function ImportPage() {
         ) : null}
       </section>
 
-      {extractStatus === 'success' ? (
+      {extractStatus === 'success' && importTarget === 'assets' ? (
         <ExtractedAssetsEditor
           assets={editableAssets}
           accountSource={accountSource}
@@ -571,6 +720,19 @@ export function ImportPage() {
         />
       ) : null}
 
+      {extractStatus === 'success' && importTarget === 'transactions' ? (
+        <ExtractedTransactionsEditor
+          transactions={editableTransactions}
+          accountSource={accountSource}
+          onChangeTransaction={handleTransactionChange}
+          onRemoveTransaction={handleRemoveTransaction}
+          onChangeAccountSource={setAccountSource}
+          onConfirm={handleConfirmImport}
+          isConfirming={confirmStatus === 'loading'}
+          confirmError={confirmError}
+          confirmSuccess={confirmSuccess}
+        />
+      ) : null}
     </div>
   );
 }
