@@ -697,6 +697,194 @@ h3 {
   color: var(--accent-amber);
 }
 
+.trends-overview-card,
+.trends-chart-card,
+.trends-calendar-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.trends-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.trends-hero-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  padding: 0.95rem;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.trends-hero-stat span,
+.trends-overview-mini span,
+.trends-reveal-summary span,
+.trends-calendar-summary,
+.trends-calendar-weekdays span {
+  color: var(--text-muted);
+}
+
+.trends-hero-stat strong {
+  font-size: clamp(1.55rem, 6vw, 2.5rem);
+  line-height: 1;
+}
+
+.trends-hero-stat p {
+  font-size: 0.92rem;
+}
+
+.trends-overview-grid {
+  display: grid;
+  gap: 0.72rem;
+}
+
+.trends-overview-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.88rem 0.92rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.trends-overview-mini strong {
+  font-size: 1.08rem;
+  line-height: 1.1;
+}
+
+.trends-overview-mini small,
+.trends-reveal-summary small {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.trends-range-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.trends-reveal-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 0.88rem;
+  border-radius: 1.2rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.trends-reveal-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.trends-reveal-summary strong {
+  font-size: 1.2rem;
+  line-height: 1.05;
+}
+
+.trends-chart-shell {
+  min-height: 11.5rem;
+  padding: 0.75rem 0.5rem 0.25rem;
+  border-radius: 1rem;
+  background:
+    linear-gradient(180deg, rgba(124, 58, 237, 0.08), rgba(124, 58, 237, 0.02)),
+    rgba(255, 255, 255, 0.55);
+}
+
+.trends-line-chart {
+  width: 100%;
+  height: 11rem;
+  overflow: visible;
+}
+
+.trends-line-chart path {
+  fill: none;
+  stroke: #9d7cff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.trends-calendar-card {
+  gap: 0.75rem;
+}
+
+.trends-calendar-summary {
+  font-size: 0.92rem;
+}
+
+.trends-calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.trends-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.trends-calendar-cell {
+  min-height: 4.2rem;
+  padding: 0.55rem 0.35rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(118, 96, 77, 0.08);
+  background: rgba(255, 255, 255, 0.44);
+  display: flex;
+  flex-direction: column;
+  gap: 0.24rem;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: center;
+}
+
+.trends-calendar-cell strong {
+  font-size: 0.84rem;
+}
+
+.trends-calendar-cell span {
+  font-size: 0.72rem;
+  line-height: 1.15;
+}
+
+.trends-calendar-cell.empty {
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.trends-calendar-cell.positive {
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.trends-calendar-cell.caution {
+  background: rgba(166, 64, 36, 0.1);
+}
+
+.trends-calendar-cell.neutral {
+  background: rgba(255, 255, 255, 0.44);
+}
+
+.positive-text {
+  color: var(--accent);
+}
+
+.caution-text {
+  color: #a64024;
+}
+
 .section-heading {
   display: flex;
   align-items: start;
@@ -1744,6 +1932,32 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .trends-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trends-hero-stat {
+    padding: 0.8rem;
+  }
+
+  .trends-hero-stat strong {
+    font-size: 1.36rem;
+  }
+
+  .trends-calendar-grid,
+  .trends-calendar-weekdays {
+    gap: 0.3rem;
+  }
+
+  .trends-calendar-cell {
+    min-height: 3.55rem;
+    padding: 0.45rem 0.18rem;
+  }
+
+  .trends-calendar-cell span {
+    font-size: 0.62rem;
+  }
+
   .assets-filter-block {
     padding: 0.72rem;
   }
@@ -1949,6 +2163,17 @@ h3 {
   }
 
   .content-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trends-toolbar {
+    flex-direction: row;
+    align-items: start;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .trends-overview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

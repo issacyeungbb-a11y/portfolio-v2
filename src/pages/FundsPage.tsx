@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
   convertCurrency,
@@ -7,7 +7,13 @@ import {
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
-import type { AccountCashFlowEntry, AccountCashFlowType, AccountSource } from '../types/portfolio';
+import { usePortfolioAccess } from '../hooks/usePortfolioAccess';
+import type {
+  AccountCashFlowEntry,
+  AccountCashFlowType,
+  AccountPrincipalEntry,
+  AccountSource,
+} from '../types/portfolio';
 
 const accountSourceOptions: AccountSource[] = ['Futu', 'IB', 'Crypto', 'Other'];
 const cashFlowTypeOptions: Array<{ value: AccountCashFlowType; label: string }> = [
@@ -29,7 +35,13 @@ function getCashFlowTypeLabel(type: AccountCashFlowType) {
 }
 
 export function FundsPage() {
-  const { entries: accountPrincipals, error: accountPrincipalsError } = useAccountPrincipals();
+  const { status: accessStatus, lock } = usePortfolioAccess();
+  const {
+    entries: accountPrincipals,
+    error: accountPrincipalsError,
+    status: accountPrincipalStatus,
+    updateAccountPrincipal,
+  } = useAccountPrincipals();
   const {
     entries: cashFlows,
     error: cashFlowsError,
@@ -44,6 +56,27 @@ export function FundsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [savingAccountSource, setSavingAccountSource] = useState<AccountSource | null>(null);
+  const [principalSaveMessage, setPrincipalSaveMessage] = useState<string | null>(null);
+  const [principalSaveError, setPrincipalSaveError] = useState<string | null>(null);
+
+  const principalEntries = useMemo(() => {
+    const entryMap = new Map<AccountSource, AccountPrincipalEntry>();
+
+    accountSourceOptions.forEach((source) => {
+      entryMap.set(source, {
+        accountSource: source,
+        principalAmount: 0,
+        currency: 'HKD',
+      });
+    });
+
+    accountPrincipals.forEach((entry) => {
+      entryMap.set(entry.accountSource, entry);
+    });
+
+    return accountSourceOptions.map((source) => entryMap.get(source)!);
+  }, [accountPrincipals]);
 
   const accountSummaries = useMemo(() => {
     return accountSourceOptions.map((source) => {
@@ -80,6 +113,23 @@ export function FundsPage() {
       };
     });
   }, [accountPrincipals, cashFlows]);
+
+  async function handleSavePrincipal(entry: AccountPrincipalEntry) {
+    setSavingAccountSource(entry.accountSource);
+    setPrincipalSaveError(null);
+    setPrincipalSaveMessage(null);
+
+    try {
+      await updateAccountPrincipal(entry);
+      setPrincipalSaveMessage(`${getAccountSourceLabel(entry.accountSource)} 本金已更新。`);
+    } catch (error) {
+      setPrincipalSaveError(
+        error instanceof Error ? error.message : '儲存帳戶本金失敗，請稍後再試。',
+      );
+    } finally {
+      setSavingAccountSource(null);
+    }
+  }
 
   async function handleCreateCashFlow() {
     if (!amount.trim()) {
@@ -133,6 +183,33 @@ export function FundsPage() {
             </p>
           </article>
         ))}
+      </section>
+
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Account Principals</p>
+            <h2>各帳戶本金</h2>
+            <p className="table-hint">本金設定而家集中喺資金頁管理。</p>
+          </div>
+          <span className="chip chip-soft">
+            {accountPrincipalStatus === 'loading' ? '同步中' : '已連接'}
+          </span>
+        </div>
+
+        {principalSaveError ? <p className="status-message status-message-error">{principalSaveError}</p> : null}
+        {principalSaveMessage ? <p className="status-message status-message-success">{principalSaveMessage}</p> : null}
+
+        <div className="settings-list">
+          {principalEntries.map((entry) => (
+            <AccountPrincipalRow
+              key={entry.accountSource}
+              entry={entry}
+              isSaving={savingAccountSource === entry.accountSource}
+              onSave={handleSavePrincipal}
+            />
+          ))}
+        </div>
       </section>
 
       <section className="card">
@@ -268,6 +345,103 @@ export function FundsPage() {
           )}
         </div>
       </section>
+
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Access</p>
+            <h2>資料與存取</h2>
+          </div>
+        </div>
+
+        <div className="settings-list">
+          <div className="setting-row">
+            <div>
+              <strong>共享資料路徑</strong>
+              <p className="mono-value">portfolio/app</p>
+            </div>
+            <span className="chip chip-strong">Shared</span>
+          </div>
+          <div className="setting-row">
+            <div>
+              <strong>目前模式</strong>
+            </div>
+            <span className="chip chip-soft">
+              {accessStatus === 'unlocked' ? 'Access Code' : accessStatus}
+            </span>
+          </div>
+        </div>
+
+        <div className="button-row">
+          <button className="button button-secondary" type="button" onClick={lock}>
+            重新鎖定此裝置
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AccountPrincipalRow({
+  entry,
+  isSaving,
+  onSave,
+}: {
+  entry: AccountPrincipalEntry;
+  isSaving: boolean;
+  onSave: (entry: AccountPrincipalEntry) => Promise<void>;
+}) {
+  const [principalAmount, setPrincipalAmount] = useState(String(entry.principalAmount));
+  const [currency, setCurrency] = useState(entry.currency || 'HKD');
+
+  useEffect(() => {
+    setPrincipalAmount(String(entry.principalAmount));
+    setCurrency(entry.currency || 'HKD');
+  }, [entry.accountSource, entry.principalAmount, entry.currency]);
+
+  return (
+    <div className="setting-row setting-row-form">
+      <div className="setting-row-copy">
+        <strong>{getAccountSourceLabel(entry.accountSource)}</strong>
+        <p>
+          目前本金 {formatCurrency(entry.principalAmount, entry.currency)}
+          {entry.updatedAt
+            ? ` · 更新於 ${new Intl.DateTimeFormat('zh-HK', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(entry.updatedAt))}`
+            : ''}
+        </p>
+      </div>
+      <div className="setting-row-controls">
+        <input
+          className="settings-inline-input"
+          type="number"
+          step="any"
+          value={principalAmount}
+          onChange={(event) => setPrincipalAmount(event.target.value)}
+          placeholder="本金金額"
+          disabled={isSaving}
+        />
+        <input
+          className="settings-inline-input settings-inline-currency"
+          value={currency}
+          onChange={(event) => setCurrency(event.target.value.toUpperCase())}
+          placeholder="幣別"
+          disabled={isSaving}
+        />
+        <button
+          className="button button-secondary"
+          type="button"
+          onClick={() =>
+            onSave({
+              accountSource: entry.accountSource,
+              principalAmount: Number(principalAmount) || 0,
+              currency: currency.trim().toUpperCase() || 'HKD',
+            })
+          }
+          disabled={isSaving}
+        >
+          {isSaving ? '儲存中...' : '儲存'}
+        </button>
+      </div>
     </div>
   );
 }

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { AllocationCard } from '../components/portfolio/AllocationCard';
-import { AssetChangePanel } from '../components/portfolio/AssetChangePanel';
 import { HoldingCard } from '../components/portfolio/HoldingCard';
 import { InsightCard } from '../components/portfolio/InsightCard';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
@@ -21,7 +20,6 @@ import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
-import { createCurrentPortfolioPoint } from '../lib/portfolio/assetChange';
 import {
   buildDashboardInsights,
 } from '../lib/portfolio/dashboardInsights';
@@ -202,13 +200,6 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <AssetChangePanel
-        displayCurrency={displayCurrency}
-        history={portfolioHistory}
-        currentPoint={createCurrentPortfolioPoint(syncedHoldings)}
-        cashFlows={accountCashFlows}
-      />
-
       <section className="content-grid">
         {status === 'loading' ? (
           <article className="card">
@@ -239,6 +230,24 @@ export function DashboardPage() {
             <p className="status-message">未有分布資料。</p>
           </article>
         )}
+
+        <article className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Asset Trends</p>
+              <h2>資產走勢</h2>
+            </div>
+            <Link className="text-link" to="/trends">
+              看詳情
+            </Link>
+          </div>
+
+          <div className="stack-list">
+            <p className="status-message">
+              今日、7日同30日走勢，已移到資產走勢頁集中顯示。
+            </p>
+          </div>
+        </article>
 
         <article className="card">
           <div className="section-heading">

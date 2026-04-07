@@ -6,7 +6,7 @@ import { AssetsPage } from '../pages/AssetsPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { FundsPage } from '../pages/FundsPage';
 import { ImportPage } from '../pages/ImportPage';
-import { SettingsPage } from '../pages/SettingsPage';
+import { AssetTrendsPage } from '../pages/AssetTrendsPage';
 
 export const router = createBrowserRouter([
   {
@@ -49,10 +49,10 @@ export const router = createBrowserRouter([
         },
       },
       {
-        path: 'settings',
-        element: <SettingsPage />,
+        path: 'trends',
+        element: <AssetTrendsPage />,
         handle: {
-          title: '設定',
+          title: '資產走勢',
         },
       },
       {

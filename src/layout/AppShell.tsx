@@ -9,7 +9,7 @@ const navItems = [
   { to: '/import', label: '匯入', icon: 'I3' },
   { to: '/funds', label: '資金', icon: 'F4' },
   { to: '/analysis', label: '分析', icon: 'AI' },
-  { to: '/settings', label: '設定', icon: 'S5' },
+  { to: '/trends', label: '走勢', icon: 'T6' },
 ];
 
 interface RouteHandle {
