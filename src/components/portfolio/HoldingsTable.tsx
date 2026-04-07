@@ -18,6 +18,7 @@ interface HoldingsTableProps {
   displayCurrency: DisplayCurrency;
   onUpdatePrice?: (holding: Holding) => Promise<void> | void;
   onEdit?: (holding: Holding) => void;
+  onTrade?: (holding: Holding) => void;
   updatingAssetIds?: string[];
 }
 
@@ -37,6 +38,7 @@ export function HoldingsTable({
   displayCurrency,
   onUpdatePrice,
   onEdit,
+  onTrade,
   updatingAssetIds = [],
 }: HoldingsTableProps) {
   const [sortKey, setSortKey] = useState<HoldingsSortKey>('marketValue');
@@ -256,6 +258,14 @@ export function HoldingsTable({
                         disabled={!onUpdatePrice || isUpdating}
                       >
                         {isUpdating ? '更新中...' : '更新單一資產'}
+                      </button>
+                      <button
+                        className="button button-secondary table-action-button"
+                        type="button"
+                        onClick={() => onTrade?.(holding)}
+                        disabled={!onTrade || isUpdating}
+                      >
+                        交易
                       </button>
                       <button
                         className="button button-secondary table-action-button"

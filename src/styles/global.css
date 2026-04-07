@@ -2096,7 +2096,7 @@ h3 {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0.25rem;
   padding: 0.7rem 0.6rem calc(0.7rem + env(safe-area-inset-bottom));
   background: rgba(247, 241, 233, 0.92);

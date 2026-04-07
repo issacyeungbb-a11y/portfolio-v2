@@ -7,6 +7,7 @@ export type InsightTone = 'positive' | 'neutral' | 'caution';
 export type ImportStatus = 'completed' | 'processing' | 'review';
 export type AccountCashFlowType = 'deposit' | 'withdrawal' | 'adjustment';
 export type AssetChangeRange = '1d' | '7d' | '30d';
+export type AssetTransactionType = 'buy' | 'sell';
 
 export interface PortfolioAssetInput {
   name: string;
@@ -41,6 +42,24 @@ export interface AccountCashFlowEntry {
   accountSource: AccountSource;
   type: AccountCashFlowType;
   amount: number;
+  currency: string;
+  date: string;
+  note?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AssetTransactionEntry {
+  id: string;
+  assetId: string;
+  assetName: string;
+  symbol: string;
+  assetType: AssetType;
+  accountSource: AccountSource;
+  transactionType: AssetTransactionType;
+  quantity: number;
+  price: number;
+  fees: number;
   currency: string;
   date: string;
   note?: string;

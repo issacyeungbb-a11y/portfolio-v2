@@ -31,6 +31,10 @@ export function getSharedAccountCashFlowsCollectionRef() {
     const db = getRequiredFirebaseDb();
     return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'accountCashFlows');
 }
+export function getSharedAssetTransactionsCollectionRef() {
+    const db = getRequiredFirebaseDb();
+    return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'assetTransactions');
+}
 export function getSharedAnalysisCacheDocRef(snapshotHash) {
     const db = getRequiredFirebaseDb();
     return doc(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'analysisCache', snapshotHash);

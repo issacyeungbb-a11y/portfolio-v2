@@ -7,6 +7,7 @@ import { DashboardPage } from '../pages/DashboardPage';
 import { FundsPage } from '../pages/FundsPage';
 import { ImportPage } from '../pages/ImportPage';
 import { AssetTrendsPage } from '../pages/AssetTrendsPage';
+import { TransactionsPage } from '../pages/TransactionsPage';
 
 export const router = createBrowserRouter([
   {
@@ -53,6 +54,13 @@ export const router = createBrowserRouter([
         element: <AssetTrendsPage />,
         handle: {
           title: '資產走勢',
+        },
+      },
+      {
+        path: 'transactions',
+        element: <TransactionsPage />,
+        handle: {
+          title: '交易記錄',
         },
       },
       {
