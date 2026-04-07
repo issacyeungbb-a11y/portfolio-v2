@@ -8,7 +8,7 @@ export type ImportStatus = 'completed' | 'processing' | 'review';
 export type AccountCashFlowType = 'deposit' | 'withdrawal' | 'adjustment';
 export type AssetChangeRange = '1d' | '7d' | '30d';
 export type AssetTransactionType = 'buy' | 'sell';
-export type AssetTransactionRecordType = 'seed' | 'trade';
+export type AssetTransactionRecordType = 'asset_created' | 'seed' | 'trade';
 
 export interface PortfolioAssetInput {
   name: string;

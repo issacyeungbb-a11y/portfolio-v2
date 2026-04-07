@@ -6,6 +6,7 @@ import {
   formatPercent,
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
+import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
@@ -162,6 +163,7 @@ export function AssetTrendsPage() {
   const { holdings: firestoreHoldings, status, error } = usePortfolioAssets();
   const { history, error: snapshotsError } = usePortfolioSnapshots();
   const { entries: cashFlows, error: cashFlowsError } = useAccountCashFlows();
+  const { entries: principals, error: principalsError } = useAccountPrincipals();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [selectedRange, setSelectedRange] = useState<TrendRange | null>(null);
 
@@ -172,8 +174,14 @@ export function AssetTrendsPage() {
   const currentPoint = createCurrentPortfolioPoint(holdings);
   const totalValue = convertCurrency(currentPoint.totalValue, 'HKD', displayCurrency);
   const netExternalFlowTotalHKD = sumSignedCashFlowsHKD(cashFlows);
-  const historicalReturnHKD = currentPoint.totalValue - netExternalFlowTotalHKD;
-  const historicalReturnPct = netExternalFlowTotalHKD === 0 ? 0 : (historicalReturnHKD / Math.abs(netExternalFlowTotalHKD)) * 100;
+  const totalPrincipalHKD =
+    principals.reduce(
+      (sum, entry) => sum + convertCurrency(entry.principalAmount, entry.currency, 'HKD'),
+      0,
+    ) + netExternalFlowTotalHKD;
+  const historicalReturnHKD = currentPoint.totalValue - totalPrincipalHKD;
+  const historicalReturnPct =
+    totalPrincipalHKD === 0 ? 0 : (historicalReturnHKD / Math.abs(totalPrincipalHKD)) * 100;
   const monthStartDate = `${currentPoint.date.slice(0, 7)}-01`;
   const monthlySnapshot = history
     .filter((point) => point.date >= monthStartDate)
@@ -211,6 +219,7 @@ export function AssetTrendsPage() {
       {error ? <p className="status-message status-message-error">{error}</p> : null}
       {snapshotsError ? <p className="status-message status-message-error">{snapshotsError}</p> : null}
       {cashFlowsError ? <p className="status-message status-message-error">{cashFlowsError}</p> : null}
+      {principalsError ? <p className="status-message status-message-error">{principalsError}</p> : null}
 
       <section className="card trends-overview-card">
         <div className="trends-toolbar">

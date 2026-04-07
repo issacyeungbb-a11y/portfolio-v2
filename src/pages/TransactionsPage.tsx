@@ -55,7 +55,10 @@ export function TransactionsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
-  const totalTradeAmountHKD = entries.reduce(
+  const visibleEntries = entries.filter(
+    (entry) => !(entry.recordType === 'seed' && entry.note === '歷史持倉基線'),
+  );
+  const totalTradeAmountHKD = visibleEntries.reduce(
     (sum, entry) => sum + convertCurrency(entry.quantity * entry.price, entry.currency, 'HKD'),
     0,
   );
@@ -122,7 +125,7 @@ export function TransactionsPage() {
       <section className="summary-grid">
         <article className="summary-card">
           <p className="summary-label">記錄總數</p>
-          <strong className="summary-value">{entries.length}</strong>
+          <strong className="summary-value">{visibleEntries.length}</strong>
           <p className="summary-hint">包括建倉記錄與買入 / 賣出交易</p>
         </article>
         <article className="summary-card">
@@ -134,7 +137,7 @@ export function TransactionsPage() {
           <p className="summary-label">已實現盈虧</p>
           <strong className="summary-value">
             {formatCurrencyRounded(
-              entries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
+              visibleEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
               'HKD',
             )}
           </strong>
@@ -149,20 +152,28 @@ export function TransactionsPage() {
             <h2>交易記錄</h2>
           </div>
           <span className={status === 'loading' ? 'chip chip-soft' : 'chip chip-strong'}>
-            {status === 'loading' ? '同步中' : `${entries.length} 筆`}
+            {status === 'loading' ? '同步中' : `${visibleEntries.length} 筆`}
           </span>
         </div>
 
         <div className="settings-list">
-          {entries.length > 0 ? (
-            entries.map((entry) => {
+          {visibleEntries.length > 0 ? (
+            visibleEntries.map((entry) => {
               const grossAmount = entry.quantity * entry.price;
               const backingHolding = holdingsById.get(entry.assetId) ?? buildHoldingFallback(entry);
+              const typeLabel =
+                entry.recordType === 'asset_created'
+                  ? '新增資產'
+                  : entry.recordType === 'seed'
+                    ? '新增資產'
+                    : entry.transactionType === 'buy'
+                      ? '買入'
+                      : '賣出';
               return (
                 <div key={entry.id} className="setting-row setting-row-wide">
                   <div>
                     <strong>
-                      {entry.symbol} · {entry.recordType === 'seed' ? '建倉' : entry.transactionType === 'buy' ? '買入' : '賣出'}
+                      {entry.symbol} · {typeLabel}
                     </strong>
                     <p>
                       {entry.assetName} · {getAssetTypeLabel(entry.assetType)} · {getAccountSourceLabel(entry.accountSource)}

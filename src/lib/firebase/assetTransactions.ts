@@ -80,6 +80,10 @@ function sanitizeTransactionType(value: unknown): AssetTransactionType {
 }
 
 function sanitizeRecordType(value: unknown): AssetTransactionRecordType {
+  if (value === 'asset_created') {
+    return 'asset_created';
+  }
+
   return value === 'seed' ? 'seed' : 'trade';
 }
 
@@ -156,6 +160,10 @@ function sortLedgerTransactions(entries: LedgerTransaction[]) {
 }
 
 function validateLedgerTransaction(entry: LedgerTransaction, quantityBefore: number) {
+  if (entry.recordType === 'asset_created') {
+    return;
+  }
+
   if (entry.quantity <= 0 || entry.price <= 0) {
     throw new Error('交易數量同成交價都必須大過 0。');
   }
@@ -182,7 +190,7 @@ function buildSeedPayload(holding: Holding): LedgerTransaction | null {
     fees: 0,
     currency: holding.currency,
     date: new Date().toISOString().slice(0, 10),
-    note: '建立持倉',
+    note: '歷史持倉基線',
     recordType: 'seed',
   };
 }
@@ -213,6 +221,7 @@ async function ensureSeedTransactionForHolding(holding: Holding) {
     realizedPnlHKD: 0,
     quantityAfter: holding.quantity,
     averageCostAfter: holding.averageCost,
+    note: seedPayload.note,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
@@ -256,7 +265,10 @@ async function rebuildAssetFromTransactions(assetId: string) {
     let nextAverageCost = averageCost;
     let realizedPnl = 0;
 
-    if (transaction.recordType === 'seed') {
+    if (transaction.recordType === 'asset_created') {
+      nextQuantity = quantity;
+      nextAverageCost = averageCost;
+    } else if (transaction.recordType === 'seed') {
       nextQuantity = transaction.quantity;
       nextAverageCost =
         transaction.quantity === 0
