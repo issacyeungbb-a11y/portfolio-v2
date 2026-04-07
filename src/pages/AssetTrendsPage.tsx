@@ -144,6 +144,24 @@ function buildCalendarGrid(dateKey: string) {
   return cells;
 }
 
+function formatCalendarChange(value: number) {
+  if (value === 0) {
+    return '0';
+  }
+
+  const sign = value > 0 ? '+' : '-';
+  const absolute = Math.abs(value);
+
+  if (absolute >= 10000) {
+    const inTenThousands = absolute / 10000;
+    const rounded =
+      inTenThousands >= 100 ? Math.round(inTenThousands).toString() : inTenThousands.toFixed(1).replace(/\.0$/, '');
+    return `${sign}${rounded}萬`;
+  }
+
+  return `${sign}${Math.round(absolute).toLocaleString('en-US')}`;
+}
+
 export function AssetTrendsPage() {
   const { holdings: firestoreHoldings, status, error } = usePortfolioAssets();
   const { history, error: snapshotsError } = usePortfolioSnapshots();
@@ -369,7 +387,7 @@ export function AssetTrendsPage() {
             return (
               <div key={cell.dateKey} className={`trends-calendar-cell ${tone}`}>
                 <strong>{cell.day}</strong>
-                {entry ? <span>{change > 0 ? '+' : ''}{formatCurrency(change, displayCurrency)}</span> : null}
+                {entry ? <span>{formatCalendarChange(change)}</span> : null}
               </div>
             );
           })}
