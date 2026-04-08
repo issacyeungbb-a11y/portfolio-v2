@@ -2062,6 +2062,30 @@ h3 {
   gap: 0.65rem;
 }
 
+.analysis-category-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.analysis-category-group-left {
+  flex: 1 1 26rem;
+}
+
+.analysis-category-group-right {
+  justify-content: flex-end;
+}
+
+.analysis-inline-model {
+  min-width: 13rem;
+  margin: 0;
+}
+
+.analysis-inline-model span {
+  font-size: 0.8rem;
+}
+
 .analysis-prompt-button {
   flex: 0 0 auto;
 }
@@ -2080,6 +2104,18 @@ h3 {
 .analysis-category-intro h2 {
   font-size: clamp(1.12rem, 4vw, 1.7rem);
   line-height: 1.08;
+}
+
+@media (max-width: 720px) {
+  .analysis-category-group-left,
+  .analysis-category-group-right {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .analysis-inline-model {
+    min-width: min(100%, 16rem);
+  }
 }
 
 .analysis-summary-text {

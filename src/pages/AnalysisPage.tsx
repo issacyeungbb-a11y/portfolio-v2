@@ -32,24 +32,28 @@ type ConversationTurn = {
 const analysisCategoryOptions: Array<{
   value: AnalysisCategory;
   label: string;
+  shortLabel: string;
   helper: string;
   questionPlaceholder: string;
 }> = [
   {
     value: 'asset_analysis',
     label: '分析資產',
+    shortLabel: '分析',
     helper: '針對持倉、風險與配置去分析。',
     questionPlaceholder: '例如：根據我目前資產，分析一下而家最值得留意嘅重點。',
   },
   {
     value: 'general_question',
     label: '一般問題',
+    shortLabel: '一般問題',
     helper: '針對你而家想問嘅問題直接作答。',
     questionPlaceholder: '例如：我而家現金比例是否太高？應唔應該再分散幣別？',
   },
   {
     value: 'asset_report',
     label: '資產報告',
+    shortLabel: '報告',
     helper: '整理成可回顧嘅報告內容。',
     questionPlaceholder: '例如：請根據我目前資產整理一份清晰嘅資產報告。',
   },
@@ -158,6 +162,9 @@ export function AnalysisPage() {
       analysisCategoryOptions[0],
     [selectedCategory],
   );
+  const generalQuestionOption = analysisCategoryOptions.find((option) => option.value === 'general_question');
+  const assetAnalysisOption = analysisCategoryOptions.find((option) => option.value === 'asset_analysis');
+  const assetReportOption = analysisCategoryOptions.find((option) => option.value === 'asset_report');
 
   useEffect(() => {
     setLocalAnalysis(null);
@@ -481,45 +488,63 @@ export function AnalysisPage() {
       <section className="hero-panel">
         <div className="analysis-action-panel">
           <div className="analysis-category-row">
-            <div className="trends-range-row" role="tablist" aria-label="分析類別">
-              {analysisCategoryOptions.map((option) => (
+            <div className="analysis-category-group analysis-category-group-left" role="tablist" aria-label="分析類別">
+              {generalQuestionOption ? (
                 <button
-                  key={option.value}
-                  className={selectedCategory === option.value ? 'filter-chip active' : 'filter-chip'}
+                  className={selectedCategory === generalQuestionOption.value ? 'filter-chip active' : 'filter-chip'}
                   type="button"
-                  onClick={() => setSelectedCategory(option.value)}
+                  onClick={() => setSelectedCategory(generalQuestionOption.value)}
                 >
-                  {option.label}
+                  {generalQuestionOption.shortLabel}
                 </button>
-              ))}
+              ) : null}
+              <label className="form-field analysis-inline-model">
+                <span>主要用嘅 AI</span>
+                <select
+                  value={selectedModel}
+                  onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
+                  disabled={isAnalyzing}
+                >
+                  {analysisModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} · {option.hint}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
-            <button
-              className="button button-secondary analysis-prompt-button"
-              type="button"
-              onClick={() => setIsPromptSettingsOpen((current) => !current)}
-            >
-              {isPromptSettingsOpen ? '收起 Prompt 設定' : 'Prompt 設定'}
-            </button>
+            <div className="analysis-category-group analysis-category-group-right">
+              {assetAnalysisOption ? (
+                <button
+                  className={selectedCategory === assetAnalysisOption.value ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  onClick={() => setSelectedCategory(assetAnalysisOption.value)}
+                >
+                  {assetAnalysisOption.shortLabel}
+                </button>
+              ) : null}
+              {assetReportOption ? (
+                <button
+                  className={selectedCategory === assetReportOption.value ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  onClick={() => setSelectedCategory(assetReportOption.value)}
+                >
+                  {assetReportOption.shortLabel}
+                </button>
+              ) : null}
+              <button
+                className="button button-secondary analysis-prompt-button"
+                type="button"
+                onClick={() => setIsPromptSettingsOpen((current) => !current)}
+              >
+                {isPromptSettingsOpen ? '收起 Prompt 設定' : 'Prompt 設定'}
+              </button>
+            </div>
           </div>
 
           {isInteractiveCategory ? (
             <>
               <div className="asset-form-grid">
-                <label className="form-field">
-                  <span>分析模型</span>
-                  <select
-                    value={selectedModel}
-                    onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
-                    disabled={isAnalyzing}
-                  >
-                    {analysisModelOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label} · {option.hint}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
                 <label className="form-field" style={{ gridColumn: '1 / -1' }}>
                   <span>對話內容</span>
                   <textarea
@@ -563,13 +588,6 @@ export function AnalysisPage() {
 
       {isPromptSettingsOpen ? (
         <section className="card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Prompt Settings</p>
-              <h2>設定 Prompt</h2>
-            </div>
-          </div>
-
           <div className="trends-range-row" role="tablist" aria-label="Prompt 類別">
             {analysisCategoryOptions.map((option) => (
               <button
