@@ -9,6 +9,7 @@ export type AccountCashFlowType = 'deposit' | 'withdrawal' | 'adjustment';
 export type AssetChangeRange = '1d' | '7d' | '30d';
 export type AssetTransactionType = 'buy' | 'sell';
 export type AssetTransactionRecordType = 'asset_created' | 'seed' | 'trade';
+export type AnalysisCategory = 'asset_analysis' | 'general_question' | 'asset_report';
 
 export interface PortfolioAssetInput {
   name: string;
@@ -148,6 +149,7 @@ export interface ImportJob {
 
 export interface AnalysisSession {
   id: string;
+  category: AnalysisCategory;
   title: string;
   question: string;
   result: string;

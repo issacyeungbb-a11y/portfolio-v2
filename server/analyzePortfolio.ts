@@ -1,6 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 
-import type { AssetType } from '../src/types/portfolio';
+import type { AnalysisCategory, AssetType } from '../src/types/portfolio';
 import type {
   PortfolioAnalysisModel,
   PortfolioAnalysisProvider,
@@ -104,6 +104,14 @@ function sanitizeAnalysisModel(value: unknown): PortfolioAnalysisModel | null {
   return null;
 }
 
+function sanitizeAnalysisCategory(value: unknown): AnalysisCategory | null {
+  if (value === 'asset_analysis' || value === 'general_question' || value === 'asset_report') {
+    return value;
+  }
+
+  return null;
+}
+
 function sanitizeAssetType(value: unknown): AssetType | null {
   if (typeof value !== 'string') {
     return null;
@@ -126,6 +134,7 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   const value = payload as Record<string, unknown>;
   const cacheKey = sanitizeString(value.cacheKey);
   const snapshotHash = sanitizeString(value.snapshotHash);
+  const category = sanitizeAnalysisCategory(value.category);
   const analysisModel = sanitizeAnalysisModel(value.analysisModel);
   const analysisInstruction = sanitizeString(value.analysisInstruction) ?? '';
   const assetCount = sanitizeNumber(value.assetCount);
@@ -142,6 +151,10 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
 
   if (!analysisModel) {
     throw new AnalyzePortfolioError('分析模型設定不正確，請重新選擇後再試。', 400);
+  }
+
+  if (!category) {
+    throw new AnalyzePortfolioError('分析類別設定不正確，請重新選擇後再試。', 400);
   }
 
   if (!Array.isArray(value.holdings) || value.holdings.length === 0) {
@@ -264,6 +277,7 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   return {
     cacheKey,
     snapshotHash,
+    category,
     analysisModel,
     analysisInstruction,
     assetCount: assetCount ?? holdings.length,
@@ -301,6 +315,34 @@ function sanitizeAnalysisResult(rawPayload: unknown): PortfolioAnalysisResult {
   };
 }
 
+function getCategoryPromptPrefix(category: AnalysisCategory) {
+  if (category === 'general_question') {
+    return `
+Category: 一般問題
+- 將自己視為投資組合助手。
+- 直接回答使用者問題。
+- 若問題與資產直接相關，可引用持倉數據。
+- 若問題較泛，仍以目前組合背景作答，但不要強行變成完整資產診斷。
+    `.trim();
+  }
+
+  if (category === 'asset_report') {
+    return `
+Category: 資產報告
+- 將回答寫成可閱讀的資產報告。
+- 優先整理：整體概覽、重點持倉、主要風險、值得跟進項目。
+- 語氣保持專業、清晰、可回顧。
+    `.trim();
+  }
+
+  return `
+Category: 分析資產
+- 聚焦診斷目前投資組合。
+- 先指出最值得留意的持倉、集中度、風險與配置問題。
+- 若使用者要求建議，提供具體而克制的下一步方向。
+  `.trim();
+}
+
 function buildPrompt(request: PortfolioAnalysisRequest) {
   return `
 You are a portfolio analysis assistant.
@@ -317,6 +359,8 @@ Rules:
 - Prioritize the user's analysis instruction when deciding what to emphasize, but do not invent any external facts or unsupported claims.
 - Answer the user's instruction directly. Do not force your response into sections unless the user's question naturally calls for it.
 - If the user's instruction asks for a comparison, recommendation, or explanation, answer that request directly in flowing prose or a natural list.
+
+${getCategoryPromptPrefix(request.category)}
 
 User analysis instruction:
 ${request.analysisInstruction || '未提供額外指示，請做一般投資組合分析。'}
@@ -455,6 +499,7 @@ export async function analyzePortfolio(
     route: ANALYZE_ROUTE,
     mode: 'live',
     cacheKey: request.cacheKey,
+    category: request.category,
     provider,
     model: resolvedModel,
     snapshotHash: request.snapshotHash,

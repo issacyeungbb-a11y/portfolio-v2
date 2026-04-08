@@ -46,6 +46,7 @@ export async function createPortfolioSnapshotHash(signature: string) {
 
 export async function createPortfolioAnalysisCacheKey(
   snapshotHash: string,
+  category: string,
   analysisModel: string,
   analysisInstruction: string,
 ) {
@@ -54,6 +55,7 @@ export async function createPortfolioAnalysisCacheKey(
     new TextEncoder().encode(
       JSON.stringify({
         snapshotHash,
+        category,
         analysisModel,
         analysisInstruction: analysisInstruction.trim(),
       }),
@@ -83,6 +85,7 @@ export function buildPortfolioAnalysisRequest(
   holdings: Holding[],
   snapshotHash: string,
   cacheKey: string,
+  category: PortfolioAnalysisRequest['category'],
   analysisModel: PortfolioAnalysisRequest['analysisModel'],
   analysisInstruction: string,
 ): PortfolioAnalysisRequest {
@@ -120,6 +123,7 @@ export function buildPortfolioAnalysisRequest(
   return {
     cacheKey,
     snapshotHash,
+    category,
     analysisModel,
     analysisInstruction: analysisInstruction.trim(),
     assetCount: holdings.length,

@@ -1,4 +1,4 @@
-import type { Holding } from './portfolio';
+import type { AnalysisCategory, Holding } from './portfolio';
 
 export type PortfolioAnalysisProvider = 'google' | 'anthropic';
 export type PortfolioAnalysisModel =
@@ -22,6 +22,7 @@ export interface PortfolioAnalysisRequestAsset {
 export interface PortfolioAnalysisRequest {
   cacheKey: string;
   snapshotHash: string;
+  category: AnalysisCategory;
   analysisModel: PortfolioAnalysisModel;
   analysisInstruction?: string;
   assetCount: number;
@@ -49,6 +50,7 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
   route: '/api/analyze';
   mode: 'live';
   cacheKey: string;
+  category: AnalysisCategory;
   provider: PortfolioAnalysisProvider;
   model: string;
   snapshotHash: string;
@@ -59,6 +61,7 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
 export interface CachedPortfolioAnalysis extends PortfolioAnalysisResult {
   cacheKey: string;
   snapshotHash: string;
+  category: AnalysisCategory;
   provider: PortfolioAnalysisProvider;
   model: string;
   analysisInstruction: string;

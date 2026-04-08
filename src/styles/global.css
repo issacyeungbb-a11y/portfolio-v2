@@ -2059,6 +2059,17 @@ h3 {
   line-height: 1.65;
 }
 
+.analysis-category-intro {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.analysis-category-intro h2 {
+  font-size: clamp(1.12rem, 4vw, 1.7rem);
+  line-height: 1.08;
+}
+
 .analysis-summary-text {
   font-size: 1rem;
   line-height: 1.75;

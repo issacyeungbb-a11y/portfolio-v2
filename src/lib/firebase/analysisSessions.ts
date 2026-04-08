@@ -29,6 +29,10 @@ function normalizeAnalysisSession(
 ): AnalysisSession {
   return {
     id,
+    category:
+      value.category === 'general_question' || value.category === 'asset_report'
+        ? value.category
+        : 'asset_analysis',
     title: typeof value.title === 'string' ? value.title : '分析紀錄',
     question: typeof value.question === 'string' ? value.question : '',
     result: typeof value.result === 'string' ? value.result : '',
@@ -93,6 +97,7 @@ export async function createAnalysisSession(
   }
 
   await addDoc(getSharedAnalysisSessionsCollectionRef(), {
+    category: entry.category,
     title: entry.title.trim() || '分析紀錄',
     question: entry.question.trim(),
     result: entry.result.trim(),

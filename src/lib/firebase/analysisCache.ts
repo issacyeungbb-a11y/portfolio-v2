@@ -19,6 +19,10 @@ function normalizeCachedAnalysis(
   return {
     cacheKey,
     snapshotHash: typeof value.snapshotHash === 'string' ? value.snapshotHash : '',
+    category:
+      value.category === 'general_question' || value.category === 'asset_report'
+        ? value.category
+        : 'asset_analysis',
     provider:
       value.provider === 'anthropic'
         ? 'anthropic'
