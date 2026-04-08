@@ -26,6 +26,7 @@ export interface PortfolioAnalysisRequest {
   analysisModel: PortfolioAnalysisModel;
   analysisQuestion?: string;
   analysisBackground?: string;
+  conversationContext?: string;
   assetCount: number;
   totalValueHKD: number;
   totalCostHKD: number;

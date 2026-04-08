@@ -50,6 +50,7 @@ export async function createPortfolioAnalysisCacheKey(
   analysisModel: string,
   analysisQuestion: string,
   analysisBackground: string,
+  conversationContext = '',
 ) {
   const digest = await crypto.subtle.digest(
     'SHA-256',
@@ -60,6 +61,7 @@ export async function createPortfolioAnalysisCacheKey(
         analysisModel,
         analysisQuestion: analysisQuestion.trim(),
         analysisBackground: analysisBackground.trim(),
+        conversationContext: conversationContext.trim(),
       }),
     ),
   );
@@ -91,6 +93,7 @@ export function buildPortfolioAnalysisRequest(
   analysisModel: PortfolioAnalysisRequest['analysisModel'],
   analysisQuestion: string,
   analysisBackground: string,
+  conversationContext = '',
 ): PortfolioAnalysisRequest {
   const requestAssets = [...holdings]
     .map(buildAnalysisRequestAsset)
@@ -130,6 +133,7 @@ export function buildPortfolioAnalysisRequest(
     analysisModel,
     analysisQuestion: analysisQuestion.trim(),
     analysisBackground: analysisBackground.trim(),
+    conversationContext: conversationContext.trim(),
     assetCount: holdings.length,
     totalValueHKD,
     totalCostHKD,

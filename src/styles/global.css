@@ -2054,6 +2054,18 @@ h3 {
   gap: 0.5rem;
 }
 
+.analysis-category-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.analysis-prompt-button {
+  flex: 0 0 auto;
+}
+
 .analysis-action-copy p {
   color: var(--text-muted);
   line-height: 1.65;
@@ -2130,6 +2142,55 @@ h3 {
 .analysis-empty-state {
   display: flex;
   flex-direction: column;
+}
+
+.analysis-follow-up-card {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(118, 96, 77, 0.12);
+}
+
+.analysis-thread-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.analysis-thread-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.analysis-thread-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.analysis-thread-bubble.user {
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.analysis-thread-bubble.assistant {
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.analysis-thread-bubble span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.analysis-thread-bubble p {
+  color: var(--text-main);
+  line-height: 1.7;
+  margin: 0;
 }
 
 .bottom-nav {

@@ -138,6 +138,7 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   const analysisModel = sanitizeAnalysisModel(value.analysisModel);
   const analysisQuestion = sanitizeString(value.analysisQuestion) ?? '';
   const analysisBackground = sanitizeString(value.analysisBackground) ?? '';
+  const conversationContext = sanitizeString(value.conversationContext) ?? '';
   const assetCount = sanitizeNumber(value.assetCount);
   const totalValueHKD = sanitizeNumber(value.totalValueHKD);
   const totalCostHKD = sanitizeNumber(value.totalCostHKD);
@@ -282,6 +283,7 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
     analysisModel,
     analysisQuestion,
     analysisBackground,
+    conversationContext,
     assetCount: assetCount ?? holdings.length,
     totalValueHKD: totalValueHKD ?? 0,
     totalCostHKD: totalCostHKD ?? 0,
@@ -366,6 +368,9 @@ ${getCategoryPromptPrefix(request.category)}
 
 Saved category background:
 ${request.analysisBackground || '未設定額外背景。'}
+
+Conversation context:
+${request.conversationContext || '目前未有前文對話。'}
 
 User question / task:
 ${request.analysisQuestion || '請根據目前投資組合做一般分析。'}

@@ -22,6 +22,12 @@ import type {
 } from '../types/portfolioAnalysis';
 
 type SnapshotHashStatus = 'idle' | 'loading' | 'ready' | 'error';
+type ConversationTurn = {
+  question: string;
+  answer: string;
+  generatedAt: string;
+  model: string;
+};
 
 const analysisCategoryOptions: Array<{
   value: AnalysisCategory;
@@ -123,6 +129,16 @@ export function AnalysisPage() {
     general_question: '',
     asset_report: '',
   });
+  const [followUpQuestionByCategory, setFollowUpQuestionByCategory] = useState<Record<AnalysisCategory, string>>({
+    asset_analysis: '',
+    general_question: '',
+    asset_report: '',
+  });
+  const [conversationThreads, setConversationThreads] = useState<Record<AnalysisCategory, ConversationTurn[]>>({
+    asset_analysis: [],
+    general_question: [],
+    asset_report: [],
+  });
   const [promptDrafts, setPromptDrafts] = useState(savedPromptSettings);
 
   const holdings: Holding[] = recalculateHoldingAllocations(
@@ -131,7 +147,9 @@ export function AnalysisPage() {
   );
   const snapshotSignature = holdings.length > 0 ? createPortfolioSnapshotSignature(holdings) : '';
   const analysisQuestion = analysisQuestionByCategory[selectedCategory];
+  const followUpQuestion = followUpQuestionByCategory[selectedCategory];
   const analysisBackground = savedPromptSettings[selectedCategory];
+  const activeConversation = conversationThreads[selectedCategory];
   const selectedCategoryOption = useMemo(
     () =>
       analysisCategoryOptions.find((option) => option.value === selectedCategory) ??
@@ -272,6 +290,7 @@ export function AnalysisPage() {
         selectedModel,
         analysisQuestion,
         analysisBackground,
+        '',
       );
       const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
 
@@ -289,6 +308,21 @@ export function AnalysisPage() {
       };
 
       setLocalAnalysis(cachedResult);
+      setConversationThreads((current) => ({
+        ...current,
+        [selectedCategory]: [
+          {
+            question: response.analysisQuestion,
+            answer: response.answer,
+            generatedAt: response.generatedAt,
+            model: response.model,
+          },
+        ],
+      }));
+      setFollowUpQuestionByCategory((current) => ({
+        ...current,
+        [selectedCategory]: '',
+      }));
       await persistAnalysis(cachedResult);
       const savedSession: Omit<AnalysisSession, 'id' | 'updatedAt' | 'createdAt'> = {
         category: response.category,
@@ -303,6 +337,90 @@ export function AnalysisPage() {
       setAnalysisSuccess('分析已完成，結果已保存。');
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '投資組合分析失敗，請稍後再試。');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
+
+  async function handleFollowUp() {
+    if (
+      !snapshotHash ||
+      !analysisCacheKey ||
+      !holdings.length ||
+      !followUpQuestion.trim() ||
+      !(selectedCategory === 'asset_analysis' || selectedCategory === 'general_question')
+    ) {
+      return;
+    }
+
+    const conversationContext = activeConversation
+      .map(
+        (turn, index) =>
+          `第 ${index + 1} 輪\n使用者：${turn.question}\nAI：${turn.answer}`,
+      )
+      .join('\n\n');
+
+    setAnalysisError(null);
+    setAnalysisSuccess(null);
+    setPromptSettingsSuccess(null);
+    setIsAnalyzing(true);
+
+    try {
+      const request = buildPortfolioAnalysisRequest(
+        holdings,
+        snapshotHash,
+        analysisCacheKey,
+        selectedCategory,
+        selectedModel,
+        followUpQuestion,
+        analysisBackground,
+        conversationContext,
+      );
+      const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
+
+      const cachedResult: CachedPortfolioAnalysis = {
+        cacheKey: response.cacheKey,
+        snapshotHash: response.snapshotHash,
+        category: response.category,
+        provider: response.provider,
+        model: response.model,
+        analysisQuestion: response.analysisQuestion,
+        analysisBackground: response.analysisBackground,
+        generatedAt: response.generatedAt,
+        assetCount: holdings.length,
+        answer: response.answer,
+      };
+
+      setLocalAnalysis(cachedResult);
+      setConversationThreads((current) => ({
+        ...current,
+        [selectedCategory]: [
+          ...current[selectedCategory],
+          {
+            question: response.analysisQuestion,
+            answer: response.answer,
+            generatedAt: response.generatedAt,
+            model: response.model,
+          },
+        ],
+      }));
+      setFollowUpQuestionByCategory((current) => ({
+        ...current,
+        [selectedCategory]: '',
+      }));
+      await persistAnalysis(cachedResult);
+      await addAnalysisSession({
+        category: response.category,
+        title: createAnalysisTitle(response.analysisQuestion),
+        question: response.analysisQuestion,
+        result: response.answer,
+        model: response.model,
+        provider: response.provider,
+        snapshotHash: response.snapshotHash,
+      });
+      setAnalysisSuccess('已加入追問並完成分析。');
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : '追問分析失敗，請稍後再試。');
     } finally {
       setIsAnalyzing(false);
     }
@@ -331,17 +449,26 @@ export function AnalysisPage() {
     <div className="page-stack">
       <section className="hero-panel">
         <div className="analysis-action-panel">
-          <div className="trends-range-row" role="tablist" aria-label="分析類別">
-            {analysisCategoryOptions.map((option) => (
-              <button
-                key={option.value}
-                className={selectedCategory === option.value ? 'filter-chip active' : 'filter-chip'}
-                type="button"
-                onClick={() => setSelectedCategory(option.value)}
-              >
-                {option.label}
-              </button>
-            ))}
+          <div className="analysis-category-row">
+            <div className="trends-range-row" role="tablist" aria-label="分析類別">
+              {analysisCategoryOptions.map((option) => (
+                <button
+                  key={option.value}
+                  className={selectedCategory === option.value ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  onClick={() => setSelectedCategory(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <button
+              className="button button-secondary analysis-prompt-button"
+              type="button"
+              onClick={() => setIsPromptSettingsOpen((current) => !current)}
+            >
+              {isPromptSettingsOpen ? '收起 Prompt 設定' : 'Prompt 設定'}
+            </button>
           </div>
 
           <div className="asset-form-grid">
@@ -389,13 +516,6 @@ export function AnalysisPage() {
             <Link className="button button-secondary" to="/assets">
               檢查資產資料
             </Link>
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={() => setIsPromptSettingsOpen((current) => !current)}
-            >
-              {isPromptSettingsOpen ? '收起 Prompt 設定' : '設定 Prompt'}
-            </button>
           </div>
         </div>
       </section>
@@ -498,14 +618,65 @@ export function AnalysisPage() {
               <strong>{displayedAnalysis?.analysisQuestion || '未提供'}</strong>
             </div>
             <div className="analysis-meta-item">
-              <span>背景設定</span>
-              <strong>{displayedAnalysis?.analysisBackground || '未設定'}</strong>
-            </div>
-            <div className="analysis-meta-item">
               <span>快照資產數</span>
               <strong>{displayedAnalysis?.assetCount ?? holdings.length} 項</strong>
             </div>
           </div>
+
+          {(selectedCategory === 'asset_analysis' || selectedCategory === 'general_question') && activeConversation.length > 0 ? (
+            <div className="analysis-follow-up-card">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Follow Up</p>
+                  <h2>延續對話</h2>
+                </div>
+              </div>
+
+              <div className="analysis-thread-list">
+                {activeConversation.map((turn, index) => (
+                  <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
+                    <div className="analysis-thread-bubble user">
+                      <span>你</span>
+                      <p>{turn.question}</p>
+                    </div>
+                    <div className="analysis-thread-bubble assistant">
+                      <span>{turn.model}</span>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="asset-form-grid">
+                <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+                  <span>追問內容</span>
+                  <textarea
+                    value={followUpQuestion}
+                    onChange={(event) =>
+                      setFollowUpQuestionByCategory((current) => ({
+                        ...current,
+                        [selectedCategory]: event.target.value,
+                      }))
+                    }
+                    placeholder="例如：如果我想降低波動，應該先調整邊一部分？"
+                    rows={3}
+                    disabled={isAnalyzing}
+                  />
+                </label>
+              </div>
+
+              <div className="button-row">
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={handleFollowUp}
+                  disabled={!followUpQuestion.trim() || isAnalyzing}
+                >
+                  {isAnalyzing ? '分析中...' : '繼續提問'}
+                </button>
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -538,6 +709,17 @@ export function AnalysisPage() {
                     assetCount: holdings.length,
                     answer: session.result,
                   });
+                  setConversationThreads((current) => ({
+                    ...current,
+                    [session.category]: [
+                      {
+                        question: session.question,
+                        answer: session.result,
+                        generatedAt: session.updatedAt,
+                        model: session.model,
+                      },
+                    ],
+                  }));
                 }}
               >
                 <div>
