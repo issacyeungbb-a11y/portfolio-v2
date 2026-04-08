@@ -581,8 +581,8 @@ export function AnalysisPage() {
             <div className="analysis-scheduled-actions">
               <p className="status-message">
                 {selectedCategory === 'asset_analysis'
-                  ? '每月 1 日香港時間上午 8:00 自動生成一次資產分析。'
-                  : '每季首日香港時間上午 8:00 自動生成一次資產報告。'}
+                  ? '每月 1 日香港時間上午 9:00 自動生成一次資產分析。'
+                  : '每季首日香港時間上午 9:00 自動生成一次資產報告。'}
               </p>
               <button
                 className="button button-secondary"
