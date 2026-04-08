@@ -259,6 +259,36 @@ function sanitizeSinglePriceUpdateResult(rawPayload: unknown) {
   } satisfies PriceUpdateModelResult;
 }
 
+function createFailedModelResult(
+  asset: PriceUpdateRequestAsset,
+  reason: string,
+): PriceUpdateModelResult {
+  return {
+    assetName: asset.assetName,
+    ticker: asset.ticker,
+    assetType: asset.assetType,
+    price: 0,
+    currency: asset.currency,
+    asOf: '',
+    sourceName: reason,
+    sourceUrl: '',
+    confidence: 0,
+    needsReview: true,
+  };
+}
+
+function tryParseSingleModelResult(
+  asset: PriceUpdateRequestAsset,
+  rawText: string,
+  reason: string,
+) {
+  try {
+    return sanitizeSinglePriceUpdateResult(parseModelJson(rawText));
+  } catch {
+    return createFailedModelResult(asset, reason);
+  }
+}
+
 function buildAssetSearchHints(asset: PriceUpdateRequestAsset) {
   const hints = [
     `${asset.ticker} latest price`,
@@ -585,7 +615,11 @@ async function generateBestPriceForAsset(
 ) {
   const primaryPrompt = buildSingleAssetPrompt(asset, 'primary');
   const primaryResponse = await generateSingleAssetPriceResponse(ai, model, primaryPrompt);
-  const primaryResult = sanitizeSinglePriceUpdateResult(parseModelJson(primaryResponse.text ?? ''));
+  const primaryResult = tryParseSingleModelResult(
+    asset,
+    primaryResponse.text ?? '',
+    'Gemini primary 回覆格式不正確',
+  );
 
   if (isUsableModelResult(asset, primaryResult)) {
     return primaryResult;
@@ -593,7 +627,11 @@ async function generateBestPriceForAsset(
 
   const retryPrompt = buildSingleAssetPrompt(asset, 'retry');
   const retryResponse = await generateSingleAssetPriceResponse(ai, model, retryPrompt);
-  const retryResult = sanitizeSinglePriceUpdateResult(parseModelJson(retryResponse.text ?? ''));
+  const retryResult = tryParseSingleModelResult(
+    asset,
+    retryResponse.text ?? '',
+    'Gemini retry 回覆格式不正確',
+  );
 
   if (isUsableModelResult(asset, retryResult)) {
     return retryResult;
@@ -689,7 +727,13 @@ async function generatePriceUpdatesForBatch(
 
   if (missingOrWeakAssets.length > 0) {
     const focusedResults = await Promise.all(
-      missingOrWeakAssets.map((asset) => generateBestPriceForAsset(ai, model, asset)),
+      missingOrWeakAssets.map(async (asset) => {
+        try {
+          return await generateBestPriceForAsset(ai, model, asset);
+        } catch {
+          return createFailedModelResult(asset, 'Gemini 單項補查失敗');
+        }
+      }),
     );
 
     sanitizedResults = [
