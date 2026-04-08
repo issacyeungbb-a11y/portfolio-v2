@@ -387,6 +387,7 @@ function getModelProvider(model: PortfolioAnalysisModel): PortfolioAnalysisProvi
 async function analyzeWithGemini(
   prompt: string,
   model: Extract<PortfolioAnalysisModel, 'gemini-3.1-pro-preview'>,
+  maxTokens?: number,
 ) {
   const apiKey = getGeminiApiKey();
   const ai = new GoogleGenAI({ apiKey });
@@ -395,6 +396,7 @@ async function analyzeWithGemini(
     contents: prompt,
     config: {
       temperature: 0.3,
+      ...(typeof maxTokens === 'number' ? { maxOutputTokens: maxTokens } : {}),
     },
   });
 
@@ -404,6 +406,7 @@ async function analyzeWithGemini(
 async function analyzeWithClaude(
   prompt: string,
   model: Extract<PortfolioAnalysisModel, 'claude-opus-4-6'>,
+  maxTokens = 1400,
 ) {
   const apiKey = getAnthropicApiKey();
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -415,7 +418,7 @@ async function analyzeWithClaude(
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1400,
+      max_tokens: maxTokens,
       temperature: 0.3,
       messages: [
         {
@@ -490,7 +493,7 @@ export function getAnalyzePortfolioErrorResponse(error: unknown) {
 
 export async function runPortfolioAnalysisRequest(
   request: PortfolioAnalysisRequest,
-  options?: { delivery?: 'manual' | 'scheduled' },
+  options?: { delivery?: 'manual' | 'scheduled'; maxTokens?: number },
 ): Promise<PortfolioAnalysisResponse> {
   const prompt = buildPrompt(request);
   const provider = getModelProvider(request.analysisModel);
@@ -500,8 +503,16 @@ export async function runPortfolioAnalysisRequest(
       : getGeminiAnalyzeModel(request.analysisModel);
   const raw =
     provider === 'anthropic'
-      ? await analyzeWithClaude(prompt, resolvedModel as 'claude-opus-4-6')
-      : await analyzeWithGemini(prompt, resolvedModel as 'gemini-3.1-pro-preview');
+      ? await analyzeWithClaude(
+          prompt,
+          resolvedModel as 'claude-opus-4-6',
+          options?.maxTokens ?? 1400,
+        )
+      : await analyzeWithGemini(
+          prompt,
+          resolvedModel as 'gemini-3.1-pro-preview',
+          options?.maxTokens,
+        );
   const result = sanitizeAnalysisResult(raw);
 
   return {

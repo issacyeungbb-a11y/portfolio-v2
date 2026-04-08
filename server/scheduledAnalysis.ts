@@ -1,14 +1,20 @@
 import { createHash } from 'node:crypto';
 
-import { FieldValue } from 'firebase-admin/firestore';
+import { GoogleGenAI } from '@google/genai';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
-import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import {
   getAnalyzePortfolioErrorResponse,
   runPortfolioAnalysisRequest,
 } from './analyzePortfolio.js';
-import type { AnalysisCategory, AnalysisPromptSettings, AssetType } from '../src/types/portfolio.js';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+import type {
+  AnalysisCategory,
+  AnalysisPromptSettings,
+  AssetType,
+  SnapshotHoldingPoint,
+} from '../src/types/portfolio.js';
 import type {
   PortfolioAnalysisModel,
   PortfolioAnalysisRequest,
@@ -19,9 +25,21 @@ const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 const MONTHLY_ROUTE = '/api/cron-monthly-analysis' as const;
 const QUARTERLY_ROUTE = '/api/cron-quarterly-report' as const;
-const DEFAULT_ANALYSIS_MODEL = 'gemini-3.1-pro-preview' as const;
+const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-6' as const;
+const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-3.1-pro-preview' as const;
+const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash'] as const;
 
 type AdminAsset = Awaited<ReturnType<typeof readAdminPortfolioAssets>>[number];
+type ScheduledCategory = Extract<AnalysisCategory, 'asset_analysis' | 'asset_report'>;
+
+interface SnapshotDocument {
+  id: string;
+  date: string;
+  capturedAt: string;
+  totalValueHKD: number;
+  holdings: SnapshotHoldingPoint[];
+  reason?: string;
+}
 
 class ScheduledAnalysisError extends Error {
   status: number;
@@ -31,6 +49,19 @@ class ScheduledAnalysisError extends Error {
     this.name = 'ScheduledAnalysisError';
     this.status = status;
   }
+}
+
+function getGeminiApiKey() {
+  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+
+  if (!apiKey) {
+    throw new ScheduledAnalysisError(
+      '未設定 GEMINI_API_KEY 或 GOOGLE_API_KEY，暫時無法執行自動分析。',
+      500,
+    );
+  }
+
+  return apiKey;
 }
 
 function convertToHKD(amount: number, currency: string) {
@@ -67,16 +98,40 @@ function getHongKongYearMonthLabel(date = new Date()) {
   return `${year}年${month}`;
 }
 
+function getCurrentQuarterNumber(date = new Date()) {
+  const month = Number(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Hong_Kong',
+      month: 'numeric',
+    }).format(date),
+  );
+
+  return Math.floor((month - 1) / 3) + 1;
+}
+
 function getHongKongQuarterLabel(date = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  return `${new Intl.DateTimeFormat('zh-HK', {
     timeZone: 'Asia/Hong_Kong',
     year: 'numeric',
-    month: 'numeric',
-  }).formatToParts(date);
-  const year = parts.find((part) => part.type === 'year')?.value ?? '';
-  const month = Number(parts.find((part) => part.type === 'month')?.value ?? '1');
-  const quarter = Math.floor((month - 1) / 3) + 1;
-  return `${year}年Q${quarter}`;
+  }).format(date)}年Q${getCurrentQuarterNumber(date)}`;
+}
+
+function getPreviousQuarterEndDate(date = new Date()) {
+  const hkNow = new Date(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date),
+  );
+  const month = hkNow.getMonth() + 1;
+  const year = hkNow.getFullYear();
+  const previousQuarterEndMonth = month === 3 ? 12 : month - 3;
+  const previousQuarterYear = month === 3 ? year - 1 : year;
+  const endDay = new Date(previousQuarterYear, previousQuarterEndMonth, 0).getDate();
+
+  return `${previousQuarterYear}-${String(previousQuarterEndMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
 }
 
 function getDefaultServerPromptSettings(): AnalysisPromptSettings {
@@ -93,9 +148,7 @@ function getDefaultServerPromptSettings(): AnalysisPromptSettings {
       '輸出時請先給我最重要的 3 點判斷，再補充原因與可執行的下一步建議。',
       '如果資料不足以支持某結論，要明確指出限制，不要猜測外部市場消息。',
     ].join('\n'),
-    general_question: [
-      '你是投資組合對話助手，請直接回答我當次提出的問題。',
-    ].join('\n'),
+    general_question: '你是投資組合對話助手，請直接回答我當次提出的問題。',
     asset_report: [
       '你是資產報告撰寫助手，請將我的投資組合整理成一份專業、可追蹤、方便回顧的資產報告。',
       '報告應優先包含：',
@@ -147,7 +200,7 @@ function normalizeHoldingForSignature(asset: AdminAsset) {
   };
 }
 
-function createSnapshotHash(assets: AdminAsset[]) {
+function createSnapshotHashFromAssets(assets: AdminAsset[]) {
   const normalized = [...assets]
     .map(normalizeHoldingForSignature)
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -161,6 +214,7 @@ function createCacheKey(
   analysisModel: PortfolioAnalysisModel,
   analysisQuestion: string,
   analysisBackground: string,
+  conversationContext: string,
 ) {
   return createHash('sha256')
     .update(
@@ -170,7 +224,7 @@ function createCacheKey(
         analysisModel,
         analysisQuestion: analysisQuestion.trim(),
         analysisBackground: analysisBackground.trim(),
-        conversationContext: '',
+        conversationContext: conversationContext.trim(),
       }),
     )
     .digest('hex');
@@ -182,15 +236,26 @@ function buildAnalysisRequestFromAssets(params: {
   analysisQuestion: string;
   analysisBackground: string;
   analysisModel: PortfolioAnalysisModel;
+  conversationContext?: string;
+  snapshotHashOverride?: string;
 }): PortfolioAnalysisRequest {
-  const { assets, category, analysisQuestion, analysisBackground, analysisModel } = params;
-  const snapshotHash = createSnapshotHash(assets);
+  const {
+    assets,
+    category,
+    analysisQuestion,
+    analysisBackground,
+    analysisModel,
+    conversationContext = '',
+    snapshotHashOverride,
+  } = params;
+  const snapshotHash = snapshotHashOverride || createSnapshotHashFromAssets(assets);
   const cacheKey = createCacheKey(
     snapshotHash,
     category,
     analysisModel,
     analysisQuestion,
     analysisBackground,
+    conversationContext,
   );
   const totalValueHKD = assets.reduce(
     (sum, asset) => sum + convertToHKD(asset.quantity * asset.currentPrice, asset.currency),
@@ -216,7 +281,7 @@ function buildAnalysisRequestFromAssets(params: {
     analysisModel,
     analysisQuestion,
     analysisBackground,
-    conversationContext: '',
+    conversationContext,
     assetCount: assets.length,
     totalValueHKD,
     totalCostHKD,
@@ -252,6 +317,152 @@ function buildAnalysisRequestFromAssets(params: {
   };
 }
 
+function getSearchTargetAssets(assets: AdminAsset[]) {
+  return [...assets]
+    .filter((asset) => asset.assetType === 'stock' || asset.assetType === 'etf')
+    .sort((left, right) => right.quantity * right.currentPrice - left.quantity * left.currentPrice)
+    .slice(0, 12);
+}
+
+function getSearchSummaryPrompt(params: {
+  assets: AdminAsset[];
+  mode: 'monthly' | 'quarterly';
+}) {
+  const searchTargets = getSearchTargetAssets(params.assets);
+  const tickers = searchTargets.map((asset) => `${asset.symbol} (${asset.name})`).join('、') || '目前無主要股票或 ETF 持倉';
+  const assetTypeSummary = [...new Set(params.assets.map((asset) => asset.assetType))].join('、');
+
+  if (params.mode === 'quarterly') {
+    return [
+      '請使用 Google Search 幫我整理投資組合相關的外部市場摘要，只輸出摘要文字，不要做投資分析或建議。',
+      '重點整理：',
+      '1. 當季主要市場表現與宏觀環境',
+      '2. 目前主要持倉近況',
+      '3. 可能影響本季度投資組合的關鍵背景',
+      `主要股票 / ETF 代碼：${tickers}`,
+      `組合資產類別：${assetTypeSummary}`,
+      '請用繁體中文，寫成可直接提供給另一個 AI 做季度報告的背景摘要。',
+    ].join('\n');
+  }
+
+  return [
+    '請使用 Google Search 幫我整理投資組合相關的外部市場摘要，只輸出摘要文字，不要做投資分析或建議。',
+    '重點整理：',
+    '1. 近期主要市場表現',
+    '2. 宏觀背景重點',
+    '3. 目前主要持倉近況',
+    `主要股票 / ETF 代碼：${tickers}`,
+    '請用繁體中文，寫成可直接提供給另一個 AI 做每月資產診斷的背景摘要。',
+  ].join('\n');
+}
+
+function getSearchModelCandidates() {
+  const preferred = process.env.GROUNDED_GEMINI_MODEL?.trim() || PREFERRED_GROUNDED_SEARCH_MODEL;
+  return [preferred, ...GROUNDED_SEARCH_FALLBACK_MODELS.filter((model) => model !== preferred)];
+}
+
+async function generateGroundedSearchSummary(params: {
+  assets: AdminAsset[];
+  mode: 'monthly' | 'quarterly';
+}) {
+  const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+  const prompt = getSearchSummaryPrompt(params);
+  const candidates = getSearchModelCandidates();
+  let lastError: unknown = null;
+
+  for (const model of candidates) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: prompt,
+        config: {
+          temperature: 0.2,
+          maxOutputTokens: 1500,
+          tools: [{ googleSearch: {} }],
+        },
+      });
+
+      const summary = response.text?.trim();
+
+      if (summary) {
+        return {
+          provider: 'google' as const,
+          model,
+          summary,
+        };
+      }
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  return {
+    provider: 'google' as const,
+    model: candidates[0],
+    summary: '未能取得有效的 Google Search 摘要；請以目前持倉與快照資料為主進行分析。',
+    error: lastError instanceof Error ? lastError.message : 'grounding_failed',
+  };
+}
+
+function parseTimestamp(value: unknown) {
+  if (value instanceof Timestamp) {
+    return value.toDate().toISOString();
+  }
+
+  return typeof value === 'string' ? value : '';
+}
+
+function normalizeSnapshotDocument(
+  id: string,
+  value: Record<string, unknown>,
+): SnapshotDocument {
+  return {
+    id,
+    date: typeof value.date === 'string' ? value.date : '',
+    capturedAt: parseTimestamp(value.capturedAt),
+    totalValueHKD: typeof value.totalValueHKD === 'number' ? value.totalValueHKD : 0,
+    holdings: Array.isArray(value.holdings)
+      ? value.holdings
+          .filter((item) => typeof item === 'object' && item !== null)
+          .map((item) => item as SnapshotHoldingPoint)
+      : [],
+    reason: typeof value.reason === 'string' ? value.reason : undefined,
+  };
+}
+
+async function readPreviousQuarterSnapshot() {
+  const db = getFirebaseAdminDb();
+  const previousQuarterEndDate = getPreviousQuarterEndDate();
+  const snapshot = await db
+    .collection(SHARED_PORTFOLIO_COLLECTION)
+    .doc(SHARED_PORTFOLIO_DOC_ID)
+    .collection('portfolioSnapshots')
+    .where('date', '<=', previousQuarterEndDate)
+    .orderBy('date', 'desc')
+    .limit(1)
+    .get();
+
+  if (snapshot.empty) {
+    return null;
+  }
+
+  const document = snapshot.docs[0];
+  return normalizeSnapshotDocument(document.id, document.data() as Record<string, unknown>);
+}
+
+function buildQuarterlySnapshotContext(previousQuarterSnapshot: SnapshotDocument | null) {
+  if (!previousQuarterSnapshot) {
+    return '上季對比快照：未找到可用的上一季快照。';
+  }
+
+  return [
+    `上季快照日期：${previousQuarterSnapshot.date}`,
+    `上季總資產 HKD：${previousQuarterSnapshot.totalValueHKD}`,
+    '上季持倉快照：',
+    JSON.stringify(previousQuarterSnapshot.holdings, null, 2),
+  ].join('\n');
+}
+
 async function saveScheduledAnalysis(
   response: PortfolioAnalysisResponse & { assetCount: number },
   title: string,
@@ -270,7 +481,7 @@ async function saveScheduledAnalysis(
       analysisBackground: response.analysisBackground,
       delivery: 'scheduled',
       generatedAt: response.generatedAt,
-      assetCount: response.assetCount ?? 0,
+      assetCount: response.assetCount,
       answer: response.answer,
       updatedAt: FieldValue.serverTimestamp(),
     },
@@ -291,10 +502,42 @@ async function saveScheduledAnalysis(
   });
 }
 
+async function saveQuarterlyReport(params: {
+  quarter: string;
+  generatedAt: string;
+  report: string;
+  currentSnapshotHash: string;
+  previousSnapshotDate?: string;
+  searchSummary: string;
+  model: string;
+  provider: string;
+}) {
+  const db = getFirebaseAdminDb();
+
+  await db
+    .collection(SHARED_PORTFOLIO_COLLECTION)
+    .doc(SHARED_PORTFOLIO_DOC_ID)
+    .collection('quarterlyReports')
+    .add({
+      quarter: params.quarter,
+      generatedAt: params.generatedAt,
+      report: params.report,
+      currentSnapshotHash: params.currentSnapshotHash,
+      previousSnapshotDate: params.previousSnapshotDate ?? '',
+      searchSummary: params.searchSummary,
+      model: params.model,
+      provider: params.provider,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+}
+
 async function runScheduledCategoryAnalysis(params: {
-  category: Extract<AnalysisCategory, 'asset_analysis' | 'asset_report'>;
-  question: string;
+  category: ScheduledCategory;
   title: string;
+  question: string;
+  conversationContext: string;
+  maxTokens: number;
 }) {
   const assets = await readAdminPortfolioAssets();
 
@@ -308,43 +551,115 @@ async function runScheduledCategoryAnalysis(params: {
     category: params.category,
     analysisQuestion: params.question,
     analysisBackground: promptSettings[params.category],
-    analysisModel: DEFAULT_ANALYSIS_MODEL,
+    analysisModel: DEFAULT_DIAGNOSTIC_MODEL,
+    conversationContext: params.conversationContext,
   });
-  const response = await runPortfolioAnalysisRequest(request, { delivery: 'scheduled' });
-  await saveScheduledAnalysis(
-    {
-      ...response,
-      assetCount: request.assetCount,
-    },
-    params.title,
-  );
+  const response = await runPortfolioAnalysisRequest(request, {
+    delivery: 'scheduled',
+    maxTokens: params.maxTokens,
+  });
 
-  return {
-    ok: true,
-    category: params.category,
-    model: response.model,
-    provider: response.provider,
-    generatedAt: response.generatedAt,
-    snapshotHash: response.snapshotHash,
-    cacheKey: response.cacheKey,
-    title: params.title,
+  const payload = {
+    ...response,
+    assetCount: request.assetCount,
   };
+
+  await saveScheduledAnalysis(payload, params.title);
+
+  return payload;
 }
 
 export async function runMonthlyAssetAnalysis() {
-  return runScheduledCategoryAnalysis({
-    category: 'asset_analysis',
-    title: `${getHongKongYearMonthLabel()}資產分析`,
-    question: `請根據我目前投資組合，生成本月一次的資產分析。重點整理目前配置、最值得留意的風險、集中度、幣別曝險、現金比例，以及未來一個月最應留意的 3 個重點。`,
+  const assets = await readAdminPortfolioAssets();
+  const searchSummary = await generateGroundedSearchSummary({
+    assets,
+    mode: 'monthly',
   });
+  const title = `${getHongKongYearMonthLabel()}資產分析`;
+  const question = [
+    '請根據目前投資組合與外部市場摘要，生成本月一次的資產診斷。',
+    '請集中指出最值得留意的風險、配置特徵、幣別曝險、集中度，以及未來一個月最應留意的 3 個重點。',
+    '請保持診斷語氣，不要寫成報告。',
+  ].join('\n');
+  const conversationContext = [
+    'Gemini Google Search 摘要：',
+    searchSummary.summary,
+  ].join('\n');
+  const response = await runScheduledCategoryAnalysis({
+    category: 'asset_analysis',
+    title,
+    question,
+    conversationContext,
+    maxTokens: 3000,
+  });
+
+  return {
+    ok: true,
+    category: 'asset_analysis' as const,
+    title,
+    model: response.model,
+    provider: response.provider,
+    searchModel: searchSummary.model,
+    searchProvider: searchSummary.provider,
+    generatedAt: response.generatedAt,
+    snapshotHash: response.snapshotHash,
+    cacheKey: response.cacheKey,
+  };
 }
 
 export async function runQuarterlyAssetReport() {
-  return runScheduledCategoryAnalysis({
-    category: 'asset_report',
-    title: `${getHongKongQuarterLabel()}資產報告`,
-    question: `請根據我目前投資組合，生成本季一次的資產報告。請整理組合總覽、重點持倉、主要風險、配置特徵、本季值得跟進的事項，以及下一季觀察重點。`,
+  const assets = await readAdminPortfolioAssets();
+  const previousQuarterSnapshot = await readPreviousQuarterSnapshot();
+  const searchSummary = await generateGroundedSearchSummary({
+    assets,
+    mode: 'quarterly',
   });
+  const title = `${getHongKongQuarterLabel()}資產報告`;
+  const question = [
+    '請根據目前投資組合、上季快照及外部市場摘要，撰寫季度資產報告。',
+    '請嚴格依照以下段落標題輸出：',
+    '【季度總覽】【資產配置分佈】【幣別曝險】【重點持倉分析】【季度對比摘要】【主要風險與集中度】【下季觀察重點】',
+    '每個段落都要有清晰內容，不要省略標題。',
+  ].join('\n');
+  const currentSnapshotHash = createSnapshotHashFromAssets(assets);
+  const conversationContext = [
+    'Gemini Google Search 摘要：',
+    searchSummary.summary,
+    '',
+    buildQuarterlySnapshotContext(previousQuarterSnapshot),
+  ].join('\n');
+  const response = await runScheduledCategoryAnalysis({
+    category: 'asset_report',
+    title,
+    question,
+    conversationContext,
+    maxTokens: 4000,
+  });
+
+  await saveQuarterlyReport({
+    quarter: getHongKongQuarterLabel(),
+    generatedAt: response.generatedAt,
+    report: response.answer,
+    currentSnapshotHash,
+    previousSnapshotDate: previousQuarterSnapshot?.date,
+    searchSummary: searchSummary.summary,
+    model: response.model,
+    provider: response.provider,
+  });
+
+  return {
+    ok: true,
+    category: 'asset_report' as const,
+    title,
+    model: response.model,
+    provider: response.provider,
+    searchModel: searchSummary.model,
+    searchProvider: searchSummary.provider,
+    generatedAt: response.generatedAt,
+    snapshotHash: currentSnapshotHash || response.snapshotHash,
+    cacheKey: response.cacheKey,
+    previousQuarterSnapshotDate: previousQuarterSnapshot?.date ?? '',
+  };
 }
 
 export function getScheduledAnalysisErrorResponse(
