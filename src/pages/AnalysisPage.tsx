@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import { SummaryCard } from '../components/portfolio/SummaryCard';
 import {
-  formatCurrencyRounded,
   getHoldingValueInCurrency,
-  getPortfolioTotalValue,
   mockPortfolio,
 } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
@@ -98,26 +95,6 @@ function formatAnalysisTime(value: string) {
   }
 }
 
-function getAnalysisStatusLabel(
-  isAnalyzing: boolean,
-  hasAnalysis: boolean,
-  assetsStatus: 'idle' | 'loading' | 'ready' | 'error',
-) {
-  if (isAnalyzing) {
-    return '分析中';
-  }
-
-  if (hasAnalysis) {
-    return '已快取';
-  }
-
-  if (assetsStatus === 'loading') {
-    return '同步中';
-  }
-
-  return '未分析';
-}
-
 function createAnalysisTitle(question: string) {
   const trimmed = question.trim();
 
@@ -185,6 +162,7 @@ export function AnalysisPage() {
   const [analysisSuccess, setAnalysisSuccess] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [isPromptSettingsOpen, setIsPromptSettingsOpen] = useState(false);
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -192,7 +170,6 @@ export function AnalysisPage() {
   );
   const snapshotSignature =
     holdings.length > 0 ? createPortfolioSnapshotSignature(holdings) : '';
-  const totalValueHKD = getPortfolioTotalValue(holdings, 'HKD');
   const analysisInstruction = analysisPrompts[selectedCategory];
   const selectedCategoryOption =
     analysisCategoryOptions.find((option) => option.value === selectedCategory) ?? analysisCategoryOptions[0];
@@ -306,11 +283,6 @@ export function AnalysisPage() {
   const displayedAnalysis = localAnalysis ?? cachedAnalysis;
   const categorySessions = analysisSessions.filter((session) => session.category === selectedCategory);
   const hasAnalysis = Boolean(displayedAnalysis);
-  const analysisStatusLabel = getAnalysisStatusLabel(
-    isAnalyzing,
-    hasAnalysis,
-    assetsStatus,
-  );
   const canAnalyze =
     assetsStatus === 'ready' &&
     holdings.length > 0 &&
@@ -456,9 +428,64 @@ export function AnalysisPage() {
             <Link className="button button-secondary" to="/assets">
               檢查資產資料
             </Link>
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={() => setIsPromptSettingsOpen((current) => !current)}
+            >
+              {isPromptSettingsOpen ? '收起 Prompt 設定' : '設定 Prompt'}
+            </button>
           </div>
         </div>
       </section>
+
+      {isPromptSettingsOpen ? (
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Prompt Settings</p>
+              <h2>設定 Prompt</h2>
+            </div>
+          </div>
+
+          <div className="trends-range-row" role="tablist" aria-label="Prompt 類別">
+            {analysisCategoryOptions.map((option) => (
+              <button
+                key={`prompt-${option.value}`}
+                className={selectedCategory === option.value ? 'filter-chip active' : 'filter-chip'}
+                type="button"
+                onClick={() => setSelectedCategory(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="analysis-category-intro">
+            <p className="eyebrow">{selectedCategoryOption.eyebrow}</p>
+            <h2>{selectedCategoryOption.title}</h2>
+            <p className="status-message">{selectedCategoryOption.helper}</p>
+          </div>
+
+          <div className="asset-form-grid">
+            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+              <span>Prompt 內容</span>
+              <textarea
+                value={analysisInstruction}
+                onChange={(event) =>
+                  setAnalysisPrompts((current) => ({
+                    ...current,
+                    [selectedCategory]: event.target.value,
+                  }))
+                }
+                placeholder={selectedCategoryOption.defaultPrompt}
+                rows={5}
+                disabled={isAnalyzing}
+              />
+            </label>
+          </div>
+        </section>
+      ) : null}
 
       {assetsError ? <p className="status-message status-message-error">{assetsError}</p> : null}
       {snapshotHashError ? (
@@ -485,39 +512,6 @@ export function AnalysisPage() {
       {isEmpty ? (
         <p className="status-message">未有可分析資產。</p>
       ) : null}
-
-      <section className="summary-grid">
-        <SummaryCard
-          label="分析狀態"
-          value={analysisStatusLabel}
-          hint={
-            snapshotHashStatus === 'ready' && analysisCacheKeyStatus === 'ready'
-              ? '資產快照已準備好，可直接呼叫 /api/analyze'
-              : snapshotHashStatus === 'loading' || analysisCacheKeyStatus === 'loading'
-                ? '正在建立目前資產快照'
-                : '等待資產資料完成同步'
-          }
-        />
-        <SummaryCard
-          label="目前資產"
-          value={`${holdings.length} 項`}
-          hint={`總值 ${formatCurrencyRounded(totalValueHKD, 'HKD')}`}
-        />
-        <SummaryCard
-          label="目前分類"
-          value={selectedCategoryOption.label}
-          hint={selectedCategoryOption.helper}
-        />
-        <SummaryCard
-          label="最近分析"
-          value={hasAnalysis ? formatAnalysisTime(displayedAnalysis?.generatedAt ?? '') : '尚未分析'}
-          hint={
-            hasAnalysis
-              ? `模型 ${displayedAnalysis?.model ?? ''}`
-              : '每次完成分析後都會自動保存到分析紀錄'
-          }
-        />
-      </section>
 
       {hasAnalysis ? (
         <>
@@ -558,17 +552,7 @@ export function AnalysisPage() {
             </div>
           </section>
         </>
-      ) : (
-        <section className="card analysis-empty-state">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Ready</p>
-              <h2>等你開始第一次分析</h2>
-            </div>
-          </div>
-          <p className="status-message">準備好後直接開始分析。</p>
-        </section>
-      )}
+      ) : null}
 
       <section className="card">
         <div className="section-heading">
