@@ -128,6 +128,7 @@ export function AnalysisPage() {
   const [isSavingPromptSettings, setIsSavingPromptSettings] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isPromptSettingsOpen, setIsPromptSettingsOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(10);
   const [analysisQuestionByCategory, setAnalysisQuestionByCategory] = useState<Record<AnalysisCategory, string>>({
     asset_analysis: '',
     general_question: '',
@@ -178,6 +179,7 @@ export function AnalysisPage() {
 
   useEffect(() => {
     setSelectedSessionId(null);
+    setVisibleCount(10);
   }, [selectedCategory]);
 
   useEffect(() => {
@@ -277,7 +279,6 @@ export function AnalysisPage() {
     holdings.length > 0 &&
     snapshotHashStatus === 'ready' &&
     analysisCacheKeyStatus === 'ready' &&
-    isInteractiveCategory &&
     !isAnalyzing;
 
   useEffect(() => {
@@ -577,11 +578,21 @@ export function AnalysisPage() {
               </div>
             </>
           ) : (
-            <p className="status-message">
-              {selectedCategory === 'asset_analysis'
-                ? '每月 1 日香港時間上午 8:00 自動生成一次資產分析。'
-                : '每季首日香港時間上午 8:00 自動生成一次資產報告。'}
-            </p>
+            <div className="analysis-scheduled-actions">
+              <p className="status-message">
+                {selectedCategory === 'asset_analysis'
+                  ? '每月 1 日香港時間上午 8:00 自動生成一次資產分析。'
+                  : '每季首日香港時間上午 8:00 自動生成一次資產報告。'}
+              </p>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleAnalyzePortfolio}
+                disabled={!canAnalyze}
+              >
+                {isAnalyzing ? '分析中...' : '立即生成'}
+              </button>
+            </div>
           )}
         </div>
       </section>
@@ -749,44 +760,45 @@ export function AnalysisPage() {
 
         <div className="settings-list">
           {categorySessions.length > 0 ? (
-            categorySessions.slice(0, 20).map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                className={selectedSessionId === session.id ? 'setting-row active' : 'setting-row'}
-                onClick={() => {
-                  setSelectedSessionId(session.id);
-                  setLocalAnalysis({
-                    cacheKey: session.id,
-                    snapshotHash: session.snapshotHash ?? '',
-                    category: session.category,
-                    provider: session.provider ?? 'google',
-                    model: session.model,
-                    analysisQuestion: session.question,
-                    analysisBackground: savedPromptSettings[session.category],
-                    delivery: session.delivery ?? 'manual',
-                    generatedAt: session.updatedAt,
-                    assetCount: holdings.length,
-                    answer: session.result,
-                  });
-                  setConversationThreads((current) => ({
-                    ...current,
-                    [session.category]: [
-                      {
-                        question: session.question,
-                        answer: session.result,
-                        generatedAt: session.updatedAt,
-                        model: session.model,
-                      },
-                    ],
-                  }));
-                }}
-              >
-                <div>
-                  <strong>{session.title}</strong>
-                  <p>{session.question}</p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
+            <>
+              {categorySessions.slice(0, visibleCount).map((session) => (
+                <button
+                  key={session.id}
+                  type="button"
+                  className={selectedSessionId === session.id ? 'setting-row active' : 'setting-row'}
+                  onClick={() => {
+                    setSelectedSessionId(session.id);
+                    setLocalAnalysis({
+                      cacheKey: session.id,
+                      snapshotHash: session.snapshotHash ?? '',
+                      category: session.category,
+                      provider: session.provider ?? 'google',
+                      model: session.model,
+                      analysisQuestion: session.question,
+                      analysisBackground: savedPromptSettings[session.category],
+                      delivery: session.delivery ?? 'manual',
+                      generatedAt: session.updatedAt,
+                      assetCount: holdings.length,
+                      answer: session.result,
+                    });
+                    setConversationThreads((current) => ({
+                      ...current,
+                      [session.category]: [
+                        {
+                          question: session.question,
+                          answer: session.result,
+                          generatedAt: session.updatedAt,
+                          model: session.model,
+                        },
+                      ],
+                    }));
+                  }}
+                >
+                  <div>
+                    <strong>{session.title}</strong>
+                    <p>{session.question}</p>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
                     <strong>
                       {session.model}
                       {session.delivery === 'scheduled' ? ' · 自動' : ''}
@@ -794,7 +806,21 @@ export function AnalysisPage() {
                     <p>{formatAnalysisTime(session.updatedAt)}</p>
                   </div>
                 </button>
-            ))
+              ))}
+              {visibleCount < categorySessions.length ? (
+                <div className="button-row">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() =>
+                      setVisibleCount((current) => Math.min(current + 10, categorySessions.length))
+                    }
+                  >
+                    載入更多
+                  </button>
+                </div>
+              ) : null}
+            </>
           ) : (
             <p className="status-message">未有此分類的分析紀錄。</p>
           )}

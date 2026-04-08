@@ -2095,6 +2095,13 @@ h3 {
   line-height: 1.65;
 }
 
+.analysis-scheduled-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem;
+}
+
 .analysis-category-intro {
   display: flex;
   flex-direction: column;
