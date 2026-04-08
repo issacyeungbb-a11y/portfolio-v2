@@ -47,6 +47,23 @@ function sanitizeOptionalString(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
+function sanitizeFailureCategory(value: unknown): PendingPriceUpdateReview['failureCategory'] {
+  if (
+    value === 'ticker_format' ||
+    value === 'quote_time' ||
+    value === 'source_missing' ||
+    value === 'response_format' ||
+    value === 'price_missing' ||
+    value === 'confidence_low' ||
+    value === 'diff_too_large' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+
+  return undefined;
+}
+
 function hasValidSuggestedPrice(review: PendingPriceUpdateReview) {
   return review.price != null && review.price > 0 && !review.invalidReason;
 }
@@ -107,6 +124,7 @@ function normalizePendingReview(assetId: string, value: Record<string, unknown>)
     needsReview: sanitizeBoolean(value.needsReview),
     currentPrice: sanitizeNumber(value.currentPrice),
     diffPct: sanitizeNumber(value.diffPct),
+    failureCategory: sanitizeFailureCategory(value.failureCategory),
     invalidReason: sanitizeOptionalString(value.invalidReason),
     status:
       value.status === 'confirmed' || value.status === 'dismissed'

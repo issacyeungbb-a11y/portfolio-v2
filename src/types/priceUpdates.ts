@@ -47,6 +47,15 @@ export interface PendingPriceUpdateReview extends PriceUpdateModelResult {
   sourceUrl: string;
   confidence: number;
   diffPct: number;
+  failureCategory?:
+    | 'ticker_format'
+    | 'quote_time'
+    | 'source_missing'
+    | 'response_format'
+    | 'price_missing'
+    | 'confidence_low'
+    | 'diff_too_large'
+    | 'unknown';
   invalidReason?: string;
   status: 'pending' | 'confirmed' | 'dismissed';
 }

@@ -277,6 +277,61 @@ function createFailedModelResult(
   };
 }
 
+function detectFailureCategory(params: {
+  asset: PriceUpdateRequestAsset;
+  matched?: PriceUpdateModelResult;
+  nextPrice: number | null;
+  staleQuote: boolean;
+  diffPct: number;
+}) {
+  const { asset, matched, nextPrice, staleQuote, diffPct } = params;
+  const minimumConfidence = getMinAutoApplyConfidence();
+  const sourceText = `${matched?.sourceName ?? ''} ${matched?.sourceUrl ?? ''}`.toLowerCase();
+
+  if (sourceText.includes('格式不正確') || sourceText.includes('補查失敗')) {
+    return 'response_format' as const;
+  }
+
+  if (nextPrice == null || nextPrice <= 0) {
+    if (isLikelyHongKongTicker(asset.ticker, asset.currency)) {
+      return 'ticker_format' as const;
+    }
+
+    return 'price_missing' as const;
+  }
+
+  if (staleQuote) {
+    return 'quote_time' as const;
+  }
+
+  if (!(matched?.sourceName || matched?.sourceUrl)) {
+    return 'source_missing' as const;
+  }
+
+  if ((matched?.confidence ?? 0) < minimumConfidence) {
+    return 'confidence_low' as const;
+  }
+
+  if (diffPct >= getReviewThreshold()) {
+    return 'diff_too_large' as const;
+  }
+
+  return 'unknown' as const;
+}
+
+function buildInvalidReason(
+  category: NonNullable<PendingPriceUpdateReview['failureCategory']>,
+) {
+  if (category === 'ticker_format') return '代號格式可能有問題，AI 未能準確對應市場報價';
+  if (category === 'quote_time') return 'quote 時間過時，已拒絕使用';
+  if (category === 'source_missing') return '來源不足，未提供可信來源名稱或網址';
+  if (category === 'response_format') return '模型回覆格式不正確，未能穩定解析';
+  if (category === 'price_missing') return 'AI 未取得有效最新價格';
+  if (category === 'confidence_low') return '可信度不足，暫不自動套用';
+  if (category === 'diff_too_large') return '價格差距過大，需要人工檢查';
+  return '未能自動更新，請再檢查';
+}
+
 function tryParseSingleModelResult(
   asset: PriceUpdateRequestAsset,
   rawText: string,
@@ -659,12 +714,6 @@ function buildReviewResults(
 
     const nextPrice = matched?.price ?? null;
     const staleQuote = isStaleQuote(matched?.asOf, asset.assetType);
-    const invalidReason =
-      nextPrice == null || nextPrice <= 0
-        ? 'AI 未取得有效最新價格'
-        : staleQuote
-          ? '報價過時，已拒絕使用'
-          : '';
     const diffPct =
       nextPrice != null && asset.currentPrice > 0
         ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
@@ -677,6 +726,16 @@ function buildReviewResults(
       diffPct >= threshold ||
       !(matched?.sourceName || matched?.sourceUrl) ||
       (matched?.confidence ?? 0) < minimumConfidence;
+    const failureCategory = forcedNeedsReview
+      ? detectFailureCategory({
+          asset,
+          matched,
+          nextPrice,
+          staleQuote,
+          diffPct,
+        })
+      : undefined;
+    const invalidReason = failureCategory ? buildInvalidReason(failureCategory) : '';
 
     return {
       id: asset.assetId,
@@ -693,6 +752,7 @@ function buildReviewResults(
       needsReview: Boolean(matched?.needsReview) || forcedNeedsReview,
       currentPrice: asset.currentPrice,
       diffPct,
+      failureCategory,
       invalidReason,
       status: 'pending',
     };

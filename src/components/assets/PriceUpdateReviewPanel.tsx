@@ -15,6 +15,17 @@ interface PriceUpdateReviewPanelProps {
   actionSuccess: string | null;
 }
 
+function getFailureCategoryLabel(category?: PendingPriceUpdateReview['failureCategory']) {
+  if (category === 'ticker_format') return '代號格式問題';
+  if (category === 'quote_time') return 'quote 時間問題';
+  if (category === 'source_missing') return '來源不足';
+  if (category === 'response_format') return '回覆格式問題';
+  if (category === 'price_missing') return '未取得價格';
+  if (category === 'confidence_low') return '可信度不足';
+  if (category === 'diff_too_large') return '價格差距過大';
+  return '待檢查';
+}
+
 export function PriceUpdateReviewPanel({
   reviews,
   onConfirm,
@@ -94,6 +105,7 @@ export function PriceUpdateReviewPanel({
                   <div className="roadmap-item">
                     <strong>結果</strong>
                     <p>{review.invalidReason}</p>
+                    <p>分類：{getFailureCategoryLabel(review.failureCategory)}</p>
                   </div>
                 ) : null}
                 <div className="roadmap-item">
