@@ -353,11 +353,6 @@ export function AnalysisPage() {
       <section className="hero-panel">
         <div className="analysis-action-panel">
           <div className="analysis-action-copy">
-            <span className="chip chip-soft">{selectedCategoryOption.label}</span>
-            <span className="chip chip-soft">目前資產 {holdings.length} 項</span>
-            <span className={displayedAnalysis?.model ? 'chip chip-strong' : 'chip chip-soft'}>
-              模型 {displayedAnalysis?.model ?? selectedModel}
-            </span>
           </div>
 
           <div className="trends-range-row" role="tablist" aria-label="分析類別">
@@ -371,12 +366,6 @@ export function AnalysisPage() {
                 {option.label}
               </button>
             ))}
-          </div>
-
-          <div className="analysis-category-intro">
-            <p className="eyebrow">{selectedCategoryOption.eyebrow}</p>
-            <h2>{selectedCategoryOption.title}</h2>
-            <p className="status-message">{selectedCategoryOption.helper}</p>
           </div>
 
           <div className="asset-form-grid">
@@ -462,9 +451,7 @@ export function AnalysisPage() {
           </div>
 
           <div className="analysis-category-intro">
-            <p className="eyebrow">{selectedCategoryOption.eyebrow}</p>
-            <h2>{selectedCategoryOption.title}</h2>
-            <p className="status-message">{selectedCategoryOption.helper}</p>
+            <h2>{selectedCategoryOption.label}</h2>
           </div>
 
           <div className="asset-form-grid">
