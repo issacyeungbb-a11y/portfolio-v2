@@ -458,6 +458,18 @@ async function analyzeWithClaude(
   return text;
 }
 
+function getDefaultAnalysisMaxTokens(category: AnalysisCategory) {
+  if (category === 'asset_report') {
+    return 4000;
+  }
+
+  if (category === 'asset_analysis') {
+    return 3000;
+  }
+
+  return 1400;
+}
+
 export function getAnalyzePortfolioErrorResponse(error: unknown) {
   if (error instanceof AnalyzePortfolioError) {
     return {
@@ -497,6 +509,7 @@ export async function runPortfolioAnalysisRequest(
 ): Promise<PortfolioAnalysisResponse> {
   const prompt = buildPrompt(request);
   const provider = getModelProvider(request.analysisModel);
+  const resolvedMaxTokens = options?.maxTokens ?? getDefaultAnalysisMaxTokens(request.category);
   const resolvedModel =
     request.analysisModel === 'claude-opus-4-6'
       ? getClaudeAnalyzeModel()
@@ -506,12 +519,12 @@ export async function runPortfolioAnalysisRequest(
       ? await analyzeWithClaude(
           prompt,
           resolvedModel as 'claude-opus-4-6',
-          options?.maxTokens ?? 1400,
+          resolvedMaxTokens,
         )
       : await analyzeWithGemini(
           prompt,
           resolvedModel as 'gemini-3.1-pro-preview',
-          options?.maxTokens,
+          resolvedMaxTokens,
         );
   const result = sanitizeAnalysisResult(raw);
 

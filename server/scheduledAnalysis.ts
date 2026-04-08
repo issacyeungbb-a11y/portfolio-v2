@@ -26,8 +26,8 @@ const SHARED_PORTFOLIO_DOC_ID = 'app';
 const MONTHLY_ROUTE = '/api/cron-monthly-analysis' as const;
 const QUARTERLY_ROUTE = '/api/cron-quarterly-report' as const;
 const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-6' as const;
-const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-3.1-pro-preview' as const;
-const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-2.5-flash'] as const;
+const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
+const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'] as const;
 
 type AdminAsset = Awaited<ReturnType<typeof readAdminPortfolioAssets>>[number];
 type ScheduledCategory = Extract<AnalysisCategory, 'asset_analysis' | 'asset_report'>;
@@ -391,7 +391,16 @@ async function generateGroundedSearchSummary(params: {
           summary,
         };
       }
+
+      console.warn(
+        `[scheduledAnalysis] Gemini grounding returned empty summary for model ${model}; trying fallback if available.`,
+      );
     } catch (error) {
+      console.warn(
+        `[scheduledAnalysis] Gemini grounding fallback from model ${model}: ${
+          error instanceof Error ? error.message : 'unknown_error'
+        }`,
+      );
       lastError = error;
     }
   }
