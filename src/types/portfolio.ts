@@ -160,6 +160,13 @@ export interface AnalysisSession {
   createdAt?: string;
 }
 
+export interface AnalysisPromptSettings {
+  asset_analysis: string;
+  general_question: string;
+  asset_report: string;
+  updatedAt?: string;
+}
+
 export interface PortfolioSnapshot {
   owner: string;
   baseCurrency: string;

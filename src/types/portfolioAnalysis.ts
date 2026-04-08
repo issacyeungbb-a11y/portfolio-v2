@@ -24,7 +24,8 @@ export interface PortfolioAnalysisRequest {
   snapshotHash: string;
   category: AnalysisCategory;
   analysisModel: PortfolioAnalysisModel;
-  analysisInstruction?: string;
+  analysisQuestion?: string;
+  analysisBackground?: string;
   assetCount: number;
   totalValueHKD: number;
   totalCostHKD: number;
@@ -54,7 +55,8 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
   provider: PortfolioAnalysisProvider;
   model: string;
   snapshotHash: string;
-  analysisInstruction: string;
+  analysisQuestion: string;
+  analysisBackground: string;
   generatedAt: string;
 }
 
@@ -64,7 +66,8 @@ export interface CachedPortfolioAnalysis extends PortfolioAnalysisResult {
   category: AnalysisCategory;
   provider: PortfolioAnalysisProvider;
   model: string;
-  analysisInstruction: string;
+  analysisQuestion: string;
+  analysisBackground: string;
   generatedAt: string;
   assetCount: number;
 }

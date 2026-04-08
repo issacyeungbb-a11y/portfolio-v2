@@ -48,7 +48,8 @@ export async function createPortfolioAnalysisCacheKey(
   snapshotHash: string,
   category: string,
   analysisModel: string,
-  analysisInstruction: string,
+  analysisQuestion: string,
+  analysisBackground: string,
 ) {
   const digest = await crypto.subtle.digest(
     'SHA-256',
@@ -57,7 +58,8 @@ export async function createPortfolioAnalysisCacheKey(
         snapshotHash,
         category,
         analysisModel,
-        analysisInstruction: analysisInstruction.trim(),
+        analysisQuestion: analysisQuestion.trim(),
+        analysisBackground: analysisBackground.trim(),
       }),
     ),
   );
@@ -87,7 +89,8 @@ export function buildPortfolioAnalysisRequest(
   cacheKey: string,
   category: PortfolioAnalysisRequest['category'],
   analysisModel: PortfolioAnalysisRequest['analysisModel'],
-  analysisInstruction: string,
+  analysisQuestion: string,
+  analysisBackground: string,
 ): PortfolioAnalysisRequest {
   const requestAssets = [...holdings]
     .map(buildAnalysisRequestAsset)
@@ -125,7 +128,8 @@ export function buildPortfolioAnalysisRequest(
     snapshotHash,
     category,
     analysisModel,
-    analysisInstruction: analysisInstruction.trim(),
+    analysisQuestion: analysisQuestion.trim(),
+    analysisBackground: analysisBackground.trim(),
     assetCount: holdings.length,
     totalValueHKD,
     totalCostHKD,

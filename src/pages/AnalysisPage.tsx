@@ -1,12 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-import {
-  getHoldingValueInCurrency,
-  mockPortfolio,
-} from '../data/mockPortfolio';
+import { getHoldingValueInCurrency, mockPortfolio } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
+import { useAnalysisSettings } from '../hooks/useAnalysisSettings';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
@@ -25,43 +23,31 @@ import type {
 
 type SnapshotHashStatus = 'idle' | 'loading' | 'ready' | 'error';
 
-const ANALYSIS_PROMPT_STORAGE_KEY = 'portfolio-v2-analysis-prompts';
-
 const analysisCategoryOptions: Array<{
   value: AnalysisCategory;
   label: string;
-  eyebrow: string;
-  title: string;
   helper: string;
-  defaultPrompt: string;
+  questionPlaceholder: string;
 }> = [
   {
     value: 'asset_analysis',
     label: '分析資產',
-    eyebrow: 'Asset Analysis',
-    title: '分析目前持倉與配置',
-    helper: '聚焦風險、配置、集中度與值得留意嘅資產。',
-    defaultPrompt: '根據我目前資產，分析一下而家最值得留意嘅重點。',
+    helper: '針對持倉、風險與配置去分析。',
+    questionPlaceholder: '例如：根據我目前資產，分析一下而家最值得留意嘅重點。',
   },
   {
     value: 'general_question',
     label: '一般問題',
-    eyebrow: 'General Question',
-    title: '針對問題直接提問',
-    helper: '你可以自由問關於組合、帳戶、現金配置或判斷邏輯嘅問題。',
-    defaultPrompt: '根據我目前組合，直接回答我接住落嚟提出嘅問題。',
+    helper: '針對你而家想問嘅問題直接作答。',
+    questionPlaceholder: '例如：我而家現金比例是否太高？應唔應該再分散幣別？',
   },
   {
     value: 'asset_report',
     label: '資產報告',
-    eyebrow: 'Asset Report',
-    title: '生成可回顧嘅資產報告',
-    helper: '適合輸出整理式報告，方便日後翻查與追蹤。',
-    defaultPrompt: '請根據我目前資產整理一份清晰嘅資產報告，列出重點持倉、風險與跟進項目。',
+    helper: '整理成可回顧嘅報告內容。',
+    questionPlaceholder: '例如：請根據我目前資產整理一份清晰嘅資產報告。',
   },
 ];
-
-type AnalysisPromptMap = Record<AnalysisCategory, string>;
 
 const analysisModelOptions: Array<{
   value: PortfolioAnalysisModel;
@@ -105,43 +91,6 @@ function createAnalysisTitle(question: string) {
   return trimmed.length > 26 ? `${trimmed.slice(0, 26)}...` : trimmed;
 }
 
-function getDefaultAnalysisPrompts(): AnalysisPromptMap {
-  return analysisCategoryOptions.reduce<AnalysisPromptMap>((result, option) => {
-    result[option.value] = option.defaultPrompt;
-    return result;
-  }, {
-    asset_analysis: analysisCategoryOptions[0].defaultPrompt,
-    general_question: analysisCategoryOptions[1].defaultPrompt,
-    asset_report: analysisCategoryOptions[2].defaultPrompt,
-  });
-}
-
-function loadStoredAnalysisPrompts() {
-  const defaults = getDefaultAnalysisPrompts();
-
-  if (typeof window === 'undefined') {
-    return defaults;
-  }
-
-  try {
-    const raw = window.localStorage.getItem(ANALYSIS_PROMPT_STORAGE_KEY);
-
-    if (!raw) {
-      return defaults;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<Record<AnalysisCategory, string>>;
-
-    return {
-      asset_analysis: parsed.asset_analysis?.trim() || defaults.asset_analysis,
-      general_question: parsed.general_question?.trim() || defaults.general_question,
-      asset_report: parsed.asset_report?.trim() || defaults.asset_report,
-    };
-  } catch {
-    return defaults;
-  }
-}
-
 export function AnalysisPage() {
   const {
     holdings: firestoreHoldings,
@@ -149,44 +98,56 @@ export function AnalysisPage() {
     error: assetsError,
     isEmpty,
   } = usePortfolioAssets();
+  const {
+    settings: savedPromptSettings,
+    error: analysisSettingsError,
+    persistSettings,
+  } = useAnalysisSettings();
   const [snapshotHash, setSnapshotHash] = useState<string | null>(null);
   const [snapshotHashStatus, setSnapshotHashStatus] = useState<SnapshotHashStatus>('idle');
   const [analysisCacheKey, setAnalysisCacheKey] = useState<string | null>(null);
   const [analysisCacheKeyStatus, setAnalysisCacheKeyStatus] = useState<SnapshotHashStatus>('idle');
   const [snapshotHashError, setSnapshotHashError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<AnalysisCategory>('asset_analysis');
-  const [analysisPrompts, setAnalysisPrompts] = useState<AnalysisPromptMap>(() => loadStoredAnalysisPrompts());
   const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('gemini-3.1-pro-preview');
   const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisSuccess, setAnalysisSuccess] = useState<string | null>(null);
+  const [promptSettingsSuccess, setPromptSettingsSuccess] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isSavingPromptSettings, setIsSavingPromptSettings] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [isPromptSettingsOpen, setIsPromptSettingsOpen] = useState(false);
+  const [analysisQuestionByCategory, setAnalysisQuestionByCategory] = useState<Record<AnalysisCategory, string>>({
+    asset_analysis: '',
+    general_question: '',
+    asset_report: '',
+  });
+  const [promptDrafts, setPromptDrafts] = useState(savedPromptSettings);
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
     (holding) => getHoldingValueInCurrency(holding, mockPortfolio.baseCurrency),
   );
-  const snapshotSignature =
-    holdings.length > 0 ? createPortfolioSnapshotSignature(holdings) : '';
-  const analysisInstruction = analysisPrompts[selectedCategory];
-  const selectedCategoryOption =
-    analysisCategoryOptions.find((option) => option.value === selectedCategory) ?? analysisCategoryOptions[0];
+  const snapshotSignature = holdings.length > 0 ? createPortfolioSnapshotSignature(holdings) : '';
+  const analysisQuestion = analysisQuestionByCategory[selectedCategory];
+  const analysisBackground = savedPromptSettings[selectedCategory];
+  const selectedCategoryOption = useMemo(
+    () =>
+      analysisCategoryOptions.find((option) => option.value === selectedCategory) ??
+      analysisCategoryOptions[0],
+    [selectedCategory],
+  );
 
   useEffect(() => {
     setLocalAnalysis(null);
     setAnalysisError(null);
     setAnalysisSuccess(null);
-  }, [snapshotSignature, selectedModel, selectedCategory, analysisInstruction]);
+  }, [snapshotSignature, selectedModel, selectedCategory, analysisQuestion, analysisBackground]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    window.localStorage.setItem(ANALYSIS_PROMPT_STORAGE_KEY, JSON.stringify(analysisPrompts));
-  }, [analysisPrompts]);
+    setPromptDrafts(savedPromptSettings);
+  }, [savedPromptSettings]);
 
   useEffect(() => {
     setSelectedSessionId(null);
@@ -244,7 +205,8 @@ export function AnalysisPage() {
       snapshotHash,
       selectedCategory,
       selectedModel,
-      analysisInstruction,
+      analysisQuestion,
+      analysisBackground,
     )
       .then((cacheKey) => {
         if (!isActive) {
@@ -266,7 +228,7 @@ export function AnalysisPage() {
     return () => {
       isActive = false;
     };
-  }, [snapshotHash, selectedModel, selectedCategory, analysisInstruction]);
+  }, [snapshotHash, selectedCategory, selectedModel, analysisQuestion, analysisBackground]);
 
   const {
     analysis: cachedAnalysis,
@@ -298,6 +260,7 @@ export function AnalysisPage() {
 
     setAnalysisError(null);
     setAnalysisSuccess(null);
+    setPromptSettingsSuccess(null);
     setIsAnalyzing(true);
 
     try {
@@ -307,12 +270,10 @@ export function AnalysisPage() {
         analysisCacheKey,
         selectedCategory,
         selectedModel,
-        analysisInstruction,
+        analysisQuestion,
+        analysisBackground,
       );
-      const response = (await callPortfolioFunction(
-        'analyze',
-        request,
-      )) as PortfolioAnalysisResponse;
+      const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
 
       const cachedResult: CachedPortfolioAnalysis = {
         cacheKey: response.cacheKey,
@@ -320,7 +281,8 @@ export function AnalysisPage() {
         category: response.category,
         provider: response.provider,
         model: response.model,
-        analysisInstruction: response.analysisInstruction,
+        analysisQuestion: response.analysisQuestion,
+        analysisBackground: response.analysisBackground,
         generatedAt: response.generatedAt,
         assetCount: holdings.length,
         answer: response.answer,
@@ -330,8 +292,8 @@ export function AnalysisPage() {
       await persistAnalysis(cachedResult);
       const savedSession: Omit<AnalysisSession, 'id' | 'updatedAt' | 'createdAt'> = {
         category: response.category,
-        title: createAnalysisTitle(response.analysisInstruction),
-        question: response.analysisInstruction,
+        title: createAnalysisTitle(response.analysisQuestion),
+        question: response.analysisQuestion,
         result: response.answer,
         model: response.model,
         provider: response.provider,
@@ -340,11 +302,28 @@ export function AnalysisPage() {
       await addAnalysisSession(savedSession);
       setAnalysisSuccess('分析已完成，結果已保存。');
     } catch (error) {
-      setAnalysisError(
-        error instanceof Error ? error.message : '投資組合分析失敗，請稍後再試。',
-      );
+      setAnalysisError(error instanceof Error ? error.message : '投資組合分析失敗，請稍後再試。');
     } finally {
       setIsAnalyzing(false);
+    }
+  }
+
+  async function handleSavePromptSettings() {
+    setPromptSettingsSuccess(null);
+    setAnalysisError(null);
+    setIsSavingPromptSettings(true);
+
+    try {
+      await persistSettings({
+        asset_analysis: promptDrafts.asset_analysis,
+        general_question: promptDrafts.general_question,
+        asset_report: promptDrafts.asset_report,
+      });
+      setPromptSettingsSuccess('Prompt 背景已儲存，之後每次分析都會自動帶入。');
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : '儲存 Prompt 背景失敗，請稍後再試。');
+    } finally {
+      setIsSavingPromptSettings(false);
     }
   }
 
@@ -352,9 +331,6 @@ export function AnalysisPage() {
     <div className="page-stack">
       <section className="hero-panel">
         <div className="analysis-action-panel">
-          <div className="analysis-action-copy">
-          </div>
-
           <div className="trends-range-row" role="tablist" aria-label="分析類別">
             {analysisCategoryOptions.map((option) => (
               <button
@@ -385,16 +361,16 @@ export function AnalysisPage() {
             </label>
 
             <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <span>Prompt 設定</span>
+              <span>對話內容</span>
               <textarea
-                value={analysisInstruction}
+                value={analysisQuestion}
                 onChange={(event) =>
-                  setAnalysisPrompts((current) => ({
+                  setAnalysisQuestionByCategory((current) => ({
                     ...current,
                     [selectedCategory]: event.target.value,
                   }))
                 }
-                placeholder={selectedCategoryOption.defaultPrompt}
+                placeholder={selectedCategoryOption.questionPlaceholder}
                 rows={4}
                 disabled={isAnalyzing}
               />
@@ -408,11 +384,7 @@ export function AnalysisPage() {
               onClick={handleAnalyzePortfolio}
               disabled={!canAnalyze}
             >
-              {isAnalyzing
-                ? '分析中...'
-                : hasAnalysis
-                  ? '重新分析我的組合'
-                  : '分析我的組合'}
+              {isAnalyzing ? '分析中...' : hasAnalysis ? '重新分析我的組合' : '分析我的組合'}
             </button>
             <Link className="button button-secondary" to="/assets">
               檢查資產資料
@@ -452,99 +424,95 @@ export function AnalysisPage() {
 
           <div className="analysis-category-intro">
             <h2>{selectedCategoryOption.label}</h2>
+            <p className="status-message">填入該分類固定背景，之後每次對話都會自動帶入分析。</p>
           </div>
 
           <div className="asset-form-grid">
             <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <span>Prompt 內容</span>
+              <span>背景內容</span>
               <textarea
-                value={analysisInstruction}
+                value={promptDrafts[selectedCategory]}
                 onChange={(event) =>
-                  setAnalysisPrompts((current) => ({
+                  setPromptDrafts((current) => ({
                     ...current,
                     [selectedCategory]: event.target.value,
                   }))
                 }
-                placeholder={selectedCategoryOption.defaultPrompt}
+                placeholder="例如：偏好保守分析、重視風險提示、希望直接指出配置問題。"
                 rows={5}
-                disabled={isAnalyzing}
+                disabled={isSavingPromptSettings}
               />
             </label>
+          </div>
+
+          <div className="button-row">
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={handleSavePromptSettings}
+              disabled={isSavingPromptSettings}
+            >
+              {isSavingPromptSettings ? '儲存中...' : '儲存 Prompt'}
+            </button>
           </div>
         </section>
       ) : null}
 
       {assetsError ? <p className="status-message status-message-error">{assetsError}</p> : null}
-      {snapshotHashError ? (
-        <p className="status-message status-message-error">{snapshotHashError}</p>
-      ) : null}
+      {snapshotHashError ? <p className="status-message status-message-error">{snapshotHashError}</p> : null}
       {cacheError ? <p className="status-message status-message-error">{cacheError}</p> : null}
-      {analysisSessionsError ? (
-        <p className="status-message status-message-error">{analysisSessionsError}</p>
-      ) : null}
-      {analysisError ? (
-        <p className="status-message status-message-error">{analysisError}</p>
-      ) : null}
-      {analysisSuccess ? (
-        <p className="status-message status-message-success">{analysisSuccess}</p>
+      {analysisSessionsError ? <p className="status-message status-message-error">{analysisSessionsError}</p> : null}
+      {analysisSettingsError ? <p className="status-message status-message-error">{analysisSettingsError}</p> : null}
+      {analysisError ? <p className="status-message status-message-error">{analysisError}</p> : null}
+      {analysisSuccess ? <p className="status-message status-message-success">{analysisSuccess}</p> : null}
+      {promptSettingsSuccess ? (
+        <p className="status-message status-message-success">{promptSettingsSuccess}</p>
       ) : null}
       {hasCachedAnalysis && !analysisSuccess ? (
-        <p className="status-message">
-          最近分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}
-        </p>
+        <p className="status-message">最近分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}</p>
       ) : null}
-      {assetsStatus === 'loading' ? (
-        <p className="status-message">同步中。</p>
-      ) : null}
-      {isEmpty ? (
-        <p className="status-message">未有可分析資產。</p>
-      ) : null}
+      {assetsStatus === 'loading' ? <p className="status-message">同步中。</p> : null}
+      {isEmpty ? <p className="status-message">未有可分析資產。</p> : null}
 
       {hasAnalysis ? (
-        <>
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Answer</p>
-                <h2>分析回答</h2>
-              </div>
-              <span className="chip chip-strong">{displayedAnalysis?.model}</span>
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Answer</p>
+              <h2>分析回答</h2>
             </div>
+            <span className="chip chip-strong">{displayedAnalysis?.model}</span>
+          </div>
 
-            <p className="analysis-summary-text" style={{ whiteSpace: 'pre-wrap' }}>
-              {displayedAnalysis?.answer}
-            </p>
+          <p className="analysis-summary-text" style={{ whiteSpace: 'pre-wrap' }}>
+            {displayedAnalysis?.answer}
+          </p>
 
-            <div className="analysis-meta-grid">
-              <div className="analysis-meta-item">
-                <span>分析時間</span>
-                <strong>{formatAnalysisTime(displayedAnalysis?.generatedAt ?? '')}</strong>
-              </div>
-                <div className="analysis-meta-item">
-                  <span>分析類別</span>
-                  <strong>{analysisCategoryOptions.find((option) => option.value === displayedAnalysis?.category)?.label ?? '分析資產'}</strong>
-                </div>
-                <div className="analysis-meta-item">
-                <span>提問內容</span>
-                <strong>{displayedAnalysis?.analysisInstruction || '未提供'}</strong>
-              </div>
-              <div className="analysis-meta-item">
-                <span>快照資產數</span>
-                <strong>{displayedAnalysis?.assetCount ?? holdings.length} 項</strong>
-              </div>
-              <div className="analysis-meta-item">
-                <span>快照識別碼</span>
-                <strong className="mono-value">{snapshotHash?.slice(0, 12) ?? ''}</strong>
-              </div>
+          <div className="analysis-meta-grid">
+            <div className="analysis-meta-item">
+              <span>分析時間</span>
+              <strong>{formatAnalysisTime(displayedAnalysis?.generatedAt ?? '')}</strong>
             </div>
-          </section>
-        </>
+            <div className="analysis-meta-item">
+              <span>提問內容</span>
+              <strong>{displayedAnalysis?.analysisQuestion || '未提供'}</strong>
+            </div>
+            <div className="analysis-meta-item">
+              <span>背景設定</span>
+              <strong>{displayedAnalysis?.analysisBackground || '未設定'}</strong>
+            </div>
+            <div className="analysis-meta-item">
+              <span>快照資產數</span>
+              <strong>{displayedAnalysis?.assetCount ?? holdings.length} 項</strong>
+            </div>
+          </div>
+        </section>
       ) : null}
 
       <section className="card">
         <div className="section-heading">
-            <div>
-              <p className="eyebrow">History</p>
+          <div>
+            <p className="eyebrow">History</p>
             <h2>{selectedCategoryOption.label}對話紀錄</h2>
           </div>
         </div>
@@ -564,7 +532,8 @@ export function AnalysisPage() {
                     category: session.category,
                     provider: session.provider ?? 'google',
                     model: session.model,
-                    analysisInstruction: session.question,
+                    analysisQuestion: session.question,
+                    analysisBackground: savedPromptSettings[session.category],
                     generatedAt: session.updatedAt,
                     assetCount: holdings.length,
                     answer: session.result,

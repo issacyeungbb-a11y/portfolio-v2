@@ -136,7 +136,8 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   const snapshotHash = sanitizeString(value.snapshotHash);
   const category = sanitizeAnalysisCategory(value.category);
   const analysisModel = sanitizeAnalysisModel(value.analysisModel);
-  const analysisInstruction = sanitizeString(value.analysisInstruction) ?? '';
+  const analysisQuestion = sanitizeString(value.analysisQuestion) ?? '';
+  const analysisBackground = sanitizeString(value.analysisBackground) ?? '';
   const assetCount = sanitizeNumber(value.assetCount);
   const totalValueHKD = sanitizeNumber(value.totalValueHKD);
   const totalCostHKD = sanitizeNumber(value.totalCostHKD);
@@ -279,7 +280,8 @@ function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
     snapshotHash,
     category,
     analysisModel,
-    analysisInstruction,
+    analysisQuestion,
+    analysisBackground,
     assetCount: assetCount ?? holdings.length,
     totalValueHKD: totalValueHKD ?? 0,
     totalCostHKD: totalCostHKD ?? 0,
@@ -362,8 +364,11 @@ Rules:
 
 ${getCategoryPromptPrefix(request.category)}
 
-User analysis instruction:
-${request.analysisInstruction || '未提供額外指示，請做一般投資組合分析。'}
+Saved category background:
+${request.analysisBackground || '未設定額外背景。'}
+
+User question / task:
+${request.analysisQuestion || '請根據目前投資組合做一般分析。'}
 
 Portfolio snapshot:
 ${JSON.stringify(request, null, 2)}
@@ -503,7 +508,8 @@ export async function analyzePortfolio(
     provider,
     model: resolvedModel,
     snapshotHash: request.snapshotHash,
-    analysisInstruction: request.analysisInstruction,
+    analysisQuestion: request.analysisQuestion,
+    analysisBackground: request.analysisBackground,
     generatedAt: new Date().toISOString(),
     ...result,
   };

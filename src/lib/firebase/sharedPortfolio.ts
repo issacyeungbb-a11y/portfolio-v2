@@ -88,6 +88,17 @@ export function getSharedAnalysisSessionsCollectionRef() {
   );
 }
 
+export function getSharedAnalysisSettingsDocRef(settingId = 'prompts') {
+  const db = getRequiredFirebaseDb();
+  return doc(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'analysisSettings',
+    settingId,
+  );
+}
+
 export function getSharedPortfolioSnapshotsCollectionRef() {
   const db = getRequiredFirebaseDb();
   return collection(

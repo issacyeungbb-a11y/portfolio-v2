@@ -28,8 +28,14 @@ function normalizeCachedAnalysis(
         ? 'anthropic'
         : 'google',
     model: typeof value.model === 'string' ? value.model : '',
-    analysisInstruction:
-      typeof value.analysisInstruction === 'string' ? value.analysisInstruction : '',
+    analysisQuestion:
+      typeof value.analysisQuestion === 'string'
+        ? value.analysisQuestion
+        : typeof value.analysisInstruction === 'string'
+          ? value.analysisInstruction
+          : '',
+    analysisBackground:
+      typeof value.analysisBackground === 'string' ? value.analysisBackground : '',
     generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : '',
     assetCount: typeof value.assetCount === 'number' ? value.assetCount : 0,
     answer: typeof value.answer === 'string' ? value.answer : '',
