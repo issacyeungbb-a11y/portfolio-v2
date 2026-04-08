@@ -120,6 +120,32 @@ function sanitizeString(value: unknown) {
   return trimmed ? trimmed : null;
 }
 
+function isLikelyHongKongTicker(ticker: string, currency: string) {
+  const normalizedTicker = ticker.trim().toUpperCase();
+  const normalizedCurrency = currency.trim().toUpperCase();
+
+  return (
+    normalizedCurrency === 'HKD' &&
+    (/^\d{4,5}$/.test(normalizedTicker) || /^\d{4,5}\.HK$/.test(normalizedTicker))
+  );
+}
+
+function buildHongKongTickerVariants(ticker: string) {
+  const normalizedTicker = ticker.trim().toUpperCase().replace(/\.HK$/, '');
+  const paddedTicker = normalizedTicker.padStart(4, '0');
+
+  return Array.from(
+    new Set([
+      normalizedTicker,
+      paddedTicker,
+      `${paddedTicker}.HK`,
+      `${normalizedTicker}.HK`,
+      `HKG:${paddedTicker}`,
+      `HKEX ${paddedTicker}`,
+    ]),
+  );
+}
+
 function sanitizeNumber(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value;
@@ -239,7 +265,13 @@ function buildAssetSearchHints(asset: PriceUpdateRequestAsset) {
     `${asset.assetName} latest price`,
   ];
 
-  if (asset.ticker.endsWith('.HK')) {
+  if (asset.ticker.endsWith('.HK') || isLikelyHongKongTicker(asset.ticker, asset.currency)) {
+    const hongKongTickerVariants = buildHongKongTickerVariants(asset.ticker);
+    for (const variant of hongKongTickerVariants) {
+      hints.push(`${variant} HKEX latest price`);
+      hints.push(`${variant} Google Finance`);
+      hints.push(`${variant} Yahoo Finance`);
+    }
     hints.push(`${asset.ticker} HKEX latest price`);
   } else if (asset.currency === 'USD') {
     hints.push(`${asset.ticker} NASDAQ latest price`);
@@ -435,8 +467,30 @@ function parseAsOf(value: string | null | undefined) {
     return null;
   }
 
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  const directParsed = new Date(value);
+  if (!Number.isNaN(directParsed.getTime())) {
+    return directParsed;
+  }
+
+  const normalized = value
+    .trim()
+    .replace(/\bHKT\b/gi, '+08:00')
+    .replace(/\bHKT CLOSE\b/gi, '16:00:00+08:00')
+    .replace(/\bCLOSE\b/gi, '16:00:00')
+    .replace(/\//g, '-');
+
+  const normalizedParsed = new Date(normalized);
+  if (!Number.isNaN(normalizedParsed.getTime())) {
+    return normalizedParsed;
+  }
+
+  const dateOnlyMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})$/);
+  if (dateOnlyMatch) {
+    const assumedClose = new Date(`${dateOnlyMatch[1]}T16:00:00+08:00`);
+    return Number.isNaN(assumedClose.getTime()) ? null : assumedClose;
+  }
+
+  return null;
 }
 
 function getQuoteFreshnessWindowMs(assetType: AssetType) {
