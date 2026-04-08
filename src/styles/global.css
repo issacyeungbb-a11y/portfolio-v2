@@ -860,6 +860,12 @@ h3 {
   font-size: 0.92rem;
 }
 
+.trends-snapshot-hint {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
 .trends-calendar-weekdays {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));

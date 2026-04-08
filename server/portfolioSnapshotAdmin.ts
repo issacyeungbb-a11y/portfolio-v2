@@ -94,6 +94,9 @@ export async function captureAdminPortfolioSnapshot(params?: {
   netExternalFlowHKD?: number;
   reason?: string;
   snapshotId?: string;
+  snapshotQuality?: 'strict' | 'fallback';
+  coveragePct?: number;
+  fallbackAssetCount?: number;
 }) {
   const db = getFirebaseAdminDb();
   const holdings = await readAdminPortfolioAssets();
@@ -133,6 +136,9 @@ export async function captureAdminPortfolioSnapshot(params?: {
     assetCount: holdings.length,
     holdings: holdingsPayload,
     reason: params?.reason ?? 'snapshot',
+    snapshotQuality: params?.snapshotQuality ?? 'strict',
+    coveragePct: typeof params?.coveragePct === 'number' ? params.coveragePct : 100,
+    fallbackAssetCount: typeof params?.fallbackAssetCount === 'number' ? params.fallbackAssetCount : 0,
     updatedAt: FieldValue.serverTimestamp(),
   });
 

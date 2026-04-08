@@ -159,6 +159,28 @@ function sumSignedCashFlowsHKD(entries: AccountCashFlowEntry[]) {
   );
 }
 
+function formatSnapshotHint(value?: string) {
+  if (!value) {
+    return '尚未有正式快照';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return '尚未有正式快照';
+  }
+
+  return new Intl.DateTimeFormat('zh-HK', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(date);
+}
+
 export function AssetTrendsPage() {
   const { holdings: firestoreHoldings, status, error } = usePortfolioAssets();
   const { history, error: snapshotsError } = usePortfolioSnapshots();
@@ -213,6 +235,11 @@ export function AssetTrendsPage() {
   const monthlyCalendarPnLHKD = calendarEntries
     .filter((entry) => entry.date.startsWith(currentPoint.date.slice(0, 7)))
     .reduce((sum, entry) => sum + entry.changeHKD, 0);
+  const latestSnapshot = [...history]
+    .filter((point) => Boolean(point.capturedAt))
+    .sort((left, right) => (left.capturedAt ?? '').localeCompare(right.capturedAt ?? ''))
+    .slice(-1)[0];
+  const latestSnapshotLabel = formatSnapshotHint(latestSnapshot?.capturedAt);
 
   return (
     <div className="page-stack">
@@ -298,6 +325,9 @@ export function AssetTrendsPage() {
               displayCurrency,
             )}
           </span>
+        </p>
+        <p className="trends-snapshot-hint">
+          最新快照：{latestSnapshotLabel}。資產走勢數據以該次快照為基準。
         </p>
       </section>
 

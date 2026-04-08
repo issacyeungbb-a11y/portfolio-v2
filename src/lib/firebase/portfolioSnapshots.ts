@@ -79,6 +79,7 @@ function sanitizeReason(value: unknown): SnapshotReason {
     value === 'price_update_confirmed' ||
     value === 'snapshot' ||
     value === 'daily_snapshot' ||
+    value === 'daily_snapshot_fallback' ||
     value === 'cash_flow_recorded'
   ) {
     return value;
@@ -138,6 +139,9 @@ function normalizePortfolioSnapshot(
           .filter((entry): entry is SnapshotHoldingPoint => entry !== null)
       : [],
     reason: sanitizeReason(value.reason),
+    snapshotQuality: value.snapshotQuality === 'fallback' ? 'fallback' : 'strict',
+    coveragePct: sanitizeNumber(value.coveragePct),
+    fallbackAssetCount: sanitizeNumber(value.fallbackAssetCount),
   };
 }
 

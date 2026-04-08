@@ -101,7 +101,11 @@ export interface PortfolioPerformancePoint {
     | 'price_update_confirmed'
     | 'snapshot'
     | 'daily_snapshot'
+    | 'daily_snapshot_fallback'
     | 'cash_flow_recorded';
+  snapshotQuality?: 'strict' | 'fallback';
+  coveragePct?: number;
+  fallbackAssetCount?: number;
 }
 
 export interface PortfolioPerformanceSummary {
