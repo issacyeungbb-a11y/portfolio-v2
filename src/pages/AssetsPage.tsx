@@ -195,6 +195,12 @@ export function AssetsPage() {
   const coverageLabel =
     nonCashHoldings.length === 0 ? '未有可更新資產' : `${100 - staleRatio}% 已同步`;
   const activeFilterLabel = `${getAssetTypeLabel(assetFilter)} · ${getAccountSourceLabel(accountFilter)}`;
+  const snapshotStatusLabel =
+    nonCashHoldings.length === 0
+      ? '未有非現金資產，毋須快照檢查'
+      : pendingPriceCount === 0 && !hasPendingReviews
+        ? '全部更新完成後會自動寫入正式快照'
+        : `尚欠 ${pendingPriceCount + reviews.length} 項，今日正式快照會暫緩`;
 
   async function handleAddHolding(payload: PortfolioAssetInput) {
     setIsSavingAsset(true);
@@ -470,6 +476,11 @@ export function AssetsPage() {
           >
             {isUpdatingAllPrices ? '更新全部資產中...' : '更新全部資產'}
           </button>
+        </div>
+        <div className="assets-toolbar-footnote" aria-label="更新提示">
+          <span>{coverageLabel}</span>
+          <span>·</span>
+          <span>{snapshotStatusLabel}</span>
         </div>
       </section>
 

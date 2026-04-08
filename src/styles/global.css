@@ -346,6 +346,16 @@ h3 {
   justify-content: space-between;
 }
 
+.assets-toolbar-footnote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  color: rgba(98, 90, 81, 0.78);
+  font-size: 0.73rem;
+  line-height: 1.45;
+}
+
 .dashboard-hero-panel {
   gap: 0.68rem;
 }
