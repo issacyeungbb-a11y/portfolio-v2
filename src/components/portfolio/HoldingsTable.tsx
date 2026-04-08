@@ -265,7 +265,7 @@ export function HoldingsTable({
                         className="button button-secondary table-action-button"
                         type="button"
                         onClick={() => onUpdatePrice?.(holding)}
-                        disabled={!onUpdatePrice || isUpdating}
+                        disabled={!onUpdatePrice || isUpdating || isCashHolding}
                       >
                         {isUpdating ? '更新中...' : '更新單一資產'}
                       </button>

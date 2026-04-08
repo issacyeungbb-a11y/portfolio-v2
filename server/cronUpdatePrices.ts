@@ -128,7 +128,7 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
     await batch.commit();
   }
 
-  if (validResults.length > 0) {
+  if (validResults.length > 0 && invalidResults.length === 0 && validResults.length === results.length) {
     await captureAdminPortfolioSnapshot({
       reason: 'price_update_confirmed',
     });

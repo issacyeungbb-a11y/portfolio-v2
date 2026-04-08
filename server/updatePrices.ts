@@ -12,6 +12,8 @@ import type { AssetType } from '../src/types/portfolio';
 const UPDATE_PRICES_ROUTE = '/api/update-prices' as const;
 const DEFAULT_PRICE_MODEL = 'gemini-2.5-flash-lite';
 const DEFAULT_REVIEW_THRESHOLD = 0.15;
+const PRICE_UPDATE_BATCH_SIZE = 4;
+const DEFAULT_MIN_AUTO_APPLY_CONFIDENCE = 0.6;
 
 class UpdatePricesError extends Error {
   status: number;
@@ -30,6 +32,11 @@ function getPriceUpdateModel() {
 function getReviewThreshold() {
   const raw = Number(process.env.PRICE_UPDATE_REVIEW_THRESHOLD_PCT);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REVIEW_THRESHOLD;
+}
+
+function getMinAutoApplyConfidence() {
+  const raw = Number(process.env.PRICE_UPDATE_MIN_CONFIDENCE);
+  return Number.isFinite(raw) && raw > 0 ? Math.min(raw, 1) : DEFAULT_MIN_AUTO_APPLY_CONFIDENCE;
 }
 
 function getGeminiApiKey() {
@@ -57,7 +64,8 @@ function normalizeRequest(payload: unknown): PriceUpdateRequest {
 
   const assets = payload.assets
     .map((asset) => normalizeRequestAsset(asset))
-    .filter((asset): asset is PriceUpdateRequestAsset => asset !== null);
+    .filter((asset): asset is PriceUpdateRequestAsset => asset !== null)
+    .filter((asset) => asset.assetType !== 'cash');
 
   if (assets.length === 0) {
     throw new UpdatePricesError('未提供可更新的資產。', 400);
@@ -504,12 +512,14 @@ async function generateSingleAssetPriceResponse(
 }
 
 function isUsableModelResult(asset: PriceUpdateRequestAsset, result: PriceUpdateModelResult) {
+  const minimumConfidence = getMinAutoApplyConfidence();
+  const hasUsableSource = Boolean(result.sourceName || result.sourceUrl);
+
   return (
     result.price != null &&
     result.price > 0 &&
-    Boolean(result.sourceName) &&
-    Boolean(result.sourceUrl) &&
-    (result.confidence ?? 0) >= 0.75 &&
+    hasUsableSource &&
+    (result.confidence ?? 0) >= minimumConfidence &&
     !isStaleQuote(result.asOf, asset.assetType)
   );
 }
@@ -545,6 +555,7 @@ function buildReviewResults(
   modelResults: PriceUpdateModelResult[],
 ): PendingPriceUpdateReview[] {
   const threshold = getReviewThreshold();
+  const minimumConfidence = getMinAutoApplyConfidence();
 
   return requestedAssets.map((asset, index) => {
     const matched =
@@ -572,9 +583,8 @@ function buildReviewResults(
       nextPrice <= 0 ||
       staleQuote ||
       diffPct >= threshold ||
-      !matched?.sourceName ||
-      !matched?.sourceUrl ||
-      (matched?.confidence ?? 0) < 0.75;
+      !(matched?.sourceName || matched?.sourceUrl) ||
+      (matched?.confidence ?? 0) < minimumConfidence;
 
     return {
       id: asset.assetId,
@@ -595,6 +605,52 @@ function buildReviewResults(
       status: 'pending',
     };
   });
+}
+
+async function generatePriceUpdatesForBatch(
+  ai: GoogleGenAI,
+  model: string,
+  assets: PriceUpdateRequestAsset[],
+) {
+  const prompt = buildPrompt(assets);
+  let sanitizedResults: PriceUpdateModelResult[];
+
+  try {
+    const response = await generatePriceResponseWithFallback(ai, model, prompt);
+    const raw = parseModelJson(response.text ?? '');
+    sanitizedResults = sanitizePriceUpdateResults(raw);
+  } catch {
+    sanitizedResults = [];
+  }
+
+  const missingOrWeakAssets = assets.filter((asset) => {
+    const matched = sanitizedResults.find(
+      (item) =>
+        item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
+        item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
+    );
+
+    return !matched || !isUsableModelResult(asset, matched);
+  });
+
+  if (missingOrWeakAssets.length > 0) {
+    const focusedResults = await Promise.all(
+      missingOrWeakAssets.map((asset) => generateBestPriceForAsset(ai, model, asset)),
+    );
+
+    sanitizedResults = [
+      ...sanitizedResults.filter((item) =>
+        !missingOrWeakAssets.some(
+          (asset) =>
+            item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
+            item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
+        ),
+      ),
+      ...focusedResults,
+    ];
+  }
+
+  return buildReviewResults(assets, sanitizedResults);
 }
 
 export function getUpdatePricesErrorResponse(error: unknown) {
@@ -635,45 +691,13 @@ export async function generatePriceUpdates(payload: unknown) {
   const apiKey = getGeminiApiKey();
   const model = getPriceUpdateModel();
   const ai = new GoogleGenAI({ apiKey });
-  const prompt = buildPrompt(request.assets);
-  let sanitizedResults: PriceUpdateModelResult[];
+  const results: PendingPriceUpdateReview[] = [];
 
-  try {
-    const response = await generatePriceResponseWithFallback(ai, model, prompt);
-    const raw = parseModelJson(response.text ?? '');
-    sanitizedResults = sanitizePriceUpdateResults(raw);
-  } catch {
-    sanitizedResults = [];
+  for (let index = 0; index < request.assets.length; index += PRICE_UPDATE_BATCH_SIZE) {
+    const assetBatch = request.assets.slice(index, index + PRICE_UPDATE_BATCH_SIZE);
+    const batchResults = await generatePriceUpdatesForBatch(ai, model, assetBatch);
+    results.push(...batchResults);
   }
-
-  const missingOrWeakAssets = request.assets.filter((asset) => {
-    const matched = sanitizedResults.find(
-      (item) =>
-        item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
-        item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
-    );
-
-    return !matched || !isUsableModelResult(asset, matched);
-  });
-
-  if (missingOrWeakAssets.length > 0) {
-    const focusedResults = await Promise.all(
-      missingOrWeakAssets.map((asset) => generateBestPriceForAsset(ai, model, asset)),
-    );
-
-    sanitizedResults = [
-      ...sanitizedResults.filter((item) =>
-        !missingOrWeakAssets.some(
-          (asset) =>
-            item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
-            item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
-        ),
-      ),
-      ...focusedResults,
-    ];
-  }
-
-  const results = buildReviewResults(request.assets, sanitizedResults);
 
   return {
     ok: true,

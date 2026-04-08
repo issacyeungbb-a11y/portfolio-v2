@@ -369,7 +369,7 @@ export function AssetsPage() {
 
   async function handleConfirmBulkPriceUpdate() {
     setIsBulkUpdateConfirmOpen(false);
-    await handleRunPriceUpdates(holdings);
+    await handleRunPriceUpdates(nonCashHoldings);
   }
 
   async function handleConfirmReview(review: PendingPriceUpdateReview) {
@@ -466,7 +466,7 @@ export function AssetsPage() {
             className="button button-secondary"
             type="button"
             onClick={() => setIsBulkUpdateConfirmOpen(true)}
-            disabled={isUpdatingAllPrices || holdings.length === 0}
+            disabled={isUpdatingAllPrices || nonCashHoldings.length === 0}
           >
             {isUpdatingAllPrices ? '更新全部資產中...' : '更新全部資產'}
           </button>
@@ -488,7 +488,7 @@ export function AssetsPage() {
               </div>
             </div>
             <p className="status-message">
-              會為目前全部 {holdings.length} 項資產檢查最新價格；有效結果會直接寫入，未能確認嘅項目先會保留畀你再檢查。
+              會為目前全部 {nonCashHoldings.length} 項非現金資產檢查最新價格；有效結果會直接寫入，未能確認嘅項目先會保留畀你再檢查。
             </p>
             <div className="button-row">
               <button
