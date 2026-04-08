@@ -195,9 +195,69 @@ function stripJsonFence(text: string) {
     .trim();
 }
 
+function extractFirstJsonCandidate(text: string) {
+  const trimmed = stripJsonFence(text);
+
+  const objectStart = trimmed.indexOf('{');
+  const arrayStart = trimmed.indexOf('[');
+  const startCandidates = [objectStart, arrayStart].filter((value) => value >= 0);
+
+  if (startCandidates.length === 0) {
+    return trimmed;
+  }
+
+  const start = Math.min(...startCandidates);
+  const opening = trimmed[start];
+  const closing = opening === '[' ? ']' : '}';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let index = start; index < trimmed.length; index += 1) {
+    const character = trimmed[index];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+
+      if (character === '\\') {
+        escaped = true;
+        continue;
+      }
+
+      if (character === '"') {
+        inString = false;
+      }
+
+      continue;
+    }
+
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+
+    if (character === opening) {
+      depth += 1;
+      continue;
+    }
+
+    if (character === closing) {
+      depth -= 1;
+      if (depth === 0) {
+        return trimmed.slice(start, index + 1);
+      }
+    }
+  }
+
+  return trimmed.slice(start);
+}
+
 function parseModelJson(text: string) {
   try {
-    return JSON.parse(stripJsonFence(text)) as unknown;
+    return JSON.parse(extractFirstJsonCandidate(text)) as unknown;
   } catch {
     throw new UpdatePricesError('Gemini 未回傳可解析的 JSON，請稍後再試。', 502);
   }
@@ -853,7 +913,17 @@ export async function generatePriceUpdates(payload: unknown) {
 
   for (let index = 0; index < request.assets.length; index += PRICE_UPDATE_BATCH_SIZE) {
     const assetBatch = request.assets.slice(index, index + PRICE_UPDATE_BATCH_SIZE);
-    const batchResults = await generatePriceUpdatesForBatch(ai, model, assetBatch);
+    let batchResults: PendingPriceUpdateReview[];
+
+    try {
+      batchResults = await generatePriceUpdatesForBatch(ai, model, assetBatch);
+    } catch {
+      batchResults = buildReviewResults(
+        assetBatch,
+        assetBatch.map((asset) => createFailedModelResult(asset, 'Gemini 批次回覆格式不正確')),
+      );
+    }
+
     results.push(...batchResults);
   }
 

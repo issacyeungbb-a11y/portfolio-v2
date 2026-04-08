@@ -1,6 +1,7 @@
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { verifyCronRequest } from './cronUpdatePrices.js';
+import type { PendingPriceUpdateReview } from '../src/types/priceUpdates.js';
 
 const CRON_ROUTE = '/api/cron-capture-snapshot' as const;
 
@@ -72,6 +73,33 @@ function isFallbackUsable(asset: Awaited<ReturnType<typeof readAdminPortfolioAss
   return hoursSinceUpdate <= 48;
 }
 
+function sanitizeFailureCategory(value: unknown): PendingPriceUpdateReview['failureCategory'] {
+  if (
+    value === 'ticker_format' ||
+    value === 'quote_time' ||
+    value === 'source_missing' ||
+    value === 'response_format' ||
+    value === 'price_missing' ||
+    value === 'confidence_low' ||
+    value === 'diff_too_large' ||
+    value === 'unknown'
+  ) {
+    return value;
+  }
+
+  return 'unknown';
+}
+
+function isSoftPendingCategory(category: PendingPriceUpdateReview['failureCategory']) {
+  return (
+    category === 'quote_time' ||
+    category === 'source_missing' ||
+    category === 'response_format' ||
+    category === 'price_missing' ||
+    category === 'confidence_low'
+  );
+}
+
 async function verifyAssetsReadyForDailySnapshot() {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection('portfolio').doc('app');
@@ -87,12 +115,29 @@ async function verifyAssetsReadyForDailySnapshot() {
   });
   const fallbackAssets = staleAssets.filter((asset) => isFallbackUsable(asset, todayKey));
   const missingAssets = staleAssets.filter((asset) => !isFallbackUsable(asset, todayKey));
+  const pendingReviews = reviewSnapshot.docs.map((document) => {
+    const data = document.data() as Record<string, unknown>;
+
+    return {
+      assetId: document.id,
+      failureCategory: sanitizeFailureCategory(data.failureCategory),
+    };
+  });
+  const fallbackAssetIds = new Set(fallbackAssets.map((asset) => asset.id));
+  const hardPendingReviews = pendingReviews.filter((review) => {
+    if (!isSoftPendingCategory(review.failureCategory)) {
+      return true;
+    }
+
+    return !fallbackAssetIds.has(review.assetId);
+  });
+  const softPendingReviews = pendingReviews.filter((review) => !hardPendingReviews.includes(review));
   const coveragePct =
     nonCashAssets.length === 0
       ? 100
       : Math.round(((nonCashAssets.length - missingAssets.length) / nonCashAssets.length) * 100);
   const canUseFallback =
-    reviewSnapshot.size === 0 &&
+    hardPendingReviews.length === 0 &&
     nonCashAssets.length > 0 &&
     (missingAssets.length <= 2 || coveragePct >= 95);
 
@@ -106,6 +151,8 @@ async function verifyAssetsReadyForDailySnapshot() {
     missingAssetCount: missingAssets.length,
     coveragePct,
     pendingReviewCount: reviewSnapshot.size,
+    softPendingReviewCount: softPendingReviews.length,
+    hardPendingReviewCount: hardPendingReviews.length,
     staleAssets,
     isReady: staleAssets.length === 0 && reviewSnapshot.empty,
     canUseFallback,
@@ -163,14 +210,15 @@ export async function runScheduledDailySnapshot() {
     return {
       ok: true,
       route: CRON_ROUTE,
-      message: `已建立降級每日快照：覆蓋率 ${readiness.coveragePct}%，沿用 ${readiness.missingAssetCount} 項最近有效價格。`,
+      message: `已建立降級每日快照：覆蓋率 ${readiness.coveragePct}%，沿用 ${readiness.fallbackAssetCount} 項最近有效價格。`,
       assetCount: result.assetCount,
       totalValueHKD: result.totalValueHKD,
       snapshotId,
       snapshotQuality: 'fallback' as const,
       coveragePct: readiness.coveragePct,
-      fallbackAssetCount: readiness.missingAssetCount,
-      fallbackAssetSymbols: readiness.missingAssets.map((asset) => asset.symbol).slice(0, 10),
+      fallbackAssetCount: readiness.fallbackAssetCount,
+      fallbackAssetSymbols: readiness.fallbackAssets.map((asset) => asset.symbol).slice(0, 10),
+      softPendingReviewCount: readiness.softPendingReviewCount,
       triggeredAt: new Date().toISOString(),
     };
   }
@@ -184,6 +232,7 @@ export async function runScheduledDailySnapshot() {
     assetCount: readiness.totalAssets,
     readyAssets: readiness.readyAssets,
     pendingReviewCount: readiness.pendingReviewCount,
+    hardPendingReviewCount: readiness.hardPendingReviewCount,
     coveragePct: readiness.coveragePct,
     staleAssetSymbols: readiness.staleAssets.map((asset) => asset.symbol).slice(0, 10),
     triggeredAt: new Date().toISOString(),

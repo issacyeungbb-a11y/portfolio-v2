@@ -74,6 +74,15 @@ function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amo
   return entry.amount;
 }
 
+function getHongKongDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
 export function AssetsPage() {
   const {
     holdings: firestoreHoldings,
@@ -135,7 +144,14 @@ export function AssetsPage() {
   });
 
   const nonCashHoldings = holdings.filter((holding) => holding.assetType !== 'cash');
-  const pricedHoldingsCount = nonCashHoldings.filter((holding) => hasValidHoldingPrice(holding)).length;
+  const todayKey = getHongKongDateKey();
+  const todayUpdatedCount = nonCashHoldings.filter((holding) => {
+    if (!hasValidHoldingPrice(holding) || !holding.lastPriceUpdatedAt) {
+      return false;
+    }
+
+    return getHongKongDateKey(new Date(holding.lastPriceUpdatedAt)) === todayKey;
+  }).length;
   const pendingPriceCount = holdings.filter(
     (holding) => holding.assetType !== 'cash' && !hasValidHoldingPrice(holding),
   ).length;
@@ -189,11 +205,13 @@ export function AssetsPage() {
       0,
     );
   const filteredPnl = filteredValue - filteredPrincipal;
-  const staleRatio =
-    nonCashHoldings.length === 0 ? 0 : Math.round((pendingPriceCount / nonCashHoldings.length) * 100);
   const latestUpdateLabel = formatLatestPriceUpdate(latestValidPriceUpdate);
+  const syncedCoveragePct =
+    nonCashHoldings.length === 0
+      ? 0
+      : Math.round((todayUpdatedCount / nonCashHoldings.length) * 100);
   const coverageLabel =
-    nonCashHoldings.length === 0 ? '未有可更新資產' : `${100 - staleRatio}% 已同步`;
+    nonCashHoldings.length === 0 ? '未有可更新資產' : `${syncedCoveragePct}% 今日已同步`;
   const activeFilterLabel = `${getAssetTypeLabel(assetFilter)} · ${getAccountSourceLabel(accountFilter)}`;
   const snapshotStatusLabel =
     nonCashHoldings.length === 0
