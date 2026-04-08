@@ -156,6 +156,7 @@ export interface AnalysisSession {
   model: string;
   provider?: 'google' | 'anthropic';
   snapshotHash?: string;
+  delivery?: 'manual' | 'scheduled';
   updatedAt: string;
   createdAt?: string;
 }

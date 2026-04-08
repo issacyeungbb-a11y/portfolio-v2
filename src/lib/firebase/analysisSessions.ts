@@ -39,6 +39,7 @@ function normalizeAnalysisSession(
     model: typeof value.model === 'string' ? value.model : '',
     provider: value.provider === 'anthropic' ? 'anthropic' : 'google',
     snapshotHash: typeof value.snapshotHash === 'string' ? value.snapshotHash : '',
+    delivery: value.delivery === 'scheduled' ? 'scheduled' : 'manual',
     updatedAt: formatTimestamp(value.updatedAt),
     createdAt: formatTimestamp(value.createdAt),
   };
@@ -104,6 +105,7 @@ export async function createAnalysisSession(
     model: entry.model,
     provider: entry.provider ?? 'google',
     snapshotHash: entry.snapshotHash ?? '',
+    delivery: entry.delivery === 'scheduled' ? 'scheduled' : 'manual',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

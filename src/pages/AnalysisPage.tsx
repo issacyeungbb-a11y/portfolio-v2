@@ -150,6 +150,8 @@ export function AnalysisPage() {
   const followUpQuestion = followUpQuestionByCategory[selectedCategory];
   const analysisBackground = savedPromptSettings[selectedCategory];
   const activeConversation = conversationThreads[selectedCategory];
+  const isInteractiveCategory = selectedCategory === 'general_question';
+  const isScheduledCategory = selectedCategory === 'asset_analysis' || selectedCategory === 'asset_report';
   const selectedCategoryOption = useMemo(
     () =>
       analysisCategoryOptions.find((option) => option.value === selectedCategory) ??
@@ -268,7 +270,30 @@ export function AnalysisPage() {
     holdings.length > 0 &&
     snapshotHashStatus === 'ready' &&
     analysisCacheKeyStatus === 'ready' &&
+    isInteractiveCategory &&
     !isAnalyzing;
+
+  useEffect(() => {
+    if (selectedCategory === 'general_question' || selectedSessionId || categorySessions.length === 0) {
+      return;
+    }
+
+    const latestSession = categorySessions[0];
+    setSelectedSessionId(latestSession.id);
+    setLocalAnalysis({
+      cacheKey: latestSession.id,
+      snapshotHash: latestSession.snapshotHash ?? '',
+      category: latestSession.category,
+      provider: latestSession.provider ?? 'google',
+      model: latestSession.model,
+      analysisQuestion: latestSession.question,
+      analysisBackground: savedPromptSettings[latestSession.category],
+      delivery: latestSession.delivery ?? 'manual',
+      generatedAt: latestSession.updatedAt,
+      assetCount: holdings.length,
+      answer: latestSession.result,
+    });
+  }, [categorySessions, holdings.length, savedPromptSettings, selectedCategory, selectedSessionId]);
 
   async function handleAnalyzePortfolio() {
     if (!snapshotHash || !analysisCacheKey || holdings.length === 0) {
@@ -302,23 +327,26 @@ export function AnalysisPage() {
         model: response.model,
         analysisQuestion: response.analysisQuestion,
         analysisBackground: response.analysisBackground,
+        delivery: response.delivery ?? 'manual',
         generatedAt: response.generatedAt,
         assetCount: holdings.length,
         answer: response.answer,
       };
 
       setLocalAnalysis(cachedResult);
-      setConversationThreads((current) => ({
-        ...current,
-        [selectedCategory]: [
-          {
-            question: response.analysisQuestion,
-            answer: response.answer,
-            generatedAt: response.generatedAt,
-            model: response.model,
-          },
-        ],
-      }));
+      if (isInteractiveCategory) {
+        setConversationThreads((current) => ({
+          ...current,
+          [selectedCategory]: [
+            {
+              question: response.analysisQuestion,
+              answer: response.answer,
+              generatedAt: response.generatedAt,
+              model: response.model,
+            },
+          ],
+        }));
+      }
       setFollowUpQuestionByCategory((current) => ({
         ...current,
         [selectedCategory]: '',
@@ -332,6 +360,7 @@ export function AnalysisPage() {
         model: response.model,
         provider: response.provider,
         snapshotHash: response.snapshotHash,
+        delivery: 'manual',
       };
       await addAnalysisSession(savedSession);
       setAnalysisSuccess('分析已完成，結果已保存。');
@@ -386,6 +415,7 @@ export function AnalysisPage() {
         model: response.model,
         analysisQuestion: response.analysisQuestion,
         analysisBackground: response.analysisBackground,
+        delivery: response.delivery ?? 'manual',
         generatedAt: response.generatedAt,
         assetCount: holdings.length,
         answer: response.answer,
@@ -417,6 +447,7 @@ export function AnalysisPage() {
         model: response.model,
         provider: response.provider,
         snapshotHash: response.snapshotHash,
+        delivery: 'manual',
       });
       setAnalysisSuccess('已加入追問並完成分析。');
     } catch (error) {
@@ -471,52 +502,62 @@ export function AnalysisPage() {
             </button>
           </div>
 
-          <div className="asset-form-grid">
-            <label className="form-field">
-              <span>分析模型</span>
-              <select
-                value={selectedModel}
-                onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
-                disabled={isAnalyzing}
-              >
-                {analysisModelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label} · {option.hint}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {isInteractiveCategory ? (
+            <>
+              <div className="asset-form-grid">
+                <label className="form-field">
+                  <span>分析模型</span>
+                  <select
+                    value={selectedModel}
+                    onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
+                    disabled={isAnalyzing}
+                  >
+                    {analysisModelOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label} · {option.hint}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
-            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <span>對話內容</span>
-              <textarea
-                value={analysisQuestion}
-                onChange={(event) =>
-                  setAnalysisQuestionByCategory((current) => ({
-                    ...current,
-                    [selectedCategory]: event.target.value,
-                  }))
-                }
-                placeholder={selectedCategoryOption.questionPlaceholder}
-                rows={4}
-                disabled={isAnalyzing}
-              />
-            </label>
-          </div>
+                <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+                  <span>對話內容</span>
+                  <textarea
+                    value={analysisQuestion}
+                    onChange={(event) =>
+                      setAnalysisQuestionByCategory((current) => ({
+                        ...current,
+                        [selectedCategory]: event.target.value,
+                      }))
+                    }
+                    placeholder={selectedCategoryOption.questionPlaceholder}
+                    rows={4}
+                    disabled={isAnalyzing}
+                  />
+                </label>
+              </div>
 
-          <div className="button-row">
-            <button
-              className="button button-primary"
-              type="button"
-              onClick={handleAnalyzePortfolio}
-              disabled={!canAnalyze}
-            >
-              {isAnalyzing ? '分析中...' : hasAnalysis ? '重新分析我的組合' : '分析我的組合'}
-            </button>
-            <Link className="button button-secondary" to="/assets">
-              檢查資產資料
-            </Link>
-          </div>
+              <div className="button-row">
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={handleAnalyzePortfolio}
+                  disabled={!canAnalyze}
+                >
+                  {isAnalyzing ? '分析中...' : hasAnalysis ? '重新分析我的組合' : '分析我的組合'}
+                </button>
+                <Link className="button button-secondary" to="/assets">
+                  檢查資產資料
+                </Link>
+              </div>
+            </>
+          ) : (
+            <p className="status-message">
+              {selectedCategory === 'asset_analysis'
+                ? '每月 1 日香港時間上午 8:00 自動生成一次資產分析。'
+                : '每季首日香港時間上午 8:00 自動生成一次資產報告。'}
+            </p>
+          )}
         </div>
       </section>
 
@@ -623,7 +664,7 @@ export function AnalysisPage() {
             </div>
           </div>
 
-          {(selectedCategory === 'asset_analysis' || selectedCategory === 'general_question') && activeConversation.length > 0 ? (
+          {isInteractiveCategory && activeConversation.length > 0 ? (
             <div className="analysis-follow-up-card">
               <div className="section-heading">
                 <div>
@@ -684,7 +725,7 @@ export function AnalysisPage() {
         <div className="section-heading">
           <div>
             <p className="eyebrow">History</p>
-            <h2>{selectedCategoryOption.label}對話紀錄</h2>
+            <h2>{selectedCategory === 'general_question' ? `${selectedCategoryOption.label}對話紀錄` : `${selectedCategoryOption.label}紀錄`}</h2>
           </div>
         </div>
 
@@ -705,6 +746,7 @@ export function AnalysisPage() {
                     model: session.model,
                     analysisQuestion: session.question,
                     analysisBackground: savedPromptSettings[session.category],
+                    delivery: session.delivery ?? 'manual',
                     generatedAt: session.updatedAt,
                     assetCount: holdings.length,
                     answer: session.result,
@@ -727,13 +769,16 @@ export function AnalysisPage() {
                   <p>{session.question}</p>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <strong>{session.model}</strong>
-                  <p>{formatAnalysisTime(session.updatedAt)}</p>
-                </div>
-              </button>
+                    <strong>
+                      {session.model}
+                      {session.delivery === 'scheduled' ? ' · 自動' : ''}
+                    </strong>
+                    <p>{formatAnalysisTime(session.updatedAt)}</p>
+                  </div>
+                </button>
             ))
           ) : (
-            <p className="status-message">未有此分類的對話紀錄。</p>
+            <p className="status-message">未有此分類的分析紀錄。</p>
           )}
         </div>
       </section>

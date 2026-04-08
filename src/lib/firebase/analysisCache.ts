@@ -36,6 +36,7 @@ function normalizeCachedAnalysis(
           : '',
     analysisBackground:
       typeof value.analysisBackground === 'string' ? value.analysisBackground : '',
+    delivery: value.delivery === 'scheduled' ? 'scheduled' : 'manual',
     generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : '',
     assetCount: typeof value.assetCount === 'number' ? value.assetCount : 0,
     answer: typeof value.answer === 'string' ? value.answer : '',

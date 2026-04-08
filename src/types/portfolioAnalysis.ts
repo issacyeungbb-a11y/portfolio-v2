@@ -58,6 +58,7 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
   snapshotHash: string;
   analysisQuestion: string;
   analysisBackground: string;
+  delivery?: 'manual' | 'scheduled';
   generatedAt: string;
 }
 
@@ -69,6 +70,7 @@ export interface CachedPortfolioAnalysis extends PortfolioAnalysisResult {
   model: string;
   analysisQuestion: string;
   analysisBackground: string;
+  delivery?: 'manual' | 'scheduled';
   generatedAt: string;
   assetCount: number;
 }

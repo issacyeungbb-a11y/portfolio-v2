@@ -126,7 +126,7 @@ function sanitizeAssetType(value: unknown): AssetType | null {
   return null;
 }
 
-function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
+export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   if (typeof payload !== 'object' || payload === null) {
     throw new AnalyzePortfolioError('投資組合分析請求格式不正確。', 400);
   }
@@ -347,7 +347,7 @@ Category: 分析資產
   `.trim();
 }
 
-function buildPrompt(request: PortfolioAnalysisRequest) {
+export function buildPrompt(request: PortfolioAnalysisRequest) {
   return `
 You are a portfolio analysis assistant.
 
@@ -488,10 +488,10 @@ export function getAnalyzePortfolioErrorResponse(error: unknown) {
   };
 }
 
-export async function analyzePortfolio(
-  payload: unknown,
+export async function runPortfolioAnalysisRequest(
+  request: PortfolioAnalysisRequest,
+  options?: { delivery?: 'manual' | 'scheduled' },
 ): Promise<PortfolioAnalysisResponse> {
-  const request = normalizeAnalysisRequest(payload);
   const prompt = buildPrompt(request);
   const provider = getModelProvider(request.analysisModel);
   const resolvedModel =
@@ -515,7 +515,15 @@ export async function analyzePortfolio(
     snapshotHash: request.snapshotHash,
     analysisQuestion: request.analysisQuestion,
     analysisBackground: request.analysisBackground,
+    delivery: options?.delivery ?? 'manual',
     generatedAt: new Date().toISOString(),
     ...result,
   };
+}
+
+export async function analyzePortfolio(
+  payload: unknown,
+): Promise<PortfolioAnalysisResponse> {
+  const request = normalizeAnalysisRequest(payload);
+  return runPortfolioAnalysisRequest(request, { delivery: 'manual' });
 }

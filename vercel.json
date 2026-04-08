@@ -15,6 +15,14 @@
     {
       "path": "/api/cron-capture-snapshot",
       "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/cron-monthly-analysis",
+      "schedule": "0 0 1 * *"
+    },
+    {
+      "path": "/api/cron-quarterly-report",
+      "schedule": "0 0 1 1,4,7,10 *"
     }
   ]
 }
