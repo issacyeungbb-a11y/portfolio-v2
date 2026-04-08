@@ -58,6 +58,7 @@ export interface AssetTransactionEntry {
   symbol: string;
   assetType: AssetType;
   accountSource: AccountSource;
+  settlementAccountSource?: AccountSource;
   transactionType: AssetTransactionType;
   quantity: number;
   price: number;

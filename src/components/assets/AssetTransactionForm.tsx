@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { formatCurrencyRounded, getAccountSourceLabel, getAssetTypeLabel } from '../../data/mockPortfolio';
-import type { AssetTransactionEntry, Holding } from '../../types/portfolio';
+import type { AccountSource, AssetTransactionEntry, Holding } from '../../types/portfolio';
 
 interface AssetTransactionFormProps {
   holding: Holding;
@@ -32,7 +32,11 @@ export function AssetTransactionForm({
   isDeleting = false,
   error = null,
 }: AssetTransactionFormProps) {
+  const accountSourceOptions: AccountSource[] = ['Futu', 'IB', 'Crypto', 'Other'];
   const [transactionType, setTransactionType] = useState<'buy' | 'sell'>(initialValue?.transactionType ?? 'buy');
+  const [settlementAccountSource, setSettlementAccountSource] = useState<AccountSource>(
+    initialValue?.settlementAccountSource ?? initialValue?.accountSource ?? holding.accountSource,
+  );
   const [quantity, setQuantity] = useState('');
   const [price, setPrice] = useState(
     String(initialValue?.price ?? holding.currentPrice ?? holding.averageCost ?? ''),
@@ -43,6 +47,9 @@ export function AssetTransactionForm({
 
   useEffect(() => {
     setTransactionType(initialValue?.transactionType ?? 'buy');
+    setSettlementAccountSource(
+      initialValue?.settlementAccountSource ?? initialValue?.accountSource ?? holding.accountSource,
+    );
     setQuantity(initialValue?.quantity != null ? String(initialValue.quantity) : '');
     setPrice(String(initialValue?.price ?? holding.currentPrice ?? holding.averageCost ?? ''));
     setFees(String(initialValue?.fees ?? 0));
@@ -53,6 +60,8 @@ export function AssetTransactionForm({
     holding.currentPrice,
     holding.averageCost,
     initialValue?.transactionType,
+    initialValue?.settlementAccountSource,
+    initialValue?.accountSource,
     initialValue?.quantity,
     initialValue?.price,
     initialValue?.fees,
@@ -76,6 +85,7 @@ export function AssetTransactionForm({
         symbol: holding.symbol,
         assetType: holding.assetType,
         accountSource: holding.accountSource,
+        settlementAccountSource,
         transactionType,
         quantity: quantityValue,
         price: priceValue,
@@ -126,6 +136,21 @@ export function AssetTransactionForm({
               onChange={(event) => setDate(event.target.value)}
               disabled={isSubmitting}
             />
+          </label>
+
+          <label className="form-field">
+            <span>現金去向賬戶</span>
+            <select
+              value={settlementAccountSource}
+              onChange={(event) => setSettlementAccountSource(event.target.value as AccountSource)}
+              disabled={isSubmitting}
+            >
+              {accountSourceOptions.map((option) => (
+                <option key={option} value={option}>
+                  {getAccountSourceLabel(option)}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="form-field">
@@ -187,6 +212,11 @@ export function AssetTransactionForm({
             <small>
               毛額 {formatCurrencyRounded(grossAmount, holding.currency)} · 手續費 {formatCurrencyRounded(feesValue, holding.currency)}
             </small>
+          </div>
+          <div className="derived-card">
+            <span>現金流向</span>
+            <strong>{getAccountSourceLabel(settlementAccountSource)}</strong>
+            <small>{transactionType === 'buy' ? '買入會扣減現金' : '賣出會增加現金'}</small>
           </div>
         </div>
 

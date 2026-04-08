@@ -97,10 +97,12 @@ export function AssetInputForm({
   const quantity = Number(form.quantity) || 0;
   const averageCost = Number(form.averageCost) || 0;
   const currentPrice = Number(form.currentPrice) || 0;
-  const marketValue = quantity * currentPrice;
-  const costBasis = quantity * averageCost;
-  const unrealizedPnl = marketValue - costBasis;
-  const unrealizedPct = costBasis === 0 ? 0 : (unrealizedPnl / costBasis) * 100;
+  const isCashAsset = form.assetType === 'cash';
+  const cashAmount = currentPrice || averageCost || quantity;
+  const marketValue = isCashAsset ? cashAmount : quantity * currentPrice;
+  const costBasis = isCashAsset ? cashAmount : quantity * averageCost;
+  const unrealizedPnl = isCashAsset ? 0 : marketValue - costBasis;
+  const unrealizedPct = isCashAsset || costBasis === 0 ? 0 : (unrealizedPnl / costBasis) * 100;
   const displayCurrency = form.currency.trim().toUpperCase() || 'HKD';
 
   function updateField<K extends keyof AssetFormState>(key: K, value: AssetFormState[K]) {
@@ -117,9 +119,9 @@ export function AssetInputForm({
         assetType: form.assetType,
         accountSource: form.accountSource,
         currency: displayCurrency,
-        quantity,
-        averageCost,
-        currentPrice,
+        quantity: isCashAsset ? 1 : quantity,
+        averageCost: isCashAsset ? cashAmount : averageCost,
+        currentPrice: isCashAsset ? cashAmount : currentPrice,
       });
 
       if (!initialValue) {
@@ -210,47 +212,69 @@ export function AssetInputForm({
             />
           </label>
 
-          <label className="form-field">
-            <span>持倉數量</span>
-            <input
-              required
-              disabled={isSubmitting}
-              min="0"
-              step="any"
-              type="number"
-              value={form.quantity}
-              onChange={(event) => updateField('quantity', event.target.value)}
-              placeholder="例如 10"
-            />
-          </label>
+          {isCashAsset ? (
+            <label className="form-field">
+              <span>現金金額</span>
+              <input
+                required
+                disabled={isSubmitting}
+                min="0"
+                step="any"
+                type="number"
+                value={form.currentPrice}
+                onChange={(event) => {
+                  updateField('currentPrice', event.target.value);
+                  updateField('averageCost', event.target.value);
+                  updateField('quantity', '1');
+                }}
+                placeholder="例如 5000"
+              />
+            </label>
+          ) : (
+            <>
+              <label className="form-field">
+                <span>持倉數量</span>
+                <input
+                  required
+                  disabled={isSubmitting}
+                  min="0"
+                  step="any"
+                  type="number"
+                  value={form.quantity}
+                  onChange={(event) => updateField('quantity', event.target.value)}
+                  placeholder="例如 10"
+                />
+              </label>
 
-          <label className="form-field">
-            <span>平均成本</span>
-            <input
-              required
-              disabled={isSubmitting}
-              min="0"
-              step="any"
-              type="number"
-              value={form.averageCost}
-              onChange={(event) => updateField('averageCost', event.target.value)}
-              placeholder="例如 184.9"
-            />
-          </label>
+              <label className="form-field">
+                <span>平均成本</span>
+                <input
+                  required
+                  disabled={isSubmitting}
+                  min="0"
+                  step="any"
+                  type="number"
+                  value={form.averageCost}
+                  onChange={(event) => updateField('averageCost', event.target.value)}
+                  placeholder="例如 184.9"
+                />
+              </label>
 
-          <label className="form-field">
-            <span>現價</span>
-            <input
-              required
-              disabled={isSubmitting}
-              min="0"
-              step="any"
-              type="number"
-              value={form.currentPrice}
-              onChange={(event) => updateField('currentPrice', event.target.value)}
-              placeholder="例如 198.4"
-            />
-          </label>
+              <label className="form-field">
+                <span>現價</span>
+                <input
+                  required
+                  disabled={isSubmitting}
+                  min="0"
+                  step="any"
+                  type="number"
+                  value={form.currentPrice}
+                  onChange={(event) => updateField('currentPrice', event.target.value)}
+                  placeholder="例如 198.4"
+                />
+              </label>
+            </>
+          )}
 
         </div>
 
@@ -260,11 +284,11 @@ export function AssetInputForm({
             <strong>{formatCurrencyRounded(marketValue, displayCurrency)}</strong>
           </div>
           <div className="derived-card">
-            <span>預估損益</span>
+            <span>{isCashAsset ? '現金狀態' : '預估損益'}</span>
             <strong data-tone={unrealizedPnl >= 0 ? 'positive' : 'caution'}>
-              {formatCurrencyRounded(unrealizedPnl, displayCurrency)}
+              {isCashAsset ? '現金資產' : formatCurrencyRounded(unrealizedPnl, displayCurrency)}
             </strong>
-            <small>{formatPercent(unrealizedPct)}</small>
+            <small>{isCashAsset ? '不計持倉成本與股數' : formatPercent(unrealizedPct)}</small>
           </div>
           <div className="derived-card">
             <span>資料預覽</span>

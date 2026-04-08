@@ -210,6 +210,7 @@ export function HoldingsTable({
               );
               const marketValue = getHoldingValueInCurrency(holding, displayCurrency);
               const costValue = getHoldingCostInCurrency(holding, displayCurrency);
+              const isCashHolding = holding.assetType === 'cash';
 
               return (
                 <tr key={holding.id}>
@@ -224,7 +225,9 @@ export function HoldingsTable({
                       <strong className="table-metric-primary">
                         {hasPendingPrice ? '待更新' : formatCurrencyRounded(marketValue, displayCurrency)}
                       </strong>
-                      <span className="table-metric-secondary">{holding.quantity}</span>
+                      <span className="table-metric-secondary">
+                        {isCashHolding ? `${holding.currency} 現金` : holding.quantity}
+                      </span>
                     </div>
                   </td>
                   <td>
@@ -233,12 +236,19 @@ export function HoldingsTable({
                         {hasPendingPrice ? '待更新' : formatCurrency(currentPrice, displayCurrency)}
                       </strong>
                       <span className="table-metric-secondary">
-                        {formatCurrency(averageCost, displayCurrency)}
+                        {isCashHolding ? '現金金額' : formatCurrency(averageCost, displayCurrency)}
                       </span>
                     </div>
                   </td>
                   <td>
-                    {renderPnlMetric(marketValue, costValue, hasPendingPrice)}
+                    {isCashHolding ? (
+                      <div className="table-metric">
+                        <strong className="table-metric-primary">--</strong>
+                        <span className="table-metric-secondary">現金不計損益</span>
+                      </div>
+                    ) : (
+                      renderPnlMetric(marketValue, costValue, hasPendingPrice)
+                    )}
                   </td>
                   <td>{holding.allocation.toFixed(1)}%</td>
                   <td>
@@ -263,7 +273,7 @@ export function HoldingsTable({
                         className="button button-secondary table-action-button"
                         type="button"
                         onClick={() => onTrade?.(holding)}
-                        disabled={!onTrade || isUpdating}
+                        disabled={!onTrade || isUpdating || isCashHolding}
                       >
                         交易
                       </button>

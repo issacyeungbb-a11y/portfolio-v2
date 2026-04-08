@@ -28,15 +28,39 @@ function createMissingConfigError() {
 }
 
 function normalizePortfolioAssetInput(payload: PortfolioAssetInput): PortfolioAssetInput {
+  const normalizedCurrency = payload.currency.trim().toUpperCase();
+  const normalizedQuantity = Number(payload.quantity) || 0;
+  const normalizedAverageCost = Number(payload.averageCost) || 0;
+  const normalizedCurrentPrice = Number(payload.currentPrice) || 0;
+
+  if (payload.assetType === 'cash') {
+    const cashAmount =
+      normalizedCurrentPrice ||
+      normalizedAverageCost ||
+      normalizedQuantity ||
+      0;
+
+    return {
+      name: payload.name.trim(),
+      symbol: payload.symbol.trim().toUpperCase(),
+      assetType: payload.assetType,
+      accountSource: payload.accountSource,
+      currency: normalizedCurrency,
+      quantity: 1,
+      averageCost: cashAmount,
+      currentPrice: cashAmount,
+    };
+  }
+
   return {
     name: payload.name.trim(),
     symbol: payload.symbol.trim().toUpperCase(),
     assetType: payload.assetType,
     accountSource: payload.accountSource,
-    currency: payload.currency.trim().toUpperCase(),
-    quantity: Number(payload.quantity) || 0,
-    averageCost: Number(payload.averageCost) || 0,
-    currentPrice: Number(payload.currentPrice) || 0,
+    currency: normalizedCurrency,
+    quantity: normalizedQuantity,
+    averageCost: normalizedAverageCost,
+    currentPrice: normalizedCurrentPrice,
   };
 }
 
@@ -67,8 +91,14 @@ export function buildHoldingFromInput(
     priceAsOf: formatTimestamp(payload.priceAsOf),
     lastPriceUpdatedAt: formatTimestamp(payload.lastPriceUpdatedAt),
   });
-  const marketValue = normalized.quantity * effectiveCurrentPrice;
-  const costBasis = normalized.quantity * normalized.averageCost;
+  const marketValue =
+    normalized.assetType === 'cash'
+      ? effectiveCurrentPrice
+      : normalized.quantity * effectiveCurrentPrice;
+  const costBasis =
+    normalized.assetType === 'cash'
+      ? normalized.averageCost
+      : normalized.quantity * normalized.averageCost;
   const unrealizedPnl = marketValue - costBasis;
   const unrealizedPct = costBasis === 0 ? 0 : (unrealizedPnl / costBasis) * 100;
 

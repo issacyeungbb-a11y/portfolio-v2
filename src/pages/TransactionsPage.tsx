@@ -183,6 +183,8 @@ export function TransactionsPage() {
                       {entry.note ? ` · ${entry.note}` : ''}
                     </p>
                     <p>
+                      現金賬戶 {getAccountSourceLabel(entry.settlementAccountSource ?? entry.accountSource)} ·
+                      {' '}
                       交易後持倉 {entry.quantityAfter ?? 0} · 平均成本 {formatCurrency(entry.averageCostAfter ?? 0, entry.currency)}
                     </p>
                   </div>

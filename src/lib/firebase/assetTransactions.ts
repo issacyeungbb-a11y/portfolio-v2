@@ -106,6 +106,10 @@ function normalizeAssetTransaction(
     symbol: sanitizeString(value.symbol).toUpperCase(),
     assetType: sanitizeAssetType(value.assetType),
     accountSource: sanitizeAccountSource(value.accountSource),
+    settlementAccountSource:
+      value.settlementAccountSource == null
+        ? undefined
+        : sanitizeAccountSource(value.settlementAccountSource),
     transactionType: sanitizeTransactionType(value.transactionType),
     quantity: sanitizeNumber(value.quantity),
     price: sanitizeNumber(value.price),
@@ -129,6 +133,7 @@ function toLedgerTransaction(entry: AssetTransactionEntry): LedgerTransaction {
     symbol: entry.symbol,
     assetType: entry.assetType,
     accountSource: entry.accountSource,
+    settlementAccountSource: entry.settlementAccountSource,
     transactionType: entry.transactionType,
     quantity: entry.quantity,
     price: entry.price,
@@ -193,6 +198,94 @@ function buildSeedPayload(holding: Holding): LedgerTransaction | null {
     note: '歷史持倉基線',
     recordType: 'seed',
   };
+}
+
+function getTransactionSettlementAccountSource(entry: Pick<LedgerTransaction, 'settlementAccountSource' | 'accountSource'>) {
+  return entry.settlementAccountSource ?? entry.accountSource;
+}
+
+function calculateCashDelta(entry: Pick<LedgerTransaction, 'recordType' | 'transactionType' | 'quantity' | 'price' | 'fees'>) {
+  if (entry.recordType !== 'trade') {
+    return 0;
+  }
+
+  const grossAmount = entry.quantity * entry.price;
+
+  return entry.transactionType === 'buy'
+    ? -(grossAmount + entry.fees)
+    : grossAmount - entry.fees;
+}
+
+async function findCashHoldingForAccount(accountSource: AccountSource, currency: string) {
+  const snapshot = await getDocs(query(getSharedAssetsCollectionRef(), orderBy('updatedAt', 'desc')));
+
+  for (const entry of snapshot.docs) {
+    const holding = buildHoldingFromInput(entry.id, entry.data() as unknown as Holding);
+    if (
+      holding.assetType === 'cash' &&
+      holding.accountSource === accountSource &&
+      holding.currency === currency &&
+      !holding.archivedAt
+    ) {
+      return holding;
+    }
+  }
+
+  return null;
+}
+
+async function adjustCashHoldingBalance(
+  accountSource: AccountSource,
+  currency: string,
+  deltaAmount: number,
+) {
+  if (Math.abs(deltaAmount) < 1e-9) {
+    return;
+  }
+
+  const normalizedCurrency = currency.trim().toUpperCase() || 'HKD';
+  const existingCashHolding = await findCashHoldingForAccount(accountSource, normalizedCurrency);
+
+  if (!existingCashHolding) {
+    await addDoc(getSharedAssetsCollectionRef(), {
+      name: `${accountSource} ${normalizedCurrency} 現金`,
+      symbol: `CASH-${accountSource}-${normalizedCurrency}`,
+      assetType: 'cash',
+      accountSource,
+      currency: normalizedCurrency,
+      quantity: 1,
+      averageCost: deltaAmount,
+      currentPrice: deltaAmount,
+      lastPriceUpdatedAt: serverTimestamp(),
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const nextAmount = existingCashHolding.currentPrice + deltaAmount;
+
+  await updateDoc(doc(getSharedAssetsCollectionRef(), existingCashHolding.id), {
+    quantity: 1,
+    averageCost: nextAmount,
+    currentPrice: nextAmount,
+    lastPriceUpdatedAt: serverTimestamp(),
+    archivedAt: deleteField(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
+async function applyCashSettlementDelta(entry: LedgerTransaction, multiplier: 1 | -1) {
+  const deltaAmount = calculateCashDelta(entry) * multiplier;
+  if (Math.abs(deltaAmount) < 1e-9) {
+    return;
+  }
+
+  await adjustCashHoldingBalance(
+    getTransactionSettlementAccountSource(entry),
+    entry.currency,
+    deltaAmount,
+  );
 }
 
 async function listTransactionsForAsset(assetId: string) {
@@ -382,6 +475,7 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
     symbol: entry.symbol.trim().toUpperCase(),
     assetType: entry.assetType,
     accountSource: entry.accountSource,
+    settlementAccountSource: entry.settlementAccountSource ?? entry.accountSource,
     transactionType: entry.transactionType,
     recordType: 'trade',
     quantity: Number(entry.quantity) || 0,
@@ -398,6 +492,14 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
   });
 
   await rebuildAssetFromTransactions(entry.assetId);
+  await applyCashSettlementDelta(
+    {
+      ...entry,
+      settlementAccountSource: entry.settlementAccountSource ?? entry.accountSource,
+      recordType: 'trade',
+    },
+    1,
+  );
 }
 
 export async function updateAssetTransaction(
@@ -420,8 +522,11 @@ export async function updateAssetTransaction(
     transactionSnapshot.data() as Record<string, unknown>,
   );
 
+  const previousLedgerEntry = toLedgerTransaction(existing);
+
   await updateDoc(transactionRef, {
     transactionType: entry.transactionType,
+    settlementAccountSource: entry.settlementAccountSource ?? entry.accountSource,
     quantity: Number(entry.quantity) || 0,
     price: Number(entry.price) || 0,
     fees: Number(entry.fees) || 0,
@@ -431,6 +536,15 @@ export async function updateAssetTransaction(
   });
 
   await rebuildAssetFromTransactions(existing.assetId);
+  await applyCashSettlementDelta(previousLedgerEntry, -1);
+  await applyCashSettlementDelta(
+    {
+      ...entry,
+      settlementAccountSource: entry.settlementAccountSource ?? entry.accountSource,
+      recordType: existing.recordType ?? 'trade',
+    },
+    1,
+  );
 }
 
 export async function deleteAssetTransaction(entryId: string) {
@@ -450,6 +564,9 @@ export async function deleteAssetTransaction(entryId: string) {
     transactionSnapshot.data() as Record<string, unknown>,
   );
 
+  const previousLedgerEntry = toLedgerTransaction(existing);
+
   await deleteDoc(transactionRef);
   await rebuildAssetFromTransactions(existing.assetId);
+  await applyCashSettlementDelta(previousLedgerEntry, -1);
 }

@@ -313,6 +313,10 @@ export function getHoldingValueInCurrency(holding: Holding, currency: string) {
 }
 
 export function getHoldingCostInCurrency(holding: Holding, currency: string) {
+  if (holding.assetType === 'cash') {
+    return getHoldingValueInCurrency(holding, currency);
+  }
+
   return convertCurrency(holding.quantity * holding.averageCost, holding.currency, currency);
 }
 
