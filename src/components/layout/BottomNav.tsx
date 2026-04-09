@@ -12,7 +12,11 @@ interface BottomNavProps {
 
 export function BottomNav({ items }: BottomNavProps) {
   return (
-    <nav className="bottom-nav" aria-label="主要導覽">
+    <nav
+      className="bottom-nav"
+      aria-label="主要導覽"
+      style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+    >
       {items.map((item) => (
         <NavLink
           key={item.to}

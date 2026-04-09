@@ -31,6 +31,11 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      match /quarterlyReports/{reportId} {
+        allow read, create, update: if true;
+        allow delete: if false;
+      }
+
       match /analysisSettings/{settingId} {
         allow read, create, update: if true;
         allow delete: if false;

@@ -2236,6 +2236,81 @@ h3 {
   margin: 0;
 }
 
+.quarterly-hero {
+  align-items: start;
+}
+
+.quarterly-list-card,
+.quarterly-viewer-card {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.quarterly-report-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.quarterly-report-row {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 1.35rem;
+  background: rgba(255, 252, 248, 0.72);
+}
+
+.quarterly-report-row.active {
+  border-color: rgba(15, 118, 110, 0.24);
+  background: rgba(239, 249, 247, 0.74);
+}
+
+.quarterly-report-row-main {
+  display: grid;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.quarterly-report-row-main strong {
+  font-size: 1rem;
+}
+
+.quarterly-report-row-main p {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.quarterly-report-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.quarterly-report-body {
+  display: grid;
+  gap: 1rem;
+}
+
+.quarterly-report-section {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.quarterly-report-section h3 {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.quarterly-report-section p {
+  line-height: 1.8;
+  color: var(--text-main);
+}
+
 .bottom-nav {
   position: fixed;
   left: 0;
@@ -2441,6 +2516,15 @@ h3 {
   .analysis-meta-grid,
   .analysis-result-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quarterly-report-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .quarterly-report-actions {
+    justify-content: flex-end;
   }
 
   .allocation-visual-layout {

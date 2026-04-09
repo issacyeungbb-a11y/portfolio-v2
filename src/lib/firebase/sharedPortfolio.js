@@ -43,6 +43,10 @@ export function getSharedAnalysisSessionsCollectionRef() {
     const db = getRequiredFirebaseDb();
     return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'analysisSessions');
 }
+export function getSharedQuarterlyReportsCollectionRef() {
+    const db = getRequiredFirebaseDb();
+    return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'quarterlyReports');
+}
 export function getSharedAnalysisSettingsDocRef(settingId = 'prompts') {
     const db = getRequiredFirebaseDb();
     return doc(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'analysisSettings', settingId);

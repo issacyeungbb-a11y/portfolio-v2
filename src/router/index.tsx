@@ -7,6 +7,7 @@ import { DashboardPage } from '../pages/DashboardPage';
 import { FundsPage } from '../pages/FundsPage';
 import { ImportPage } from '../pages/ImportPage';
 import { AssetTrendsPage } from '../pages/AssetTrendsPage';
+import { QuarterlyReportPage } from '../pages/QuarterlyReportPage';
 import { TransactionsPage } from '../pages/TransactionsPage';
 
 export const router = createBrowserRouter([
@@ -47,6 +48,13 @@ export const router = createBrowserRouter([
         element: <AnalysisPage />,
         handle: {
           title: 'AI 分析',
+        },
+      },
+      {
+        path: 'quarterly',
+        element: <QuarterlyReportPage />,
+        handle: {
+          title: '季度報告',
         },
       },
       {

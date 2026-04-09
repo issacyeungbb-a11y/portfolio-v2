@@ -536,6 +536,7 @@ async function saveQuarterlyReport(params: {
       searchSummary: params.searchSummary,
       model: params.model,
       provider: params.provider,
+      pdfUrl: '',
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
