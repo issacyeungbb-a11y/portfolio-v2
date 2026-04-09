@@ -12,6 +12,7 @@ import type { AssetType } from '../src/types/portfolio';
 const UPDATE_PRICES_ROUTE = '/api/update-prices' as const;
 const DEFAULT_PRICE_MODEL = 'gemini-2.5-flash-lite';
 const DEFAULT_REVIEW_THRESHOLD = 0.15;
+const DEFAULT_CRYPTO_REVIEW_THRESHOLD = 0.3;
 const PRICE_UPDATE_BATCH_SIZE = 4;
 const DEFAULT_MIN_AUTO_APPLY_CONFIDENCE = 0.6;
 
@@ -32,6 +33,19 @@ function getPriceUpdateModel() {
 function getReviewThreshold() {
   const raw = Number(process.env.PRICE_UPDATE_REVIEW_THRESHOLD_PCT);
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REVIEW_THRESHOLD;
+}
+
+function getCryptoReviewThreshold() {
+  const raw = Number(process.env.PRICE_UPDATE_CRYPTO_THRESHOLD_PCT);
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CRYPTO_REVIEW_THRESHOLD;
+}
+
+function getReviewThresholdForAsset(assetType: AssetType) {
+  if (assetType === 'crypto') {
+    return getCryptoReviewThreshold();
+  }
+
+  return getReviewThreshold();
 }
 
 function getMinAutoApplyConfidence() {
@@ -346,6 +360,7 @@ function detectFailureCategory(params: {
 }) {
   const { asset, matched, nextPrice, staleQuote, diffPct } = params;
   const minimumConfidence = getMinAutoApplyConfidence();
+  const reviewThreshold = getReviewThresholdForAsset(asset.assetType);
   const sourceText = `${matched?.sourceName ?? ''} ${matched?.sourceUrl ?? ''}`.toLowerCase();
 
   if (sourceText.includes('格式不正確') || sourceText.includes('補查失敗')) {
@@ -372,7 +387,7 @@ function detectFailureCategory(params: {
     return 'confidence_low' as const;
   }
 
-  if (diffPct >= getReviewThreshold()) {
+  if (diffPct >= reviewThreshold) {
     return 'diff_too_large' as const;
   }
 
@@ -643,7 +658,7 @@ function getQuoteFreshnessWindowMs(assetType: AssetType) {
     return 36 * 60 * 60 * 1000;
   }
 
-  return 4 * 24 * 60 * 60 * 1000;
+  return 2 * 24 * 60 * 60 * 1000;
 }
 
 function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
@@ -761,10 +776,10 @@ function buildReviewResults(
   requestedAssets: PriceUpdateRequestAsset[],
   modelResults: PriceUpdateModelResult[],
 ): PendingPriceUpdateReview[] {
-  const threshold = getReviewThreshold();
   const minimumConfidence = getMinAutoApplyConfidence();
 
   return requestedAssets.map((asset, index) => {
+    const threshold = getReviewThresholdForAsset(asset.assetType);
     const matched =
       modelResults.find(
         (item) =>

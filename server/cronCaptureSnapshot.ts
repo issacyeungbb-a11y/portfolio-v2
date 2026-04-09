@@ -100,6 +100,29 @@ function isSoftPendingCategory(category: PendingPriceUpdateReview['failureCatego
   );
 }
 
+function parseReviewUpdatedAt(value: unknown) {
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'toDate' in value &&
+    typeof (value as { toDate?: unknown }).toDate === 'function'
+  ) {
+    const parsed = (value as { toDate: () => Date }).toDate();
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
+}
+
 async function verifyAssetsReadyForDailySnapshot() {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection('portfolio').doc('app');
@@ -121,10 +144,19 @@ async function verifyAssetsReadyForDailySnapshot() {
     return {
       assetId: document.id,
       failureCategory: sanitizeFailureCategory(data.failureCategory),
+      updatedAt: parseReviewUpdatedAt(data.updatedAt),
     };
   });
   const fallbackAssetIds = new Set(fallbackAssets.map((asset) => asset.id));
   const hardPendingReviews = pendingReviews.filter((review) => {
+    if (
+      review.failureCategory === 'diff_too_large' &&
+      review.updatedAt &&
+      Date.now() - review.updatedAt.getTime() > 7 * 24 * 60 * 60 * 1000
+    ) {
+      return false;
+    }
+
     if (!isSoftPendingCategory(review.failureCategory)) {
       return true;
     }
