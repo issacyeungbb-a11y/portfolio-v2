@@ -2,7 +2,10 @@ import { getCurrentPortfolioAccessCode } from '../access/accessCode';
 export const portfolioFunctionConfig = {
     health: { path: '/api/health', method: 'GET' },
     'extract-assets': { path: '/api/extract-assets', method: 'POST' },
+    'extract-transactions': { path: '/api/extract-transactions', method: 'POST' },
+    'manual-capture-snapshot': { path: '/api/manual-capture-snapshot', method: 'POST' },
     'parse-assets-command': { path: '/api/parse-assets-command', method: 'POST' },
+    'parse-transactions-command': { path: '/api/parse-transactions-command', method: 'POST' },
     'update-prices': { path: '/api/update-prices', method: 'POST' },
     analyze: { path: '/api/analyze', method: 'POST' },
 };
@@ -74,4 +77,7 @@ export async function callPortfolioFunction(key, payload) {
         throw new Error(message);
     }
     return data;
+}
+export async function triggerManualSnapshot() {
+    return callPortfolioFunction('manual-capture-snapshot');
 }

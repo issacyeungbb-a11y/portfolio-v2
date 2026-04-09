@@ -4,6 +4,7 @@ import { verifyCronRequest } from './cronUpdatePrices.js';
 import type { PendingPriceUpdateReview } from '../src/types/priceUpdates.js';
 
 const CRON_ROUTE = '/api/cron-capture-snapshot' as const;
+const MANUAL_ROUTE = '/api/manual-capture-snapshot' as const;
 
 class CronSnapshotError extends Error {
   status: number;
@@ -204,13 +205,24 @@ export function verifySnapshotCronRequest(authorizationHeader?: string) {
 }
 
 export async function runScheduledDailySnapshot() {
+  return runDailySnapshotWorkflow('scheduled');
+}
+
+export async function runManualDailySnapshot() {
+  return runDailySnapshotWorkflow('manual');
+}
+
+async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
   const readiness = await verifyAssetsReadyForDailySnapshot();
+  const snapshotReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot';
+  const fallbackReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot_fallback';
+  const route = mode === 'manual' ? MANUAL_ROUTE : CRON_ROUTE;
 
   if (readiness.isReady) {
     const snapshotId = buildDailySnapshotId();
     const result = await captureAdminPortfolioSnapshot({
       snapshotId,
-      reason: 'daily_snapshot',
+      reason: snapshotReason,
       snapshotQuality: 'strict',
       coveragePct: 100,
       fallbackAssetCount: 0,
@@ -218,8 +230,11 @@ export async function runScheduledDailySnapshot() {
 
     return {
       ok: true,
-      route: CRON_ROUTE,
-      message: `已建立每日資產快照，覆蓋 ${result.assetCount} 項資產。`,
+      route,
+      message:
+        mode === 'manual'
+          ? `已補生成今日資產快照，覆蓋 ${result.assetCount} 項資產。`
+          : `已建立每日資產快照，覆蓋 ${result.assetCount} 項資產。`,
       assetCount: result.assetCount,
       totalValueHKD: result.totalValueHKD,
       snapshotId,
@@ -233,7 +248,7 @@ export async function runScheduledDailySnapshot() {
     const snapshotId = buildDailySnapshotId();
     const result = await captureAdminPortfolioSnapshot({
       snapshotId,
-      reason: 'daily_snapshot_fallback',
+      reason: fallbackReason,
       snapshotQuality: 'fallback',
       coveragePct: readiness.coveragePct,
       fallbackAssetCount: readiness.missingAssetCount,
@@ -241,8 +256,11 @@ export async function runScheduledDailySnapshot() {
 
     return {
       ok: true,
-      route: CRON_ROUTE,
-      message: `已建立降級每日快照：覆蓋率 ${readiness.coveragePct}%，沿用 ${readiness.fallbackAssetCount} 項最近有效價格。`,
+      route,
+      message:
+        mode === 'manual'
+          ? `已補生成今日快照（降級）：覆蓋率 ${readiness.coveragePct}%，沿用 ${readiness.fallbackAssetCount} 項最近有效價格。`
+          : `已建立降級每日快照：覆蓋率 ${readiness.coveragePct}%，沿用 ${readiness.fallbackAssetCount} 項最近有效價格。`,
       assetCount: result.assetCount,
       totalValueHKD: result.totalValueHKD,
       snapshotId,
@@ -258,8 +276,11 @@ export async function runScheduledDailySnapshot() {
   return {
     ok: true,
     skipped: true,
-    route: CRON_ROUTE,
-    message: `已跳過每日資產快照：價格更新未完成（${readiness.readyAssets}/${readiness.totalAssets} 已更新，待處理 ${readiness.pendingReviewCount} 項）。`,
+    route,
+    message:
+      mode === 'manual'
+        ? `仍未能補生成今日快照：價格更新未完成（${readiness.readyAssets}/${readiness.totalAssets} 已更新，待處理 ${readiness.pendingReviewCount} 項）。`
+        : `已跳過每日資產快照：價格更新未完成（${readiness.readyAssets}/${readiness.totalAssets} 已更新，待處理 ${readiness.pendingReviewCount} 項）。`,
     snapshotId: null,
     assetCount: readiness.totalAssets,
     readyAssets: readiness.readyAssets,
@@ -271,13 +292,13 @@ export async function runScheduledDailySnapshot() {
   };
 }
 
-export function getCronSnapshotErrorResponse(error: unknown) {
+export function getCronSnapshotErrorResponse(error: unknown, route: string = CRON_ROUTE) {
   if (error instanceof CronSnapshotError) {
     return {
       status: error.status,
       body: {
         ok: false,
-        route: CRON_ROUTE,
+        route,
         message: error.message,
       },
     };
@@ -288,7 +309,7 @@ export function getCronSnapshotErrorResponse(error: unknown) {
       status: 500,
       body: {
         ok: false,
-        route: CRON_ROUTE,
+        route,
         message: error.message,
       },
     };
@@ -298,7 +319,7 @@ export function getCronSnapshotErrorResponse(error: unknown) {
     status: 500,
     body: {
       ok: false,
-      route: CRON_ROUTE,
+      route,
       message: '每日資產快照失敗，請稍後再試。',
     },
   };

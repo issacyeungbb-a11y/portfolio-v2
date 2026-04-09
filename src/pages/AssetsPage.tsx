@@ -9,8 +9,9 @@ import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
+import { useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
-import { callPortfolioFunction } from '../lib/api/vercelFunctions';
+import { callPortfolioFunction, triggerManualSnapshot } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
 import { HoldingsTable } from '../components/portfolio/HoldingsTable';
@@ -83,6 +84,37 @@ function getHongKongDateKey(date = new Date()) {
   }).format(date);
 }
 
+function formatSnapshotCapturedAt(value?: string) {
+  if (!value) {
+    return '';
+  }
+
+  try {
+    return new Intl.DateTimeFormat('zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+function hasPassedHongKongSnapshotDeadline(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Hong_Kong',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value ?? '0');
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? '0');
+  const currentMinutes = hour * 60 + minute;
+
+  return currentMinutes >= 23 * 60 + 30;
+}
+
 export function AssetsPage() {
   const {
     holdings: firestoreHoldings,
@@ -96,6 +128,12 @@ export function AssetsPage() {
   const { entries: accountPrincipals, error: accountPrincipalsError } = useAccountPrincipals();
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
   const { addTransaction, error: transactionsError } = useAssetTransactions();
+  const {
+    todaySnapshot,
+    status: todaySnapshotStatus,
+    error: todaySnapshotError,
+    refresh: refreshTodaySnapshot,
+  } = useTodaySnapshotStatus();
   const {
     reviews,
     error: reviewsError,
@@ -130,6 +168,9 @@ export function AssetsPage() {
   const [dismissingAssetIds, setDismissingAssetIds] = useState<string[]>([]);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionSuccess, setReviewActionSuccess] = useState<string | null>(null);
+  const [isGeneratingManualSnapshot, setIsGeneratingManualSnapshot] = useState(false);
+  const [manualSnapshotError, setManualSnapshotError] = useState<string | null>(null);
+  const [manualSnapshotSuccess, setManualSnapshotSuccess] = useState<string | null>(null);
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -216,9 +257,44 @@ export function AssetsPage() {
   const snapshotStatusLabel =
     nonCashHoldings.length === 0
       ? '未有非現金資產，毋須快照檢查'
-      : pendingPriceCount === 0 && !hasPendingReviews
-        ? '全部更新完成後會自動寫入正式快照'
-        : `尚欠 ${pendingPriceCount + reviews.length} 項，今日正式快照會暫緩`;
+      : todaySnapshot.exists
+        ? `今日快照已完成 · ${todaySnapshot.quality === 'fallback' ? '降級快照' : '正式快照'}${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
+        : pendingPriceCount === 0 && !hasPendingReviews
+          ? '全部更新完成後會自動寫入正式快照'
+          : `尚欠 ${pendingPriceCount + reviews.length} 項，今日正式快照會暫緩`;
+  const shouldShowMissingSnapshotNotice =
+    todaySnapshotStatus === 'ready' &&
+    nonCashHoldings.length > 0 &&
+    !todaySnapshot.exists &&
+    hasPassedHongKongSnapshotDeadline();
+
+  async function handleTriggerManualSnapshot() {
+    setManualSnapshotError(null);
+    setManualSnapshotSuccess(null);
+    setIsGeneratingManualSnapshot(true);
+
+    try {
+      const result = (await triggerManualSnapshot()) as {
+        ok?: boolean;
+        skipped?: boolean;
+        message?: string;
+      };
+
+      if (result.skipped) {
+        setManualSnapshotError(result.message ?? '今日快照仍未能補生成。');
+        return;
+      }
+
+      setManualSnapshotSuccess(result.message ?? '已補生成今日快照。');
+      await refreshTodaySnapshot();
+    } catch (error) {
+      setManualSnapshotError(
+        error instanceof Error ? error.message : '補生成今日快照失敗，請稍後再試。',
+      );
+    } finally {
+      setIsGeneratingManualSnapshot(false);
+    }
+  }
 
   async function handleAddHolding(payload: PortfolioAssetInput) {
     setIsSavingAsset(true);
@@ -685,8 +761,32 @@ export function AssetsPage() {
       {reviewsError ? (
         <p className="status-message status-message-error">{reviewsError}</p>
       ) : null}
+      {todaySnapshotError ? (
+        <p className="status-message status-message-error">{todaySnapshotError}</p>
+      ) : null}
       {transactionsError && !transactionError ? (
         <p className="status-message status-message-error">{transactionsError}</p>
+      ) : null}
+      {shouldShowMissingSnapshotNotice ? (
+        <div className="status-message status-message-error">
+          <p>今日快照未能自動生成，建議手動補生成以確保走勢數據完整。</p>
+          <div className="button-row">
+            <button
+              className="button button-secondary"
+              type="button"
+              onClick={handleTriggerManualSnapshot}
+              disabled={isGeneratingManualSnapshot}
+            >
+              {isGeneratingManualSnapshot ? '生成中...' : '補生成今日快照'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {manualSnapshotError ? (
+        <p className="status-message status-message-error">{manualSnapshotError}</p>
+      ) : null}
+      {manualSnapshotSuccess ? (
+        <p className="status-message status-message-success">{manualSnapshotSuccess}</p>
       ) : null}
 
       <PriceUpdateReviewPanel

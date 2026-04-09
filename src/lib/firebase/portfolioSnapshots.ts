@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -30,6 +31,15 @@ import type {
 } from '../../types/portfolio';
 
 type SnapshotReason = NonNullable<PortfolioPerformancePoint['reason']>;
+export type TodaySnapshotStatus =
+  | {
+      exists: true;
+      quality: 'strict' | 'fallback';
+      capturedAt: string;
+    }
+  | {
+      exists: false;
+    };
 
 function getHongKongDateKey(date = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -155,6 +165,10 @@ function getPortfolioSnapshotsCollectionRef() {
   );
 }
 
+function buildTodaySnapshotId(date = new Date()) {
+  return `daily-${getHongKongDateKey(date)}`;
+}
+
 async function readCurrentPortfolioHoldings() {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
@@ -204,6 +218,27 @@ export async function capturePortfolioSnapshot(params: {
     reason: params.reason ?? 'snapshot',
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function getTodaySnapshotStatus(): Promise<TodaySnapshotStatus> {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const snapshotRef = doc(getPortfolioSnapshotsCollectionRef(), buildTodaySnapshotId());
+  const snapshot = await getDoc(snapshotRef);
+
+  if (!snapshot.exists()) {
+    return { exists: false };
+  }
+
+  const data = snapshot.data() as Record<string, unknown>;
+
+  return {
+    exists: true,
+    quality: data.snapshotQuality === 'fallback' ? 'fallback' : 'strict',
+    capturedAt: formatSnapshotTimestamp(data.capturedAt),
+  };
 }
 
 export function subscribeToPortfolioSnapshots(

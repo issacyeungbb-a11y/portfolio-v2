@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import type { PortfolioPerformancePoint } from '../types/portfolio';
 import {
   getPortfolioSnapshotsErrorMessage,
+  getTodaySnapshotStatus,
   subscribeToPortfolioSnapshots,
+  type TodaySnapshotStatus,
 } from '../lib/firebase/portfolioSnapshots';
 
 type PortfolioSnapshotsStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -51,5 +53,51 @@ export function usePortfolioSnapshots() {
   return {
     ...state,
     hasHistory: state.history.length > 1,
+  };
+}
+
+interface TodaySnapshotState {
+  todaySnapshot: TodaySnapshotStatus;
+  status: 'loading' | 'ready' | 'error';
+  error: string | null;
+}
+
+export function useTodaySnapshotStatus() {
+  const [state, setState] = useState<TodaySnapshotState>({
+    todaySnapshot: { exists: false },
+    status: 'loading',
+    error: null,
+  });
+
+  const refresh = useCallback(async () => {
+    setState((current) => ({
+      todaySnapshot: current.todaySnapshot,
+      status: 'loading',
+      error: null,
+    }));
+
+    try {
+      const todaySnapshot = await getTodaySnapshotStatus();
+      setState({
+        todaySnapshot,
+        status: 'ready',
+        error: null,
+      });
+    } catch (error) {
+      setState({
+        todaySnapshot: { exists: false },
+        status: 'error',
+        error: getPortfolioSnapshotsErrorMessage(error),
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return {
+    ...state,
+    refresh,
   };
 }
