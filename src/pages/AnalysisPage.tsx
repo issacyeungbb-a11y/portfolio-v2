@@ -1,13 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { jsPDF } from 'jspdf';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+
 import { getHoldingValueInCurrency, mockPortfolio } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
 import { useAnalysisSettings } from '../hooks/useAnalysisSettings';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
-import { callPortfolioFunction } from '../lib/api/vercelFunctions';
+import { storage } from '../lib/firebase/client';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
+import {
+  getQuarterlyReportsErrorMessage,
+  subscribeToQuarterlyReports,
+  updateQuarterlyReportPdfUrl,
+  type QuarterlyReport,
+} from '../lib/firebase/quarterlyReports';
+import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import {
   buildPortfolioAnalysisRequest,
   createPortfolioAnalysisCacheKey,
@@ -29,6 +39,22 @@ type ConversationTurn = {
   model: string;
 };
 
+const REPORT_SECTION_TITLES = [
+  '【季度總覽】',
+  '【資產配置分佈】',
+  '【幣別曝險】',
+  '【重點持倉分析】',
+  '【季度對比摘要】',
+  '【主要風險與集中度】',
+  '【下季觀察重點】',
+] as const;
+
+const REPORT_SECTION_TITLE_SET = new Set<string>(REPORT_SECTION_TITLES);
+const NOTO_FONT_CANDIDATE_URLS = [
+  'https://cdn.jsdelivr.net/npm/noto-cjk-base64@latest/dist/NotoSansCJKtc-Regular-normal.js',
+  'https://cdn.jsdelivr.net/npm/noto-cjk-base64@latest/dist/NotoSansTC-Regular-normal.js',
+] as const;
+
 const analysisCategoryOptions: Array<{
   value: AnalysisCategory;
   label: string;
@@ -37,25 +63,25 @@ const analysisCategoryOptions: Array<{
   questionPlaceholder: string;
 }> = [
   {
-    value: 'asset_analysis',
-    label: '分析資產',
-    shortLabel: '分析',
-    helper: '針對持倉、風險與配置去分析。',
-    questionPlaceholder: '例如：根據我目前資產，分析一下而家最值得留意嘅重點。',
-  },
-  {
     value: 'general_question',
     label: '一般問題',
     shortLabel: '一般問題',
-    helper: '針對你而家想問嘅問題直接作答。',
-    questionPlaceholder: '例如：我而家現金比例是否太高？應唔應該再分散幣別？',
+    helper: '直接問組合相關問題，逐次延續對話。',
+    questionPlaceholder: '例如：我而家現金比例是否偏高？要唔要再分散幣別？',
+  },
+  {
+    value: 'asset_analysis',
+    label: '資產分析',
+    shortLabel: '資產分析',
+    helper: '集中睇風險、配置、集中度同下一步。',
+    questionPlaceholder: '例如：根據我目前資產，分析而家最值得留意嘅重點。',
   },
   {
     value: 'asset_report',
-    label: '資產報告',
-    shortLabel: '報告',
-    helper: '整理成可回顧嘅報告內容。',
-    questionPlaceholder: '例如：請根據我目前資產整理一份清晰嘅資產報告。',
+    label: '季度報告',
+    shortLabel: '季度報告',
+    helper: '集中查看每季生成嘅報告與 PDF。',
+    questionPlaceholder: '',
   },
 ];
 
@@ -76,6 +102,11 @@ const analysisModelOptions: Array<{
   },
 ];
 
+interface ReportSection {
+  title?: string;
+  body: string;
+}
+
 function formatAnalysisTime(value: string) {
   if (!value) {
     return '尚未分析';
@@ -91,6 +122,26 @@ function formatAnalysisTime(value: string) {
   }
 }
 
+function formatGeneratedAt(value: string) {
+  if (!value) {
+    return '尚未生成';
+  }
+
+  try {
+    return new Intl.DateTimeFormat('zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
 function createAnalysisTitle(question: string) {
   const trimmed = question.trim();
 
@@ -99,6 +150,346 @@ function createAnalysisTitle(question: string) {
   }
 
   return trimmed.length > 26 ? `${trimmed.slice(0, 26)}...` : trimmed;
+}
+
+function extractBase64FontPayload(rawText: string) {
+  const trimmed = rawText.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  if (trimmed.startsWith('data:font/')) {
+    return trimmed.split(',')[1] ?? '';
+  }
+
+  const directBase64Match = trimmed.match(/['"`]([A-Za-z0-9+/=]{2000,})['"`]/);
+
+  if (directBase64Match?.[1]) {
+    return directBase64Match[1];
+  }
+
+  const dataUrlMatch = trimmed.match(/data:font\/[^;]+;base64,([A-Za-z0-9+/=]+)/);
+
+  if (dataUrlMatch?.[1]) {
+    return dataUrlMatch[1];
+  }
+
+  return '';
+}
+
+async function tryLoadPdfFont(pdf: jsPDF) {
+  for (const url of NOTO_FONT_CANDIDATE_URLS) {
+    try {
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        continue;
+      }
+
+      const text = await response.text();
+      const base64 = extractBase64FontPayload(text);
+
+      if (!base64) {
+        continue;
+      }
+
+      pdf.addFileToVFS('NotoSansCJKtc-Regular.ttf', base64);
+      pdf.addFont('NotoSansCJKtc-Regular.ttf', 'NotoSansCJKtc', 'normal');
+      pdf.addFileToVFS('NotoSansCJKtc-Bold.ttf', base64);
+      pdf.addFont('NotoSansCJKtc-Bold.ttf', 'NotoSansCJKtc', 'bold');
+
+      return 'NotoSansCJKtc';
+    } catch (error) {
+      console.warn('[quarterlyReportPdf] font load failed', {
+        url,
+        reason: error instanceof Error ? error.message : 'unknown_error',
+      });
+    }
+  }
+
+  return null;
+}
+
+function splitReportIntoSections(report: string): ReportSection[] {
+  const cleaned = report.trim();
+
+  if (!cleaned) {
+    return [];
+  }
+
+  const parts = cleaned.split(/(【[^】]+】)/g).filter((part) => part.trim());
+  const sections: ReportSection[] = [];
+
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index].trim();
+
+    if (REPORT_SECTION_TITLE_SET.has(part)) {
+      const next = parts[index + 1]?.trim() ?? '';
+      sections.push({
+        title: part,
+        body: next,
+      });
+      index += 1;
+      continue;
+    }
+
+    sections.push({ body: part });
+  }
+
+  return sections;
+}
+
+function splitParagraphs(body: string) {
+  const paragraphs = body
+    .split(/\n+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  return paragraphs.length > 0 ? paragraphs : [''];
+}
+
+function addTextPdfFooter(pdf: jsPDF, fontFamily: string) {
+  const totalPages = pdf.getNumberOfPages();
+
+  for (let index = 1; index <= totalPages; index += 1) {
+    pdf.setPage(index);
+    pdf.setFont(fontFamily, 'normal');
+    pdf.setFontSize(9);
+    pdf.setTextColor(98, 90, 81);
+    pdf.text(`第 ${index} 頁 / 共 ${totalPages} 頁`, 105, 286, { align: 'center' });
+    pdf.text('Portfolio V2 · 季度資產報告 · 僅供個人參考', 105, 291, {
+      align: 'center',
+    });
+  }
+}
+
+function renderDirectTextPdf(report: QuarterlyReport, pdf: jsPDF, fontFamily: string) {
+  const pageHeight = 297;
+  const margin = 20;
+  const contentWidth = 170;
+  let cursorY = margin;
+
+  const ensureSpace = (requiredHeight: number) => {
+    if (cursorY + requiredHeight > pageHeight - margin - 18) {
+      pdf.addPage();
+      cursorY = margin;
+    }
+  };
+
+  pdf.setFont(fontFamily, 'bold');
+  pdf.setFontSize(16);
+  pdf.setTextColor(29, 26, 23);
+  pdf.text(report.quarter, margin, cursorY);
+  cursorY += 8;
+
+  pdf.setFont(fontFamily, 'normal');
+  pdf.setFontSize(10);
+  pdf.setTextColor(98, 90, 81);
+  pdf.text(`生成日期：${formatGeneratedAt(report.generatedAt)}`, margin, cursorY);
+  cursorY += 6;
+
+  pdf.setDrawColor(210, 198, 184);
+  pdf.line(margin, cursorY, margin + contentWidth, cursorY);
+  cursorY += 8;
+
+  const sections = splitReportIntoSections(report.report);
+
+  sections.forEach((section) => {
+    if (section.title) {
+      ensureSpace(12);
+      pdf.setFont(fontFamily, 'bold');
+      pdf.setFontSize(12);
+      pdf.setTextColor(29, 26, 23);
+      pdf.text(section.title, margin, cursorY);
+      cursorY += 7;
+    }
+
+    pdf.setFont(fontFamily, 'normal');
+    pdf.setFontSize(10);
+    pdf.setTextColor(29, 26, 23);
+
+    splitParagraphs(section.body).forEach((paragraph) => {
+      const lines = pdf.splitTextToSize(paragraph, contentWidth);
+
+      lines.forEach((line: string) => {
+        ensureSpace(6);
+        pdf.text(line, margin, cursorY);
+        cursorY += 5.5;
+      });
+
+      cursorY += 2;
+    });
+
+    cursorY += 3;
+  });
+
+  addTextPdfFooter(pdf, fontFamily);
+  return pdf;
+}
+
+function createCanvasPage() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1240;
+  canvas.height = 1754;
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    throw new Error('無法建立 PDF 畫布，請稍後再試。');
+  }
+
+  context.fillStyle = '#fffaf4';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#1d1a17';
+  context.textBaseline = 'top';
+
+  return { canvas, context };
+}
+
+function wrapCanvasText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
+) {
+  const lines: string[] = [];
+
+  for (const paragraph of text.split('\n')) {
+    if (!paragraph.trim()) {
+      lines.push('');
+      continue;
+    }
+
+    let current = '';
+
+    for (const character of Array.from(paragraph)) {
+      const candidate = `${current}${character}`;
+
+      if (current && context.measureText(candidate).width > maxWidth) {
+        lines.push(current);
+        current = character;
+      } else {
+        current = candidate;
+      }
+    }
+
+    if (current) {
+      lines.push(current);
+    }
+  }
+
+  return lines;
+}
+
+function renderCanvasFallbackPdf(report: QuarterlyReport) {
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+  const pages: Array<{ canvas: HTMLCanvasElement; context: CanvasRenderingContext2D }> = [];
+  const pageWidthPx = 1240;
+  const pageHeightPx = 1754;
+  const marginPx = 118;
+  const contentWidthPx = pageWidthPx - marginPx * 2;
+  const footerTopPx = pageHeightPx - 140;
+  let page = createCanvasPage();
+  let cursorY = marginPx;
+
+  const ensureSpace = (requiredHeight: number) => {
+    if (cursorY + requiredHeight > footerTopPx) {
+      pages.push(page);
+      page = createCanvasPage();
+      cursorY = marginPx;
+    }
+  };
+
+  page.context.font = '700 42px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  page.context.fillText(report.quarter, marginPx, cursorY);
+  cursorY += 68;
+
+  page.context.font = '400 24px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  page.context.fillStyle = '#625a51';
+  page.context.fillText(`生成日期：${formatGeneratedAt(report.generatedAt)}`, marginPx, cursorY);
+  cursorY += 42;
+
+  page.context.strokeStyle = '#d2c6b8';
+  page.context.beginPath();
+  page.context.moveTo(marginPx, cursorY);
+  page.context.lineTo(pageWidthPx - marginPx, cursorY);
+  page.context.stroke();
+  cursorY += 48;
+
+  const sections = splitReportIntoSections(report.report);
+
+  sections.forEach((section) => {
+    if (section.title) {
+      ensureSpace(60);
+      page.context.fillStyle = '#1d1a17';
+      page.context.font = '700 30px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+      page.context.fillText(section.title, marginPx, cursorY);
+      cursorY += 52;
+    }
+
+    page.context.fillStyle = '#1d1a17';
+    page.context.font = '400 24px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+
+    splitParagraphs(section.body).forEach((paragraph) => {
+      const lines = wrapCanvasText(page.context, paragraph, contentWidthPx);
+
+      lines.forEach((line) => {
+        ensureSpace(40);
+        page.context.fillText(line, marginPx, cursorY);
+        cursorY += 36;
+      });
+
+      cursorY += 14;
+    });
+
+    cursorY += 18;
+  });
+
+  pages.push(page);
+
+  const totalPages = pages.length;
+
+  pages.forEach((entry, index) => {
+    entry.context.fillStyle = '#625a51';
+    entry.context.font = '400 20px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+    entry.context.textAlign = 'center';
+    entry.context.fillText(`第 ${index + 1} 頁 / 共 ${totalPages} 頁`, pageWidthPx / 2, pageHeightPx - 74);
+    entry.context.fillText('Portfolio V2 · 季度資產報告 · 僅供個人參考', pageWidthPx / 2, pageHeightPx - 42);
+    entry.context.textAlign = 'left';
+
+    if (index > 0) {
+      pdf.addPage();
+    }
+
+    pdf.addImage(entry.canvas.toDataURL('image/png'), 'PNG', 0, 0, 210, 297);
+  });
+
+  return pdf;
+}
+
+async function createQuarterlyReportPdf(report: QuarterlyReport) {
+  const textPdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+  });
+  const loadedFont = await tryLoadPdfFont(textPdf);
+
+  if (loadedFont) {
+    return renderDirectTextPdf(report, textPdf, loadedFont);
+  }
+
+  console.warn(
+    '[quarterlyReportPdf] Unable to load Noto Sans CJK font, falling back to canvas rendering.',
+  );
+  return renderCanvasFallbackPdf(report);
+}
+
+function sanitizeQuarterStorageKey(quarter: string) {
+  return quarter.trim().replace(/\s+/g, '').replace(/[/:?#[\]@!$&'()*+,;=%]/g, '-');
 }
 
 export function AnalysisPage() {
@@ -118,7 +509,7 @@ export function AnalysisPage() {
   const [analysisCacheKey, setAnalysisCacheKey] = useState<string | null>(null);
   const [analysisCacheKeyStatus, setAnalysisCacheKeyStatus] = useState<SnapshotHashStatus>('idle');
   const [snapshotHashError, setSnapshotHashError] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<AnalysisCategory>('asset_analysis');
+  const [selectedCategory, setSelectedCategory] = useState<AnalysisCategory>('general_question');
   const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('gemini-3.1-pro-preview');
   const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -127,6 +518,7 @@ export function AnalysisPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSavingPromptSettings, setIsSavingPromptSettings] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedSettingsCategory, setSelectedSettingsCategory] = useState<AnalysisCategory>('general_question');
   const [isPromptSettingsOpen, setIsPromptSettingsOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(10);
   const [analysisQuestionByCategory, setAnalysisQuestionByCategory] = useState<Record<AnalysisCategory, string>>({
@@ -145,6 +537,13 @@ export function AnalysisPage() {
     asset_report: [],
   });
   const [promptDrafts, setPromptDrafts] = useState(savedPromptSettings);
+  const [reports, setReports] = useState<QuarterlyReport[]>([]);
+  const [reportsStatus, setReportsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [reportsError, setReportsError] = useState<string | null>(null);
+  const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  const [generatingReportId, setGeneratingReportId] = useState<string | null>(null);
+  const [reportActionMessage, setReportActionMessage] = useState<string | null>(null);
+  const [reportActionError, setReportActionError] = useState<string | null>(null);
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -156,16 +555,20 @@ export function AnalysisPage() {
   const analysisBackground = savedPromptSettings[selectedCategory];
   const activeConversation = conversationThreads[selectedCategory];
   const isInteractiveCategory = selectedCategory === 'general_question';
-  const isScheduledCategory = selectedCategory === 'asset_analysis' || selectedCategory === 'asset_report';
+  const isPortfolioAnalysisCategory = selectedCategory === 'asset_analysis';
+  const isQuarterlyCategory = selectedCategory === 'asset_report';
   const selectedCategoryOption = useMemo(
     () =>
       analysisCategoryOptions.find((option) => option.value === selectedCategory) ??
       analysisCategoryOptions[0],
     [selectedCategory],
   );
-  const generalQuestionOption = analysisCategoryOptions.find((option) => option.value === 'general_question');
-  const assetAnalysisOption = analysisCategoryOptions.find((option) => option.value === 'asset_analysis');
-  const assetReportOption = analysisCategoryOptions.find((option) => option.value === 'asset_report');
+  const selectedSettingsOption = useMemo(
+    () =>
+      analysisCategoryOptions.find((option) => option.value === selectedSettingsCategory) ??
+      analysisCategoryOptions[0],
+    [selectedSettingsCategory],
+  );
 
   useEffect(() => {
     setLocalAnalysis(null);
@@ -181,6 +584,36 @@ export function AnalysisPage() {
     setSelectedSessionId(null);
     setVisibleCount(10);
   }, [selectedCategory]);
+
+  useEffect(() => {
+    setReportsStatus('loading');
+    setReportsError(null);
+
+    const unsubscribe = subscribeToQuarterlyReports(
+      (entries) => {
+        setReports(entries);
+        setReportsStatus('ready');
+        setReportsError(null);
+      },
+      (nextError) => {
+        setReportsStatus('error');
+        setReportsError(getQuarterlyReportsErrorMessage(nextError));
+      },
+    );
+
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (reports.length === 0) {
+      setSelectedReportId(null);
+      return;
+    }
+
+    setSelectedReportId((current) =>
+      current && reports.some((report) => report.id === current) ? current : reports[0].id,
+    );
+  }, [reports]);
 
   useEffect(() => {
     if (!snapshotSignature) {
@@ -279,10 +712,24 @@ export function AnalysisPage() {
     holdings.length > 0 &&
     snapshotHashStatus === 'ready' &&
     analysisCacheKeyStatus === 'ready' &&
-    !isAnalyzing;
+    !isAnalyzing &&
+    !isQuarterlyCategory;
+  const selectedReport = useMemo(
+    () => reports.find((report) => report.id === selectedReportId) ?? null,
+    [reports, selectedReportId],
+  );
+  const selectedSections = useMemo(
+    () => splitReportIntoSections(selectedReport?.report ?? ''),
+    [selectedReport],
+  );
 
   useEffect(() => {
-    if (selectedCategory === 'general_question' || selectedSessionId || categorySessions.length === 0) {
+    if (
+      isQuarterlyCategory ||
+      selectedCategory === 'general_question' ||
+      selectedSessionId ||
+      categorySessions.length === 0
+    ) {
       return;
     }
 
@@ -301,10 +748,17 @@ export function AnalysisPage() {
       assetCount: holdings.length,
       answer: latestSession.result,
     });
-  }, [categorySessions, holdings.length, savedPromptSettings, selectedCategory, selectedSessionId]);
+  }, [
+    categorySessions,
+    holdings.length,
+    isQuarterlyCategory,
+    savedPromptSettings,
+    selectedCategory,
+    selectedSessionId,
+  ]);
 
   async function handleAnalyzePortfolio() {
-    if (!snapshotHash || !analysisCacheKey || holdings.length === 0) {
+    if (!snapshotHash || !analysisCacheKey || holdings.length === 0 || isQuarterlyCategory) {
       setAnalysisError('目前沒有完整的資產快照可供分析。');
       return;
     }
@@ -371,7 +825,7 @@ export function AnalysisPage() {
         delivery: 'manual',
       };
       await addAnalysisSession(savedSession);
-      setAnalysisSuccess('分析已完成，結果已保存。');
+      setAnalysisSuccess(isInteractiveCategory ? '回答已更新。' : '資產分析已完成。');
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '投資組合分析失敗，請稍後再試。');
     } finally {
@@ -391,10 +845,7 @@ export function AnalysisPage() {
     }
 
     const conversationContext = activeConversation
-      .map(
-        (turn, index) =>
-          `第 ${index + 1} 輪\n使用者：${turn.question}\nAI：${turn.answer}`,
-      )
+      .map((turn, index) => `第 ${index + 1} 輪\n使用者：${turn.question}\nAI：${turn.answer}`)
       .join('\n\n');
 
     setAnalysisError(null);
@@ -457,7 +908,7 @@ export function AnalysisPage() {
         snapshotHash: response.snapshotHash,
         delivery: 'manual',
       });
-      setAnalysisSuccess('已加入追問並完成分析。');
+      setAnalysisSuccess('已加入追問。');
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '追問分析失敗，請稍後再試。');
     } finally {
@@ -476,31 +927,68 @@ export function AnalysisPage() {
         general_question: promptDrafts.general_question,
         asset_report: promptDrafts.asset_report,
       });
-      setPromptSettingsSuccess('Prompt 背景已儲存，之後每次分析都會自動帶入。');
+      setPromptSettingsSuccess('設定已儲存。');
     } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : '儲存 Prompt 背景失敗，請稍後再試。');
+      setAnalysisError(error instanceof Error ? error.message : '儲存設定失敗，請稍後再試。');
     } finally {
       setIsSavingPromptSettings(false);
+    }
+  }
+
+  async function generateAndUploadPdf(report: QuarterlyReport) {
+    if (!storage) {
+      throw new Error('Firebase Storage 尚未設定完成，請先補上 storageBucket。');
+    }
+
+    const pdf = await createQuarterlyReportPdf(report);
+    const arrayBuffer = pdf.output('arraybuffer');
+    const storageRef = ref(
+      storage,
+      `reports/quarterly/${sanitizeQuarterStorageKey(report.quarter)}.pdf`,
+    );
+
+    await uploadBytes(storageRef, new Uint8Array(arrayBuffer), {
+      contentType: 'application/pdf',
+      customMetadata: {
+        quarter: report.quarter,
+        generatedAt: report.generatedAt,
+      },
+    });
+
+    const downloadUrl = await getDownloadURL(storageRef);
+    await updateQuarterlyReportPdfUrl(report.id, downloadUrl);
+    return downloadUrl;
+  }
+
+  async function handleGeneratePdf(report: QuarterlyReport) {
+    setGeneratingReportId(report.id);
+    setReportActionMessage(null);
+    setReportActionError(null);
+
+    try {
+      await generateAndUploadPdf(report);
+      setReportActionMessage(`${report.quarter} PDF 已生成。`);
+    } catch (nextError) {
+      setReportActionError(getQuarterlyReportsErrorMessage(nextError));
+    } finally {
+      setGeneratingReportId(null);
     }
   }
 
   return (
     <div className="page-stack">
       <section className="hero-panel">
-        <div className="analysis-action-panel">
-          <div className="analysis-category-row">
-            <div className="analysis-category-group analysis-category-group-left" role="tablist" aria-label="分析類別">
-              {generalQuestionOption ? (
-                <button
-                  className={selectedCategory === generalQuestionOption.value ? 'filter-chip active' : 'filter-chip'}
-                  type="button"
-                  onClick={() => setSelectedCategory(generalQuestionOption.value)}
-                >
-                  {generalQuestionOption.shortLabel}
-                </button>
-              ) : null}
+        <div className="analysis-page-header">
+          <div className="analysis-page-heading">
+            <p className="eyebrow">Analysis</p>
+            <h2>分析與報告</h2>
+            <p className="table-hint">分開睇對話、資產分析，同季度報告。</p>
+          </div>
+
+          <div className="analysis-page-actions">
+            {!isQuarterlyCategory ? (
               <label className="form-field analysis-inline-model">
-                <span>主要用嘅 AI</span>
+                <span>AI 模型</span>
                 <select
                   value={selectedModel}
                   onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
@@ -513,99 +1001,53 @@ export function AnalysisPage() {
                   ))}
                 </select>
               </label>
-            </div>
-            <div className="analysis-category-group analysis-category-group-right">
-              {assetAnalysisOption ? (
-                <button
-                  className={selectedCategory === assetAnalysisOption.value ? 'filter-chip active' : 'filter-chip'}
-                  type="button"
-                  onClick={() => setSelectedCategory(assetAnalysisOption.value)}
-                >
-                  {assetAnalysisOption.shortLabel}
-                </button>
-              ) : null}
-              {assetReportOption ? (
-                <button
-                  className={selectedCategory === assetReportOption.value ? 'filter-chip active' : 'filter-chip'}
-                  type="button"
-                  onClick={() => setSelectedCategory(assetReportOption.value)}
-                >
-                  {assetReportOption.shortLabel}
-                </button>
-              ) : null}
-              <button
-                className="button button-secondary analysis-prompt-button"
-                type="button"
-                onClick={() => setIsPromptSettingsOpen((current) => !current)}
-              >
-                {isPromptSettingsOpen ? '收起 Prompt 設定' : 'Prompt 設定'}
-              </button>
-            </div>
+            ) : null}
+
+            <button
+              className="button button-secondary analysis-prompt-button"
+              type="button"
+              onClick={() => setIsPromptSettingsOpen((current) => !current)}
+            >
+              {isPromptSettingsOpen ? '收起設定' : '設定'}
+            </button>
           </div>
+        </div>
 
-          {isInteractiveCategory ? (
-            <>
-              <div className="asset-form-grid">
-                <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-                  <span>對話內容</span>
-                  <textarea
-                    value={analysisQuestion}
-                    onChange={(event) =>
-                      setAnalysisQuestionByCategory((current) => ({
-                        ...current,
-                        [selectedCategory]: event.target.value,
-                      }))
-                    }
-                    placeholder={selectedCategoryOption.questionPlaceholder}
-                    rows={4}
-                    disabled={isAnalyzing}
-                  />
-                </label>
-              </div>
+        <div className="analysis-tab-grid" role="tablist" aria-label="分析分類">
+          {analysisCategoryOptions.map((option) => {
+            const isActive = selectedCategory === option.value;
 
-              <div className="button-row">
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={handleAnalyzePortfolio}
-                  disabled={!canAnalyze}
-                >
-                  {isAnalyzing ? '分析中...' : hasAnalysis ? '重新分析我的組合' : '分析我的組合'}
-                </button>
-                <Link className="button button-secondary" to="/assets">
-                  檢查資產資料
-                </Link>
-              </div>
-            </>
-          ) : (
-            <div className="analysis-scheduled-actions">
-              <p className="status-message">
-                {selectedCategory === 'asset_analysis'
-                  ? '每月 1 日香港時間上午 9:00 自動生成一次資產分析。'
-                  : '每季首日香港時間上午 9:00 自動生成一次資產報告。'}
-              </p>
+            return (
               <button
-                className="button button-secondary"
+                key={option.value}
                 type="button"
-                onClick={handleAnalyzePortfolio}
-                disabled={!canAnalyze}
+                className={isActive ? 'analysis-tab-card active' : 'analysis-tab-card'}
+                onClick={() => setSelectedCategory(option.value)}
               >
-                {isAnalyzing ? '分析中...' : '立即生成'}
+                <strong>{option.label}</strong>
+                <span>{option.helper}</span>
               </button>
-            </div>
-          )}
+            );
+          })}
         </div>
       </section>
 
       {isPromptSettingsOpen ? (
         <section className="card">
-          <div className="trends-range-row" role="tablist" aria-label="Prompt 類別">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Settings</p>
+              <h2>分析設定</h2>
+            </div>
+          </div>
+
+          <div className="trends-range-row" role="tablist" aria-label="設定類別">
             {analysisCategoryOptions.map((option) => (
               <button
                 key={`prompt-${option.value}`}
-                className={selectedCategory === option.value ? 'filter-chip active' : 'filter-chip'}
+                className={selectedSettingsCategory === option.value ? 'filter-chip active' : 'filter-chip'}
                 type="button"
-                onClick={() => setSelectedCategory(option.value)}
+                onClick={() => setSelectedSettingsCategory(option.value)}
               >
                 {option.label}
               </button>
@@ -613,22 +1055,26 @@ export function AnalysisPage() {
           </div>
 
           <div className="analysis-category-intro">
-            <h2>{selectedCategoryOption.label}</h2>
-            <p className="status-message">填入該分類固定背景，之後每次對話都會自動帶入分析。</p>
+            <h2>{selectedSettingsOption.label}</h2>
+            <p className="status-message">
+              {selectedSettingsCategory === 'asset_report'
+                ? '設定季度報告生成時使用嘅固定背景。'
+                : '設定呢個分類每次分析都會帶入嘅固定背景。'}
+            </p>
           </div>
 
           <div className="asset-form-grid">
             <label className="form-field" style={{ gridColumn: '1 / -1' }}>
               <span>背景內容</span>
               <textarea
-                value={promptDrafts[selectedCategory]}
+                value={promptDrafts[selectedSettingsCategory]}
                 onChange={(event) =>
                   setPromptDrafts((current) => ({
                     ...current,
-                    [selectedCategory]: event.target.value,
+                    [selectedSettingsCategory]: event.target.value,
                   }))
                 }
-                placeholder="例如：偏好保守分析、重視風險提示、希望直接指出配置問題。"
+                placeholder="輸入想固定帶入嘅分析背景。"
                 rows={5}
                 disabled={isSavingPromptSettings}
               />
@@ -642,7 +1088,7 @@ export function AnalysisPage() {
               onClick={handleSavePromptSettings}
               disabled={isSavingPromptSettings}
             >
-              {isSavingPromptSettings ? '儲存中...' : '儲存 Prompt'}
+              {isSavingPromptSettings ? '儲存中...' : '儲存設定'}
             </button>
           </div>
         </section>
@@ -658,18 +1104,202 @@ export function AnalysisPage() {
       {promptSettingsSuccess ? (
         <p className="status-message status-message-success">{promptSettingsSuccess}</p>
       ) : null}
-      {hasCachedAnalysis && !analysisSuccess ? (
+      {reportsError ? <p className="status-message status-message-error">{reportsError}</p> : null}
+      {reportActionError ? <p className="status-message status-message-error">{reportActionError}</p> : null}
+      {reportActionMessage ? <p className="status-message status-message-success">{reportActionMessage}</p> : null}
+      {hasCachedAnalysis && !analysisSuccess && !isQuarterlyCategory ? (
         <p className="status-message">最近分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}</p>
       ) : null}
-      {assetsStatus === 'loading' ? <p className="status-message">同步中。</p> : null}
-      {isEmpty ? <p className="status-message">未有可分析資產。</p> : null}
+      {assetsStatus === 'loading' && !isQuarterlyCategory ? <p className="status-message">同步中。</p> : null}
+      {isEmpty && !isQuarterlyCategory ? <p className="status-message">未有可分析資產。</p> : null}
 
-      {hasAnalysis ? (
+      {isInteractiveCategory ? (
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Conversation</p>
+              <h2>直接提問</h2>
+            </div>
+          </div>
+
+          <div className="asset-form-grid">
+            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+              <span>問題</span>
+              <textarea
+                value={analysisQuestion}
+                onChange={(event) =>
+                  setAnalysisQuestionByCategory((current) => ({
+                    ...current,
+                    [selectedCategory]: event.target.value,
+                  }))
+                }
+                placeholder={selectedCategoryOption.questionPlaceholder}
+                rows={4}
+                disabled={isAnalyzing}
+              />
+            </label>
+          </div>
+
+          <div className="button-row">
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={handleAnalyzePortfolio}
+              disabled={!canAnalyze}
+            >
+              {isAnalyzing ? '分析中...' : hasAnalysis ? '重新回答' : '開始回答'}
+            </button>
+            <Link className="button button-secondary" to="/assets">
+              檢查資產資料
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
+      {isPortfolioAnalysisCategory ? (
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Portfolio Review</p>
+              <h2>資產分析</h2>
+            </div>
+            <span className="chip chip-soft">每月自動生成</span>
+          </div>
+
+          <p className="status-message">每月 1 日香港時間上午 9:00 自動生成一次資產分析。</p>
+
+          <div className="asset-form-grid">
+            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+              <span>本次重點</span>
+              <textarea
+                value={analysisQuestion}
+                onChange={(event) =>
+                  setAnalysisQuestionByCategory((current) => ({
+                    ...current,
+                    [selectedCategory]: event.target.value,
+                  }))
+                }
+                placeholder={selectedCategoryOption.questionPlaceholder}
+                rows={4}
+                disabled={isAnalyzing}
+              />
+            </label>
+          </div>
+
+          <div className="button-row">
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={handleAnalyzePortfolio}
+              disabled={!canAnalyze}
+            >
+              {isAnalyzing ? '分析中...' : '立即生成'}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {isQuarterlyCategory ? (
+        <>
+          <section className="card quarterly-list-card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Quarterly Reports</p>
+                <h2>季度報告列表</h2>
+              </div>
+              <span className="chip chip-soft">
+                {reportsStatus === 'loading' ? '同步中' : `${reports.length} 份報告`}
+              </span>
+            </div>
+
+            <p className="status-message">每季首日香港時間上午 9:00 自動生成一次季度報告。</p>
+
+            {reportsStatus === 'ready' && reports.length === 0 ? (
+              <p className="status-message">尚未生成季度報告。</p>
+            ) : null}
+
+            <div className="quarterly-report-list">
+              {reports.map((report) => {
+                const isSelected = report.id === selectedReportId;
+                const isGenerating = generatingReportId === report.id;
+
+                return (
+                  <article
+                    key={report.id}
+                    className={isSelected ? 'quarterly-report-row active' : 'quarterly-report-row'}
+                  >
+                    <button
+                      type="button"
+                      className="quarterly-report-row-main"
+                      onClick={() => setSelectedReportId(report.id)}
+                    >
+                      <div>
+                        <strong>{report.quarter}</strong>
+                        <p>{formatGeneratedAt(report.generatedAt)}</p>
+                      </div>
+                      <span className="table-hint">
+                        {report.provider ? `${report.provider} · ${report.model}` : report.model}
+                      </span>
+                    </button>
+
+                    <div className="quarterly-report-actions">
+                      {report.pdfUrl ? (
+                        <a
+                          className="button button-secondary"
+                          href={report.pdfUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          下載 PDF
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          onClick={() => void handleGeneratePdf(report)}
+                          disabled={isGenerating}
+                        >
+                          {isGenerating ? '生成中...' : '生成 PDF'}
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+
+          {selectedReport ? (
+            <section className="card quarterly-viewer-card">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Report Body</p>
+                  <h2>{selectedReport.quarter}</h2>
+                  <p className="table-hint">{formatGeneratedAt(selectedReport.generatedAt)}</p>
+                </div>
+              </div>
+
+              <div className="quarterly-report-body">
+                {selectedSections.map((section, index) => (
+                  <section key={`${selectedReport.id}-${index}`} className="quarterly-report-section">
+                    {section.title ? <h3>{section.title}</h3> : null}
+                    {splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
+                      <p key={`${selectedReport.id}-${index}-${paragraphIndex}`}>{paragraph}</p>
+                    ))}
+                  </section>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </>
+      ) : null}
+
+      {!isQuarterlyCategory && hasAnalysis ? (
         <section className="card">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Answer</p>
-              <h2>分析回答</h2>
+              <h2>{isInteractiveCategory ? '回答' : '分析結果'}</h2>
             </div>
             <span className="chip chip-strong">{displayedAnalysis?.model}</span>
           </div>
@@ -680,20 +1310,20 @@ export function AnalysisPage() {
 
           <div className="analysis-meta-grid">
             <div className="analysis-meta-item">
-              <span>分析時間</span>
+              <span>時間</span>
               <strong>{formatAnalysisTime(displayedAnalysis?.generatedAt ?? '')}</strong>
             </div>
             <div className="analysis-meta-item">
-              <span>提問內容</span>
+              <span>提問</span>
               <strong>{displayedAnalysis?.analysisQuestion || '未提供'}</strong>
             </div>
             <div className="analysis-meta-item">
-              <span>快照資產數</span>
+              <span>資產數</span>
               <strong>{displayedAnalysis?.assetCount ?? holdings.length} 項</strong>
             </div>
           </div>
 
-          {isInteractiveCategory && activeConversation.length > 0 ? (
+          {activeConversation.length > 0 ? (
             <div className="analysis-follow-up-card">
               <div className="section-heading">
                 <div>
@@ -719,7 +1349,7 @@ export function AnalysisPage() {
 
               <div className="asset-form-grid">
                 <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-                  <span>追問內容</span>
+                  <span>追問</span>
                   <textarea
                     value={followUpQuestion}
                     onChange={(event) =>
@@ -750,82 +1380,84 @@ export function AnalysisPage() {
         </section>
       ) : null}
 
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">History</p>
-            <h2>{selectedCategory === 'general_question' ? `${selectedCategoryOption.label}對話紀錄` : `${selectedCategoryOption.label}紀錄`}</h2>
+      {!isQuarterlyCategory ? (
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">History</p>
+              <h2>{isInteractiveCategory ? '對話紀錄' : '分析紀錄'}</h2>
+            </div>
           </div>
-        </div>
 
-        <div className="settings-list">
-          {categorySessions.length > 0 ? (
-            <>
-              {categorySessions.slice(0, visibleCount).map((session) => (
-                <button
-                  key={session.id}
-                  type="button"
-                  className={selectedSessionId === session.id ? 'setting-row active' : 'setting-row'}
-                  onClick={() => {
-                    setSelectedSessionId(session.id);
-                    setLocalAnalysis({
-                      cacheKey: session.id,
-                      snapshotHash: session.snapshotHash ?? '',
-                      category: session.category,
-                      provider: session.provider ?? 'google',
-                      model: session.model,
-                      analysisQuestion: session.question,
-                      analysisBackground: savedPromptSettings[session.category],
-                      delivery: session.delivery ?? 'manual',
-                      generatedAt: session.updatedAt,
-                      assetCount: holdings.length,
-                      answer: session.result,
-                    });
-                    setConversationThreads((current) => ({
-                      ...current,
-                      [session.category]: [
-                        {
-                          question: session.question,
-                          answer: session.result,
-                          generatedAt: session.updatedAt,
-                          model: session.model,
-                        },
-                      ],
-                    }));
-                  }}
-                >
-                  <div>
-                    <strong>{session.title}</strong>
-                    <p>{session.question}</p>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <strong>
-                      {session.model}
-                      {session.delivery === 'scheduled' ? ' · 自動' : ''}
-                    </strong>
-                    <p>{formatAnalysisTime(session.updatedAt)}</p>
-                  </div>
-                </button>
-              ))}
-              {visibleCount < categorySessions.length ? (
-                <div className="button-row">
+          <div className="settings-list">
+            {categorySessions.length > 0 ? (
+              <>
+                {categorySessions.slice(0, visibleCount).map((session) => (
                   <button
-                    className="button button-secondary"
+                    key={session.id}
                     type="button"
-                    onClick={() =>
-                      setVisibleCount((current) => Math.min(current + 10, categorySessions.length))
-                    }
+                    className={selectedSessionId === session.id ? 'setting-row active' : 'setting-row'}
+                    onClick={() => {
+                      setSelectedSessionId(session.id);
+                      setLocalAnalysis({
+                        cacheKey: session.id,
+                        snapshotHash: session.snapshotHash ?? '',
+                        category: session.category,
+                        provider: session.provider ?? 'google',
+                        model: session.model,
+                        analysisQuestion: session.question,
+                        analysisBackground: savedPromptSettings[session.category],
+                        delivery: session.delivery ?? 'manual',
+                        generatedAt: session.updatedAt,
+                        assetCount: holdings.length,
+                        answer: session.result,
+                      });
+                      setConversationThreads((current) => ({
+                        ...current,
+                        [session.category]: [
+                          {
+                            question: session.question,
+                            answer: session.result,
+                            generatedAt: session.updatedAt,
+                            model: session.model,
+                          },
+                        ],
+                      }));
+                    }}
                   >
-                    載入更多
+                    <div>
+                      <strong>{session.title}</strong>
+                      <p>{session.question}</p>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <strong>
+                        {session.model}
+                        {session.delivery === 'scheduled' ? ' · 自動' : ''}
+                      </strong>
+                      <p>{formatAnalysisTime(session.updatedAt)}</p>
+                    </div>
                   </button>
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <p className="status-message">未有此分類的分析紀錄。</p>
-          )}
-        </div>
-      </section>
+                ))}
+                {visibleCount < categorySessions.length ? (
+                  <div className="button-row">
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() =>
+                        setVisibleCount((current) => Math.min(current + 10, categorySessions.length))
+                      }
+                    >
+                      載入更多
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className="status-message">未有紀錄。</p>
+            )}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
