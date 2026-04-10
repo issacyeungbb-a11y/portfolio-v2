@@ -35,6 +35,8 @@ import type {
 } from '../types/portfolio';
 import type { PendingPriceUpdateReview, PriceUpdateRequest, PriceUpdateResponse } from '../types/priceUpdates';
 
+const MANUAL_PRICE_UPDATE_BATCH_SIZE = 3;
+
 const assetFilterOptions: Array<{ value: AssetType | 'all'; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'stock', label: '股票' },
@@ -405,6 +407,16 @@ export function AssetsPage() {
     };
   }
 
+  function chunkHoldingsForManualUpdate(targetHoldings: Holding[]) {
+    const chunks: Holding[][] = [];
+
+    for (let index = 0; index < targetHoldings.length; index += MANUAL_PRICE_UPDATE_BATCH_SIZE) {
+      chunks.push(targetHoldings.slice(index, index + MANUAL_PRICE_UPDATE_BATCH_SIZE));
+    }
+
+    return chunks;
+  }
+
   async function handleRunPriceUpdates(targetHoldings: Holding[]) {
     if (targetHoldings.length === 0) {
       setPriceUpdateError('目前沒有可更新的資產。');
@@ -426,15 +438,24 @@ export function AssetsPage() {
     }
 
     try {
-      const response = (await callPortfolioFunction(
-        'update-prices',
-        buildPriceUpdateRequest(targetHoldings),
-      )) as PriceUpdateResponse;
-      setPriceUpdateModel(response.model);
-      const validResults = response.results.filter(
+      const chunks = chunkHoldingsForManualUpdate(targetHoldings);
+      const responses: PriceUpdateResponse[] = [];
+
+      for (const chunk of chunks) {
+        const response = (await callPortfolioFunction(
+          'update-prices',
+          buildPriceUpdateRequest(chunk),
+        )) as PriceUpdateResponse;
+        responses.push(response);
+      }
+
+      const mergedResults = responses.flatMap((response) => response.results);
+      const models = Array.from(new Set(responses.map((response) => response.model).filter(Boolean)));
+      setPriceUpdateModel(models.join(' / '));
+      const validResults = mergedResults.filter(
         (review) => review.price != null && review.price > 0 && !review.invalidReason,
       );
-      const invalidResults = response.results.filter(
+      const invalidResults = mergedResults.filter(
         (review) => review.price == null || review.price <= 0 || Boolean(review.invalidReason),
       );
 
