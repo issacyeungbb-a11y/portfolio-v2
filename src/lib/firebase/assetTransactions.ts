@@ -247,20 +247,9 @@ async function adjustCashHoldingBalance(
   const existingCashHolding = await findCashHoldingForAccount(accountSource, normalizedCurrency);
 
   if (!existingCashHolding) {
-    await addDoc(getSharedAssetsCollectionRef(), {
-      name: `${accountSource} ${normalizedCurrency} 現金`,
-      symbol: `CASH-${accountSource}-${normalizedCurrency}`,
-      assetType: 'cash',
-      accountSource,
-      currency: normalizedCurrency,
-      quantity: 1,
-      averageCost: deltaAmount,
-      currentPrice: deltaAmount,
-      lastPriceUpdatedAt: serverTimestamp(),
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    return;
+    throw new Error(
+      `${accountSource} ${normalizedCurrency} 現金帳戶未設定，請先喺資產頁建立對應現金資產，再寫入交易。`,
+    );
   }
 
   const nextAmount = existingCashHolding.currentPrice + deltaAmount;

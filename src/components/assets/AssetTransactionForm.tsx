@@ -32,7 +32,7 @@ export function AssetTransactionForm({
   isDeleting = false,
   error = null,
 }: AssetTransactionFormProps) {
-  const accountSourceOptions: AccountSource[] = ['Futu', 'IB', 'Crypto', 'Other'];
+  const accountSourceOptions: AccountSource[] = ['Futu', 'IB', 'Crypto'];
   const [transactionType, setTransactionType] = useState<'buy' | 'sell'>(initialValue?.transactionType ?? 'buy');
   const [settlementAccountSource, setSettlementAccountSource] = useState<AccountSource>(
     initialValue?.settlementAccountSource ?? initialValue?.accountSource ?? holding.accountSource,

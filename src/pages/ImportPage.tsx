@@ -27,12 +27,10 @@ import {
 
 type ExtractStatus = 'idle' | 'loading' | 'success' | 'error';
 type ImportInputMode = 'image' | 'text';
-type ImportTarget = 'assets' | 'transactions';
-type ImportResponse =
-  | ExtractAssetsResponse
-  | ParseAssetsCommandResponse
-  | ExtractTransactionsResponse
-  | ParseTransactionsCommandResponse;
+interface ParsedImportResult {
+  assetModel: string;
+  transactionModel: string;
+}
 
 interface SpeechRecognitionResultLike {
   readonly isFinal: boolean;
@@ -65,6 +63,7 @@ const MAX_UPLOAD_DIMENSION = 1600;
 const MAX_UPLOAD_BYTES = 3_200_000;
 const COMPRESSED_MIME_TYPE = 'image/jpeg';
 const COMPRESSED_QUALITY = 0.82;
+const LOCKED_CASH_ACCOUNT_SOURCES: AccountSource[] = ['IB', 'Futu', 'Crypto'];
 
 function readFileAsDataUrl(file: File) {
   return new Promise<string>((resolve, reject) => {
@@ -162,10 +161,61 @@ function inferAccountSource(fileName: string): AccountSource {
   return 'Other';
 }
 
+function buildHoldingLookupKey(symbol: string, accountSource: AccountSource) {
+  return `${symbol.trim().toUpperCase()}::${accountSource}`;
+}
+
+function selectDefaultCashAccountSource(
+  preferredAccountSource: AccountSource,
+  availableCashAccountSources: AccountSource[],
+) {
+  if (availableCashAccountSources.includes(preferredAccountSource)) {
+    return preferredAccountSource;
+  }
+
+  return availableCashAccountSources[0] ?? '';
+}
+
+function buildEditableAssetFromTransaction(
+  entry: EditableExtractedTransaction,
+  index: number,
+) {
+  return createEditableExtractedAsset(
+    {
+      name: entry.name || null,
+      ticker: entry.ticker || null,
+      type: entry.type || null,
+      quantity:
+        entry.transactionType === 'sell'
+          ? null
+          : entry.quantity.trim()
+            ? Number(entry.quantity)
+            : null,
+      currency: entry.currency || null,
+      costBasis: entry.price.trim() ? Number(entry.price) : null,
+      currentPrice: entry.price.trim() ? Number(entry.price) : null,
+    },
+    index,
+  );
+}
+
+function dedupeEditableAssets(assets: EditableExtractedAsset[]) {
+  const seen = new Set<string>();
+
+  return assets.filter((asset) => {
+    const key = `${asset.ticker.trim().toUpperCase()}::${asset.name.trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
 export function ImportPage() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const { holdings } = usePortfolioAssets();
-  const [importTarget, setImportTarget] = useState<ImportTarget>('assets');
   const [inputMode, setInputMode] = useState<ImportInputMode>('image');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -175,7 +225,7 @@ export function ImportPage() {
   const [accountSource, setAccountSource] = useState<AccountSource>('Other');
   const [extractStatus, setExtractStatus] = useState<ExtractStatus>('idle');
   const [extractError, setExtractError] = useState<string | null>(null);
-  const [extractResponse, setExtractResponse] = useState<ImportResponse | null>(null);
+  const [extractResult, setExtractResult] = useState<ParsedImportResult | null>(null);
   const [editableAssets, setEditableAssets] = useState<EditableExtractedAsset[]>([]);
   const [editableTransactions, setEditableTransactions] = useState<EditableExtractedTransaction[]>([]);
   const [confirmStatus, setConfirmStatus] = useState<'idle' | 'loading' | 'success' | 'error'>(
@@ -186,13 +236,37 @@ export function ImportPage() {
   const [speechError, setSpeechError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
 
+  const tradeableHoldings = useMemo(
+    () => holdings.filter((holding) => holding.assetType !== 'cash'),
+    [holdings],
+  );
   const holdingsByTickerAndSource = useMemo(
     () =>
       new Map(
-        holdings.map((holding) => [`${holding.symbol}::${holding.accountSource}`, holding] as const),
+        tradeableHoldings.map((holding) => [
+          buildHoldingLookupKey(holding.symbol, holding.accountSource),
+          holding,
+        ] as const),
+      ),
+    [tradeableHoldings],
+  );
+  const lockedCashHoldings = useMemo(
+    () =>
+      holdings.filter(
+        (holding) =>
+          holding.assetType === 'cash' &&
+          LOCKED_CASH_ACCOUNT_SOURCES.includes(holding.accountSource),
       ),
     [holdings],
   );
+  const availableCashAccountSources = useMemo(
+    () => Array.from(new Set(lockedCashHoldings.map((holding) => holding.accountSource))),
+    [lockedCashHoldings],
+  );
+  const combinedSubmitLabel =
+    editableAssets.length > 0 && editableTransactions.length > 0
+      ? `確認寫入 ${editableAssets.length} 項資產及 ${editableTransactions.length} 筆交易`
+      : undefined;
 
   const canUseSpeechInput =
     typeof window !== 'undefined' &&
@@ -215,10 +289,33 @@ export function ImportPage() {
     };
   }, [previewUrl]);
 
+  useEffect(() => {
+    if (availableCashAccountSources.length === 0) {
+      return;
+    }
+
+    setEditableTransactions((current) =>
+      current.map((entry) => {
+        if (entry.settlementAccountSource) {
+          return entry;
+        }
+
+        const matchedHolding = entry.ticker ? findMatchedHolding(entry.ticker) : undefined;
+        return {
+          ...entry,
+          settlementAccountSource: selectDefaultCashAccountSource(
+            matchedHolding?.accountSource ?? accountSource,
+            availableCashAccountSources,
+          ),
+        };
+      }),
+    );
+  }, [accountSource, availableCashAccountSources, holdingsByTickerAndSource, tradeableHoldings]);
+
   function resetParseState() {
     setExtractStatus('idle');
     setExtractError(null);
-    setExtractResponse(null);
+    setExtractResult(null);
     setEditableAssets([]);
     setEditableTransactions([]);
     setConfirmStatus('idle');
@@ -226,34 +323,54 @@ export function ImportPage() {
     setConfirmSuccess(null);
   }
 
-  function applyParsedAssets(response: ExtractAssetsResponse | ParseAssetsCommandResponse) {
-    setExtractResponse(response);
-    setEditableAssets(response.assets.map((asset, index) => createEditableExtractedAsset(asset, index)));
-    setEditableTransactions([]);
-    setExtractStatus('success');
+  function findMatchedHolding(symbol: string) {
+    const normalizedSymbol = symbol.trim().toUpperCase();
+
+    return (
+      holdingsByTickerAndSource.get(buildHoldingLookupKey(normalizedSymbol, accountSource)) ??
+      tradeableHoldings.find((holding) => holding.symbol === normalizedSymbol)
+    );
   }
 
-  function applyParsedTransactions(
-    response: ExtractTransactionsResponse | ParseTransactionsCommandResponse,
+  function applyParsedImportResults(
+    assetsResponse: ExtractAssetsResponse | ParseAssetsCommandResponse,
+    transactionsResponse: ExtractTransactionsResponse | ParseTransactionsCommandResponse,
   ) {
-    setExtractResponse(response);
-    setEditableTransactions(
-      response.transactions.map((entry, index) => createEditableExtractedTransaction(entry, index)),
+    const classifiedTransactions: EditableExtractedTransaction[] = [];
+    const derivedNewAssets: EditableExtractedAsset[] = [];
+
+    transactionsResponse.transactions.forEach((entry, index) => {
+      const editable = createEditableExtractedTransaction(entry, index);
+      const matchedHolding = editable.ticker ? findMatchedHolding(editable.ticker) : undefined;
+
+      if (matchedHolding) {
+        editable.settlementAccountSource = selectDefaultCashAccountSource(
+          matchedHolding.accountSource,
+          availableCashAccountSources,
+        );
+        classifiedTransactions.push(editable);
+        return;
+      }
+
+      derivedNewAssets.push(buildEditableAssetFromTransaction(editable, index));
+    });
+
+    setExtractResult({
+      assetModel: assetsResponse.model,
+      transactionModel: transactionsResponse.model,
+    });
+    setEditableAssets(
+      dedupeEditableAssets([
+        ...assetsResponse.assets.map((asset, index) => createEditableExtractedAsset(asset, index)),
+        ...derivedNewAssets,
+      ]),
     );
-    setEditableAssets([]);
+    setEditableTransactions(classifiedTransactions);
     setExtractStatus('success');
   }
 
   function handleChangeInputMode(mode: ImportInputMode) {
     setInputMode(mode);
-    setSpeechError(null);
-    setIsListening(false);
-    recognitionRef.current?.stop();
-    resetParseState();
-  }
-
-  function handleChangeImportTarget(target: ImportTarget) {
-    setImportTarget(target);
     setSpeechError(null);
     setIsListening(false);
     recognitionRef.current?.stop();
@@ -352,31 +469,22 @@ export function ImportPage() {
     setConfirmSuccess(null);
 
     try {
-      if (importTarget === 'assets') {
-        const payload: ExtractAssetsRequest = {
-          fileName: selectedFile.name,
-          mimeType: uploadMimeType,
-          imageBase64,
-        };
-        const response = (await callPortfolioFunction('extract-assets', payload)) as ExtractAssetsResponse;
-        applyParsedAssets(response);
-      } else {
-        const payload: ExtractTransactionsRequest = {
-          fileName: selectedFile.name,
-          mimeType: uploadMimeType,
-          imageBase64,
-        };
-        const response = (await callPortfolioFunction('extract-transactions', payload)) as ExtractTransactionsResponse;
-        applyParsedTransactions(response);
-      }
+      const payload: ExtractAssetsRequest & ExtractTransactionsRequest = {
+        fileName: selectedFile.name,
+        mimeType: uploadMimeType,
+        imageBase64,
+      };
+      const [assetsResponse, transactionsResponse] = await Promise.all([
+        callPortfolioFunction('extract-assets', payload) as Promise<ExtractAssetsResponse>,
+        callPortfolioFunction('extract-transactions', payload) as Promise<ExtractTransactionsResponse>,
+      ]);
+      applyParsedImportResults(assetsResponse, transactionsResponse);
     } catch (error) {
       setExtractStatus('error');
       setExtractError(
         error instanceof Error
           ? error.message
-          : importTarget === 'assets'
-            ? '解析截圖失敗，請稍後再試。'
-            : '解析交易截圖失敗，請稍後再試。',
+          : '解析截圖失敗，請稍後再試。',
       );
     }
   }
@@ -395,26 +503,20 @@ export function ImportPage() {
     setConfirmSuccess(null);
 
     try {
-      if (importTarget === 'assets') {
-        const payload: ParseAssetsCommandRequest = { text: commandText.trim() };
-        const response = (await callPortfolioFunction('parse-assets-command', payload)) as ParseAssetsCommandResponse;
-        applyParsedAssets(response);
-      } else {
-        const payload: ParseTransactionsCommandRequest = { text: commandText.trim() };
-        const response = (await callPortfolioFunction(
-          'parse-transactions-command',
-          payload,
-        )) as ParseTransactionsCommandResponse;
-        applyParsedTransactions(response);
-      }
+      const payload: ParseAssetsCommandRequest & ParseTransactionsCommandRequest = {
+        text: commandText.trim(),
+      };
+      const [assetsResponse, transactionsResponse] = await Promise.all([
+        callPortfolioFunction('parse-assets-command', payload) as Promise<ParseAssetsCommandResponse>,
+        callPortfolioFunction('parse-transactions-command', payload) as Promise<ParseTransactionsCommandResponse>,
+      ]);
+      applyParsedImportResults(assetsResponse, transactionsResponse);
     } catch (error) {
       setExtractStatus('error');
       setExtractError(
         error instanceof Error
           ? error.message
-          : importTarget === 'assets'
-            ? '解析文字內容失敗，請稍後再試。'
-            : '解析交易文字失敗，請稍後再試。',
+          : '解析文字內容失敗，請稍後再試。',
       );
     }
   }
@@ -476,44 +578,30 @@ export function ImportPage() {
   }
 
   async function handleConfirmImport() {
-    if (importTarget === 'assets') {
-      const hasMissingFields = editableAssets.some(
-        (asset) => getMissingExtractedAssetFields(asset).length > 0,
-      );
+    const hasMissingAssetFields = editableAssets.some(
+      (asset) => getMissingExtractedAssetFields(asset).length > 0,
+    );
+    const containsCashAsset = editableAssets.some((asset) => asset.type === 'cash');
+    const hasMissingTransactionFields = editableTransactions.some(
+      (entry) =>
+        getMissingExtractedTransactionFields(entry).length > 0 || !entry.settlementAccountSource,
+    );
 
-      if (hasMissingFields) {
-        setConfirmStatus('error');
-        setConfirmError('仍有缺少欄位，請先補齊再確認匯入。');
-        return;
-      }
-
-      setConfirmStatus('loading');
-      setConfirmError(null);
-      setConfirmSuccess(null);
-
-      try {
-        const payloads = editableAssets.map((asset) =>
-          buildPortfolioAssetInputFromExtractedAsset(asset, accountSource),
-        );
-
-        await createPortfolioAssets(payloads);
-        setConfirmStatus('success');
-        setConfirmSuccess(`已成功寫入 Firestore，共 ${payloads.length} 項資產。`);
-      } catch (error) {
-        setConfirmStatus('error');
-        setConfirmError(getFirebaseAssetsErrorMessage(error));
-      }
-
+    if (hasMissingAssetFields || hasMissingTransactionFields) {
+      setConfirmStatus('error');
+      setConfirmError('仍有缺少欄位，請先補齊再確認匯入。');
       return;
     }
 
-    const hasMissingFields = editableTransactions.some(
-      (entry) => getMissingExtractedTransactionFields(entry).length > 0,
-    );
-
-    if (hasMissingFields) {
+    if (containsCashAsset) {
       setConfirmStatus('error');
-      setConfirmError('仍有缺少欄位，請先補齊再確認匯入。');
+      setConfirmError('匯入頁只可新增非現金資產；現金來往請使用 IB、富途或穩定幣現金帳戶處理。');
+      return;
+    }
+
+    if (editableTransactions.length > 0 && availableCashAccountSources.length === 0) {
+      setConfirmStatus('error');
+      setConfirmError('未找到已鎖定的 IB、富途或穩定幣現金帳戶，暫時無法寫入交易。');
       return;
     }
 
@@ -522,11 +610,22 @@ export function ImportPage() {
     setConfirmSuccess(null);
 
     try {
+      let createdAssetCount = 0;
+      let createdTransactionCount = 0;
+
+      if (editableAssets.length > 0) {
+        const payloads = editableAssets.map((asset) =>
+          buildPortfolioAssetInputFromExtractedAsset(asset, accountSource),
+        );
+        await createPortfolioAssets(payloads);
+        createdAssetCount = payloads.length;
+      }
+
       for (const entry of editableTransactions) {
         const symbol = entry.ticker.trim().toUpperCase();
         const matchedHolding =
-          holdingsByTickerAndSource.get(`${symbol}::${accountSource}`) ??
-          holdings.find((holding) => holding.symbol === symbol);
+          holdingsByTickerAndSource.get(buildHoldingLookupKey(symbol, accountSource)) ??
+          tradeableHoldings.find((holding) => holding.symbol === symbol);
 
         if (!matchedHolding) {
           throw new Error(`${symbol} 未有對應現有資產，請先新增資產再匯入交易。`);
@@ -543,39 +642,35 @@ export function ImportPage() {
           price: Number(entry.price),
           fees: Number(entry.fees) || 0,
           currency: entry.currency.trim().toUpperCase(),
+          settlementAccountSource: entry.settlementAccountSource as AccountSource,
           date: entry.date,
           note: entry.note.trim() || undefined,
         });
+        createdTransactionCount += 1;
       }
 
       setConfirmStatus('success');
-      setConfirmSuccess(`已成功寫入交易記錄，共 ${editableTransactions.length} 筆交易。`);
+      setConfirmSuccess(
+        [
+          createdAssetCount > 0 ? `已新增 ${createdAssetCount} 項資產` : null,
+          createdTransactionCount > 0 ? `已寫入 ${createdTransactionCount} 筆交易` : null,
+        ]
+          .filter(Boolean)
+          .join('，'),
+      );
     } catch (error) {
       setConfirmStatus('error');
-      setConfirmError(getAssetTransactionsErrorMessage(error));
+      setConfirmError(
+        editableTransactions.length > 0
+          ? getAssetTransactionsErrorMessage(error)
+          : getFirebaseAssetsErrorMessage(error),
+      );
     }
   }
 
   return (
     <div className="page-stack">
       <section className="hero-panel">
-        <div className="import-mode-row" role="tablist" aria-label="選擇匯入目標">
-          <button
-            className={importTarget === 'assets' ? 'filter-chip active' : 'filter-chip'}
-            type="button"
-            onClick={() => handleChangeImportTarget('assets')}
-          >
-            匯入資產
-          </button>
-          <button
-            className={importTarget === 'transactions' ? 'filter-chip active' : 'filter-chip'}
-            type="button"
-            onClick={() => handleChangeImportTarget('transactions')}
-          >
-            匯入交易
-          </button>
-        </div>
-
         <div className="import-mode-row" role="tablist" aria-label="選擇匯入方式">
           <button
             className={inputMode === 'image' ? 'filter-chip active' : 'filter-chip'}
@@ -594,15 +689,17 @@ export function ImportPage() {
         </div>
 
         <div className="upload-dropzone">
-          {extractResponse ? (
-            <span className="chip chip-strong">模型 {extractResponse.model}</span>
+          {extractResult ? (
+            <span className="chip chip-strong">
+              資產 {extractResult.assetModel} / 交易 {extractResult.transactionModel}
+            </span>
           ) : (
-            <span className="chip chip-soft">模型 gemini-2.5-flash-lite</span>
+            <span className="chip chip-soft">模型 gemini-2.5-flash-lite / gemini-2.5-flash-lite</span>
           )}
 
           {inputMode === 'image' ? (
             <>
-              <strong>{importTarget === 'assets' ? '上傳資產截圖' : '上傳交易截圖'}</strong>
+              <strong>上傳截圖，AI 會自動分類新增資產同原有資產交易</strong>
               <label className="button button-secondary upload-button">
                 選擇圖片
                 <input
@@ -632,11 +729,9 @@ export function ImportPage() {
             </>
           ) : (
             <div className="prompt-box import-command-box">
-              <strong>{importTarget === 'assets' ? '描述你要加入或整理的資產' : '描述你要新增的交易'}</strong>
+              <strong>輸入文字或語音，AI 會自動分類新增資產同交易記錄</strong>
               <p className="table-hint">
-                {importTarget === 'assets'
-                  ? '例如：加入 TSLA 10 股，美元，平均成本 225.3；再加入 2800.HK 200 股，成本 18.9 港元。'
-                  : '例如：今天買入 TSLA 5 股，價格 240 美元，手續費 1.5；再賣出 2800.HK 100 股，價格 20.1 港元。'}
+                例如：加入 TSLA 10 股，成本 225.3 美元；今日再買入 NVDA 2 股，價格 880 美元，手續費 1.5。
               </p>
               <textarea
                 value={commandText}
@@ -644,11 +739,7 @@ export function ImportPage() {
                   setCommandText(event.target.value);
                   resetParseState();
                 }}
-                placeholder={
-                  importTarget === 'assets'
-                    ? '輸入文字，或者先按語音輸入再讓 AI 整理成資產草稿。'
-                    : '輸入文字，或者先按語音輸入再讓 AI 整理成交易草稿。'
-                }
+                placeholder="輸入文字，或者先按語音輸入，再讓 AI 幫你分辨邊啲係新增資產、邊啲係原有資產交易。"
               />
               <div className="button-row">
                 <button className="button button-secondary" type="button" onClick={isListening ? handleStopListening : handleStartListening}>
@@ -678,8 +769,8 @@ export function ImportPage() {
             <h2>{inputMode === 'image' ? '截圖預覽' : '文字內容預覽'}</h2>
           </div>
           <span className="chip chip-soft">
-            {extractResponse
-              ? `模型 ${extractResponse.model}`
+            {extractResult
+              ? `資產 ${extractResult.assetModel} / 交易 ${extractResult.transactionModel}`
               : inputMode === 'image'
                 ? selectedFile
                   ? '已選擇圖片'
@@ -706,7 +797,24 @@ export function ImportPage() {
         ) : null}
       </section>
 
-      {extractStatus === 'success' && importTarget === 'assets' ? (
+      {extractStatus === 'success' ? (
+        <section className="card">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Classify</p>
+              <h2>AI 分類結果</h2>
+              <p className="table-hint">
+                新增資產會放入資產清單；可對應現有持倉嘅內容會放入交易清單。
+              </p>
+            </div>
+            <span className="chip chip-soft">
+              新增資產 {editableAssets.length} / 原有資產交易 {editableTransactions.length}
+            </span>
+          </div>
+        </section>
+      ) : null}
+
+      {extractStatus === 'success' && editableAssets.length > 0 ? (
         <ExtractedAssetsEditor
           assets={editableAssets}
           accountSource={accountSource}
@@ -717,21 +825,30 @@ export function ImportPage() {
           isConfirming={confirmStatus === 'loading'}
           confirmError={confirmError}
           confirmSuccess={confirmSuccess}
+          submitLabel={combinedSubmitLabel}
         />
       ) : null}
 
-      {extractStatus === 'success' && importTarget === 'transactions' ? (
+      {extractStatus === 'success' && editableTransactions.length > 0 ? (
         <ExtractedTransactionsEditor
           transactions={editableTransactions}
-          accountSource={accountSource}
+          cashAccountSources={availableCashAccountSources}
           onChangeTransaction={handleTransactionChange}
           onRemoveTransaction={handleRemoveTransaction}
-          onChangeAccountSource={setAccountSource}
           onConfirm={handleConfirmImport}
           isConfirming={confirmStatus === 'loading'}
           confirmError={confirmError}
           confirmSuccess={confirmSuccess}
+          submitLabel={combinedSubmitLabel}
         />
+      ) : null}
+
+      {extractStatus === 'success' &&
+      editableAssets.length === 0 &&
+      editableTransactions.length === 0 ? (
+        <section className="card">
+          <p className="status-message">AI 未分到可匯入內容，請換張清晰啲嘅圖片或者補充文字。</p>
+        </section>
       ) : null}
     </div>
   );

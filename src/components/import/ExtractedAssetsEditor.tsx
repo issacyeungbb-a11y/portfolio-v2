@@ -26,9 +26,10 @@ interface ExtractedAssetsEditorProps {
   isConfirming: boolean;
   confirmError: string | null;
   confirmSuccess: string | null;
+  submitLabel?: string;
 }
 
-const assetTypeOptions: AssetType[] = ['stock', 'etf', 'bond', 'crypto', 'cash'];
+const assetTypeOptions: AssetType[] = ['stock', 'etf', 'bond', 'crypto'];
 const accountSourceOptions: AccountSource[] = ['Futu', 'IB', 'Crypto', 'Other'];
 
 const fieldLabels: Record<EditableExtractedAssetField, string> = {
@@ -51,6 +52,7 @@ export function ExtractedAssetsEditor({
   isConfirming,
   confirmError,
   confirmSuccess,
+  submitLabel,
 }: ExtractedAssetsEditorProps) {
   const missingFieldCount = assets.reduce(
     (sum, asset) => sum + getMissingExtractedAssetFields(asset).length,
@@ -65,7 +67,7 @@ export function ExtractedAssetsEditor({
           <p className="eyebrow">Review</p>
           <h2>解析預覽</h2>
           <p className="table-hint">
-            檢查 Gemini 抽出嘅欄位。標示為缺少的資料可以即場手動修改，確認後才會寫入 Firestore。
+            檢查 AI 分類成新增資產嘅內容。呢度只會建立非現金資產，現金流會交由交易記錄扣減或增加既有現金帳戶。
           </p>
         </div>
         <span className={hasMissingFields ? 'chip chip-strong' : 'chip chip-soft'}>
@@ -267,7 +269,7 @@ export function ExtractedAssetsEditor({
           disabled={isConfirming || hasMissingFields || assets.length === 0}
           onClick={onConfirm}
         >
-          {isConfirming ? '寫入中...' : `確認寫入 ${assets.length} 項資產`}
+          {isConfirming ? '寫入中...' : submitLabel ?? `確認寫入 ${assets.length} 項資產`}
         </button>
       </div>
     </section>

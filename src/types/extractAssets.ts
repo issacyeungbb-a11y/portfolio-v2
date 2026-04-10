@@ -114,6 +114,7 @@ export interface EditableExtractedTransaction {
   ticker: string;
   type: AssetType | '';
   transactionType: AssetTransactionType | '';
+  settlementAccountSource: AccountSource | '';
   quantity: string;
   currency: string;
   price: string;
@@ -153,6 +154,7 @@ export function createEditableExtractedTransaction(
     ticker: entry.ticker ?? '',
     type: entry.type ?? '',
     transactionType: entry.transactionType ?? '',
+    settlementAccountSource: '',
     quantity: entry.quantity == null ? '' : String(entry.quantity),
     currency: entry.currency ?? '',
     price: entry.price == null ? '' : String(entry.price),
