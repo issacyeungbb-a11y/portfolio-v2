@@ -17,6 +17,18 @@
       "schedule": "12 22 * * *"
     },
     {
+      "path": "/api/cron-update-prices?batch=5",
+      "schedule": "16 22 * * *"
+    },
+    {
+      "path": "/api/cron-update-prices?batch=6",
+      "schedule": "20 22 * * *"
+    },
+    {
+      "path": "/api/cron-update-prices?batch=7",
+      "schedule": "24 22 * * *"
+    },
+    {
       "path": "/api/cron-capture-snapshot",
       "schedule": "0 2 * * *"
     },

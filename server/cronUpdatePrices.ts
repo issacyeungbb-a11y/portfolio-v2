@@ -9,10 +9,13 @@ const CRON_ROUTE = '/api/cron-update-prices' as const;
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 const BATCH_ASSET_MAP: Record<string, string[]> = {
-  '1': ['CRCL', 'GOOG', 'Midnight'],
-  '2': ['MOAT', 'NVDA', 'SGOV'],
-  '3': ['SOFI', 'TLT', 'TSLA'],
-  '4': ['TSM', 'ETH'],
+  '1': ['ADA', 'ASTER', 'ATONE'],
+  '2': ['BNB', 'BTC', 'CRCL'],
+  '3': ['ETH', 'GOOG', 'KAS'],
+  '4': ['MOAT', 'NIGHT', 'NVDA'],
+  '5': ['SGOV', 'SOFI', 'SOL'],
+  '6': ['SUI', 'TLT', 'TSLA'],
+  '7': ['TSM'],
 };
 
 class CronPriceUpdateError extends Error {
