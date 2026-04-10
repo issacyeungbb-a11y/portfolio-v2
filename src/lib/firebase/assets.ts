@@ -231,6 +231,8 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
     ),
     reason: 'asset_created',
   });
+
+  return createdDoc.id;
 }
 
 export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {

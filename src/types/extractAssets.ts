@@ -123,6 +123,26 @@ export interface EditableExtractedTransaction {
   note: string;
 }
 
+export type ImportPreviewClassification = 'new_asset' | 'existing_transaction';
+
+export interface ImportPreviewItem {
+  id: string;
+  name: string;
+  ticker: string;
+  type: AssetType | '';
+  classification: ImportPreviewClassification;
+  existingAssetId: string;
+  assetAccountSource: AccountSource | '';
+  settlementAccountSource: AccountSource | '';
+  transactionType: AssetTransactionType | '';
+  quantity: string;
+  currency: string;
+  price: string;
+  fees: string;
+  date: string;
+  note: string;
+}
+
 export interface ConfirmExtractedAssetsInput {
   accountSource: AccountSource;
   assets: EditableExtractedAsset[];

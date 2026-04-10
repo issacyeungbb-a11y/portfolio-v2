@@ -1,32 +1,27 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 
-import { ExtractedAssetsEditor } from '../components/import/ExtractedAssetsEditor';
-import { ExtractedTransactionsEditor } from '../components/import/ExtractedTransactionsEditor';
+import { ImportPreviewEditor } from '../components/import/ImportPreviewEditor';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { createAssetTransaction, getAssetTransactionsErrorMessage } from '../lib/firebase/assetTransactions';
-import { createPortfolioAssets, getFirebaseAssetsErrorMessage } from '../lib/firebase/assets';
-import type { AccountSource } from '../types/portfolio';
-import {
-  buildPortfolioAssetInputFromExtractedAsset,
-  createEditableExtractedAsset,
-  createEditableExtractedTransaction,
-  getMissingExtractedAssetFields,
-  getMissingExtractedTransactionFields,
-  type EditableExtractedAsset,
-  type EditableExtractedTransaction,
-  type ExtractAssetsRequest,
-  type ExtractAssetsResponse,
-  type ExtractTransactionsRequest,
-  type ExtractTransactionsResponse,
-  type ParseAssetsCommandRequest,
-  type ParseAssetsCommandResponse,
-  type ParseTransactionsCommandRequest,
-  type ParseTransactionsCommandResponse,
+import { createPortfolioAsset, getFirebaseAssetsErrorMessage } from '../lib/firebase/assets';
+import type { AccountSource, AssetType, PortfolioAssetInput } from '../types/portfolio';
+import type {
+  ExtractAssetsRequest,
+  ExtractAssetsResponse,
+  ExtractTransactionsRequest,
+  ExtractTransactionsResponse,
+  ImportPreviewClassification,
+  ImportPreviewItem,
+  ParseAssetsCommandRequest,
+  ParseAssetsCommandResponse,
+  ParseTransactionsCommandRequest,
+  ParseTransactionsCommandResponse,
 } from '../types/extractAssets';
 
 type ExtractStatus = 'idle' | 'loading' | 'success' | 'error';
 type ImportInputMode = 'image' | 'text';
+
 interface ParsedImportResult {
   assetModel: string;
   transactionModel: string;
@@ -176,41 +171,105 @@ function selectDefaultCashAccountSource(
   return availableCashAccountSources[0] ?? '';
 }
 
-function buildEditableAssetFromTransaction(
-  entry: EditableExtractedTransaction,
-  index: number,
-) {
-  return createEditableExtractedAsset(
-    {
-      name: entry.name || null,
-      ticker: entry.ticker || null,
-      type: entry.type || null,
-      quantity:
-        entry.transactionType === 'sell'
-          ? null
-          : entry.quantity.trim()
-            ? Number(entry.quantity)
-            : null,
-      currency: entry.currency || null,
-      costBasis: entry.price.trim() ? Number(entry.price) : null,
-      currentPrice: entry.price.trim() ? Number(entry.price) : null,
-    },
-    index,
-  );
+function normalizeUppercase(value: string) {
+  return value.trim().toUpperCase();
 }
 
-function dedupeEditableAssets(assets: EditableExtractedAsset[]) {
-  const seen = new Set<string>();
+function buildPreviewItemFromTransaction(
+  itemId: string,
+  entry: ExtractTransactionsResponse['transactions'][number],
+  classification: ImportPreviewClassification,
+  assetAccountSource: AccountSource,
+  settlementAccountSource: AccountSource | '',
+  existingAssetId = '',
+) {
+  return {
+    id: itemId,
+    name: entry.name ?? '',
+    ticker: entry.ticker ?? '',
+    type: entry.type ?? '',
+    classification,
+    existingAssetId,
+    assetAccountSource,
+    settlementAccountSource,
+    transactionType: entry.transactionType ?? '',
+    quantity: entry.quantity == null ? '' : String(entry.quantity),
+    currency: entry.currency ?? '',
+    price: entry.price == null ? '' : String(entry.price),
+    fees: entry.fees == null ? '0' : String(entry.fees),
+    date: entry.date ?? new Date().toISOString().slice(0, 10),
+    note: entry.note ?? '',
+  } satisfies ImportPreviewItem;
+}
 
-  return assets.filter((asset) => {
-    const key = `${asset.ticker.trim().toUpperCase()}::${asset.name.trim().toLowerCase()}`;
-    if (seen.has(key)) {
-      return false;
-    }
+function buildPreviewItemFromAsset(
+  itemId: string,
+  entry: ExtractAssetsResponse['assets'][number],
+  assetAccountSource: AccountSource,
+  settlementAccountSource: AccountSource | '',
+) {
+  return {
+    id: itemId,
+    name: entry.name ?? '',
+    ticker: entry.ticker ?? '',
+    type: entry.type ?? '',
+    classification: 'new_asset',
+    existingAssetId: '',
+    assetAccountSource,
+    settlementAccountSource,
+    transactionType: 'buy',
+    quantity: entry.quantity == null ? '' : String(entry.quantity),
+    currency: entry.currency ?? '',
+    price:
+      entry.costBasis == null
+        ? entry.currentPrice == null
+          ? ''
+          : String(entry.currentPrice)
+        : String(entry.costBasis),
+    fees: '0',
+    date: new Date().toISOString().slice(0, 10),
+    note: '',
+  } satisfies ImportPreviewItem;
+}
 
-    seen.add(key);
-    return true;
-  });
+function getMissingPreviewFields(item: ImportPreviewItem) {
+  const missing: string[] = [];
+
+  if (!item.name.trim()) {
+    missing.push('名稱');
+  }
+  if (!item.ticker.trim()) {
+    missing.push('Ticker');
+  }
+  if (!item.type) {
+    missing.push('類型');
+  }
+  if (!item.assetAccountSource) {
+    missing.push('資產帳戶');
+  }
+  if (!item.settlementAccountSource) {
+    missing.push('現金帳戶');
+  }
+  if (item.classification === 'existing_transaction' && !item.existingAssetId) {
+    missing.push('對應資產');
+  }
+  if (!item.transactionType) {
+    missing.push('交易類型');
+  }
+  if (!item.quantity.trim()) {
+    missing.push('數量');
+  }
+  if (!item.currency.trim()) {
+    missing.push('幣別');
+  }
+  if (!item.price.trim()) {
+    missing.push('成交價');
+  }
+  if (!item.date.trim()) {
+    missing.push('日期');
+  }
+
+  return missing;
 }
 
 export function ImportPage() {
@@ -222,12 +281,11 @@ export function ImportPage() {
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [uploadMimeType, setUploadMimeType] = useState<string>('image/png');
   const [commandText, setCommandText] = useState('');
-  const [accountSource, setAccountSource] = useState<AccountSource>('Other');
+  const [defaultAccountSource, setDefaultAccountSource] = useState<AccountSource>('Other');
   const [extractStatus, setExtractStatus] = useState<ExtractStatus>('idle');
   const [extractError, setExtractError] = useState<string | null>(null);
   const [extractResult, setExtractResult] = useState<ParsedImportResult | null>(null);
-  const [editableAssets, setEditableAssets] = useState<EditableExtractedAsset[]>([]);
-  const [editableTransactions, setEditableTransactions] = useState<EditableExtractedTransaction[]>([]);
+  const [previewItems, setPreviewItems] = useState<ImportPreviewItem[]>([]);
   const [confirmStatus, setConfirmStatus] = useState<'idle' | 'loading' | 'success' | 'error'>(
     'idle',
   );
@@ -239,6 +297,10 @@ export function ImportPage() {
   const tradeableHoldings = useMemo(
     () => holdings.filter((holding) => holding.assetType !== 'cash'),
     [holdings],
+  );
+  const holdingsById = useMemo(
+    () => new Map(tradeableHoldings.map((holding) => [holding.id, holding])),
+    [tradeableHoldings],
   );
   const holdingsByTickerAndSource = useMemo(
     () =>
@@ -263,10 +325,15 @@ export function ImportPage() {
     () => Array.from(new Set(lockedCashHoldings.map((holding) => holding.accountSource))),
     [lockedCashHoldings],
   );
-  const combinedSubmitLabel =
-    editableAssets.length > 0 && editableTransactions.length > 0
-      ? `確認寫入 ${editableAssets.length} 項資產及 ${editableTransactions.length} 筆交易`
-      : undefined;
+  const existingAssetOptions = useMemo(
+    () =>
+      tradeableHoldings.map((holding) => ({
+        id: holding.id,
+        label: `${holding.symbol} · ${holding.name} · ${holding.accountSource}`,
+        accountSource: holding.accountSource,
+      })),
+    [tradeableHoldings],
+  );
 
   const canUseSpeechInput =
     typeof window !== 'undefined' &&
@@ -289,42 +356,18 @@ export function ImportPage() {
     };
   }, [previewUrl]);
 
-  useEffect(() => {
-    if (availableCashAccountSources.length === 0) {
-      return;
-    }
-
-    setEditableTransactions((current) =>
-      current.map((entry) => {
-        if (entry.settlementAccountSource) {
-          return entry;
-        }
-
-        const matchedHolding = entry.ticker ? findMatchedHolding(entry.ticker) : undefined;
-        return {
-          ...entry,
-          settlementAccountSource: selectDefaultCashAccountSource(
-            matchedHolding?.accountSource ?? accountSource,
-            availableCashAccountSources,
-          ),
-        };
-      }),
-    );
-  }, [accountSource, availableCashAccountSources, holdingsByTickerAndSource, tradeableHoldings]);
-
   function resetParseState() {
     setExtractStatus('idle');
     setExtractError(null);
     setExtractResult(null);
-    setEditableAssets([]);
-    setEditableTransactions([]);
+    setPreviewItems([]);
     setConfirmStatus('idle');
     setConfirmError(null);
     setConfirmSuccess(null);
   }
 
-  function findMatchedHolding(symbol: string) {
-    const normalizedSymbol = symbol.trim().toUpperCase();
+  function findMatchedHolding(symbol: string, accountSource: AccountSource) {
+    const normalizedSymbol = normalizeUppercase(symbol);
 
     return (
       holdingsByTickerAndSource.get(buildHoldingLookupKey(normalizedSymbol, accountSource)) ??
@@ -336,36 +379,39 @@ export function ImportPage() {
     assetsResponse: ExtractAssetsResponse | ParseAssetsCommandResponse,
     transactionsResponse: ExtractTransactionsResponse | ParseTransactionsCommandResponse,
   ) {
-    const classifiedTransactions: EditableExtractedTransaction[] = [];
-    const derivedNewAssets: EditableExtractedAsset[] = [];
+    const defaultCashAccountSource = selectDefaultCashAccountSource(
+      defaultAccountSource,
+      availableCashAccountSources,
+    );
 
-    transactionsResponse.transactions.forEach((entry, index) => {
-      const editable = createEditableExtractedTransaction(entry, index);
-      const matchedHolding = editable.ticker ? findMatchedHolding(editable.ticker) : undefined;
-
-      if (matchedHolding) {
-        editable.settlementAccountSource = selectDefaultCashAccountSource(
-          matchedHolding.accountSource,
-          availableCashAccountSources,
-        );
-        classifiedTransactions.push(editable);
-        return;
-      }
-
-      derivedNewAssets.push(buildEditableAssetFromTransaction(editable, index));
-    });
+    const items =
+      transactionsResponse.transactions.length > 0
+        ? transactionsResponse.transactions.map((entry, index) => {
+            const matchedHolding =
+              entry.ticker == null ? undefined : findMatchedHolding(entry.ticker, defaultAccountSource);
+            return buildPreviewItemFromTransaction(
+              `preview-transaction-${index}-${entry.ticker ?? 'item'}`,
+              entry,
+              matchedHolding ? 'existing_transaction' : 'new_asset',
+              matchedHolding?.accountSource ?? defaultAccountSource,
+              defaultCashAccountSource,
+              matchedHolding?.id ?? '',
+            );
+          })
+        : assetsResponse.assets.map((entry, index) =>
+            buildPreviewItemFromAsset(
+              `preview-asset-${index}-${entry.ticker ?? 'item'}`,
+              entry,
+              defaultAccountSource,
+              defaultCashAccountSource,
+            ),
+          );
 
     setExtractResult({
       assetModel: assetsResponse.model,
       transactionModel: transactionsResponse.model,
     });
-    setEditableAssets(
-      dedupeEditableAssets([
-        ...assetsResponse.assets.map((asset, index) => createEditableExtractedAsset(asset, index)),
-        ...derivedNewAssets,
-      ]),
-    );
-    setEditableTransactions(classifiedTransactions);
+    setPreviewItems(items);
     setExtractStatus('success');
   }
 
@@ -396,7 +442,7 @@ export function ImportPage() {
       setPreviewUrl(nextPreviewUrl);
       setImageBase64(getBase64FromDataUrl(compressedImage.dataUrl));
       setUploadMimeType(compressedImage.mimeType);
-      setAccountSource(inferAccountSource(file.name));
+      setDefaultAccountSource(inferAccountSource(file.name));
       resetParseState();
     } catch (error) {
       setExtractStatus('error');
@@ -404,52 +450,62 @@ export function ImportPage() {
     }
   }
 
-  function handleAssetChange(assetId: string, field: keyof EditableExtractedAsset, value: string) {
-    setEditableAssets((current) =>
-      current.map((asset) =>
-        asset.id === assetId
-          ? {
-              ...asset,
-              [field]: field === 'ticker' || field === 'currency' ? value.toUpperCase() : value,
-            }
-          : asset,
-      ),
-    );
-    setConfirmStatus('idle');
-    setConfirmError(null);
-    setConfirmSuccess(null);
-  }
-
-  function handleRemoveAsset(assetId: string) {
-    setEditableAssets((current) => current.filter((asset) => asset.id !== assetId));
-    setConfirmStatus('idle');
-    setConfirmError(null);
-    setConfirmSuccess(null);
-  }
-
-  function handleTransactionChange(
-    transactionId: string,
-    field: keyof EditableExtractedTransaction,
+  function handleChangePreviewItem(
+    itemId: string,
+    field: keyof ImportPreviewItem,
     value: string,
   ) {
-    setEditableTransactions((current) =>
-      current.map((entry) =>
-        entry.id === transactionId
-          ? {
-              ...entry,
-              [field]:
-                field === 'ticker' || field === 'currency' ? value.toUpperCase() : value,
-            }
-          : entry,
-      ),
+    setPreviewItems((current) =>
+      current.map((item) => {
+        if (item.id !== itemId) {
+          return item;
+        }
+
+        const nextValue = field === 'ticker' || field === 'currency' ? value.toUpperCase() : value;
+        const updated = {
+          ...item,
+          [field]: nextValue,
+        };
+
+        if (field === 'classification' && value === 'new_asset') {
+          updated.existingAssetId = '';
+        }
+
+        if (field === 'classification' && value === 'existing_transaction') {
+          const matchedHolding = findMatchedHolding(
+            updated.ticker,
+            updated.assetAccountSource || defaultAccountSource,
+          );
+          if (matchedHolding) {
+            updated.existingAssetId = matchedHolding.id;
+            updated.assetAccountSource = matchedHolding.accountSource;
+          }
+        }
+
+        if (field === 'ticker' && item.classification === 'existing_transaction') {
+          updated.existingAssetId = '';
+        }
+
+        if (field === 'existingAssetId') {
+          const selectedHolding = holdingsById.get(value);
+          if (selectedHolding) {
+            updated.assetAccountSource = selectedHolding.accountSource;
+            updated.ticker = selectedHolding.symbol;
+            updated.name = item.name || selectedHolding.name;
+            updated.type = item.type || selectedHolding.assetType;
+          }
+        }
+
+        return updated;
+      }),
     );
     setConfirmStatus('idle');
     setConfirmError(null);
     setConfirmSuccess(null);
   }
 
-  function handleRemoveTransaction(transactionId: string) {
-    setEditableTransactions((current) => current.filter((entry) => entry.id !== transactionId));
+  function handleRemovePreviewItem(itemId: string) {
+    setPreviewItems((current) => current.filter((item) => item.id !== itemId));
     setConfirmStatus('idle');
     setConfirmError(null);
     setConfirmSuccess(null);
@@ -481,11 +537,7 @@ export function ImportPage() {
       applyParsedImportResults(assetsResponse, transactionsResponse);
     } catch (error) {
       setExtractStatus('error');
-      setExtractError(
-        error instanceof Error
-          ? error.message
-          : '解析截圖失敗，請稍後再試。',
-      );
+      setExtractError(error instanceof Error ? error.message : '解析截圖失敗，請稍後再試。');
     }
   }
 
@@ -513,11 +565,7 @@ export function ImportPage() {
       applyParsedImportResults(assetsResponse, transactionsResponse);
     } catch (error) {
       setExtractStatus('error');
-      setExtractError(
-        error instanceof Error
-          ? error.message
-          : '解析文字內容失敗，請稍後再試。',
-      );
+      setExtractError(error instanceof Error ? error.message : '解析文字內容失敗，請稍後再試。');
     }
   }
 
@@ -577,31 +625,62 @@ export function ImportPage() {
     setIsListening(false);
   }
 
-  async function handleConfirmImport() {
-    const hasMissingAssetFields = editableAssets.some(
-      (asset) => getMissingExtractedAssetFields(asset).length > 0,
-    );
-    const containsCashAsset = editableAssets.some((asset) => asset.type === 'cash');
-    const hasMissingTransactionFields = editableTransactions.some(
-      (entry) =>
-        getMissingExtractedTransactionFields(entry).length > 0 || !entry.settlementAccountSource,
-    );
+  async function createAssetAndTrade(item: ImportPreviewItem) {
+    if (item.transactionType !== 'buy') {
+      throw new Error('新增資產只支援買入交易；如果係現有持倉買賣，請改揀「原有資產交易」。');
+    }
 
-    if (hasMissingAssetFields || hasMissingTransactionFields) {
+    if (item.type === 'cash') {
+      throw new Error('匯入頁唔會新增現金資產，請使用既有 IB、富途或穩定幣現金資產。');
+    }
+
+    const assetPayload: PortfolioAssetInput = {
+      name: item.name.trim(),
+      symbol: normalizeUppercase(item.ticker),
+      assetType: item.type as Exclude<AssetType, 'cash'>,
+      accountSource: item.assetAccountSource as AccountSource,
+      currency: normalizeUppercase(item.currency),
+      quantity: 0,
+      averageCost: 0,
+      currentPrice: 0,
+    };
+    const assetId = await createPortfolioAsset(assetPayload);
+
+    await createAssetTransaction({
+      assetId,
+      assetName: assetPayload.name,
+      symbol: assetPayload.symbol,
+      assetType: assetPayload.assetType,
+      accountSource: assetPayload.accountSource,
+      settlementAccountSource: item.settlementAccountSource as AccountSource,
+      transactionType: item.transactionType,
+      quantity: Number(item.quantity),
+      price: Number(item.price),
+      fees: Number(item.fees) || 0,
+      currency: assetPayload.currency,
+      date: item.date,
+      note: item.note.trim() || undefined,
+    });
+  }
+
+  async function handleConfirmImport() {
+    const invalidItem = previewItems.find((item) => getMissingPreviewFields(item).length > 0);
+
+    if (invalidItem) {
       setConfirmStatus('error');
       setConfirmError('仍有缺少欄位，請先補齊再確認匯入。');
       return;
     }
 
-    if (containsCashAsset) {
+    if (previewItems.length === 0) {
       setConfirmStatus('error');
-      setConfirmError('匯入頁只可新增非現金資產；現金來往請使用 IB、富途或穩定幣現金帳戶處理。');
+      setConfirmError('未有可儲存的交易預覽。');
       return;
     }
 
-    if (editableTransactions.length > 0 && availableCashAccountSources.length === 0) {
+    if (availableCashAccountSources.length === 0) {
       setConfirmStatus('error');
-      setConfirmError('未找到已鎖定的 IB、富途或穩定幣現金帳戶，暫時無法寫入交易。');
+      setConfirmError('未找到既有的 IB、富途或穩定幣現金資產，暫時無法匯入交易。');
       return;
     }
 
@@ -613,22 +692,18 @@ export function ImportPage() {
       let createdAssetCount = 0;
       let createdTransactionCount = 0;
 
-      if (editableAssets.length > 0) {
-        const payloads = editableAssets.map((asset) =>
-          buildPortfolioAssetInputFromExtractedAsset(asset, accountSource),
-        );
-        await createPortfolioAssets(payloads);
-        createdAssetCount = payloads.length;
-      }
+      for (const item of previewItems) {
+        if (item.classification === 'new_asset') {
+          await createAssetAndTrade(item);
+          createdAssetCount += 1;
+          createdTransactionCount += 1;
+          continue;
+        }
 
-      for (const entry of editableTransactions) {
-        const symbol = entry.ticker.trim().toUpperCase();
-        const matchedHolding =
-          holdingsByTickerAndSource.get(buildHoldingLookupKey(symbol, accountSource)) ??
-          tradeableHoldings.find((holding) => holding.symbol === symbol);
+        const matchedHolding = holdingsById.get(item.existingAssetId);
 
         if (!matchedHolding) {
-          throw new Error(`${symbol} 未有對應現有資產，請先新增資產再匯入交易。`);
+          throw new Error(`${item.ticker} 未揀選對應現有資產。`);
         }
 
         await createAssetTransaction({
@@ -637,34 +712,31 @@ export function ImportPage() {
           symbol: matchedHolding.symbol,
           assetType: matchedHolding.assetType,
           accountSource: matchedHolding.accountSource,
-          transactionType: entry.transactionType as 'buy' | 'sell',
-          quantity: Number(entry.quantity),
-          price: Number(entry.price),
-          fees: Number(entry.fees) || 0,
-          currency: entry.currency.trim().toUpperCase(),
-          settlementAccountSource: entry.settlementAccountSource as AccountSource,
-          date: entry.date,
-          note: entry.note.trim() || undefined,
+          settlementAccountSource: item.settlementAccountSource as AccountSource,
+          transactionType: item.transactionType,
+          quantity: Number(item.quantity),
+          price: Number(item.price),
+          fees: Number(item.fees) || 0,
+          currency: normalizeUppercase(item.currency),
+          date: item.date,
+          note: item.note.trim() || undefined,
         });
         createdTransactionCount += 1;
       }
 
       setConfirmStatus('success');
       setConfirmSuccess(
-        [
-          createdAssetCount > 0 ? `已新增 ${createdAssetCount} 項資產` : null,
-          createdTransactionCount > 0 ? `已寫入 ${createdTransactionCount} 筆交易` : null,
-        ]
-          .filter(Boolean)
-          .join('，'),
+        `已新增 ${createdAssetCount} 項資產，並寫入 ${createdTransactionCount} 筆交易記錄。`,
       );
     } catch (error) {
       setConfirmStatus('error');
-      setConfirmError(
-        editableTransactions.length > 0
-          ? getAssetTransactionsErrorMessage(error)
-          : getFirebaseAssetsErrorMessage(error),
-      );
+      const message =
+        error instanceof Error
+          ? error.message
+          : previewItems.some((item) => item.classification === 'new_asset')
+            ? getFirebaseAssetsErrorMessage(error)
+            : getAssetTransactionsErrorMessage(error);
+      setConfirmError(message);
     }
   }
 
@@ -699,7 +771,7 @@ export function ImportPage() {
 
           {inputMode === 'image' ? (
             <>
-              <strong>上傳截圖，AI 會自動分類新增資產同原有資產交易</strong>
+              <strong>上傳截圖，AI 會逐筆識別交易，再由你決定係新增資產定原有資產交易</strong>
               <label className="button button-secondary upload-button">
                 選擇圖片
                 <input
@@ -717,21 +789,12 @@ export function ImportPage() {
               >
                 {extractStatus === 'loading' ? '解析中...' : '開始解析'}
               </button>
-              {selectedFile ? (
-                <div className="upload-file-meta">
-                  <strong>{selectedFile.name}</strong>
-                  <p>
-                    {selectedFile.type || 'image/*'}
-                    {uploadMimeType !== (selectedFile.type || 'image/png') ? ` -> ${uploadMimeType}` : ''}
-                  </p>
-                </div>
-              ) : null}
             </>
           ) : (
             <div className="prompt-box import-command-box">
-              <strong>輸入文字或語音，AI 會自動分類新增資產同交易記錄</strong>
+              <strong>輸入文字或語音，AI 會先整理成逐筆交易預覽</strong>
               <p className="table-hint">
-                例如：加入 TSLA 10 股，成本 225.3 美元；今日再買入 NVDA 2 股，價格 880 美元，手續費 1.5。
+                例如：今日買入 TSLA 5 股，240 美元，手續費 1.5；再新增 SOL 10 粒，成本 132 美元。
               </p>
               <textarea
                 value={commandText}
@@ -739,7 +802,7 @@ export function ImportPage() {
                   setCommandText(event.target.value);
                   resetParseState();
                 }}
-                placeholder="輸入文字，或者先按語音輸入，再讓 AI 幫你分辨邊啲係新增資產、邊啲係原有資產交易。"
+                placeholder="輸入內容後，AI 會逐筆拆開，再由你揀每筆係新增資產定原有資產交易。"
               />
               <div className="button-row">
                 <button className="button button-secondary" type="button" onClick={isListening ? handleStopListening : handleStartListening}>
@@ -798,57 +861,17 @@ export function ImportPage() {
       </section>
 
       {extractStatus === 'success' ? (
-        <section className="card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Classify</p>
-              <h2>AI 分類結果</h2>
-              <p className="table-hint">
-                新增資產會放入資產清單；可對應現有持倉嘅內容會放入交易清單。
-              </p>
-            </div>
-            <span className="chip chip-soft">
-              新增資產 {editableAssets.length} / 原有資產交易 {editableTransactions.length}
-            </span>
-          </div>
-        </section>
-      ) : null}
-
-      {extractStatus === 'success' && editableAssets.length > 0 ? (
-        <ExtractedAssetsEditor
-          assets={editableAssets}
-          accountSource={accountSource}
-          onChangeAsset={handleAssetChange}
-          onRemoveAsset={handleRemoveAsset}
-          onChangeAccountSource={setAccountSource}
-          onConfirm={handleConfirmImport}
-          isConfirming={confirmStatus === 'loading'}
-          confirmError={confirmError}
-          confirmSuccess={confirmSuccess}
-          submitLabel={combinedSubmitLabel}
-        />
-      ) : null}
-
-      {extractStatus === 'success' && editableTransactions.length > 0 ? (
-        <ExtractedTransactionsEditor
-          transactions={editableTransactions}
+        <ImportPreviewEditor
+          items={previewItems}
+          existingAssetOptions={existingAssetOptions}
           cashAccountSources={availableCashAccountSources}
-          onChangeTransaction={handleTransactionChange}
-          onRemoveTransaction={handleRemoveTransaction}
+          onChangeItem={handleChangePreviewItem}
+          onRemoveItem={handleRemovePreviewItem}
           onConfirm={handleConfirmImport}
           isConfirming={confirmStatus === 'loading'}
           confirmError={confirmError}
           confirmSuccess={confirmSuccess}
-          submitLabel={combinedSubmitLabel}
         />
-      ) : null}
-
-      {extractStatus === 'success' &&
-      editableAssets.length === 0 &&
-      editableTransactions.length === 0 ? (
-        <section className="card">
-          <p className="status-message">AI 未分到可匯入內容，請換張清晰啲嘅圖片或者補充文字。</p>
-        </section>
       ) : null}
     </div>
   );
