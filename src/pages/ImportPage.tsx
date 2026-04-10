@@ -5,7 +5,12 @@ import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import { createAssetTransaction, getAssetTransactionsErrorMessage } from '../lib/firebase/assetTransactions';
 import { createPortfolioAsset, getFirebaseAssetsErrorMessage } from '../lib/firebase/assets';
-import type { AccountSource, AssetType, PortfolioAssetInput } from '../types/portfolio';
+import type {
+  AccountSource,
+  AssetTransactionType,
+  AssetType,
+  PortfolioAssetInput,
+} from '../types/portfolio';
 import type {
   ExtractAssetsRequest,
   ExtractAssetsResponse,
@@ -270,6 +275,14 @@ function getMissingPreviewFields(item: ImportPreviewItem) {
   }
 
   return missing;
+}
+
+function assertTransactionType(value: ImportPreviewItem['transactionType']): AssetTransactionType {
+  if (value === 'buy' || value === 'sell') {
+    return value;
+  }
+
+  throw new Error('交易類型未設定，請先揀選買入或賣出。');
 }
 
 export function ImportPage() {
@@ -645,6 +658,7 @@ export function ImportPage() {
       currentPrice: 0,
     };
     const assetId = await createPortfolioAsset(assetPayload);
+    const transactionType = assertTransactionType(item.transactionType);
 
     await createAssetTransaction({
       assetId,
@@ -653,7 +667,7 @@ export function ImportPage() {
       assetType: assetPayload.assetType,
       accountSource: assetPayload.accountSource,
       settlementAccountSource: item.settlementAccountSource as AccountSource,
-      transactionType: item.transactionType,
+      transactionType,
       quantity: Number(item.quantity),
       price: Number(item.price),
       fees: Number(item.fees) || 0,
@@ -706,6 +720,8 @@ export function ImportPage() {
           throw new Error(`${item.ticker} 未揀選對應現有資產。`);
         }
 
+        const transactionType = assertTransactionType(item.transactionType);
+
         await createAssetTransaction({
           assetId: matchedHolding.id,
           assetName: matchedHolding.name,
@@ -713,7 +729,7 @@ export function ImportPage() {
           assetType: matchedHolding.assetType,
           accountSource: matchedHolding.accountSource,
           settlementAccountSource: item.settlementAccountSource as AccountSource,
-          transactionType: item.transactionType,
+          transactionType,
           quantity: Number(item.quantity),
           price: Number(item.price),
           fees: Number(item.fees) || 0,
