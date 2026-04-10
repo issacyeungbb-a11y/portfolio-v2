@@ -13,9 +13,6 @@ const BATCH_ASSET_MAP: Record<string, string[]> = {
   '2': ['BNB', 'BTC', 'CRCL'],
   '3': ['ETH', 'GOOG', 'KAS'],
   '4': ['MOAT', 'NIGHT', 'NVDA'],
-  '5': ['SGOV', 'SOFI', 'SOL'],
-  '6': ['SUI', 'TLT', 'TSLA'],
-  '7': ['TSM'],
 };
 
 class CronPriceUpdateError extends Error {
