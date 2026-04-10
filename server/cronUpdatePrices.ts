@@ -2,12 +2,18 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 import { generatePriceUpdates } from './updatePrices.js';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
-import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/priceUpdates.js';
 
 const CRON_ROUTE = '/api/cron-update-prices' as const;
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
+const BATCH_ASSET_MAP: Record<string, string[]> = {
+  '1': ['CRCL', 'GOOG', 'Midnight'],
+  '2': ['MOAT', 'NVDA', 'SGOV'],
+  '3': ['SOFI', 'TLT', 'TSLA'],
+  '4': ['TSM', 'ETH'],
+};
 
 class CronPriceUpdateError extends Error {
   status: number;
@@ -38,9 +44,16 @@ export function verifyCronRequest(authorizationHeader?: string) {
   }
 }
 
-async function readAssetsForPriceUpdate() {
+async function readAssetsForPriceUpdate(batch?: string) {
   const assets = await readAdminPortfolioAssets();
-  return assets.filter((asset) => asset.assetType !== 'cash');
+  const nonCashAssets = assets.filter((asset) => asset.assetType !== 'cash');
+
+  if (batch && BATCH_ASSET_MAP[batch]) {
+    const batchTickers = BATCH_ASSET_MAP[batch].map((ticker) => ticker.toUpperCase());
+    return nonCashAssets.filter((asset) => batchTickers.includes(asset.symbol.toUpperCase()));
+  }
+
+  return nonCashAssets;
 }
 
 function buildPriceUpdateRequest(assets: Awaited<ReturnType<typeof readAssetsForPriceUpdate>>): PriceUpdateRequest {
@@ -128,20 +141,14 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
     await batch.commit();
   }
 
-  if (validResults.length > 0 && invalidResults.length === 0 && validResults.length === results.length) {
-    await captureAdminPortfolioSnapshot({
-      reason: 'price_update_confirmed',
-    });
-  }
-
   return {
     appliedCount: validResults.length,
     pendingCount: invalidResults.length,
   };
 }
 
-export async function runScheduledPriceUpdate() {
-  const assets = await readAssetsForPriceUpdate();
+export async function runScheduledPriceUpdate(batch?: string) {
+  const assets = await readAssetsForPriceUpdate(batch);
 
   if (assets.length === 0) {
     return {
@@ -151,6 +158,7 @@ export async function runScheduledPriceUpdate() {
       assetCount: 0,
       appliedCount: 0,
       pendingCount: 0,
+      batch: batch ?? null,
       triggeredAt: new Date().toISOString(),
     };
   }
@@ -168,6 +176,7 @@ export async function runScheduledPriceUpdate() {
     assetCount: assets.length,
     appliedCount: outcome.appliedCount,
     pendingCount: outcome.pendingCount,
+    batch: batch ?? null,
     triggeredAt: new Date().toISOString(),
     model: response.model,
   };

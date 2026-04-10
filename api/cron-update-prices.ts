@@ -5,6 +5,14 @@ import {
   verifyCronRequest,
 } from '../server/cronUpdatePrices.js';
 
+function getBatchParam(request: ApiRequest) {
+  const host = request.headers.host ?? 'localhost';
+  const parsed = new URL(request.url ?? '/api/cron-update-prices', `http://${host}`);
+  const batch = parsed.searchParams.get('batch')?.trim();
+
+  return batch || undefined;
+}
+
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/cron-update-prices';
 
@@ -19,7 +27,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
   try {
     verifyCronRequest(request.headers.authorization);
-    const result = await runScheduledPriceUpdate();
+    const result = await runScheduledPriceUpdate(getBatchParam(request));
     sendJson(response, 200, result);
   } catch (error) {
     const formatted = getCronPriceUpdateErrorResponse(error);

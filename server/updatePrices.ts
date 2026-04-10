@@ -448,6 +448,9 @@ function buildAssetSearchHints(asset: PriceUpdateRequestAsset) {
 
   if (asset.assetType === 'crypto') {
     hints.push(`${asset.ticker} crypto USD latest price`);
+    hints.push(`${asset.ticker} USD CoinGecko price`);
+    hints.push(`${asset.ticker} USD CoinMarketCap latest`);
+    hints.push(`${asset.ticker} USD Binance spot price today`);
   }
 
   return hints;
@@ -655,7 +658,7 @@ function parseAsOf(value: string | null | undefined) {
 
 function getQuoteFreshnessWindowMs(assetType: AssetType) {
   if (assetType === 'crypto') {
-    return 36 * 60 * 60 * 1000;
+    return 72 * 60 * 60 * 1000;
   }
 
   return 2 * 24 * 60 * 60 * 1000;

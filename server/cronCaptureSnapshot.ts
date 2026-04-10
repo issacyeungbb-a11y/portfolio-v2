@@ -68,10 +68,10 @@ function isFallbackUsable(asset: Awaited<ReturnType<typeof readAdminPortfolioAss
   const hoursSinceUpdate = getHoursSinceUpdate(asset.lastPriceUpdatedAt);
 
   if (asset.assetType === 'crypto') {
-    return hoursSinceUpdate <= 36;
+    return hoursSinceUpdate <= 72;
   }
 
-  return hoursSinceUpdate <= 48;
+  return hoursSinceUpdate <= 96;
 }
 
 function sanitizeFailureCategory(value: unknown): PendingPriceUpdateReview['failureCategory'] {
@@ -97,7 +97,8 @@ function isSoftPendingCategory(category: PendingPriceUpdateReview['failureCatego
     category === 'source_missing' ||
     category === 'response_format' ||
     category === 'price_missing' ||
-    category === 'confidence_low'
+    category === 'confidence_low' ||
+    category === 'diff_too_large'
   );
 }
 
@@ -172,7 +173,7 @@ async function verifyAssetsReadyForDailySnapshot() {
   const canUseFallback =
     hardPendingReviews.length === 0 &&
     nonCashAssets.length > 0 &&
-    (missingAssets.length <= 2 || coveragePct >= 95);
+    (missingAssets.length <= 5 || coveragePct >= 80);
 
   return {
     todayKey,
