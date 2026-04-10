@@ -33,6 +33,19 @@ export function hasValidHoldingPrice(holding: Holding) {
   return !isHoldingPriceStale(holding);
 }
 
+export function isPortfolioValueCalculable(holdings: Holding[]) {
+  const pricedHoldings = holdings.filter((holding) => holding.assetType !== 'cash');
+
+  if (pricedHoldings.length === 0) {
+    return true;
+  }
+
+  const validPricedHoldings = pricedHoldings.filter((holding) => hasValidHoldingPrice(holding));
+  const coverage = validPricedHoldings.length / pricedHoldings.length;
+
+  return coverage >= 0.8;
+}
+
 export function getEffectiveHoldingPrice(holding: Holding) {
   return hasValidHoldingPrice(holding) ? holding.currentPrice : 0;
 }

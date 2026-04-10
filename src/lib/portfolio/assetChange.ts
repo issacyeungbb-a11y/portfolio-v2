@@ -144,7 +144,12 @@ export function calculateAssetChangeSummary(
   currentPoint: PortfolioPerformancePoint,
   cashFlows: AccountCashFlowEntry[],
   range: AssetChangeRange,
+  todaySnapshotExists = true,
 ): AssetChangeSummary | null {
+  if (range === '1d' && !todaySnapshotExists) {
+    return null;
+  }
+
   const startPoint = findAssetChangeComparisonPoint(history, currentPoint, range);
 
   if (!startPoint) {
@@ -174,9 +179,18 @@ export function buildAssetChangeOverview(
   history: PortfolioPerformancePoint[],
   currentPoint: PortfolioPerformancePoint,
   cashFlows: AccountCashFlowEntry[],
+  todaySnapshotExists = true,
 ) {
   return (['1d', '7d', '30d'] as AssetChangeRange[])
-    .map((range) => calculateAssetChangeSummary(history, currentPoint, cashFlows, range))
+    .map((range) =>
+      calculateAssetChangeSummary(
+        history,
+        currentPoint,
+        cashFlows,
+        range,
+        todaySnapshotExists,
+      ),
+    )
     .filter((summary): summary is AssetChangeSummary => summary !== null);
 }
 

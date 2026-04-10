@@ -23,6 +23,7 @@ interface AssetChangePanelProps {
   history: PortfolioPerformancePoint[];
   currentPoint: PortfolioPerformancePoint;
   cashFlows: AccountCashFlowEntry[];
+  todaySnapshotExists?: boolean;
 }
 
 const ranges: AssetChangeRange[] = ['1d', '7d', '30d'];
@@ -32,18 +33,26 @@ export function AssetChangePanel({
   history,
   currentPoint,
   cashFlows,
+  todaySnapshotExists = true,
 }: AssetChangePanelProps) {
   const [selectedRange, setSelectedRange] = useState<AssetChangeRange>('7d');
   const [isSourceOpen, setIsSourceOpen] = useState(false);
   const [isMoversOpen, setIsMoversOpen] = useState(false);
 
   const overview = useMemo(
-    () => buildAssetChangeOverview(history, currentPoint, cashFlows),
-    [cashFlows, currentPoint, history],
+    () => buildAssetChangeOverview(history, currentPoint, cashFlows, todaySnapshotExists),
+    [cashFlows, currentPoint, history, todaySnapshotExists],
   );
   const selectedSummary = useMemo(
-    () => calculateAssetChangeSummary(history, currentPoint, cashFlows, selectedRange),
-    [cashFlows, currentPoint, history, selectedRange],
+    () =>
+      calculateAssetChangeSummary(
+        history,
+        currentPoint,
+        cashFlows,
+        selectedRange,
+        todaySnapshotExists,
+      ),
+    [cashFlows, currentPoint, history, selectedRange, todaySnapshotExists],
   );
   const comparisonPoint = useMemo(() => {
     return findAssetChangeComparisonPoint(history, currentPoint, selectedRange);
@@ -161,6 +170,8 @@ export function AssetChangePanel({
                   </strong>
                 </div>
               </div>
+            ) : selectedRange === '1d' ? (
+              <p className="status-message">今日快照待生成，收益暫不可用。</p>
             ) : (
               <p className="status-message">未有足夠快照資料。</p>
             )

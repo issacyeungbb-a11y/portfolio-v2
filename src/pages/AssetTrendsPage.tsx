@@ -8,7 +8,7 @@ import {
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
-import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
+import { usePortfolioSnapshots, useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
   calculateAssetChangeSummary,
@@ -184,6 +184,7 @@ function formatSnapshotHint(value?: string) {
 export function AssetTrendsPage() {
   const { holdings: firestoreHoldings, status, error } = usePortfolioAssets();
   const { history, error: snapshotsError } = usePortfolioSnapshots();
+  const { todaySnapshot, error: todaySnapshotError } = useTodaySnapshotStatus();
   const { entries: cashFlows, error: cashFlowsError } = useAccountCashFlows();
   const { entries: principals, error: principalsError } = useAccountPrincipals();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
@@ -194,6 +195,7 @@ export function AssetTrendsPage() {
     (holding) => convertCurrency(holding.quantity * holding.currentPrice, holding.currency, 'HKD'),
   );
   const currentPoint = createCurrentPortfolioPoint(holdings);
+  const todaySnapshotExists = todaySnapshot.exists;
   const totalValue = convertCurrency(currentPoint.totalValue, 'HKD', displayCurrency);
   const netExternalFlowTotalHKD = sumSignedCashFlowsHKD(cashFlows);
   const totalPrincipalHKD =
@@ -218,10 +220,22 @@ export function AssetTrendsPage() {
   }, 0);
   const monthlyReturnHKD = currentPoint.totalValue - monthStartValueHKD - monthFlowsHKD;
   const monthlyReturnPct = monthStartValueHKD === 0 ? 0 : (monthlyReturnHKD / monthStartValueHKD) * 100;
-  const todaySummary = calculateAssetChangeSummary(history, currentPoint, cashFlows, '1d');
+  const todaySummary = calculateAssetChangeSummary(
+    history,
+    currentPoint,
+    cashFlows,
+    '1d',
+    todaySnapshotExists,
+  );
   const rangeSummary =
     selectedRange != null
-      ? calculateAssetChangeSummary(history, currentPoint, cashFlows, selectedRange)
+      ? calculateAssetChangeSummary(
+          history,
+          currentPoint,
+          cashFlows,
+          selectedRange,
+          todaySnapshotExists,
+        )
       : null;
   const trendSeries = selectedRange ? buildTrendSeries(history, currentPoint, selectedRange) : [];
   const linePath = buildLinePath(
@@ -245,6 +259,7 @@ export function AssetTrendsPage() {
     <div className="page-stack">
       {error ? <p className="status-message status-message-error">{error}</p> : null}
       {snapshotsError ? <p className="status-message status-message-error">{snapshotsError}</p> : null}
+      {todaySnapshotError ? <p className="status-message status-message-error">{todaySnapshotError}</p> : null}
       {cashFlowsError ? <p className="status-message status-message-error">{cashFlowsError}</p> : null}
       {principalsError ? <p className="status-message status-message-error">{principalsError}</p> : null}
 
@@ -284,13 +299,13 @@ export function AssetTrendsPage() {
           <strong>{formatCurrencyRounded(totalValue, displayCurrency)}</strong>
           <p>
             今日收益{' '}
-            <span className={todaySummary && todaySummary.totalChange >= 0 ? 'positive-text' : 'caution-text'}>
+            <span className={todaySummary ? (todaySummary.totalChange >= 0 ? 'positive-text' : 'caution-text') : 'table-hint'}>
               {todaySummary
                 ? `${todaySummary.totalChange >= 0 ? '+' : ''}${formatCurrencyRounded(
                     convertCurrency(todaySummary.totalChange, 'HKD', displayCurrency),
                     displayCurrency,
                   )} (${formatPercent(todaySummary.returnPct)})`
-                : '未有足夠資料'}
+                : '今日快照待生成，收益暫不可用'}
             </span>
           </p>
         </div>
@@ -397,6 +412,8 @@ export function AssetTrendsPage() {
               )}
             </div>
           </div>
+        ) : selectedRange === '1d' ? (
+          <p className="status-message">今日快照待生成，收益暫不可用。</p>
         ) : (
           <p className="status-message">撳「今日 / 7日 / 30日」先展開對應變動。</p>
         )}

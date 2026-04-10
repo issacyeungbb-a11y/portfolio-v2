@@ -14,31 +14,26 @@ import {
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
-import { usePortfolioSnapshots } from '../hooks/usePortfolioSnapshots';
+import { usePortfolioSnapshots, useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
   buildDashboardInsights,
 } from '../lib/portfolio/dashboardInsights';
-import { calculateAssetChangeSummary } from '../lib/portfolio/assetChange';
+import {
+  calculateAssetChangeSummary,
+  createCurrentPortfolioPoint,
+} from '../lib/portfolio/assetChange';
 import type {
-  AccountCashFlowEntry,
   AllocationBucketKey,
   DisplayCurrency,
   Holding,
 } from '../types/portfolio';
 
-function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
-  if (entry.type === 'withdrawal') {
-    return -Math.abs(entry.amount);
-  }
-
-  return entry.amount;
-}
-
 export function DashboardPage() {
   const { holdings: firestoreHoldings, status, error, isEmpty } = usePortfolioAssets();
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
   const { history: portfolioHistory, error: snapshotsError } = usePortfolioSnapshots();
+  const { todaySnapshot, error: todaySnapshotError } = useTodaySnapshotStatus();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
   const [selectedAllocationKey, setSelectedAllocationKey] = useState<AllocationBucketKey>('stock');
   const syncedHoldings: Holding[] = recalculateHoldingAllocations(
@@ -55,11 +50,14 @@ export function DashboardPage() {
     )
     .slice(0, 3);
   const dashboardInsights = buildDashboardInsights(syncedHoldings);
+  const currentPoint = createCurrentPortfolioPoint(syncedHoldings);
+  const todaySnapshotExists = todaySnapshot.exists;
   const todaySummary = calculateAssetChangeSummary(
     portfolioHistory,
-    createCurrentPoint(syncedHoldings),
+    currentPoint,
     accountCashFlows,
     '1d',
+    todaySnapshotExists,
   );
   const todayChangeAmount = todaySummary
     ? convertCurrency(todaySummary.totalChange, 'HKD', displayCurrency)
@@ -103,11 +101,15 @@ export function DashboardPage() {
           <strong>{formatCurrencyRounded(totalValue, displayCurrency)}</strong>
           <Link className="dashboard-trend-link" to="/trends">
             <span>今日收益</span>
-            <span className={todayChangeAmount >= 0 ? 'positive-text' : 'caution-text'}>
-              {todayChangeAmount >= 0 ? '+' : ''}
-              {formatCurrencyRounded(todayChangeAmount, displayCurrency)}{' '}
-              ({formatPercent(todaySummary?.returnPct ?? 0)})
-            </span>
+            {todaySummary ? (
+              <span className={todayChangeAmount >= 0 ? 'positive-text' : 'caution-text'}>
+                {todayChangeAmount >= 0 ? '+' : ''}
+                {formatCurrencyRounded(todayChangeAmount, displayCurrency)}{' '}
+                ({formatPercent(todaySummary.returnPct)})
+              </span>
+            ) : (
+              <span className="table-hint">今日快照待生成，收益暫不可用</span>
+            )}
             <span aria-hidden="true">›</span>
           </Link>
         </div>
@@ -119,6 +121,9 @@ export function DashboardPage() {
       ) : null}
       {accountCashFlowsError ? (
         <p className="status-message status-message-error">{accountCashFlowsError}</p>
+      ) : null}
+      {todaySnapshotError ? (
+        <p className="status-message status-message-error">{todaySnapshotError}</p>
       ) : null}
       {isEmpty ? (
         <p className="status-message">未有資產。</p>
@@ -209,21 +214,4 @@ export function DashboardPage() {
       </section>
     </div>
   );
-}
-
-function createCurrentPoint(holdings: Holding[]) {
-  return {
-    date: new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Hong_Kong',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date()),
-    totalValue: holdings.reduce(
-      (sum, holding) => sum + convertCurrency(holding.quantity * holding.currentPrice, holding.currency, 'HKD'),
-      0,
-    ),
-    netExternalFlow: 0,
-    reason: 'snapshot' as const,
-  };
 }
