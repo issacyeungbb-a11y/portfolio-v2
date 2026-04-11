@@ -83,19 +83,11 @@ function sanitizeNumber(value: unknown) {
 }
 
 function sanitizeReason(value: unknown): SnapshotReason {
-  if (
-    value === 'asset_created' ||
-    value === 'assets_imported' ||
-    value === 'price_update_confirmed' ||
-    value === 'snapshot' ||
-    value === 'daily_snapshot' ||
-    value === 'daily_snapshot_fallback' ||
-    value === 'cash_flow_recorded'
-  ) {
+  if (value === 'daily_snapshot' || value === 'daily_snapshot_fallback') {
     return value;
   }
 
-  return 'snapshot';
+  return 'daily_snapshot';
 }
 
 function normalizeSnapshotHolding(value: unknown): SnapshotHoldingPoint | null {
@@ -169,6 +161,16 @@ function buildTodaySnapshotId(date = new Date()) {
   return `daily-${getHongKongDateKey(date)}`;
 }
 
+function validateDailySnapshotId(snapshotId: string) {
+  if (!snapshotId) {
+    throw new Error('snapshotId is required，必須使用 daily-YYYY-MM-DD 格式');
+  }
+
+  if (!/^daily-\d{4}-\d{2}-\d{2}$/.test(snapshotId)) {
+    throw new Error('snapshotId is required，必須使用 daily-YYYY-MM-DD 格式');
+  }
+}
+
 async function readCurrentPortfolioHoldings() {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
@@ -185,17 +187,27 @@ export async function capturePortfolioSnapshot(params: {
   holdings?: Holding[];
   netExternalFlowHKD?: number;
   reason?: SnapshotReason;
-  snapshotId?: string;
+  snapshotId: string;
 }) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
-  const holdings = params.holdings ?? (await readCurrentPortfolioHoldings());
+  const snapshotId = params.snapshotId?.trim();
+  validateDailySnapshotId(snapshotId);
+
   const snapshotsCollection = getPortfolioSnapshotsCollectionRef();
-  const snapshotRef = params.snapshotId
-    ? doc(snapshotsCollection, params.snapshotId)
-    : doc(snapshotsCollection);
+  const snapshotRef = doc(snapshotsCollection, snapshotId);
+  const existingSnapshot = await getDoc(snapshotRef);
+
+  if (existingSnapshot.exists()) {
+    return {
+      skipped: true as const,
+      reason: 'already_exists' as const,
+    };
+  }
+
+  const holdings = params.holdings ?? (await readCurrentPortfolioHoldings());
 
   await setDoc(snapshotRef, {
     capturedAt: serverTimestamp(),
@@ -215,9 +227,13 @@ export async function capturePortfolioSnapshot(params: {
       averageCost: holding.averageCost,
       marketValueHKD: getPortfolioTotalValue([holding], 'HKD'),
     })),
-    reason: params.reason ?? 'snapshot',
+    reason: params.reason ?? 'daily_snapshot',
     updatedAt: serverTimestamp(),
   });
+
+  return {
+    skipped: false as const,
+  };
 }
 
 export async function getTodaySnapshotStatus(): Promise<TodaySnapshotStatus> {

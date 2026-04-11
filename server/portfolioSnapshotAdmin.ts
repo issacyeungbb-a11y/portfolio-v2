@@ -43,6 +43,16 @@ function getHongKongDateKey(date = new Date()) {
   }).format(date);
 }
 
+function validateDailySnapshotId(snapshotId: string) {
+  if (!snapshotId) {
+    throw new Error('snapshotId is required，必須使用 daily-YYYY-MM-DD 格式');
+  }
+
+  if (!/^daily-\d{4}-\d{2}-\d{2}$/.test(snapshotId)) {
+    throw new Error('snapshotId is required，必須使用 daily-YYYY-MM-DD 格式');
+  }
+}
+
 function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsset {
   const lastPriceUpdatedAt =
     value.lastPriceUpdatedAt instanceof Timestamp
@@ -91,29 +101,35 @@ export async function readAdminPortfolioAssets() {
   })).filter((asset) => !asset.archivedAt);
 }
 
-export async function captureAdminPortfolioSnapshot(params?: {
+export async function captureAdminPortfolioSnapshot(params: {
   netExternalFlowHKD?: number;
   reason?: string;
-  snapshotId?: string;
+  snapshotId: string;
   snapshotQuality?: 'strict' | 'fallback';
   coveragePct?: number;
   fallbackAssetCount?: number;
 }) {
   const db = getFirebaseAdminDb();
+  const snapshotId = params.snapshotId?.trim();
+
+  validateDailySnapshotId(snapshotId);
+
+  const snapshotRef = db
+    .collection(SHARED_PORTFOLIO_COLLECTION)
+    .doc(SHARED_PORTFOLIO_DOC_ID)
+    .collection('portfolioSnapshots')
+    .doc(snapshotId);
+  const existingSnapshot = await snapshotRef.get();
+
+  if (existingSnapshot.exists) {
+    return {
+      skipped: true as const,
+      reason: 'already_exists' as const,
+    };
+  }
+
   const holdings = await readAdminPortfolioAssets();
   const fxRates = await fetchFxRates();
-  const snapshotId = params?.snapshotId?.trim();
-  const snapshotRef = snapshotId
-    ? db
-        .collection(SHARED_PORTFOLIO_COLLECTION)
-        .doc(SHARED_PORTFOLIO_DOC_ID)
-        .collection('portfolioSnapshots')
-        .doc(snapshotId)
-    : db
-        .collection(SHARED_PORTFOLIO_COLLECTION)
-        .doc(SHARED_PORTFOLIO_DOC_ID)
-        .collection('portfolioSnapshots')
-        .doc();
 
   const holdingsPayload = holdings.map((holding) => ({
     assetId: holding.id,
@@ -138,13 +154,13 @@ export async function captureAdminPortfolioSnapshot(params?: {
     capturedAt: FieldValue.serverTimestamp(),
     date: getHongKongDateKey(),
     totalValueHKD,
-    netExternalFlowHKD: params?.netExternalFlowHKD ?? 0,
+    netExternalFlowHKD: params.netExternalFlowHKD ?? 0,
     assetCount: holdings.length,
     holdings: holdingsPayload,
-    reason: params?.reason ?? 'snapshot',
-    snapshotQuality: params?.snapshotQuality ?? 'strict',
-    coveragePct: typeof params?.coveragePct === 'number' ? params.coveragePct : 100,
-    fallbackAssetCount: typeof params?.fallbackAssetCount === 'number' ? params.fallbackAssetCount : 0,
+    reason: params.reason ?? 'daily_snapshot',
+    snapshotQuality: params.snapshotQuality ?? 'strict',
+    coveragePct: typeof params.coveragePct === 'number' ? params.coveragePct : 100,
+    fallbackAssetCount: typeof params.fallbackAssetCount === 'number' ? params.fallbackAssetCount : 0,
     updatedAt: FieldValue.serverTimestamp(),
   });
 

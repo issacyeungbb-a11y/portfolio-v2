@@ -259,14 +259,15 @@ export function AssetsPage() {
     nonCashHoldings.length === 0
       ? '未有非現金資產，毋須快照檢查'
       : todaySnapshot.exists
-        ? `今日快照已完成 · ${todaySnapshot.quality === 'fallback' ? '降級快照' : '正式快照'}${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
-        : pendingPriceCount === 0 && !hasPendingReviews
-          ? '全部更新完成後會自動寫入正式快照'
-          : `尚欠 ${pendingPriceCount + reviews.length} 項，今日正式快照會暫緩`;
+        ? todaySnapshot.quality === 'fallback'
+          ? `今日快照已完成（部分資產沿用昨日價格）${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
+          : `今日快照已完成 · 正式快照${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
+        : '今日快照將於 06:30 自動生成';
   const shouldShowMissingSnapshotNotice =
     todaySnapshotStatus === 'ready' &&
     nonCashHoldings.length > 0 &&
     !todaySnapshot.exists &&
+    todaySnapshot.exists === false &&
     hasPassedHongKongSnapshotDeadline();
 
   async function handleTriggerManualSnapshot() {

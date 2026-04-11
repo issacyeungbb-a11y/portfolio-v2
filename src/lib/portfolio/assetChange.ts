@@ -88,7 +88,7 @@ export function createCurrentPortfolioPoint(holdings: Holding[]): PortfolioPerfo
     netExternalFlow: 0,
     assetCount: holdings.length,
     holdings: holdings.map(formatSnapshotHoldingFromHolding),
-    reason: 'snapshot',
+    reason: 'daily_snapshot',
   };
 }
 

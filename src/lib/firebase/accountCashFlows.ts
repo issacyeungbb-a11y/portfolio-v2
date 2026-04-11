@@ -9,7 +9,6 @@ import {
 
 import type { AccountCashFlowEntry, AccountCashFlowType, AccountSource } from '../../types/portfolio';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
-import { capturePortfolioSnapshot } from './portfolioSnapshots';
 import { getSharedAccountCashFlowsCollectionRef } from './sharedPortfolio';
 
 function createMissingConfigError() {
@@ -126,17 +125,5 @@ export async function createAccountCashFlow(
     note: entry.note?.trim() || '',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  });
-
-  const signedAmount =
-    entry.type === 'withdrawal' ? -Math.abs(normalizedAmount) : normalizedAmount;
-
-  await capturePortfolioSnapshot({
-    netExternalFlowHKD: normalizedCurrency === 'USD'
-      ? signedAmount * 7.8
-      : normalizedCurrency === 'JPY'
-        ? signedAmount * 0.052
-        : signedAmount,
-    reason: 'cash_flow_recorded',
   });
 }

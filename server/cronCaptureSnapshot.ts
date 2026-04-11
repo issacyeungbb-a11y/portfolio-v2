@@ -215,8 +215,8 @@ export async function runManualDailySnapshot() {
 
 async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
   const readiness = await verifyAssetsReadyForDailySnapshot();
-  const snapshotReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot';
-  const fallbackReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot_fallback';
+  const snapshotReason = 'daily_snapshot';
+  const fallbackReason = 'daily_snapshot_fallback';
   const route = mode === 'manual' ? MANUAL_ROUTE : CRON_ROUTE;
 
   if (readiness.isReady) {
@@ -228,6 +228,21 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
       coveragePct: 100,
       fallbackAssetCount: 0,
     });
+
+    if (result.skipped) {
+      return {
+        ok: true,
+        skipped: true,
+        route,
+        message:
+          mode === 'manual'
+            ? '今日快照已存在，唔會重複補生成。'
+            : '今日快照已存在，已略過重複寫入。',
+        snapshotId,
+        reason: result.reason,
+        triggeredAt: new Date().toISOString(),
+      };
+    }
 
     return {
       ok: true,
@@ -254,6 +269,21 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
       coveragePct: readiness.coveragePct,
       fallbackAssetCount: readiness.missingAssetCount,
     });
+
+    if (result.skipped) {
+      return {
+        ok: true,
+        skipped: true,
+        route,
+        message:
+          mode === 'manual'
+            ? '今日快照已存在，唔會重複補生成。'
+            : '今日快照已存在，已略過重複寫入。',
+        snapshotId,
+        reason: result.reason,
+        triggeredAt: new Date().toISOString(),
+      };
+    }
 
     return {
       ok: true,

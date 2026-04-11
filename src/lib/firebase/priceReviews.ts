@@ -1,6 +1,5 @@
 import {
   doc,
-  getDocs,
   onSnapshot,
   serverTimestamp,
   updateDoc,
@@ -8,16 +7,12 @@ import {
 } from 'firebase/firestore';
 
 import type { PendingPriceUpdateReview } from '../../types/priceUpdates';
-import { buildHoldingFromInput } from './assets';
 import { recordAssetPriceHistory } from './priceHistory';
-import { capturePortfolioSnapshot } from './portfolioSnapshots';
 import { firebaseDb, hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import {
   getSharedAssetsCollectionRef,
   getSharedPriceReviewsCollectionRef,
 } from './sharedPortfolio';
-import { hasValidHoldingPrice } from '../portfolio/priceValidity';
-import type { PortfolioAssetInput } from '../../types/portfolio';
 
 function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
@@ -61,46 +56,6 @@ function sanitizeFailureCategory(value: unknown): PendingPriceUpdateReview['fail
 
 function hasValidSuggestedPrice(review: PendingPriceUpdateReview) {
   return review.price != null && review.price > 0 && !review.invalidReason;
-}
-
-function getHongKongDateKey(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Hong_Kong',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
-}
-
-async function captureSnapshotIfPortfolioFullyUpdated() {
-  const assetsSnapshot = await getDocs(getSharedAssetsCollectionRef());
-  const reviewsSnapshot = await getDocs(getSharedPriceReviewsCollectionRef());
-  const holdings = assetsSnapshot.docs
-    .map((entry) => buildHoldingFromInput(entry.id, entry.data() as PortfolioAssetInput))
-    .filter((holding) => !holding.archivedAt);
-  const pendingReviews = reviewsSnapshot.docs
-    .map((entry) => entry.data() as Record<string, unknown>)
-    .filter((entry) => entry.status === 'pending');
-  const todayKey = getHongKongDateKey();
-  const nonCashHoldings = holdings.filter((holding) => holding.assetType !== 'cash');
-  const isFullyUpdated = nonCashHoldings.every((holding) => {
-    if (!hasValidHoldingPrice(holding) || !holding.lastPriceUpdatedAt) {
-      return false;
-    }
-
-    return getHongKongDateKey(new Date(holding.lastPriceUpdatedAt)) === todayKey;
-  });
-
-  if (!isFullyUpdated || pendingReviews.length > 0) {
-    return false;
-  }
-
-  await capturePortfolioSnapshot({
-    holdings,
-    reason: 'price_update_confirmed',
-  });
-
-  return true;
 }
 
 function normalizePendingReview(assetId: string, value: Record<string, unknown>): PendingPriceUpdateReview {
@@ -252,8 +207,6 @@ export async function applyPriceUpdateReviews(
   await batch.commit();
 
   await Promise.all(appliedReviews.map((review) => recordAssetPriceHistory(review)));
-
-  await captureSnapshotIfPortfolioFullyUpdated();
 }
 
 export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview) {

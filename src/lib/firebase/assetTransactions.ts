@@ -25,7 +25,6 @@ import type {
 import { convertCurrency } from '../../data/mockPortfolio';
 import { buildHoldingFromInput } from './assets';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
-import { capturePortfolioSnapshot } from './portfolioSnapshots';
 import {
   getSharedAssetTransactionsCollectionRef,
   getSharedAssetsCollectionRef,
@@ -328,10 +327,6 @@ async function rebuildAssetFromTransactions(assetId: string) {
       archivedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
-
-    await capturePortfolioSnapshot({
-      reason: 'snapshot',
-    });
     return;
   }
 
@@ -393,10 +388,6 @@ async function rebuildAssetFromTransactions(assetId: string) {
   });
 
   await batch.commit();
-
-  await capturePortfolioSnapshot({
-    reason: 'snapshot',
-  });
 }
 
 export function getAssetTransactionsErrorMessage(error?: unknown) {

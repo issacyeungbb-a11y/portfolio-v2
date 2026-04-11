@@ -12,10 +12,8 @@ import {
 } from 'firebase/firestore';
 
 import type { Holding, PortfolioAssetInput } from '../../types/portfolio';
-import { convertCurrency } from '../../data/mockPortfolio';
 import { getEffectiveHoldingPrice } from '../portfolio/priceValidity';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
-import { capturePortfolioSnapshot } from './portfolioSnapshots';
 import {
   getSharedAssetTransactionsCollectionRef,
   getSharedAssetsCollectionRef,
@@ -223,15 +221,6 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
     });
   }
 
-  await capturePortfolioSnapshot({
-    netExternalFlowHKD: convertCurrency(
-      createdHolding.quantity * createdHolding.averageCost,
-      createdHolding.currency,
-      'HKD',
-    ),
-    reason: 'asset_created',
-  });
-
   return createdDoc.id;
 }
 
@@ -300,23 +289,6 @@ export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
   }
 
   await batch.commit();
-
-  const importedFlowHKD = payloads.reduce((sum, payload) => {
-    const normalized = normalizePortfolioAssetInput(payload);
-    return (
-      sum +
-      convertCurrency(
-        normalized.quantity * normalized.averageCost,
-        normalized.currency,
-        'HKD',
-      )
-    );
-  }, 0);
-
-  await capturePortfolioSnapshot({
-    netExternalFlowHKD: importedFlowHKD,
-    reason: 'assets_imported',
-  });
 }
 
 export async function updatePortfolioAsset(assetId: string, payload: PortfolioAssetInput) {
@@ -332,9 +304,6 @@ export async function updatePortfolioAsset(assetId: string, payload: PortfolioAs
     updatedAt: serverTimestamp(),
   });
 
-  await capturePortfolioSnapshot({
-    reason: 'snapshot',
-  });
 }
 
 export async function deletePortfolioAsset(assetId: string) {
@@ -345,7 +314,4 @@ export async function deletePortfolioAsset(assetId: string) {
   const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
   await deleteDoc(assetRef);
 
-  await capturePortfolioSnapshot({
-    reason: 'snapshot',
-  });
 }

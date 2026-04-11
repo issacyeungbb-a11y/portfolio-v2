@@ -96,14 +96,7 @@ export interface PortfolioPerformancePoint {
   netExternalFlow: number;
   assetCount?: number;
   holdings?: SnapshotHoldingPoint[];
-  reason?:
-    | 'asset_created'
-    | 'assets_imported'
-    | 'price_update_confirmed'
-    | 'snapshot'
-    | 'daily_snapshot'
-    | 'daily_snapshot_fallback'
-    | 'cash_flow_recorded';
+  reason?: 'daily_snapshot' | 'daily_snapshot_fallback';
   snapshotQuality?: 'strict' | 'fallback';
   coveragePct?: number;
   fallbackAssetCount?: number;
