@@ -20,6 +20,12 @@ const YAHOO_SOURCE_NAME = 'Yahoo Finance';
 const YAHOO_SOURCE_URL = 'https://finance.yahoo.com';
 const COINGECKO_SOURCE_NAME = 'CoinGecko';
 const COINGECKO_SOURCE_URL = 'https://www.coingecko.com';
+const yahooFinanceClient = yahooFinance as unknown as {
+  quote: (
+    symbols: string | string[],
+    options?: Record<string, unknown>,
+  ) => Promise<Array<Record<string, unknown>>>;
+};
 
 const COINGECKO_ID_MAP: Record<string, string> = {
   ADA: 'cardano',
@@ -51,6 +57,32 @@ interface MarketPriceResult {
   sourceName: string | null;
   sourceUrl: string | null;
   marketState?: string | null;
+}
+
+function readStringValue(value: unknown) {
+  return typeof value === 'string' ? value : null;
+}
+
+function readPositiveNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+function readDateValue(value: unknown) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+
+  return null;
 }
 
 class UpdatePricesError extends Error {
@@ -203,15 +235,17 @@ function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
 
 export async function fetchFxRates(): Promise<FxRates> {
   try {
-    const quotes = await yahooFinance.quote(['USDHKD=X', 'JPYHKD=X'], {
+    const quotes = await yahooFinanceClient.quote(['USDHKD=X', 'JPYHKD=X'], {
       fields: ['symbol', 'regularMarketPrice'],
       return: 'array',
     });
-    const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
-    const usd = bySymbol.get('USDHKD=X')?.regularMarketPrice;
-    const jpy = bySymbol.get('JPYHKD=X')?.regularMarketPrice;
+    const bySymbol = new Map(
+      quotes.map((quote) => [readStringValue(quote.symbol) ?? '', quote] as const),
+    );
+    const usd = readPositiveNumber(bySymbol.get('USDHKD=X')?.regularMarketPrice);
+    const jpy = readPositiveNumber(bySymbol.get('JPYHKD=X')?.regularMarketPrice);
 
-    if (!usd || !jpy || usd <= 0 || jpy <= 0) {
+    if (!usd || !jpy) {
       throw new Error('missing fx quote');
     }
 
@@ -241,7 +275,7 @@ async function fetchYahooPrice(
   });
 
   try {
-    const quotes = await yahooFinance.quote(symbols, {
+    const quotes = await yahooFinanceClient.quote(symbols, {
       fields: [
         'symbol',
         'currency',
@@ -252,13 +286,16 @@ async function fetchYahooPrice(
       return: 'array',
     });
 
-    const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol?.toUpperCase() ?? '', quote]));
+    const quoteBySymbol = new Map(
+      quotes.map((quote) => [(readStringValue(quote.symbol) ?? '').toUpperCase(), quote] as const),
+    );
 
     return symbols.map((symbol) => {
       const asset = symbolToAsset.get(symbol)!;
       const quote = quoteBySymbol.get(symbol.toUpperCase());
+      const price = readPositiveNumber(quote?.regularMarketPrice);
 
-      if (!quote || quote.regularMarketPrice == null || quote.regularMarketPrice <= 0) {
+      if (!quote || price == null) {
         return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
       }
 
@@ -267,12 +304,12 @@ async function fetchYahooPrice(
         assetName: asset.assetName,
         ticker: asset.ticker,
         assetType: asset.assetType,
-        price: quote.regularMarketPrice,
-        currency: quote.currency?.toUpperCase() ?? asset.currency,
-        asOf: quote.regularMarketTime ? quote.regularMarketTime.toISOString() : null,
+        price,
+        currency: (readStringValue(quote.currency) ?? asset.currency).toUpperCase(),
+        asOf: readDateValue(quote.regularMarketTime),
         sourceName: YAHOO_SOURCE_NAME,
         sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
-        marketState: quote.marketState ?? null,
+        marketState: readStringValue(quote.marketState),
       };
     });
   } catch (error) {
