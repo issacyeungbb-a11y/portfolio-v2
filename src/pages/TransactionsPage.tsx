@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { AssetTransactionForm } from '../components/assets/AssetTransactionForm';
+import { TransactionInputPanel } from '../components/transactions/TransactionInputPanel';
 import {
   convertCurrency,
   formatCurrency,
@@ -54,6 +55,7 @@ export function TransactionsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
+  const [isTransactionInputOpen, setIsTransactionInputOpen] = useState(false);
 
   const visibleEntries = entries.filter(
     (entry) => !(entry.recordType === 'seed' && entry.note === '歷史持倉基線'),
@@ -118,6 +120,28 @@ export function TransactionsPage() {
 
   return (
     <div className="page-stack">
+      <section className="hero-panel assets-toolbar assets-toolbar-hero">
+        <div className="assets-toolbar-top">
+          <span className="assets-toolbar-subtle">{visibleEntries.length} 筆 · 交易記錄</span>
+        </div>
+        <div className="assets-toolbar-actions">
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={() => setIsTransactionInputOpen((current) => !current)}
+          >
+            {isTransactionInputOpen ? '收起輸入交易' : '輸入交易'}
+          </button>
+        </div>
+        <div className="assets-toolbar-footnote" aria-label="交易輸入提示">
+          <span>AI 文字輸入或手動輸入都可以喺呢度整合</span>
+        </div>
+      </section>
+
+      {isTransactionInputOpen ? (
+        <TransactionInputPanel onClose={() => setIsTransactionInputOpen(false)} />
+      ) : null}
+
       {error ? <p className="status-message status-message-error">{error}</p> : null}
       {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}
       {actionSuccess ? <p className="status-message status-message-success">{actionSuccess}</p> : null}
@@ -237,7 +261,7 @@ export function TransactionsPage() {
             })
           ) : (
             <p className="status-message">
-              未有交易記錄。你可以喺資產頁每隻資產旁邊撳「交易」開始新增。
+              未有交易記錄。你可以撳上面「輸入交易」開始新增。
             </p>
           )}
         </div>

@@ -8,7 +8,6 @@ const navItems = [
   { to: '/assets', label: '資產', icon: 'A2' },
   { to: '/trends', label: '走勢', icon: 'T6' },
   { to: '/transactions', label: '交易', icon: 'TR' },
-  { to: '/import', label: '匯入', icon: 'I3' },
   { to: '/funds', label: '資金', icon: 'F4' },
   { to: '/analysis', label: '分析', icon: 'AR' },
 ];

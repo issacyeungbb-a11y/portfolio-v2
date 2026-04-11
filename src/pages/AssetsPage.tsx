@@ -1,8 +1,6 @@
 import { useState } from 'react';
 
-import {
-  AssetInputForm,
-} from '../components/assets/AssetInputForm';
+import { AssetInputForm } from '../components/assets/AssetInputForm';
 import { AssetTransactionForm } from '../components/assets/AssetTransactionForm';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
@@ -123,7 +121,6 @@ export function AssetsPage() {
     status,
     error,
     isEmpty,
-    addAsset,
     editAsset,
     removeAsset,
   } = usePortfolioAssets();
@@ -149,8 +146,6 @@ export function AssetsPage() {
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('USD');
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [isSavingAsset, setIsSavingAsset] = useState(false);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [tradingHolding, setTradingHolding] = useState<Holding | null>(null);
   const [isEditingAsset, setIsEditingAsset] = useState(false);
@@ -267,7 +262,6 @@ export function AssetsPage() {
     todaySnapshotStatus === 'ready' &&
     nonCashHoldings.length > 0 &&
     !todaySnapshot.exists &&
-    todaySnapshot.exists === false &&
     hasPassedHongKongSnapshotDeadline();
 
   async function handleTriggerManualSnapshot() {
@@ -295,29 +289,6 @@ export function AssetsPage() {
       );
     } finally {
       setIsGeneratingManualSnapshot(false);
-    }
-  }
-
-  async function handleAddHolding(payload: PortfolioAssetInput) {
-    setIsSavingAsset(true);
-    setSaveError(null);
-
-    try {
-      await addAsset(payload);
-      setAssetFilter('all');
-      setAccountFilter('all');
-      setIsFormOpen(false);
-    } catch (submissionError) {
-      const message =
-        submissionError instanceof Error
-          ? submissionError.message
-          : '儲存資產失敗，請稍後再試。';
-      setSaveError(message);
-      throw submissionError instanceof Error
-        ? submissionError
-        : new Error(message);
-    } finally {
-      setIsSavingAsset(false);
     }
   }
 
@@ -569,16 +540,6 @@ export function AssetsPage() {
           <button
             className="button button-primary"
             type="button"
-            onClick={() => {
-              setSaveError(null);
-              setIsFormOpen((current) => !current);
-            }}
-          >
-            {isFormOpen ? '收起輸入表單' : '新增資產'}
-          </button>
-          <button
-            className="button button-secondary"
-            type="button"
             onClick={() => setIsBulkUpdateConfirmOpen(true)}
             disabled={isUpdatingAllPrices || nonCashHoldings.length === 0}
           >
@@ -658,15 +619,6 @@ export function AssetsPage() {
           />
         </div>
       </section>
-
-      {isFormOpen ? (
-        <AssetInputForm
-          onSubmit={handleAddHolding}
-          onCancel={() => setIsFormOpen(false)}
-          isSubmitting={isSavingAsset}
-          error={saveError}
-        />
-      ) : null}
 
       {editingHolding ? (
         <div className="modal-backdrop" role="presentation">

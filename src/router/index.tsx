@@ -5,7 +5,6 @@ import { AnalysisPage } from '../pages/AnalysisPage';
 import { AssetsPage } from '../pages/AssetsPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { FundsPage } from '../pages/FundsPage';
-import { ImportPage } from '../pages/ImportPage';
 import { AssetTrendsPage } from '../pages/AssetTrendsPage';
 import { TransactionsPage } from '../pages/TransactionsPage';
 
@@ -30,7 +29,7 @@ export const router = createBrowserRouter([
       },
       {
         path: 'import',
-        element: <ImportPage />,
+        element: <Navigate to="/transactions" replace />,
         handle: {
           title: '截圖匯入',
         },
