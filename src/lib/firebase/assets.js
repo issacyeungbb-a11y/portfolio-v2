@@ -87,11 +87,12 @@ export async function createPortfolioAsset(payload) {
         throw createMissingConfigError();
     }
     const normalized = normalizePortfolioAssetInput(payload);
-    await addDoc(getSharedAssetsCollectionRef(), {
+    const createdDoc = await addDoc(getSharedAssetsCollectionRef(), {
         ...normalized,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
     });
+    return createdDoc.id;
 }
 export async function createPortfolioAssets(payloads) {
     if (!hasFirebaseConfig) {
