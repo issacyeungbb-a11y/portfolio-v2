@@ -39,10 +39,6 @@ function sanitizeNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
-function sanitizeBoolean(value: unknown) {
-  return typeof value === 'boolean' ? value : false;
-}
-
 function sanitizeOptionalString(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
@@ -54,7 +50,6 @@ function sanitizeFailureCategory(value: unknown): PendingPriceUpdateReview['fail
     value === 'source_missing' ||
     value === 'response_format' ||
     value === 'price_missing' ||
-    value === 'confidence_low' ||
     value === 'diff_too_large' ||
     value === 'unknown'
   ) {
@@ -120,8 +115,7 @@ function normalizePendingReview(assetId: string, value: Record<string, unknown>)
     asOf: sanitizeString(value.asOf),
     sourceName: sanitizeString(value.sourceName),
     sourceUrl: sanitizeString(value.sourceUrl),
-    confidence: sanitizeNumber(value.confidence),
-    needsReview: sanitizeBoolean(value.needsReview),
+    isValid: value.isValid === true,
     currentPrice: sanitizeNumber(value.currentPrice),
     diffPct: sanitizeNumber(value.diffPct),
     failureCategory: sanitizeFailureCategory(value.failureCategory),
@@ -210,7 +204,7 @@ export async function savePendingPriceUpdateReviews(
 export async function applyPriceUpdateReviews(
   reviews: PendingPriceUpdateReview[],
   options?: {
-    priceSource?: 'ai_auto_applied' | 'ai_review_confirmed';
+    priceSource?: 'api_auto' | 'api_review_confirmed';
     status?: 'confirmed' | 'pending';
   },
 ) {
@@ -223,7 +217,7 @@ export async function applyPriceUpdateReviews(
   const batch = writeBatch(assetsCollection.firestore);
   const appliedReviews = reviews.filter(hasValidSuggestedPrice);
   const status = options?.status ?? 'confirmed';
-  const priceSource = options?.priceSource ?? 'ai_auto_applied';
+  const priceSource = options?.priceSource ?? 'api_auto';
 
   if (appliedReviews.length === 0) {
     return;
@@ -241,7 +235,6 @@ export async function applyPriceUpdateReviews(
       priceAsOf: review.asOf,
       priceSourceName: review.sourceName,
       priceSourceUrl: review.sourceUrl,
-      priceConfidence: review.confidence,
     });
 
     batch.set(
@@ -265,7 +258,7 @@ export async function applyPriceUpdateReviews(
 
 export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview) {
   await applyPriceUpdateReviews([review], {
-    priceSource: 'ai_review_confirmed',
+    priceSource: 'api_review_confirmed',
     status: 'confirmed',
   });
 }

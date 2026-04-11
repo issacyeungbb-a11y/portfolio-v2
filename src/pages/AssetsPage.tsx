@@ -165,7 +165,6 @@ export function AssetsPage() {
   const [updatingAssetIds, setUpdatingAssetIds] = useState<string[]>([]);
   const [priceUpdateError, setPriceUpdateError] = useState<string | null>(null);
   const [priceUpdateSuccess, setPriceUpdateSuccess] = useState<string | null>(null);
-  const [priceUpdateModel, setPriceUpdateModel] = useState<string | null>(null);
   const [confirmingAssetIds, setConfirmingAssetIds] = useState<string[]>([]);
   const [dismissingAssetIds, setDismissingAssetIds] = useState<string[]>([]);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
@@ -450,8 +449,6 @@ export function AssetsPage() {
       }
 
       const mergedResults = responses.flatMap((response) => response.results);
-      const models = Array.from(new Set(responses.map((response) => response.model).filter(Boolean)));
-      setPriceUpdateModel(models.join(' / '));
       const validResults = mergedResults.filter(
         (review) => review.price != null && review.price > 0 && !review.invalidReason,
       );
@@ -467,18 +464,18 @@ export function AssetsPage() {
 
       if (validResults.length > 0 && invalidResults.length > 0) {
         setPriceUpdateSuccess(
-          `已自動更新 ${validResults.length} 項資產；${invalidResults.length} 項未能自動更新，請再檢查。`,
+          `已自動更新 ${validResults.length} 項資產；${invalidResults.length} 項需要人工確認。`,
         );
       } else if (validResults.length > 0) {
         setPriceUpdateSuccess(`已自動更新 ${validResults.length} 項資產價格。`);
       } else if (invalidResults.length > 0) {
-        setPriceUpdateSuccess(`未能自動更新，現有 ${invalidResults.length} 項需要檢查。`);
+        setPriceUpdateSuccess(`現有 ${invalidResults.length} 項需要人工確認。`);
       } else {
         setPriceUpdateSuccess('今次沒有可套用的價格更新。');
       }
     } catch (error) {
       setPriceUpdateError(
-        error instanceof Error ? error.message : 'AI 價格更新失敗，請稍後再試。',
+        error instanceof Error ? error.message : '價格更新失敗，請稍後再試。',
       );
     } finally {
       if (isBulkUpdate) {
@@ -517,7 +514,7 @@ export function AssetsPage() {
 
     try {
       await dismissReview(assetId);
-      setReviewActionSuccess('已略過這次 AI 價格更新。');
+      setReviewActionSuccess('已略過這次價格更新。');
     } catch (error) {
       setReviewActionError(
         error instanceof Error ? error.message : '略過價格更新失敗，請稍後再試。',
@@ -542,11 +539,6 @@ export function AssetsPage() {
           <span className="assets-price-status-item">待更新 {pendingPriceCount}</span>
           {hasPendingReviews ? (
             <span className="assets-price-status-item">待處理 {reviews.length}</span>
-          ) : null}
-          {priceUpdateModel ? (
-            <span className="assets-price-status-item assets-model-badge">
-              {priceUpdateModel}
-            </span>
           ) : null}
         </div>
         <div className="assets-toolbar-actions">

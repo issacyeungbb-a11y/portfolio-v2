@@ -1,8 +1,7 @@
-import { GoogleGenAI } from '@google/genai';
+import yahooFinance from 'yahoo-finance2';
 
 import type {
   PendingPriceUpdateReview,
-  PriceUpdateModelResult,
   PriceUpdateRequest,
   PriceUpdateRequestAsset,
   PriceUpdateResponse,
@@ -10,11 +9,49 @@ import type {
 import type { AssetType } from '../src/types/portfolio';
 
 const UPDATE_PRICES_ROUTE = '/api/update-prices' as const;
-const DEFAULT_PRICE_MODEL = 'gemini-2.5-flash-lite';
-const DEFAULT_REVIEW_THRESHOLD = 0.15;
-const DEFAULT_CRYPTO_REVIEW_THRESHOLD = 0.3;
-const PRICE_UPDATE_BATCH_SIZE = 4;
-const DEFAULT_MIN_AUTO_APPLY_CONFIDENCE = 0.6;
+const DEFAULT_STOCK_DIFF_THRESHOLD = 0.15;
+const DEFAULT_CRYPTO_DIFF_THRESHOLD = 0.3;
+const DEFAULT_FX_RATES = {
+  USD: 7.8,
+  JPY: 0.052,
+  HKD: 1,
+} as const;
+const YAHOO_SOURCE_NAME = 'Yahoo Finance';
+const YAHOO_SOURCE_URL = 'https://finance.yahoo.com';
+const COINGECKO_SOURCE_NAME = 'CoinGecko';
+const COINGECKO_SOURCE_URL = 'https://www.coingecko.com';
+
+const COINGECKO_ID_MAP: Record<string, string> = {
+  ADA: 'cardano',
+  ASTER: 'aster',
+  ATONE: 'atone',
+  BNB: 'binancecoin',
+  BTC: 'bitcoin',
+  ETH: 'ethereum',
+  KAS: 'kaspa',
+  NIGHT: 'midnight',
+  SOL: 'solana',
+  SUI: 'sui',
+};
+
+interface FxRates {
+  USD: number;
+  JPY: number;
+  HKD: number;
+}
+
+interface MarketPriceResult {
+  assetId: string;
+  assetName: string;
+  ticker: string;
+  assetType: AssetType;
+  price: number | null;
+  currency: string | null;
+  asOf: string | null;
+  sourceName: string | null;
+  sourceUrl: string | null;
+  marketState?: string | null;
+}
 
 class UpdatePricesError extends Error {
   status: number;
@@ -26,44 +63,41 @@ class UpdatePricesError extends Error {
   }
 }
 
-function getPriceUpdateModel() {
-  return process.env.GEMINI_PRICE_UPDATE_MODEL?.trim() || DEFAULT_PRICE_MODEL;
+function normalizeAssetType(value: string): AssetType {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'stock') return 'stock';
+  if (normalized === 'etf') return 'etf';
+  if (normalized === 'bond') return 'bond';
+  if (normalized === 'crypto') return 'crypto';
+  return 'cash';
 }
 
-function getReviewThreshold() {
-  const raw = Number(process.env.PRICE_UPDATE_REVIEW_THRESHOLD_PCT);
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_REVIEW_THRESHOLD;
-}
-
-function getCryptoReviewThreshold() {
-  const raw = Number(process.env.PRICE_UPDATE_CRYPTO_THRESHOLD_PCT);
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_CRYPTO_REVIEW_THRESHOLD;
-}
-
-function getReviewThresholdForAsset(assetType: AssetType) {
-  if (assetType === 'crypto') {
-    return getCryptoReviewThreshold();
+function normalizeRequestAsset(asset: unknown): PriceUpdateRequestAsset | null {
+  if (typeof asset !== 'object' || asset === null) {
+    return null;
   }
 
-  return getReviewThreshold();
-}
+  const value = asset as Record<string, unknown>;
 
-function getMinAutoApplyConfidence() {
-  const raw = Number(process.env.PRICE_UPDATE_MIN_CONFIDENCE);
-  return Number.isFinite(raw) && raw > 0 ? Math.min(raw, 1) : DEFAULT_MIN_AUTO_APPLY_CONFIDENCE;
-}
-
-function getGeminiApiKey() {
-  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
-
-  if (!apiKey) {
-    throw new UpdatePricesError(
-      '未設定 GEMINI_API_KEY 或 GOOGLE_API_KEY，暫時無法執行 AI 價格更新。',
-      500,
-    );
+  if (
+    typeof value.assetId !== 'string' ||
+    typeof value.assetName !== 'string' ||
+    typeof value.ticker !== 'string' ||
+    typeof value.assetType !== 'string' ||
+    typeof value.currentPrice !== 'number' ||
+    typeof value.currency !== 'string'
+  ) {
+    return null;
   }
 
-  return apiKey;
+  return {
+    assetId: value.assetId,
+    assetName: value.assetName,
+    ticker: value.ticker.trim().toUpperCase(),
+    assetType: normalizeAssetType(value.assetType),
+    currentPrice: value.currentPrice,
+    currency: value.currency.trim().toUpperCase(),
+  };
 }
 
 function normalizeRequest(payload: unknown): PriceUpdateRequest {
@@ -88,580 +122,25 @@ function normalizeRequest(payload: unknown): PriceUpdateRequest {
   return { assets };
 }
 
-function normalizeRequestAsset(asset: unknown): PriceUpdateRequestAsset | null {
-  if (typeof asset !== 'object' || asset === null) {
-    return null;
-  }
-
-  const value = asset as Record<string, unknown>;
-
-  if (
-    typeof value.assetId !== 'string' ||
-    typeof value.assetName !== 'string' ||
-    typeof value.ticker !== 'string' ||
-    typeof value.assetType !== 'string' ||
-    typeof value.currentPrice !== 'number' ||
-    typeof value.currency !== 'string'
-  ) {
-    return null;
-  }
-
-  return {
-    assetId: value.assetId,
-    assetName: value.assetName,
-    ticker: value.ticker,
-    assetType: normalizeAssetType(value.assetType),
-    currentPrice: value.currentPrice,
-    currency: value.currency.trim().toUpperCase(),
-  };
+function getReviewThresholdForAsset(assetType: AssetType) {
+  return assetType === 'crypto'
+    ? DEFAULT_CRYPTO_DIFF_THRESHOLD
+    : DEFAULT_STOCK_DIFF_THRESHOLD;
 }
-
-function normalizeAssetType(value: string): AssetType {
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'stock') return 'stock';
-  if (normalized === 'etf') return 'etf';
-  if (normalized === 'bond') return 'bond';
-  if (normalized === 'crypto') return 'crypto';
-  return 'cash';
-}
-
-function sanitizeString(value: unknown) {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-}
-
-function isLikelyHongKongTicker(ticker: string, currency: string) {
-  const normalizedTicker = ticker.trim().toUpperCase();
-  const normalizedCurrency = currency.trim().toUpperCase();
-
-  return (
-    normalizedCurrency === 'HKD' &&
-    (/^\d{4,5}$/.test(normalizedTicker) || /^\d{4,5}\.HK$/.test(normalizedTicker))
-  );
-}
-
-function buildHongKongTickerVariants(ticker: string) {
-  const normalizedTicker = ticker.trim().toUpperCase().replace(/\.HK$/, '');
-  const paddedTicker = normalizedTicker.padStart(4, '0');
-
-  return Array.from(
-    new Set([
-      normalizedTicker,
-      paddedTicker,
-      `${paddedTicker}.HK`,
-      `${normalizedTicker}.HK`,
-      `HKG:${paddedTicker}`,
-      `HKEX ${paddedTicker}`,
-    ]),
-  );
-}
-
-function sanitizeNumber(value: unknown) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const parsed = Number(value.replace(/,/g, '').trim());
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-
-  return null;
-}
-
-function sanitizeAssetType(value: unknown): AssetType | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === 'stock') return 'stock';
-  if (normalized === 'etf') return 'etf';
-  if (normalized === 'bond') return 'bond';
-  if (normalized === 'crypto') return 'crypto';
-  if (normalized === 'cash') return 'cash';
-  return null;
-}
-
-function sanitizeConfidence(value: unknown) {
-  const parsed = sanitizeNumber(value);
-  if (parsed == null) {
-    return null;
-  }
-
-  return Math.min(Math.max(parsed, 0), 1);
-}
-
-function stripJsonFence(text: string) {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith('```')) {
-    return trimmed;
-  }
-
-  return trimmed
-    .replace(/^```json\s*/i, '')
-    .replace(/^```\s*/i, '')
-    .replace(/\s*```$/, '')
-    .trim();
-}
-
-function extractFirstJsonCandidate(text: string) {
-  const trimmed = stripJsonFence(text);
-
-  const objectStart = trimmed.indexOf('{');
-  const arrayStart = trimmed.indexOf('[');
-  const startCandidates = [objectStart, arrayStart].filter((value) => value >= 0);
-
-  if (startCandidates.length === 0) {
-    return trimmed;
-  }
-
-  const start = Math.min(...startCandidates);
-  const opening = trimmed[start];
-  const closing = opening === '[' ? ']' : '}';
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-
-  for (let index = start; index < trimmed.length; index += 1) {
-    const character = trimmed[index];
-
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-
-      if (character === '\\') {
-        escaped = true;
-        continue;
-      }
-
-      if (character === '"') {
-        inString = false;
-      }
-
-      continue;
-    }
-
-    if (character === '"') {
-      inString = true;
-      continue;
-    }
-
-    if (character === opening) {
-      depth += 1;
-      continue;
-    }
-
-    if (character === closing) {
-      depth -= 1;
-      if (depth === 0) {
-        return trimmed.slice(start, index + 1);
-      }
-    }
-  }
-
-  return trimmed.slice(start);
-}
-
-function parseModelJson(text: string) {
-  try {
-    return JSON.parse(extractFirstJsonCandidate(text)) as unknown;
-  } catch {
-    throw new UpdatePricesError('Gemini 未回傳可解析的 JSON，請稍後再試。', 502);
-  }
-}
-
-function sanitizePriceUpdateResults(rawPayload: unknown) {
-  if (
-    typeof rawPayload !== 'object' ||
-    rawPayload === null ||
-    !('results' in rawPayload) ||
-    !Array.isArray(rawPayload.results)
-  ) {
-    throw new UpdatePricesError('Gemini 回傳格式不正確，未找到 results 陣列。', 502);
-  }
-
-  return rawPayload.results.map((item) => {
-    const value =
-      typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {};
-
-    return {
-      assetName: sanitizeString(value.assetName),
-      ticker: sanitizeString(value.ticker),
-      assetType: sanitizeAssetType(value.assetType),
-      price: sanitizeNumber(value.price),
-      currency: sanitizeString(value.currency)?.toUpperCase() ?? null,
-      asOf: sanitizeString(value.asOf),
-      sourceName: sanitizeString(value.sourceName),
-      sourceUrl: sanitizeString(value.sourceUrl),
-      confidence: sanitizeConfidence(value.confidence),
-      needsReview: Boolean(value.needsReview),
-    };
-  });
-}
-
-function sanitizeSinglePriceUpdateResult(rawPayload: unknown) {
-  if (
-    typeof rawPayload !== 'object' ||
-    rawPayload === null ||
-    !('result' in rawPayload) ||
-    typeof rawPayload.result !== 'object' ||
-    rawPayload.result === null
-  ) {
-    throw new UpdatePricesError('Gemini 回傳格式不正確，未找到 result 物件。', 502);
-  }
-
-  const value = rawPayload.result as Record<string, unknown>;
-
-  return {
-    assetName: sanitizeString(value.assetName),
-    ticker: sanitizeString(value.ticker),
-    assetType: sanitizeAssetType(value.assetType),
-    price: sanitizeNumber(value.price),
-    currency: sanitizeString(value.currency)?.toUpperCase() ?? null,
-    asOf: sanitizeString(value.asOf),
-    sourceName: sanitizeString(value.sourceName),
-    sourceUrl: sanitizeString(value.sourceUrl),
-    confidence: sanitizeConfidence(value.confidence),
-    needsReview: Boolean(value.needsReview),
-  } satisfies PriceUpdateModelResult;
-}
-
-function createFailedModelResult(
-  asset: PriceUpdateRequestAsset,
-  reason: string,
-): PriceUpdateModelResult {
-  return {
-    assetName: asset.assetName,
-    ticker: asset.ticker,
-    assetType: asset.assetType,
-    price: 0,
-    currency: asset.currency,
-    asOf: '',
-    sourceName: reason,
-    sourceUrl: '',
-    confidence: 0,
-    needsReview: true,
-  };
-}
-
-function detectFailureCategory(params: {
-  asset: PriceUpdateRequestAsset;
-  matched?: PriceUpdateModelResult;
-  nextPrice: number | null;
-  staleQuote: boolean;
-  diffPct: number;
-}) {
-  const { asset, matched, nextPrice, staleQuote, diffPct } = params;
-  const minimumConfidence = getMinAutoApplyConfidence();
-  const reviewThreshold = getReviewThresholdForAsset(asset.assetType);
-  const sourceText = `${matched?.sourceName ?? ''} ${matched?.sourceUrl ?? ''}`.toLowerCase();
-
-  if (sourceText.includes('格式不正確') || sourceText.includes('補查失敗')) {
-    return 'response_format' as const;
-  }
-
-  if (nextPrice == null || nextPrice <= 0) {
-    if (isLikelyHongKongTicker(asset.ticker, asset.currency)) {
-      return 'ticker_format' as const;
-    }
-
-    return 'price_missing' as const;
-  }
-
-  if (staleQuote) {
-    return 'quote_time' as const;
-  }
-
-  if (!(matched?.sourceName || matched?.sourceUrl)) {
-    return 'source_missing' as const;
-  }
-
-  if ((matched?.confidence ?? 0) < minimumConfidence) {
-    return 'confidence_low' as const;
-  }
-
-  if (diffPct >= reviewThreshold) {
-    return 'diff_too_large' as const;
-  }
-
-  return 'unknown' as const;
-}
-
-function buildInvalidReason(
-  category: NonNullable<PendingPriceUpdateReview['failureCategory']>,
-) {
-  if (category === 'ticker_format') return '代號格式可能有問題，AI 未能準確對應市場報價';
-  if (category === 'quote_time') return 'quote 時間過時，已拒絕使用';
-  if (category === 'source_missing') return '來源不足，未提供可信來源名稱或網址';
-  if (category === 'response_format') return '模型回覆格式不正確，未能穩定解析';
-  if (category === 'price_missing') return 'AI 未取得有效最新價格';
-  if (category === 'confidence_low') return '可信度不足，暫不自動套用';
-  if (category === 'diff_too_large') return '價格差距過大，需要人工檢查';
-  return '未能自動更新，請再檢查';
-}
-
-function tryParseSingleModelResult(
-  asset: PriceUpdateRequestAsset,
-  rawText: string,
-  reason: string,
-) {
-  try {
-    return sanitizeSinglePriceUpdateResult(parseModelJson(rawText));
-  } catch {
-    return createFailedModelResult(asset, reason);
-  }
-}
-
-function buildAssetSearchHints(asset: PriceUpdateRequestAsset) {
-  const hints = [
-    `${asset.ticker} latest price`,
-    `${asset.assetName} latest price`,
-  ];
-
-  if (asset.ticker.endsWith('.HK') || isLikelyHongKongTicker(asset.ticker, asset.currency)) {
-    const hongKongTickerVariants = buildHongKongTickerVariants(asset.ticker);
-    for (const variant of hongKongTickerVariants) {
-      hints.push(`${variant} HKEX latest price`);
-      hints.push(`${variant} Google Finance`);
-      hints.push(`${variant} Yahoo Finance`);
-    }
-    hints.push(`${asset.ticker} HKEX latest price`);
-  } else if (asset.currency === 'USD') {
-    hints.push(`${asset.ticker} NASDAQ latest price`);
-    hints.push(`${asset.ticker} NYSE latest price`);
-  }
-
-  if (asset.assetType === 'etf') {
-    hints.push(`${asset.ticker} ETF latest market price`);
-  }
-
-  if (asset.assetType === 'bond') {
-    hints.push(`${asset.ticker} bond ETF latest market price`);
-  }
-
-  if (asset.assetType === 'crypto') {
-    hints.push(`${asset.ticker} crypto USD latest price`);
-    hints.push(`${asset.ticker} USD CoinGecko price`);
-    hints.push(`${asset.ticker} USD CoinMarketCap latest`);
-    hints.push(`${asset.ticker} USD Binance spot price today`);
-  }
-
-  return hints;
-}
-
-function buildPrompt(assets: PriceUpdateRequestAsset[]) {
-  return `
-You are an AI price update assistant.
-
-Return ONLY raw JSON. Do not use markdown fences. Do not include any explanation.
-
-Use this exact schema:
-{
-  "results": [
-    {
-      "assetName": string,
-      "ticker": string,
-      "assetType": "stock" | "etf" | "bond" | "crypto" | "cash",
-      "price": number,
-      "currency": string,
-      "asOf": string,
-      "sourceName": string,
-      "sourceUrl": string,
-      "confidence": number,
-      "needsReview": boolean
-    }
-  ]
-}
-
-Rules:
-- Return exactly one result for each input asset.
-- Keep assetName, ticker, assetType, and currency aligned with the input asset unless a correction is clearly needed.
-- price must be the latest market price per unit from the most recent trading session or live quote available.
-- Never copy the input currentPrice unless you can verify that it is still the latest market price.
-- asOf must be the actual quote timestamp or most recent trading-session timestamp in ISO-8601 format.
-- sourceName should identify the source used.
-- sourceUrl should be a direct source URL when possible.
-- confidence must be between 0 and 1.
-- needsReview should be true if the result is uncertain, stale, source is weak, or price may be unreliable.
-- No extra fields.
-
-Input assets:
-${JSON.stringify(assets, null, 2)}
-  `.trim();
-}
-
-function buildSingleAssetPrompt(
-  asset: PriceUpdateRequestAsset,
-  mode: 'primary' | 'retry',
-) {
-  const extraRetryRules =
-    mode === 'retry'
-      ? `
-- Retry mode: search more aggressively and prefer the official exchange, Google Finance, Yahoo Finance market pages, or issuer/market pages.
-- Do not return a result unless you found a fresh quote timestamp or clearly current market page.
-- If you still cannot verify a fresh quote, return price as 0, confidence as 0, needsReview as true, and explain failure in sourceName.
-`
-      : '';
-
-  return `
-You are an AI price update assistant for a single asset.
-
-Return ONLY raw JSON. Do not use markdown fences. Do not include any explanation.
-
-Use this exact schema:
-{
-  "result": {
-    "assetName": string,
-    "ticker": string,
-    "assetType": "stock" | "etf" | "bond" | "crypto" | "cash",
-    "price": number,
-    "currency": string,
-    "asOf": string,
-    "sourceName": string,
-    "sourceUrl": string,
-    "confidence": number,
-    "needsReview": boolean
-  }
-}
-
-Rules:
-- Find the latest market price for this asset.
-- Use the most recent trading session or live quote available.
-- Never copy the input currentPrice unless you verified it from an external source.
-- asOf must be the actual quote timestamp or latest trading-session timestamp in ISO-8601 format.
-- sourceName should clearly name the source used.
-- sourceUrl should be a direct source URL when possible.
-- confidence must be between 0 and 1.
-- needsReview should be true if there is any uncertainty.
-${extraRetryRules}
-
-Asset:
-${JSON.stringify(asset, null, 2)}
-
-Suggested searches:
-${JSON.stringify(buildAssetSearchHints(asset), null, 2)}
-  `.trim();
-}
-
-const responseJsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['results'],
-  properties: {
-    results: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'assetName',
-          'ticker',
-          'assetType',
-          'price',
-          'currency',
-          'asOf',
-          'sourceName',
-          'sourceUrl',
-          'confidence',
-          'needsReview',
-        ],
-        properties: {
-          assetName: { type: 'string' },
-          ticker: { type: 'string' },
-          assetType: { type: 'string', enum: ['stock', 'etf', 'bond', 'crypto', 'cash'] },
-          price: { type: 'number' },
-          currency: { type: 'string' },
-          asOf: { type: 'string' },
-          sourceName: { type: 'string' },
-          sourceUrl: { type: 'string' },
-          confidence: { type: 'number', minimum: 0, maximum: 1 },
-          needsReview: { type: 'boolean' },
-        },
-      },
-    },
-  },
-} as const;
-
-const singleResultJsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['result'],
-  properties: {
-    result: {
-      type: 'object',
-      additionalProperties: false,
-      required: [
-        'assetName',
-        'ticker',
-        'assetType',
-        'price',
-        'currency',
-        'asOf',
-        'sourceName',
-        'sourceUrl',
-        'confidence',
-        'needsReview',
-      ],
-      properties: {
-        assetName: { type: 'string' },
-        ticker: { type: 'string' },
-        assetType: { type: 'string', enum: ['stock', 'etf', 'bond', 'crypto', 'cash'] },
-        price: { type: 'number' },
-        currency: { type: 'string' },
-        asOf: { type: 'string' },
-        sourceName: { type: 'string' },
-        sourceUrl: { type: 'string' },
-        confidence: { type: 'number', minimum: 0, maximum: 1 },
-        needsReview: { type: 'boolean' },
-      },
-    },
-  },
-} as const;
 
 function parseAsOf(value: string | null | undefined) {
   if (!value) {
     return null;
   }
 
-  const directParsed = new Date(value);
-  if (!Number.isNaN(directParsed.getTime())) {
-    return directParsed;
-  }
-
-  const normalized = value
-    .trim()
-    .replace(/\bHKT\b/gi, '+08:00')
-    .replace(/\bHKT CLOSE\b/gi, '16:00:00+08:00')
-    .replace(/\bCLOSE\b/gi, '16:00:00')
-    .replace(/\//g, '-');
-
-  const normalizedParsed = new Date(normalized);
-  if (!Number.isNaN(normalizedParsed.getTime())) {
-    return normalizedParsed;
-  }
-
-  const dateOnlyMatch = normalized.match(/^(\d{4}-\d{2}-\d{2})$/);
-  if (dateOnlyMatch) {
-    const assumedClose = new Date(`${dateOnlyMatch[1]}T16:00:00+08:00`);
-    return Number.isNaN(assumedClose.getTime()) ? null : assumedClose;
-  }
-
-  return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function getQuoteFreshnessWindowMs(assetType: AssetType) {
-  if (assetType === 'crypto') {
-    return 72 * 60 * 60 * 1000;
-  }
-
-  return 2 * 24 * 60 * 60 * 1000;
+  return assetType === 'crypto'
+    ? 72 * 60 * 60 * 1000
+    : 5 * 24 * 60 * 60 * 1000;
 }
 
 function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
@@ -674,219 +153,317 @@ function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
   return Date.now() - parsed.getTime() > getQuoteFreshnessWindowMs(assetType);
 }
 
-async function generatePriceResponseWithFallback(
-  ai: GoogleGenAI,
-  model: string,
-  prompt: string,
+function buildInvalidReason(
+  category: NonNullable<PendingPriceUpdateReview['failureCategory']>,
 ) {
-  try {
-    return await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        temperature: 0.1,
-        tools: [{ googleSearch: {} }],
-      },
-    });
-  } catch {
-    return ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-        responseJsonSchema,
-      },
-    });
-  }
+  if (category === 'ticker_format') return '代號格式可能有問題，未能準確對應市場報價';
+  if (category === 'quote_time') return 'quote 時間過時，已拒絕使用';
+  if (category === 'source_missing') return '來源不足，未提供可信來源名稱或網址';
+  if (category === 'response_format') return 'API 回傳格式不正確，未能穩定解析';
+  if (category === 'price_missing') return '未取得有效市場價格';
+  if (category === 'diff_too_large') return '價格差距過大，需要人工檢查';
+  return '價格更新失敗，請再檢查';
 }
 
-async function generateSingleAssetPriceResponse(
-  ai: GoogleGenAI,
-  model: string,
-  prompt: string,
-) {
-  try {
-    return await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        temperature: 0,
-        tools: [{ googleSearch: {} }],
-      },
-    });
-  } catch {
-    return ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        temperature: 0,
-        responseMimeType: 'application/json',
-        responseJsonSchema: singleResultJsonSchema,
-      },
-    });
-  }
-}
-
-function isUsableModelResult(asset: PriceUpdateRequestAsset, result: PriceUpdateModelResult) {
-  const minimumConfidence = getMinAutoApplyConfidence();
-  const hasUsableSource = Boolean(result.sourceName || result.sourceUrl);
-
-  return (
-    result.price != null &&
-    result.price > 0 &&
-    hasUsableSource &&
-    (result.confidence ?? 0) >= minimumConfidence &&
-    !isStaleQuote(result.asOf, asset.assetType)
-  );
-}
-
-async function generateBestPriceForAsset(
-  ai: GoogleGenAI,
-  model: string,
+function createFailedMarketResult(
   asset: PriceUpdateRequestAsset,
-) {
-  const primaryPrompt = buildSingleAssetPrompt(asset, 'primary');
-  const primaryResponse = await generateSingleAssetPriceResponse(ai, model, primaryPrompt);
-  const primaryResult = tryParseSingleModelResult(
-    asset,
-    primaryResponse.text ?? '',
-    'Gemini primary 回覆格式不正確',
-  );
+  sourceName: string,
+  sourceUrl = '',
+): MarketPriceResult {
+  return {
+    assetId: asset.assetId,
+    assetName: asset.assetName,
+    ticker: asset.ticker,
+    assetType: asset.assetType,
+    price: null,
+    currency: asset.currency,
+    asOf: null,
+    sourceName,
+    sourceUrl,
+    marketState: null,
+  };
+}
 
-  if (isUsableModelResult(asset, primaryResult)) {
-    return primaryResult;
+function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
+  if (asset.assetType === 'crypto') {
+    return asset.ticker.toUpperCase();
   }
 
-  const retryPrompt = buildSingleAssetPrompt(asset, 'retry');
-  const retryResponse = await generateSingleAssetPriceResponse(ai, model, retryPrompt);
-  const retryResult = tryParseSingleModelResult(
-    asset,
-    retryResponse.text ?? '',
-    'Gemini retry 回覆格式不正確',
-  );
-
-  if (isUsableModelResult(asset, retryResult)) {
-    return retryResult;
+  const normalizedTicker = asset.ticker.trim().toUpperCase();
+  if (normalizedTicker.endsWith('.HK')) {
+    return normalizedTicker;
   }
 
-  return (retryResult.confidence ?? 0) >= (primaryResult.confidence ?? 0)
-    ? retryResult
-    : primaryResult;
+  if (asset.currency === 'HKD' && /^\d{1,5}$/.test(normalizedTicker)) {
+    return `${normalizedTicker.padStart(4, '0')}.HK`;
+  }
+
+  return normalizedTicker;
+}
+
+export async function fetchFxRates(): Promise<FxRates> {
+  try {
+    const quotes = await yahooFinance.quote(['USDHKD=X', 'JPYHKD=X'], {
+      fields: ['symbol', 'regularMarketPrice'],
+      return: 'array',
+    });
+    const bySymbol = new Map(quotes.map((quote) => [quote.symbol, quote]));
+    const usd = bySymbol.get('USDHKD=X')?.regularMarketPrice;
+    const jpy = bySymbol.get('JPYHKD=X')?.regularMarketPrice;
+
+    if (!usd || !jpy || usd <= 0 || jpy <= 0) {
+      throw new Error('missing fx quote');
+    }
+
+    return {
+      USD: usd,
+      JPY: jpy,
+      HKD: 1,
+    };
+  } catch (error) {
+    console.warn('Failed to fetch Yahoo Finance FX rates, using fallback rates.', error);
+    return { ...DEFAULT_FX_RATES };
+  }
+}
+
+async function fetchYahooPrice(
+  assets: PriceUpdateRequestAsset[],
+): Promise<MarketPriceResult[]> {
+  if (assets.length === 0) {
+    return [];
+  }
+
+  const symbolToAsset = new Map<string, PriceUpdateRequestAsset>();
+  const symbols = assets.map((asset) => {
+    const symbol = normalizeYahooTicker(asset);
+    symbolToAsset.set(symbol, asset);
+    return symbol;
+  });
+
+  try {
+    const quotes = await yahooFinance.quote(symbols, {
+      fields: [
+        'symbol',
+        'currency',
+        'marketState',
+        'regularMarketPrice',
+        'regularMarketTime',
+      ],
+      return: 'array',
+    });
+
+    const quoteBySymbol = new Map(quotes.map((quote) => [quote.symbol?.toUpperCase() ?? '', quote]));
+
+    return symbols.map((symbol) => {
+      const asset = symbolToAsset.get(symbol)!;
+      const quote = quoteBySymbol.get(symbol.toUpperCase());
+
+      if (!quote || quote.regularMarketPrice == null || quote.regularMarketPrice <= 0) {
+        return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
+      }
+
+      return {
+        assetId: asset.assetId,
+        assetName: asset.assetName,
+        ticker: asset.ticker,
+        assetType: asset.assetType,
+        price: quote.regularMarketPrice,
+        currency: quote.currency?.toUpperCase() ?? asset.currency,
+        asOf: quote.regularMarketTime ? quote.regularMarketTime.toISOString() : null,
+        sourceName: YAHOO_SOURCE_NAME,
+        sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
+        marketState: quote.marketState ?? null,
+      };
+    });
+  } catch (error) {
+    return assets.map((asset) =>
+      createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL),
+    );
+  }
+}
+
+async function fetchCoinGeckoPrice(
+  assets: PriceUpdateRequestAsset[],
+): Promise<MarketPriceResult[]> {
+  if (assets.length === 0) {
+    return [];
+  }
+
+  const idToAsset = new Map<string, PriceUpdateRequestAsset>();
+  const unresolvedAssets: PriceUpdateRequestAsset[] = [];
+
+  for (const asset of assets) {
+    const id = COINGECKO_ID_MAP[asset.ticker.toUpperCase()];
+    if (!id) {
+      unresolvedAssets.push(asset);
+      continue;
+    }
+
+    idToAsset.set(id, asset);
+  }
+
+  const resolvedIds = Array.from(idToAsset.keys());
+  const headers: Record<string, string> = {};
+  const apiKey = process.env.COINGECKO_API_KEY?.trim();
+  if (apiKey) {
+    headers['x-cg-demo-api-key'] = apiKey;
+  }
+
+  const resolvedResults: MarketPriceResult[] = [];
+
+  if (resolvedIds.length > 0) {
+    try {
+      const response = await fetch(
+        `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+          resolvedIds.join(','),
+        )}&vs_currencies=usd&include_last_updated_at=true`,
+        {
+          headers,
+          signal: AbortSignal.timeout(15000),
+        },
+      );
+
+      if (!response.ok) {
+        throw new Error(`CoinGecko HTTP ${response.status}`);
+      }
+
+      const payload = (await response.json()) as Record<
+        string,
+        { usd?: number; last_updated_at?: number }
+      >;
+
+      for (const id of resolvedIds) {
+        const asset = idToAsset.get(id)!;
+        const entry = payload[id];
+
+        if (!entry || entry.usd == null || entry.usd <= 0) {
+          resolvedResults.push(
+            createFailedMarketResult(asset, `${COINGECKO_SOURCE_NAME} 未返回有效價格`, COINGECKO_SOURCE_URL),
+          );
+          continue;
+        }
+
+        resolvedResults.push({
+          assetId: asset.assetId,
+          assetName: asset.assetName,
+          ticker: asset.ticker,
+          assetType: asset.assetType,
+          price: entry.usd,
+          currency: 'USD',
+          asOf: entry.last_updated_at
+            ? new Date(entry.last_updated_at * 1000).toISOString()
+            : new Date().toISOString(),
+          sourceName: COINGECKO_SOURCE_NAME,
+          sourceUrl: `${COINGECKO_SOURCE_URL}/en/coins/${id}`,
+          marketState: 'CRYPTO',
+        });
+      }
+    } catch (error) {
+      resolvedResults.push(
+        ...resolvedIds.map((id) =>
+          createFailedMarketResult(
+            idToAsset.get(id)!,
+            `${COINGECKO_SOURCE_NAME} 查詢失敗`,
+            COINGECKO_SOURCE_URL,
+          ),
+        ),
+      );
+    }
+  }
+
+  return [
+    ...resolvedResults,
+    ...unresolvedAssets.map((asset) =>
+      createFailedMarketResult(asset, `${COINGECKO_SOURCE_NAME} 未設定對應 coin id`, COINGECKO_SOURCE_URL),
+    ),
+  ];
+}
+
+function detectFailureCategory(params: {
+  asset: PriceUpdateRequestAsset;
+  matched?: MarketPriceResult;
+  nextPrice: number | null;
+  staleQuote: boolean;
+  diffPct: number;
+  isValid: boolean;
+}) {
+  const { asset, matched, nextPrice, staleQuote, diffPct, isValid } = params;
+
+  if (isValid) {
+    return undefined;
+  }
+
+  if (nextPrice == null || nextPrice <= 0) {
+    return asset.assetType === 'crypto' &&
+      !COINGECKO_ID_MAP[asset.ticker.toUpperCase()]
+      ? 'source_missing'
+      : 'price_missing';
+  }
+
+  if (staleQuote) {
+    return 'quote_time';
+  }
+
+  if (!(matched?.sourceName || matched?.sourceUrl)) {
+    return 'source_missing';
+  }
+
+  if (diffPct >= getReviewThresholdForAsset(asset.assetType)) {
+    return 'diff_too_large';
+  }
+
+  return 'unknown';
 }
 
 function buildReviewResults(
   requestedAssets: PriceUpdateRequestAsset[],
-  modelResults: PriceUpdateModelResult[],
+  marketResults: MarketPriceResult[],
 ): PendingPriceUpdateReview[] {
-  const minimumConfidence = getMinAutoApplyConfidence();
-
-  return requestedAssets.map((asset, index) => {
-    const threshold = getReviewThresholdForAsset(asset.assetType);
+  return requestedAssets.map((asset) => {
     const matched =
-      modelResults.find(
-        (item) =>
-          item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
-          item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
-      ) ?? modelResults[index];
-
-    const nextPrice = matched?.price ?? null;
-    const staleQuote = isStaleQuote(matched?.asOf, asset.assetType);
+      marketResults.find((item) => item.assetId === asset.assetId) ??
+      createFailedMarketResult(asset, '未取得回應');
+    const nextPrice = matched.price ?? null;
+    const staleQuote = isStaleQuote(matched.asOf, asset.assetType);
     const diffPct =
       nextPrice != null && asset.currentPrice > 0
         ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
         : 0;
-
-    const forcedNeedsReview =
-      nextPrice == null ||
-      nextPrice <= 0 ||
-      staleQuote ||
-      diffPct >= threshold ||
-      !(matched?.sourceName || matched?.sourceUrl) ||
-      (matched?.confidence ?? 0) < minimumConfidence;
-    const failureCategory = forcedNeedsReview
-      ? detectFailureCategory({
-          asset,
-          matched,
-          nextPrice,
-          staleQuote,
-          diffPct,
-        })
-      : undefined;
+    const isValid =
+      nextPrice != null &&
+      nextPrice > 0 &&
+      !staleQuote &&
+      Boolean(matched.sourceName || matched.sourceUrl) &&
+      diffPct < getReviewThresholdForAsset(asset.assetType);
+    const failureCategory = detectFailureCategory({
+      asset,
+      matched,
+      nextPrice,
+      staleQuote,
+      diffPct,
+      isValid,
+    });
     const invalidReason = failureCategory ? buildInvalidReason(failureCategory) : '';
 
     return {
       id: asset.assetId,
       assetId: asset.assetId,
-      assetName: matched?.assetName ?? asset.assetName,
-      ticker: matched?.ticker?.toUpperCase() ?? asset.ticker.toUpperCase(),
-      assetType: matched?.assetType ?? asset.assetType,
-      price: staleQuote ? null : nextPrice,
-      currency: matched?.currency?.toUpperCase() ?? asset.currency,
-      asOf: staleQuote ? '' : matched?.asOf ?? new Date().toISOString(),
-      sourceName: staleQuote ? '報價過時，已拒絕使用' : matched?.sourceName ?? '',
-      sourceUrl: matched?.sourceUrl ?? '',
-      confidence: staleQuote ? 0 : matched?.confidence ?? 0,
-      needsReview: Boolean(matched?.needsReview) || forcedNeedsReview,
+      assetName: matched.assetName || asset.assetName,
+      ticker: (matched.ticker || asset.ticker).toUpperCase(),
+      assetType: matched.assetType || asset.assetType,
+      price: isValid ? nextPrice : nextPrice,
+      currency: (matched.currency || asset.currency).toUpperCase(),
+      asOf: matched.asOf || '',
+      sourceName: matched.sourceName || '',
+      sourceUrl: matched.sourceUrl || '',
+      isValid,
       currentPrice: asset.currentPrice,
       diffPct,
       failureCategory,
       invalidReason,
-      status: 'pending',
+      status: isValid ? 'confirmed' : 'pending',
     };
   });
-}
-
-async function generatePriceUpdatesForBatch(
-  ai: GoogleGenAI,
-  model: string,
-  assets: PriceUpdateRequestAsset[],
-) {
-  const prompt = buildPrompt(assets);
-  let sanitizedResults: PriceUpdateModelResult[];
-
-  try {
-    const response = await generatePriceResponseWithFallback(ai, model, prompt);
-    const raw = parseModelJson(response.text ?? '');
-    sanitizedResults = sanitizePriceUpdateResults(raw);
-  } catch {
-    sanitizedResults = [];
-  }
-
-  const missingOrWeakAssets = assets.filter((asset) => {
-    const matched = sanitizedResults.find(
-      (item) =>
-        item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
-        item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
-    );
-
-    return !matched || !isUsableModelResult(asset, matched);
-  });
-
-  if (missingOrWeakAssets.length > 0) {
-    const focusedResults = await Promise.all(
-      missingOrWeakAssets.map(async (asset) => {
-        try {
-          return await generateBestPriceForAsset(ai, model, asset);
-        } catch {
-          return createFailedModelResult(asset, 'Gemini 單項補查失敗');
-        }
-      }),
-    );
-
-    sanitizedResults = [
-      ...sanitizedResults.filter((item) =>
-        !missingOrWeakAssets.some(
-          (asset) =>
-            item.ticker?.toUpperCase() === asset.ticker.toUpperCase() ||
-            item.assetName?.toLowerCase() === asset.assetName.toLowerCase(),
-        ),
-      ),
-      ...focusedResults,
-    ];
-  }
-
-  return buildReviewResults(assets, sanitizedResults);
 }
 
 export function getUpdatePricesErrorResponse(error: unknown) {
@@ -917,39 +494,33 @@ export function getUpdatePricesErrorResponse(error: unknown) {
     body: {
       ok: false,
       route: UPDATE_PRICES_ROUTE,
-      message: 'AI 價格更新失敗，請稍後再試。',
+      message: '價格更新失敗，請稍後再試。',
     },
   };
 }
 
-export async function generatePriceUpdates(payload: unknown) {
+export async function generatePriceUpdates(payload: unknown): Promise<PriceUpdateResponse> {
   const request = normalizeRequest(payload);
-  const apiKey = getGeminiApiKey();
-  const model = getPriceUpdateModel();
-  const ai = new GoogleGenAI({ apiKey });
-  const results: PendingPriceUpdateReview[] = [];
+  await fetchFxRates();
 
-  for (let index = 0; index < request.assets.length; index += PRICE_UPDATE_BATCH_SIZE) {
-    const assetBatch = request.assets.slice(index, index + PRICE_UPDATE_BATCH_SIZE);
-    let batchResults: PendingPriceUpdateReview[];
+  const yahooAssets = request.assets.filter(
+    (asset) =>
+      asset.assetType === 'stock' ||
+      asset.assetType === 'etf' ||
+      asset.assetType === 'bond',
+  );
+  const cryptoAssets = request.assets.filter((asset) => asset.assetType === 'crypto');
 
-    try {
-      batchResults = await generatePriceUpdatesForBatch(ai, model, assetBatch);
-    } catch {
-      batchResults = buildReviewResults(
-        assetBatch,
-        assetBatch.map((asset) => createFailedModelResult(asset, 'Gemini 批次回覆格式不正確')),
-      );
-    }
-
-    results.push(...batchResults);
-  }
+  const [yahooResults, cryptoResults] = await Promise.all([
+    fetchYahooPrice(yahooAssets),
+    fetchCoinGeckoPrice(cryptoAssets),
+  ]);
 
   return {
     ok: true,
     route: UPDATE_PRICES_ROUTE,
     mode: 'live',
-    model,
-    results,
+    model: 'market-api',
+    results: buildReviewResults(request.assets, [...yahooResults, ...cryptoResults]),
   };
 }

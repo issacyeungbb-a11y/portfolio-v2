@@ -44,7 +44,7 @@ export function PriceUpdateReviewPanel({
       <div className="section-heading">
         <div>
           <p className="eyebrow">Price Review</p>
-          <h2>未能自動更新</h2>
+          <h2>需要人工確認</h2>
           <p className="table-hint">
             有效價格會即時寫入資產。下面係仍然需要你手動處理嘅項目。
           </p>
@@ -71,8 +71,8 @@ export function PriceUpdateReviewPanel({
                 </div>
                 <div className="button-row">
                   <span className="chip chip-soft">{getAssetTypeLabel(review.assetType)}</span>
-                  <span className={review.needsReview ? 'chip chip-strong' : 'chip chip-soft'}>
-                    {review.needsReview ? '需要人工檢查' : '可直接確認'}
+                  <span className={review.isValid ? 'chip chip-soft' : 'chip chip-strong'}>
+                    {review.isValid ? '可直接確認' : '需要人工檢查'}
                   </span>
                 </div>
               </div>
@@ -83,7 +83,7 @@ export function PriceUpdateReviewPanel({
                   <strong>{formatCurrency(review.currentPrice, review.currency)}</strong>
                 </div>
                 <div>
-                  <p className="muted-label">AI 建議價格</p>
+                  <p className="muted-label">建議新價格</p>
                   <strong>
                     {!hasValidSuggestedPrice
                       ? '未取得'
@@ -93,10 +93,6 @@ export function PriceUpdateReviewPanel({
                 <div>
                   <p className="muted-label">價格差距</p>
                   <strong data-tone={diffTone}>{formatPercent(review.diffPct * 100)}</strong>
-                </div>
-                <div>
-                  <p className="muted-label">可信度</p>
-                  <strong>{formatPercent((review.confidence ?? 0) * 100)}</strong>
                 </div>
               </div>
 

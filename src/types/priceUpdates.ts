@@ -1,5 +1,7 @@
 import type { AssetType } from './portfolio';
 
+export type PriceSource = 'api_auto' | 'api_auto_cron' | 'api_review_confirmed';
+
 export interface PriceUpdateRequestAsset {
   assetId: string;
   assetName: string;
@@ -22,8 +24,7 @@ export interface PriceUpdateModelResult {
   asOf: string | null;
   sourceName: string | null;
   sourceUrl: string | null;
-  confidence: number | null;
-  needsReview: boolean;
+  isValid: boolean;
 }
 
 export interface PriceUpdateResponse {
@@ -45,7 +46,6 @@ export interface PendingPriceUpdateReview extends PriceUpdateModelResult {
   asOf: string;
   sourceName: string;
   sourceUrl: string;
-  confidence: number;
   diffPct: number;
   failureCategory?:
     | 'ticker_format'
@@ -71,6 +71,5 @@ export interface AssetPriceHistoryEntry {
   asOf: string;
   sourceName: string;
   sourceUrl: string;
-  confidence: number;
   recordedAt: string;
 }

@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
+import { fetchFxRates } from './updatePrices.js';
 import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio.js';
 
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
@@ -19,15 +20,15 @@ function normalizeAssetType(value: unknown): AssetType {
   return 'stock';
 }
 
-function convertToHKD(amount: number, currency: string) {
+function convertToHKD(amount: number, currency: string, fxRates: { USD: number; JPY: number; HKD: number }) {
   const normalized = currency.trim().toUpperCase();
 
   if (normalized === 'USD') {
-    return amount * 7.8;
+    return amount * fxRates.USD;
   }
 
   if (normalized === 'JPY') {
-    return amount * 0.052;
+    return amount * fxRates.JPY;
   }
 
   return amount;
@@ -100,6 +101,7 @@ export async function captureAdminPortfolioSnapshot(params?: {
 }) {
   const db = getFirebaseAdminDb();
   const holdings = await readAdminPortfolioAssets();
+  const fxRates = await fetchFxRates();
   const snapshotId = params?.snapshotId?.trim();
   const snapshotRef = snapshotId
     ? db
@@ -123,7 +125,11 @@ export async function captureAdminPortfolioSnapshot(params?: {
     quantity: holding.quantity,
     currentPrice: holding.currentPrice,
     averageCost: holding.averageCost,
-    marketValueHKD: convertToHKD(holding.quantity * holding.currentPrice, holding.currency),
+    marketValueHKD: convertToHKD(
+      holding.quantity * holding.currentPrice,
+      holding.currency,
+      fxRates,
+    ),
   }));
 
   const totalValueHKD = holdingsPayload.reduce((sum, holding) => sum + holding.marketValueHKD, 0);

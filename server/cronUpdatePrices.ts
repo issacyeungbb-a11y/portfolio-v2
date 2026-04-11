@@ -89,11 +89,10 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
       currentPrice: review.price,
       updatedAt: FieldValue.serverTimestamp(),
       lastPriceUpdatedAt: FieldValue.serverTimestamp(),
-      priceSource: 'ai_auto_applied_cron',
+      priceSource: 'api_auto_cron',
       priceAsOf: review.asOf,
       priceSourceName: review.sourceName,
       priceSourceUrl: review.sourceUrl,
-      priceConfidence: review.confidence,
     });
 
     batch.set(
@@ -117,7 +116,6 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
       asOf: review.asOf,
       sourceName: review.sourceName,
       sourceUrl: review.sourceUrl,
-      confidence: review.confidence,
       recordedAt: FieldValue.serverTimestamp(),
     });
   }

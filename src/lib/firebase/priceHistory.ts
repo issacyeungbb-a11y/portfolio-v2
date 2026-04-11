@@ -54,7 +54,6 @@ function normalizePriceHistoryEntry(
     asOf: sanitizeString(value.asOf),
     sourceName: sanitizeString(value.sourceName),
     sourceUrl: sanitizeString(value.sourceUrl),
-    confidence: sanitizeNumber(value.confidence),
     recordedAt: formatRecordedAt(value.recordedAt),
   };
 }
@@ -93,7 +92,6 @@ export async function recordAssetPriceHistory(review: PendingPriceUpdateReview) 
     asOf: review.asOf,
     sourceName: review.sourceName,
     sourceUrl: review.sourceUrl,
-    confidence: review.confidence,
     recordedAt: serverTimestamp(),
   });
 }
