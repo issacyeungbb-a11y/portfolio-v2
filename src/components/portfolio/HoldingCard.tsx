@@ -30,6 +30,7 @@ export function HoldingCard({ holding, displayCurrency }: HoldingCardProps) {
           <h3>{holding.name}</h3>
         </div>
         <div className="button-row">
+          <span className="chip chip-soft">{holding.allocation.toFixed(1)}%</span>
           <span className="chip chip-soft">{getAssetTypeLabel(holding.assetType)}</span>
           <span className="chip chip-strong">{getAccountSourceLabel(holding.accountSource)}</span>
         </div>
@@ -51,10 +52,6 @@ export function HoldingCard({ holding, displayCurrency }: HoldingCardProps) {
           <strong data-tone={pnlTone}>
             {formatCurrencyRounded(unrealizedPnl, activeCurrency)} ({formatPercent(holding.unrealizedPct)})
           </strong>
-        </div>
-        <div>
-          <p className="muted-label">配置比重</p>
-          <strong>{holding.allocation.toFixed(1)}%</strong>
         </div>
       </div>
 
