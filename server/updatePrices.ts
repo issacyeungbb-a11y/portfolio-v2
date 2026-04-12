@@ -1,7 +1,9 @@
 import yahooFinance from 'yahoo-finance2';
 
 import {
+  getFirebaseAdminDb,
   getSharedCoinGeckoCoinIdCacheDocRef,
+  getSharedCoinGeckoCoinIdCacheDocRefs,
 } from './firebaseAdmin';
 import type {
   PendingPriceUpdateReview,
@@ -167,6 +169,35 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function readCoinGeckoCacheEntries(tickers: string[]) {
+  if (tickers.length === 0) {
+    return new Map<string, CoinGeckoCoinIdCacheEntry>();
+  }
+
+  const db = getFirebaseAdminDb();
+  const docRefs = getSharedCoinGeckoCoinIdCacheDocRefs(tickers);
+  const snapshots = await db.getAll(...docRefs);
+  const cacheEntries = new Map<string, CoinGeckoCoinIdCacheEntry>();
+
+  snapshots.forEach((snapshot, index) => {
+    if (!snapshot.exists) {
+      return;
+    }
+
+    const ticker = normalizeCoinGeckoTicker(tickers[index] ?? '');
+    const cached = normalizeCoinGeckoCacheEntry(
+      ticker,
+      snapshot.data() as Record<string, unknown>,
+    );
+
+    if (cached) {
+      cacheEntries.set(ticker, cached);
+    }
+  });
+
+  return cacheEntries;
+}
+
 const coinGeckoCoinIdMemoryCache = new Map<string, CoinGeckoCoinIdCacheEntry>();
 let lastCoinGeckoSearchAt = 0;
 
@@ -304,7 +335,7 @@ async function fetchCoinGeckoCoinIdFromSearch(ticker: string) {
   });
 }
 
-async function resolveCoinGeckoCoinId(ticker: string) {
+export async function resolveCoinGeckoCoinId(ticker: string) {
   const normalizedTicker = normalizeCoinGeckoTicker(ticker);
   const override = COINGECKO_ID_OVERRIDES[normalizedTicker];
 
@@ -632,6 +663,8 @@ async function fetchCoinGeckoPrice(
     headers['x-cg-demo-api-key'] = apiKey;
   }
 
+  const uniqueTickers = [...new Set(assets.map((asset) => normalizeCoinGeckoTicker(asset.ticker)))];
+  const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
   const resolvedResults: MarketPriceResult[] = [];
   const unresolvedResults: MarketPriceResult[] = [];
   const coinIdToAssets = new Map<
@@ -640,28 +673,33 @@ async function fetchCoinGeckoPrice(
   >();
 
   for (const asset of assets) {
-    const resolution = await resolveCoinGeckoCoinId(asset.ticker);
+    const normalizedTicker = normalizeCoinGeckoTicker(asset.ticker);
+    const override = COINGECKO_ID_OVERRIDES[normalizedTicker];
+    const cacheEntry = cacheEntries.get(normalizedTicker);
+    const resolvedEntry = override
+      ? createCoinGeckoCacheEntry({
+          ticker: normalizedTicker,
+          coinId: override.coinId,
+          coinSymbol: normalizedTicker,
+          coinName: normalizedTicker,
+          marketCapRank: null,
+          source: 'override',
+        })
+      : cacheEntry;
 
-    if (!resolution.entry) {
+    if (!resolvedEntry) {
       unresolvedResults.push(
-        createFailedMarketResult(
-          asset,
-          resolution.status === 'lookup_failed'
-            ? `${COINGECKO_SOURCE_NAME} 查詢失敗`
-            : `${COINGECKO_SOURCE_NAME} 未能解析代號`,
-          COINGECKO_SOURCE_URL,
-          resolution.status,
-        ),
+        createFailedMarketResult(asset, '', '', 'missing'),
       );
       continue;
     }
 
-    const current = coinIdToAssets.get(resolution.entry.coinId) ?? [];
+    const current = coinIdToAssets.get(resolvedEntry.coinId) ?? [];
     current.push({
       asset,
-      status: resolution.status,
+      status: resolvedEntry.source === 'override' ? 'override' : 'cache',
     });
-    coinIdToAssets.set(resolution.entry.coinId, current);
+    coinIdToAssets.set(resolvedEntry.coinId, current);
   }
 
   const resolvedCoinIds = Array.from(coinIdToAssets.keys());
@@ -696,8 +734,8 @@ async function fetchCoinGeckoPrice(
             resolvedResults.push(
               createFailedMarketResult(
                 asset,
-                `${COINGECKO_SOURCE_NAME} 未返回有效價格`,
-                COINGECKO_SOURCE_URL,
+                '',
+                '',
                 status,
               ),
             );
@@ -727,8 +765,8 @@ async function fetchCoinGeckoPrice(
           (coinIdToAssets.get(coinId) ?? []).map(({ asset, status }) =>
             createFailedMarketResult(
               asset,
-              `${COINGECKO_SOURCE_NAME} 查詢失敗`,
-              COINGECKO_SOURCE_URL,
+              '',
+              '',
               status === 'override' ? 'override' : 'lookup_failed',
             ),
           ),

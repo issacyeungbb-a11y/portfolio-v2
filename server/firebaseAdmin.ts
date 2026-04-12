@@ -149,3 +149,7 @@ export function getSharedCoinGeckoCoinIdCacheCollectionRef() {
 export function getSharedCoinGeckoCoinIdCacheDocRef(ticker: string) {
   return getSharedCoinGeckoCoinIdCacheCollectionRef().doc(ticker.trim().toUpperCase());
 }
+
+export function getSharedCoinGeckoCoinIdCacheDocRefs(tickers: string[]) {
+  return tickers.map((ticker) => getSharedCoinGeckoCoinIdCacheDocRef(ticker));
+}
