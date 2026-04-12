@@ -5,12 +5,12 @@ import { BottomNav } from '../components/layout/BottomNav';
 import { TopBar } from '../components/layout/TopBar';
 
 const navItems = [
-  { to: '/', label: '總覽', icon: 'O1' },
-  { to: '/assets', label: '資產', icon: 'A2' },
-  { to: '/trends', label: '走勢', icon: 'T6' },
-  { to: '/transactions', label: '交易', icon: 'TR' },
-  { to: '/funds', label: '資金', icon: 'F4' },
-  { to: '/analysis', label: '分析', icon: 'AR' },
+  { to: '/', label: '總覽', icon: '📊' },
+  { to: '/assets', label: '資產', icon: '💰' },
+  { to: '/trends', label: '走勢', icon: '📈' },
+  { to: '/transactions', label: '交易', icon: '🔄' },
+  { to: '/funds', label: '資金', icon: '🏦' },
+  { to: '/analysis', label: '分析', icon: '🤖' },
 ];
 
 interface RouteHandle {

@@ -106,7 +106,7 @@ export function AssetChangePanel({
                 );
               })
             ) : (
-              <p className="status-message">未有足夠快照資料。</p>
+              <p className="status-message">未有足夠快照資料</p>
             )}
           </div>
         </section>
@@ -171,9 +171,9 @@ export function AssetChangePanel({
                 </div>
               </div>
             ) : selectedRange === '1d' ? (
-              <p className="status-message">今日快照待生成，收益暫不可用。</p>
+              <p className="status-message">今日快照待生成，收益暫不可用</p>
             ) : (
-              <p className="status-message">未有足夠快照資料。</p>
+              <p className="status-message">未有足夠快照資料</p>
             )
           ) : (
             <p className="asset-change-collapsed-note">撳入去先睇市場變動同資金流影響。</p>

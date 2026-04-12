@@ -133,7 +133,7 @@ export function TransactionsPage() {
           </button>
         </div>
         <div className="assets-toolbar-footnote" aria-label="交易輸入提示">
-          <span>AI 文字輸入或手動輸入都可以喺呢度整合</span>
+          <span>撳「輸入交易」可用 AI 文字或手動新增記錄</span>
         </div>
       </section>
 
@@ -171,7 +171,7 @@ export function TransactionsPage() {
       <section className="card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Transactions</p>
+            <p className="eyebrow">交易</p>
             <h2>交易記錄</h2>
           </div>
           <span className={status === 'loading' ? 'chip chip-soft' : 'chip chip-strong'}>
@@ -205,10 +205,10 @@ export function TransactionsPage() {
                       {formatTradeDate(entry.date)}
                       {entry.note ? ` · ${entry.note}` : ''}
                     </p>
-                    <p>
-                      現金賬戶 {getAccountSourceLabel(entry.settlementAccountSource ?? entry.accountSource)} ·
+                    <p className="table-hint">
+                      結算 {getAccountSourceLabel(entry.settlementAccountSource ?? entry.accountSource)} ·
                       {' '}
-                      交易後持倉 {entry.quantityAfter ?? 0} · 平均成本 {formatCurrency(entry.averageCostAfter ?? 0, entry.currency)}
+                      持倉 {entry.quantityAfter ?? 0} · 均成本 {formatCurrency(entry.averageCostAfter ?? 0, entry.currency)}
                     </p>
                   </div>
                   <div className="table-metric">
@@ -260,7 +260,7 @@ export function TransactionsPage() {
             })
           ) : (
             <p className="status-message">
-              未有交易記錄。你可以撳上面「輸入交易」開始新增。
+              尚未有交易記錄，撳上方「輸入交易」開始新增
             </p>
           )}
         </div>

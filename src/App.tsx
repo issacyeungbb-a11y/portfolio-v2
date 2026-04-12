@@ -13,11 +13,9 @@ function App() {
       <div className="app-auth-shell">
         <div className="app-auth-card">
           <p className="eyebrow">Shared Access</p>
-          <h1>共享模式尚未設定完成</h1>
-          <p className="app-auth-copy">{error}</p>
-          <p className="app-auth-note">
-            請先在 `.env.local` 或 Vercel 環境變數加入 `VITE_PORTFOLIO_ACCESS_CODE` 與
-            `PORTFOLIO_ACCESS_CODE`，再重新部署。
+          <h1>系統設定尚未完成</h1>
+          <p className="app-auth-copy">
+            {error || '共享存取碼尚未配置，請聯絡管理員完成設定。'}
           </p>
         </div>
       </div>

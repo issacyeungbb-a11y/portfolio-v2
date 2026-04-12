@@ -1095,6 +1095,20 @@ h3 {
   gap: 0.2rem;
 }
 
+.allocation-value-group {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
+.allocation-holding-values {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
 .allocation-label-group {
   display: flex;
   align-items: center;
@@ -1908,6 +1922,38 @@ h3 {
 
   .assets-toolbar-actions .button {
     flex: 1 1 calc(50% - 0.55rem);
+  }
+
+  .allocation-value-group,
+  .allocation-holding-values {
+    gap: 0.22rem;
+    font-size: 0.8rem;
+  }
+
+  .allocation-value-group strong,
+  .allocation-holding-values strong {
+    font-size: 0.84rem;
+  }
+
+  .allocation-list {
+    gap: 0.5rem;
+  }
+
+  .allocation-row {
+    padding: 0.72rem 0.8rem;
+  }
+
+  .allocation-label-group {
+    gap: 0.5rem;
+  }
+
+  .allocation-holding-row {
+    gap: 0.55rem;
+    padding: 0.72rem 0;
+  }
+
+  .allocation-detail-panel {
+    padding: 0.88rem;
   }
 
   .summary-cluster {
@@ -2888,4 +2934,49 @@ h3 {
 @keyframes skeleton-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+/* ── Status messages stack ── */
+.status-messages-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-messages-list {
+  margin: 4px 0 0 1.2em;
+  padding: 0;
+  font-size: var(--text-sm, 0.875rem);
+}
+
+.status-messages-list li {
+  margin-bottom: 2px;
+}
+
+/* ── Trends chart annotations ── */
+.trends-chart-annotated {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
+}
+
+.trends-chart-y-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 24px;
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-soft, #8c8078);
+  pointer-events: none;
+}
+
+.trends-chart-x-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--text-xs, 0.75rem);
+  color: var(--color-text-soft, #8c8078);
 }

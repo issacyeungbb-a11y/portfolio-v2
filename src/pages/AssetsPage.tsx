@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { AssetInputForm } from '../components/assets/AssetInputForm';
 import { AssetTransactionForm } from '../components/assets/AssetTransactionForm';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
+import { StatusMessages } from '../components/ui/StatusMessages';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
@@ -105,7 +106,7 @@ function hasPassedHongKongSnapshotDeadline(date = new Date()) {
   const minute = Number(parts.find((part) => part.type === 'minute')?.value ?? '0');
   const currentMinutes = hour * 60 + minute;
 
-  return currentMinutes >= 23 * 60 + 30;
+  return currentMinutes >= 8 * 60;
 }
 
 export function AssetsPage() {
@@ -502,6 +503,13 @@ export function AssetsPage() {
         <div className="assets-toolbar-actions">
           <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
             <button
+              className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
+              type="button"
+              onClick={() => setDisplayCurrency('HKD')}
+            >
+              HKD
+            </button>
+            <button
               className={displayCurrency === 'USD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
               type="button"
               onClick={() => setDisplayCurrency('USD')}
@@ -515,13 +523,6 @@ export function AssetsPage() {
             >
               JPY
             </button>
-            <button
-              className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('HKD')}
-            >
-              HKD
-            </button>
           </div>
           <button
             className="button button-primary"
@@ -533,8 +534,6 @@ export function AssetsPage() {
           </button>
         </div>
         <div className="assets-toolbar-footnote" aria-label="更新提示">
-          <span>{coverageLabel}</span>
-          <span>·</span>
           <span>{snapshotStatusLabel}</span>
         </div>
       </section>
@@ -549,7 +548,7 @@ export function AssetsPage() {
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Confirm</p>
+                <p className="eyebrow">確認</p>
                 <h2 id="bulk-price-update-title">確認更新全部資產？</h2>
               </div>
             </div>
@@ -666,7 +665,7 @@ export function AssetsPage() {
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Warning</p>
+                <p className="eyebrow">警告</p>
                 <h2 id="delete-asset-title">是否刪除資產？</h2>
               </div>
             </div>
@@ -695,30 +694,18 @@ export function AssetsPage() {
         </div>
       ) : null}
 
-      {priceUpdateError ? (
-        <p className="status-message status-message-error">{priceUpdateError}</p>
-      ) : null}
-      {accountPrincipalsError ? (
-        <p className="status-message status-message-error">{accountPrincipalsError}</p>
-      ) : null}
-      {accountCashFlowsError ? (
-        <p className="status-message status-message-error">{accountCashFlowsError}</p>
-      ) : null}
-      {priceUpdateSuccess ? (
-        <p className="status-message status-message-success">{priceUpdateSuccess}</p>
-      ) : null}
-      {transactionSuccess ? (
-        <p className="status-message status-message-success">{transactionSuccess}</p>
-      ) : null}
-      {reviewsError ? (
-        <p className="status-message status-message-error">{reviewsError}</p>
-      ) : null}
-      {todaySnapshotError ? (
-        <p className="status-message status-message-error">{todaySnapshotError}</p>
-      ) : null}
-      {transactionsError && !transactionError ? (
-        <p className="status-message status-message-error">{transactionsError}</p>
-      ) : null}
+      <StatusMessages
+        errors={[
+          priceUpdateError,
+          accountPrincipalsError,
+          accountCashFlowsError,
+          reviewsError,
+          todaySnapshotError,
+          transactionsError && !transactionError ? transactionsError : null,
+          manualSnapshotError,
+        ]}
+        successes={[priceUpdateSuccess, transactionSuccess, manualSnapshotSuccess]}
+      />
       {shouldShowMissingSnapshotNotice ? (
         <div className="status-message status-message-error">
           <p>今日快照未能自動生成，建議手動補生成以確保走勢數據完整。</p>
@@ -734,13 +721,6 @@ export function AssetsPage() {
           </div>
         </div>
       ) : null}
-      {manualSnapshotError ? (
-        <p className="status-message status-message-error">{manualSnapshotError}</p>
-      ) : null}
-      {manualSnapshotSuccess ? (
-        <p className="status-message status-message-success">{manualSnapshotSuccess}</p>
-      ) : null}
-
       <PriceUpdateReviewPanel
         reviews={reviews}
         onConfirm={handleConfirmReview}
@@ -754,21 +734,21 @@ export function AssetsPage() {
       <section className="card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Holdings List</p>
+            <p className="eyebrow">持倉列表</p>
             <h2>全部持倉</h2>
           </div>
           <span className={status === 'error' ? 'chip chip-strong' : 'chip chip-soft'}>
             {status === 'loading'
-              ? 'Firestore 同步中'
+              ? '資料同步中'
               : status === 'error'
-                ? 'Firestore 讀取失敗'
-                : 'Firestore 已連接'}
+                ? '連接失敗'
+                : '已連接'}
           </span>
         </div>
 
         {error ? <p className="status-message status-message-error">{error}</p> : null}
         {isEmpty ? (
-          <p className="status-message">未有資產。</p>
+          <p className="status-message">尚未有資產</p>
         ) : null}
 
         <div className="assets-filter-toggle-row">
