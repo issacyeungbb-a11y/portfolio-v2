@@ -1,5 +1,5 @@
 import { FieldValue } from 'firebase-admin/firestore';
-import { generatePriceUpdates } from './updatePrices.js';
+import { fetchLiveFxRates, generatePriceUpdates } from './updatePrices.js';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
@@ -7,6 +7,7 @@ const CRON_ROUTE = '/api/cron-update-prices';
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 class CronPriceUpdateError extends Error {
+    status;
     constructor(message, status = 500) {
         super(message);
         this.name = 'CronPriceUpdateError';
@@ -101,6 +102,16 @@ async function applyCronResults(results) {
         pendingCount: invalidResults.length,
     };
 }
+async function persistFxRates(fxRates) {
+    const db = getFirebaseAdminDb();
+    const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
+    await portfolioRef.set({
+        fxRates: {
+            ...fxRates,
+            updatedAt: new Date().toISOString(),
+        },
+    }, { merge: true });
+}
 export async function runScheduledPriceUpdate() {
     try {
         await runCoinGeckoCoinIdSync();
@@ -109,6 +120,8 @@ export async function runScheduledPriceUpdate() {
         console.warn('CoinGecko coin id sync failed before price update.', error);
     }
     const assets = await readAssetsForPriceUpdate();
+    const fxRates = await fetchLiveFxRates();
+    await persistFxRates(fxRates);
     if (assets.length === 0) {
         return {
             ok: true,
