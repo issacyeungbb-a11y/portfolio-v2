@@ -1,8 +1,8 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
-import { getFirebaseAdminDb } from './firebaseAdmin.js';
-import { fetchFxRates } from './updatePrices.js';
-import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio.js';
+import { getFirebaseAdminDb } from './firebaseAdmin';
+import { fetchFxRates } from './updatePrices';
+import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio';
 
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';

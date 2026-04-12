@@ -3,18 +3,18 @@ import { createHash } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
-import { getFirebaseAdminDb } from './firebaseAdmin.js';
+import { getFirebaseAdminDb } from './firebaseAdmin';
 import {
   getAnalyzePortfolioErrorResponse,
   runPortfolioAnalysisRequest,
-} from './analyzePortfolio.js';
-import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+} from './analyzePortfolio';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
 import type {
   AnalysisCategory,
   AnalysisPromptSettings,
   AssetType,
   SnapshotHoldingPoint,
-} from '../src/types/portfolio.js';
+} from '../src/types/portfolio';
 import type {
   PortfolioAnalysisModel,
   PortfolioAnalysisRequest,

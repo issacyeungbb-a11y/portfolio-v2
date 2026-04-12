@@ -1,9 +1,9 @@
 import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
-import { verifyCronRequest } from '../server/cronUpdatePrices.js';
+import { verifyCronRequest } from '../server/cronUpdatePrices';
 import {
   getScheduledAnalysisErrorResponse,
   runMonthlyAssetAnalysis,
-} from '../server/scheduledAnalysis.js';
+} from '../server/scheduledAnalysis';
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/cron-monthly-analysis';

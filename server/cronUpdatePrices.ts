@@ -1,9 +1,9 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
-import { generatePriceUpdates } from './updatePrices.js';
-import { getFirebaseAdminDb } from './firebaseAdmin.js';
-import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
-import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/priceUpdates.js';
+import { generatePriceUpdates } from './updatePrices';
+import { getFirebaseAdminDb } from './firebaseAdmin';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
+import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/priceUpdates';
 
 const CRON_ROUTE = '/api/cron-update-prices' as const;
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';

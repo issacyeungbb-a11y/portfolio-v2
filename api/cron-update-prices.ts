@@ -3,7 +3,7 @@ import {
   getCronPriceUpdateErrorResponse,
   runScheduledPriceUpdate,
   verifyCronRequest,
-} from '../server/cronUpdatePrices.js';
+} from '../server/cronUpdatePrices';
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/cron-update-prices';

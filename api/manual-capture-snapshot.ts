@@ -2,7 +2,7 @@ import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
 import {
   getCronSnapshotErrorResponse,
   runManualDailySnapshot,
-} from '../server/cronCaptureSnapshot.js';
+} from '../server/cronCaptureSnapshot';
 import {
   getPortfolioAccessErrorResponse,
   isPortfolioAccessError,

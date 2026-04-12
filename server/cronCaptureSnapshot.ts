@@ -1,7 +1,7 @@
-import { getFirebaseAdminDb } from './firebaseAdmin.js';
-import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
-import { verifyCronRequest } from './cronUpdatePrices.js';
-import type { PendingPriceUpdateReview } from '../src/types/priceUpdates.js';
+import { getFirebaseAdminDb } from './firebaseAdmin';
+import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
+import { verifyCronRequest } from './cronUpdatePrices';
+import type { PendingPriceUpdateReview } from '../src/types/priceUpdates';
 
 const CRON_ROUTE = '/api/cron-capture-snapshot' as const;
 const MANUAL_ROUTE = '/api/manual-capture-snapshot' as const;
