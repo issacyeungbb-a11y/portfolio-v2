@@ -24,6 +24,7 @@ import {
   createPortfolioSnapshotHash,
   createPortfolioSnapshotSignature,
 } from '../lib/portfolio/analysisSnapshot';
+import { StatusMessages } from '../components/ui/StatusMessages';
 import type { AnalysisCategory, AnalysisSession, Holding } from '../types/portfolio';
 import type {
   CachedPortfolioAnalysis,
@@ -66,21 +67,21 @@ const analysisCategoryOptions: Array<{
     value: 'general_question',
     label: '一般問題',
     shortLabel: '一般問題',
-    helper: '直接問組合相關問題，逐次延續對話。',
+    helper: '同 AI 對話',
     questionPlaceholder: '例如：我而家現金比例是否偏高？要唔要再分散幣別？',
   },
   {
     value: 'asset_analysis',
     label: '資產分析',
     shortLabel: '資產分析',
-    helper: '集中睇風險、配置、集中度同下一步。',
+    helper: '每月自動生成',
     questionPlaceholder: '例如：根據我目前資產，分析而家最值得留意嘅重點。',
   },
   {
     value: 'asset_report',
     label: '季度報告',
     shortLabel: '季度報告',
-    helper: '集中查看每季生成嘅報告與 PDF。',
+    helper: '每季自動生成',
     questionPlaceholder: '',
   },
 ];
@@ -150,6 +151,51 @@ function createAnalysisTitle(question: string) {
   }
 
   return trimmed.length > 26 ? `${trimmed.slice(0, 26)}...` : trimmed;
+}
+
+function truncateText(value: string, maxLength: number) {
+  const trimmed = value.trim();
+
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, maxLength).trimEnd()}...`;
+}
+
+function formatAnalysisMonthTitle(value: string) {
+  if (!value) {
+    return '最新分析';
+  }
+
+  try {
+    const date = new Date(value);
+    const year = new Intl.DateTimeFormat('zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+    }).format(date);
+    const month = new Intl.DateTimeFormat('zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
+      month: 'numeric',
+    }).format(date);
+
+    return `${year} 年 ${month} 月資產分析`;
+  } catch {
+    return '最新分析';
+  }
+}
+
+function getAnalysisModelLabel(model: string) {
+  return model || '未指定模型';
+}
+
+function buildConversationTurnFromSession(session: AnalysisSession): ConversationTurn {
+  return {
+    question: session.question,
+    answer: session.result,
+    generatedAt: session.updatedAt,
+    model: session.model,
+  };
 }
 
 function extractBase64FontPayload(rawText: string) {
@@ -704,9 +750,7 @@ export function AnalysisPage() {
     addAnalysisSession,
   } = useAnalysisSessions();
 
-  const displayedAnalysis = localAnalysis ?? cachedAnalysis;
   const categorySessions = analysisSessions.filter((session) => session.category === selectedCategory);
-  const hasAnalysis = Boolean(displayedAnalysis);
   const canAnalyze =
     assetsStatus === 'ready' &&
     holdings.length > 0 &&
@@ -718,10 +762,45 @@ export function AnalysisPage() {
     () => reports.find((report) => report.id === selectedReportId) ?? null,
     [reports, selectedReportId],
   );
+  const latestReport = reports[0] ?? null;
   const selectedSections = useMemo(
     () => splitReportIntoSections(selectedReport?.report ?? ''),
     [selectedReport],
   );
+  const latestAnalysisSession = categorySessions[0] ?? null;
+  const selectedAnalysisSession = useMemo(
+    () => categorySessions.find((session) => session.id === selectedSessionId) ?? null,
+    [categorySessions, selectedSessionId],
+  );
+
+  function loadAnalysisSession(session: AnalysisSession) {
+    setSelectedSessionId(session.id);
+    setAnalysisQuestionByCategory((current) => ({
+      ...current,
+      [session.category]: session.question,
+    }));
+    setFollowUpQuestionByCategory((current) => ({
+      ...current,
+      [session.category]: '',
+    }));
+    setConversationThreads((current) => ({
+      ...current,
+      [session.category]: [buildConversationTurnFromSession(session)],
+    }));
+    setLocalAnalysis({
+      cacheKey: session.id,
+      snapshotHash: session.snapshotHash ?? '',
+      category: session.category,
+      provider: session.provider ?? 'google',
+      model: session.model,
+      analysisQuestion: session.question,
+      analysisBackground: savedPromptSettings[session.category],
+      delivery: session.delivery ?? 'manual',
+      generatedAt: session.updatedAt,
+      assetCount: holdings.length,
+      answer: session.result,
+    });
+  }
 
   useEffect(() => {
     if (
@@ -734,20 +813,7 @@ export function AnalysisPage() {
     }
 
     const latestSession = categorySessions[0];
-    setSelectedSessionId(latestSession.id);
-    setLocalAnalysis({
-      cacheKey: latestSession.id,
-      snapshotHash: latestSession.snapshotHash ?? '',
-      category: latestSession.category,
-      provider: latestSession.provider ?? 'google',
-      model: latestSession.model,
-      analysisQuestion: latestSession.question,
-      analysisBackground: savedPromptSettings[latestSession.category],
-      delivery: latestSession.delivery ?? 'manual',
-      generatedAt: latestSession.updatedAt,
-      assetCount: holdings.length,
-      answer: latestSession.result,
-    });
+    loadAnalysisSession(latestSession);
   }, [
     categorySessions,
     holdings.length,
@@ -809,6 +875,10 @@ export function AnalysisPage() {
           ],
         }));
       }
+      setAnalysisQuestionByCategory((current) => ({
+        ...current,
+        [selectedCategory]: '',
+      }));
       setFollowUpQuestionByCategory((current) => ({
         ...current,
         [selectedCategory]: '',
@@ -893,6 +963,10 @@ export function AnalysisPage() {
           },
         ],
       }));
+      setAnalysisQuestionByCategory((current) => ({
+        ...current,
+        [selectedCategory]: '',
+      }));
       setFollowUpQuestionByCategory((current) => ({
         ...current,
         [selectedCategory]: '',
@@ -976,8 +1050,8 @@ export function AnalysisPage() {
   }
 
   return (
-    <div className="page-stack">
-      <section className="hero-panel">
+    <div className="page-stack analysis-page">
+      <section className="hero-panel analysis-hero-panel">
         <div className="analysis-page-header">
           <div className="analysis-page-heading">
             <p className="eyebrow">Analysis</p>
@@ -1001,14 +1075,19 @@ export function AnalysisPage() {
                   ))}
                 </select>
               </label>
-            ) : null}
+            ) : (
+              <span className="chip chip-soft">季度自動生成</span>
+            )}
 
             <button
-              className="button button-secondary analysis-prompt-button"
+              className="analysis-settings-link text-link"
               type="button"
-              onClick={() => setIsPromptSettingsOpen((current) => !current)}
+              onClick={() => {
+                setSelectedSettingsCategory(selectedCategory);
+                setIsPromptSettingsOpen(true);
+              }}
             >
-              {isPromptSettingsOpen ? '收起設定' : '設定'}
+              設定
             </button>
           </div>
         </div>
@@ -1033,179 +1112,433 @@ export function AnalysisPage() {
       </section>
 
       {isPromptSettingsOpen ? (
-        <section className="card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Settings</p>
-              <h2>分析設定</h2>
-            </div>
-          </div>
-
-          <div className="trends-range-row" role="tablist" aria-label="設定類別">
-            {analysisCategoryOptions.map((option) => (
+        <div
+          className="modal-backdrop analysis-settings-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="分析設定"
+          onClick={() => setIsPromptSettingsOpen(false)}
+        >
+          <section className="modal-card modal-card-wide analysis-settings-card" onClick={(event) => event.stopPropagation()}>
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Settings</p>
+                <h2>分析設定</h2>
+              </div>
               <button
-                key={`prompt-${option.value}`}
-                className={selectedSettingsCategory === option.value ? 'filter-chip active' : 'filter-chip'}
+                className="button button-secondary"
                 type="button"
-                onClick={() => setSelectedSettingsCategory(option.value)}
+                onClick={() => setIsPromptSettingsOpen(false)}
               >
-                {option.label}
+                關閉
               </button>
-            ))}
-          </div>
+            </div>
 
-          <div className="analysis-category-intro">
-            <h2>{selectedSettingsOption.label}</h2>
-            <p className="status-message">
-              {selectedSettingsCategory === 'asset_report'
-                ? '設定季度報告生成時使用嘅固定背景。'
-                : '設定呢個分類每次分析都會帶入嘅固定背景。'}
-            </p>
-          </div>
+            <div className="trends-range-row" role="tablist" aria-label="設定類別">
+              {analysisCategoryOptions.map((option) => (
+                <button
+                  key={`prompt-${option.value}`}
+                  className={selectedSettingsCategory === option.value ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  onClick={() => setSelectedSettingsCategory(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
 
-          <div className="asset-form-grid">
-            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <span>背景內容</span>
-              <textarea
-                value={promptDrafts[selectedSettingsCategory]}
-                onChange={(event) =>
-                  setPromptDrafts((current) => ({
-                    ...current,
-                    [selectedSettingsCategory]: event.target.value,
-                  }))
-                }
-                placeholder="輸入想固定帶入嘅分析背景。"
-                rows={5}
+            <div className="analysis-category-intro">
+              <h2>{selectedSettingsOption.label}</h2>
+              <p className="status-message">
+                {selectedSettingsCategory === 'asset_report'
+                  ? '設定季度報告生成時使用嘅固定背景。'
+                  : '設定呢個分類每次分析都會帶入嘅固定背景。'}
+              </p>
+            </div>
+
+            <div className="asset-form-grid">
+              <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+                <span>背景內容</span>
+                <textarea
+                  value={promptDrafts[selectedSettingsCategory]}
+                  onChange={(event) =>
+                    setPromptDrafts((current) => ({
+                      ...current,
+                      [selectedSettingsCategory]: event.target.value,
+                    }))
+                  }
+                  placeholder="輸入想固定帶入嘅分析背景。"
+                  rows={5}
+                  disabled={isSavingPromptSettings}
+                />
+              </label>
+            </div>
+
+            {selectedSettingsCategory === 'asset_analysis' && selectedCategory === 'asset_analysis' ? (
+              <div className="analysis-advanced-panel">
+                <div className="section-heading">
+                  <div>
+                    <p className="eyebrow">Advanced</p>
+                    <h2>手動生成</h2>
+                  </div>
+                </div>
+
+                <div className="asset-form-grid">
+                  <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+                    <span>分析重點</span>
+                    <textarea
+                      value={analysisQuestionByCategory.asset_analysis}
+                      onChange={(event) =>
+                        setAnalysisQuestionByCategory((current) => ({
+                          ...current,
+                          asset_analysis: event.target.value,
+                        }))
+                      }
+                      placeholder={analysisCategoryOptions[1].questionPlaceholder}
+                      rows={4}
+                      disabled={isAnalyzing}
+                    />
+                  </label>
+                </div>
+
+                <div className="button-row">
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => void handleAnalyzePortfolio()}
+                    disabled={!canAnalyze}
+                  >
+                    {isAnalyzing ? '生成中...' : '立即生成'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="button-row">
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={handleSavePromptSettings}
                 disabled={isSavingPromptSettings}
-              />
-            </label>
-          </div>
-
-          <div className="button-row">
-            <button
-              className="button button-primary"
-              type="button"
-              onClick={handleSavePromptSettings}
-              disabled={isSavingPromptSettings}
-            >
-              {isSavingPromptSettings ? '儲存中...' : '儲存設定'}
-            </button>
-          </div>
-        </section>
+              >
+                {isSavingPromptSettings ? '儲存中...' : '儲存設定'}
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
 
-      {assetsError ? <p className="status-message status-message-error">{assetsError}</p> : null}
-      {snapshotHashError ? <p className="status-message status-message-error">{snapshotHashError}</p> : null}
-      {cacheError ? <p className="status-message status-message-error">{cacheError}</p> : null}
-      {analysisSessionsError ? <p className="status-message status-message-error">{analysisSessionsError}</p> : null}
-      {analysisSettingsError ? <p className="status-message status-message-error">{analysisSettingsError}</p> : null}
-      {analysisError ? <p className="status-message status-message-error">{analysisError}</p> : null}
-      {analysisSuccess ? <p className="status-message status-message-success">{analysisSuccess}</p> : null}
-      {promptSettingsSuccess ? (
-        <p className="status-message status-message-success">{promptSettingsSuccess}</p>
-      ) : null}
-      {reportsError ? <p className="status-message status-message-error">{reportsError}</p> : null}
-      {reportActionError ? <p className="status-message status-message-error">{reportActionError}</p> : null}
-      {reportActionMessage ? <p className="status-message status-message-success">{reportActionMessage}</p> : null}
+      <StatusMessages
+        errors={[
+          assetsError,
+          snapshotHashError,
+          cacheError,
+          analysisSessionsError,
+          analysisSettingsError,
+          analysisError,
+          reportsError,
+          reportActionError,
+        ]}
+        successes={[analysisSuccess, promptSettingsSuccess, reportActionMessage]}
+      />
       {hasCachedAnalysis && !analysisSuccess && !isQuarterlyCategory ? (
         <p className="status-message">最近分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}</p>
       ) : null}
-      {assetsStatus === 'loading' && !isQuarterlyCategory ? <p className="status-message">同步中。</p> : null}
-      {isEmpty && !isQuarterlyCategory ? <p className="status-message">未有可分析資產。</p> : null}
+      {assetsStatus === 'loading' && !isQuarterlyCategory ? <p className="status-message">同步中</p> : null}
+      {isEmpty && !isQuarterlyCategory ? <p className="status-message">尚未有可分析資產</p> : null}
 
       {isInteractiveCategory ? (
-        <section className="card">
+        <section className="card analysis-chat-card">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Conversation</p>
-              <h2>直接提問</h2>
+              <h2>同 AI 對話</h2>
             </div>
+            <span className="chip chip-soft">{activeConversation.length > 0 ? '對話中' : '未開始'}</span>
           </div>
 
-          <div className="asset-form-grid">
+          <div className="analysis-chat-thread">
+            {activeConversation.length > 0 ? (
+              activeConversation.map((turn, index) => (
+                <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
+                  <div className="analysis-chat-bubble analysis-chat-bubble-user">
+                    <div className="analysis-chat-bubble-meta">
+                      <span>我</span>
+                      <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                    </div>
+                    <p>{turn.question}</p>
+                  </div>
+                  <div className="analysis-chat-bubble analysis-chat-bubble-assistant">
+                    <div className="analysis-chat-bubble-meta">
+                      <span>{getAnalysisModelLabel(turn.model)}</span>
+                      <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                    </div>
+                    <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="status-message">未有對話，先問第一句。</p>
+            )}
+          </div>
+
+          <div className="analysis-chat-composer">
             <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <span>問題</span>
+              <span>訊息</span>
               <textarea
                 value={analysisQuestion}
-                onChange={(event) =>
+                onChange={(event) => {
+                  const nextValue = event.target.value;
                   setAnalysisQuestionByCategory((current) => ({
                     ...current,
-                    [selectedCategory]: event.target.value,
-                  }))
-                }
+                    general_question: nextValue,
+                  }));
+                  setFollowUpQuestionByCategory((current) => ({
+                    ...current,
+                    general_question: nextValue,
+                  }));
+                }}
                 placeholder={selectedCategoryOption.questionPlaceholder}
                 rows={4}
                 disabled={isAnalyzing}
               />
             </label>
+
+            <div className="analysis-chat-input-row">
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => {
+                  if (activeConversation.length > 0) {
+                    void handleFollowUp();
+                    return;
+                  }
+
+                  void handleAnalyzePortfolio();
+                }}
+                disabled={!analysisQuestion.trim() || !canAnalyze || (activeConversation.length > 0 && !followUpQuestion.trim())}
+              >
+                {isAnalyzing ? '發送中...' : activeConversation.length > 0 ? '發送' : '開始對話'}
+              </button>
+              <Link className="button button-secondary" to="/assets">
+                檢查資產資料
+              </Link>
+            </div>
           </div>
 
-          <div className="button-row">
-            <button
-              className="button button-primary"
-              type="button"
-              onClick={handleAnalyzePortfolio}
-              disabled={!canAnalyze}
-            >
-              {isAnalyzing ? '分析中...' : hasAnalysis ? '重新回答' : '開始回答'}
-            </button>
-            <Link className="button button-secondary" to="/assets">
-              檢查資產資料
-            </Link>
+          <div className="analysis-records-panel">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">History</p>
+                <h2>對話紀錄</h2>
+              </div>
+            </div>
+
+            {categorySessions.length > 0 ? (
+              <div className="analysis-record-list">
+                {categorySessions.slice(0, visibleCount).map((session) => {
+                  const isActive = selectedSessionId === session.id;
+
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      className={isActive ? 'analysis-record-row active' : 'analysis-record-row'}
+                      onClick={() => loadAnalysisSession(session)}
+                    >
+                      <div className="analysis-record-main">
+                        <strong>{createAnalysisTitle(session.question)}</strong>
+                        <p>{formatAnalysisTime(session.updatedAt)}</p>
+                      </div>
+                      <div className="analysis-record-meta">
+                        <span className="chip chip-soft">{session.model}</span>
+                      </div>
+                    </button>
+                  );
+                })}
+                {visibleCount < categorySessions.length ? (
+                  <div className="button-row">
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() =>
+                        setVisibleCount((current) => Math.min(current + 10, categorySessions.length))
+                      }
+                    >
+                      載入更多
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="status-message">尚未有對話紀錄</p>
+            )}
           </div>
         </section>
       ) : null}
 
       {isPortfolioAnalysisCategory ? (
-        <section className="card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Portfolio Review</p>
-              <h2>資產分析</h2>
+        <>
+          <section className="card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">最新分析</p>
+                <h2>{formatAnalysisMonthTitle(latestAnalysisSession?.updatedAt ?? '')}</h2>
+              </div>
+              <span className="chip chip-soft">
+                {latestAnalysisSession
+                  ? `${getAnalysisModelLabel(latestAnalysisSession.model)} · ${
+                      latestAnalysisSession.delivery === 'scheduled' ? '自動' : '手動'
+                    }`
+                  : '尚未有分析'}
+              </span>
             </div>
-            <span className="chip chip-soft">每月自動生成</span>
-          </div>
 
-          <p className="status-message">每月 1 日香港時間上午 9:00 自動生成一次資產分析。</p>
+            {latestAnalysisSession ? (
+              <div className="analysis-report-preview">
+                <p className="analysis-summary-text">{truncateText(latestAnalysisSession.result, 200)}</p>
+                <div className="analysis-report-preview-footer">
+                  <span className="table-hint">{formatGeneratedAt(latestAnalysisSession.updatedAt)}</span>
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => loadAnalysisSession(latestAnalysisSession)}
+                  >
+                    檢視全文
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="status-message">尚未生成分析，請喺設定入面先手動生成。</p>
+            )}
+          </section>
 
-          <div className="asset-form-grid">
-            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <span>本次重點</span>
-              <textarea
-                value={analysisQuestion}
-                onChange={(event) =>
-                  setAnalysisQuestionByCategory((current) => ({
-                    ...current,
-                    [selectedCategory]: event.target.value,
-                  }))
-                }
-                placeholder={selectedCategoryOption.questionPlaceholder}
-                rows={4}
-                disabled={isAnalyzing}
-              />
-            </label>
-          </div>
+          <section className="card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">History</p>
+                <h2>過往分析</h2>
+              </div>
+            </div>
 
-          <div className="button-row">
-            <button
-              className="button button-primary"
-              type="button"
-              onClick={handleAnalyzePortfolio}
-              disabled={!canAnalyze}
-            >
-              {isAnalyzing ? '分析中...' : '立即生成'}
-            </button>
-          </div>
-        </section>
+            {categorySessions.length > 0 ? (
+              <div className="analysis-record-list">
+                {categorySessions.slice(0, visibleCount).map((session) => {
+                  const isActive = selectedSessionId === session.id;
+
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      className={isActive ? 'analysis-record-row active' : 'analysis-record-row'}
+                      onClick={() => loadAnalysisSession(session)}
+                    >
+                      <div className="analysis-record-main">
+                        <strong>{createAnalysisTitle(session.question)}</strong>
+                        <p>{formatAnalysisTime(session.updatedAt)}</p>
+                      </div>
+                      <div className="analysis-record-meta">
+                        <span className="chip chip-soft">
+                          {getAnalysisModelLabel(session.model)}
+                          {session.delivery === 'scheduled' ? ' · 自動' : ''}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+                {visibleCount < categorySessions.length ? (
+                  <div className="button-row">
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() =>
+                        setVisibleCount((current) => Math.min(current + 10, categorySessions.length))
+                      }
+                    >
+                      載入更多
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <p className="status-message">尚未有分析紀錄</p>
+            )}
+          </section>
+
+          {selectedAnalysisSession ? (
+            <section className="card analysis-report-preview">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">分析內容</p>
+                  <h2>{createAnalysisTitle(selectedAnalysisSession.question)}</h2>
+                  <p className="table-hint">{formatAnalysisTime(selectedAnalysisSession.updatedAt)}</p>
+                </div>
+                <span className="chip chip-strong">{getAnalysisModelLabel(selectedAnalysisSession.model)}</span>
+              </div>
+
+              <p className="analysis-summary-text" style={{ whiteSpace: 'pre-wrap' }}>
+                {selectedAnalysisSession.result}
+              </p>
+            </section>
+          ) : null}
+        </>
       ) : null}
 
       {isQuarterlyCategory ? (
         <>
+          <section className="card analysis-report-preview">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">最新報告</p>
+                <h2>{latestReport?.quarter ?? '季度報告'}</h2>
+              </div>
+              {latestReport ? (
+                latestReport.pdfUrl ? (
+                  <a
+                    className="button button-secondary"
+                    href={latestReport.pdfUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    下載 PDF
+                  </a>
+                ) : (
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => void handleGeneratePdf(latestReport)}
+                    disabled={generatingReportId === latestReport.id}
+                  >
+                    {generatingReportId === latestReport.id ? '生成中...' : '生成 PDF'}
+                  </button>
+                )
+              ) : (
+                <span className="chip chip-soft">
+                  {reportsStatus === 'loading' ? '同步中' : `${reports.length} 份報告`}
+                </span>
+              )}
+            </div>
+
+            {latestReport ? (
+              <div className="analysis-report-preview">
+                <p className="analysis-summary-text">{truncateText(latestReport.report, 200)}</p>
+                <div className="analysis-report-preview-footer">
+                  <span className="table-hint">{formatGeneratedAt(latestReport.generatedAt)}</span>
+                  <span className="chip chip-soft">
+                    {latestReport.provider ? `${latestReport.provider} · ${latestReport.model}` : latestReport.model}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <p className="status-message">尚未生成季度報告。</p>
+            )}
+          </section>
+
           <section className="card quarterly-list-card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Quarterly Reports</p>
-                <h2>季度報告列表</h2>
+                <p className="eyebrow">History</p>
+                <h2>過往報告</h2>
               </div>
               <span className="chip chip-soft">
                 {reportsStatus === 'loading' ? '同步中' : `${reports.length} 份報告`}
@@ -1292,171 +1625,6 @@ export function AnalysisPage() {
             </section>
           ) : null}
         </>
-      ) : null}
-
-      {!isQuarterlyCategory && hasAnalysis ? (
-        <section className="card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">Answer</p>
-              <h2>{isInteractiveCategory ? '回答' : '分析結果'}</h2>
-            </div>
-            <span className="chip chip-strong">{displayedAnalysis?.model}</span>
-          </div>
-
-          <p className="analysis-summary-text" style={{ whiteSpace: 'pre-wrap' }}>
-            {displayedAnalysis?.answer}
-          </p>
-
-          <div className="analysis-meta-grid">
-            <div className="analysis-meta-item">
-              <span>時間</span>
-              <strong>{formatAnalysisTime(displayedAnalysis?.generatedAt ?? '')}</strong>
-            </div>
-            <div className="analysis-meta-item">
-              <span>提問</span>
-              <strong>{displayedAnalysis?.analysisQuestion || '未提供'}</strong>
-            </div>
-            <div className="analysis-meta-item">
-              <span>資產數</span>
-              <strong>{displayedAnalysis?.assetCount ?? holdings.length} 項</strong>
-            </div>
-          </div>
-
-          {activeConversation.length > 0 ? (
-            <div className="analysis-follow-up-card">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">Follow Up</p>
-                  <h2>延續對話</h2>
-                </div>
-              </div>
-
-              <div className="analysis-thread-list">
-                {activeConversation.map((turn, index) => (
-                  <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
-                    <div className="analysis-thread-bubble user">
-                      <span>你</span>
-                      <p>{turn.question}</p>
-                    </div>
-                    <div className="analysis-thread-bubble assistant">
-                      <span>{turn.model}</span>
-                      <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="asset-form-grid">
-                <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-                  <span>追問</span>
-                  <textarea
-                    value={followUpQuestion}
-                    onChange={(event) =>
-                      setFollowUpQuestionByCategory((current) => ({
-                        ...current,
-                        [selectedCategory]: event.target.value,
-                      }))
-                    }
-                    placeholder="例如：如果我想降低波動，應該先調整邊一部分？"
-                    rows={3}
-                    disabled={isAnalyzing}
-                  />
-                </label>
-              </div>
-
-              <div className="button-row">
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={handleFollowUp}
-                  disabled={!followUpQuestion.trim() || isAnalyzing}
-                >
-                  {isAnalyzing ? '分析中...' : '繼續提問'}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
-
-      {!isQuarterlyCategory ? (
-        <section className="card">
-          <div className="section-heading">
-            <div>
-              <p className="eyebrow">History</p>
-              <h2>{isInteractiveCategory ? '對話紀錄' : '分析紀錄'}</h2>
-            </div>
-          </div>
-
-          <div className="settings-list">
-            {categorySessions.length > 0 ? (
-              <>
-                {categorySessions.slice(0, visibleCount).map((session) => (
-                  <button
-                    key={session.id}
-                    type="button"
-                    className={selectedSessionId === session.id ? 'setting-row active' : 'setting-row'}
-                    onClick={() => {
-                      setSelectedSessionId(session.id);
-                      setLocalAnalysis({
-                        cacheKey: session.id,
-                        snapshotHash: session.snapshotHash ?? '',
-                        category: session.category,
-                        provider: session.provider ?? 'google',
-                        model: session.model,
-                        analysisQuestion: session.question,
-                        analysisBackground: savedPromptSettings[session.category],
-                        delivery: session.delivery ?? 'manual',
-                        generatedAt: session.updatedAt,
-                        assetCount: holdings.length,
-                        answer: session.result,
-                      });
-                      setConversationThreads((current) => ({
-                        ...current,
-                        [session.category]: [
-                          {
-                            question: session.question,
-                            answer: session.result,
-                            generatedAt: session.updatedAt,
-                            model: session.model,
-                          },
-                        ],
-                      }));
-                    }}
-                  >
-                    <div>
-                      <strong>{session.title}</strong>
-                      <p>{session.question}</p>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <strong>
-                        {session.model}
-                        {session.delivery === 'scheduled' ? ' · 自動' : ''}
-                      </strong>
-                      <p>{formatAnalysisTime(session.updatedAt)}</p>
-                    </div>
-                  </button>
-                ))}
-                {visibleCount < categorySessions.length ? (
-                  <div className="button-row">
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() =>
-                        setVisibleCount((current) => Math.min(current + 10, categorySessions.length))
-                      }
-                    >
-                      載入更多
-                    </button>
-                  </div>
-                ) : null}
-              </>
-            ) : (
-              <p className="status-message">未有紀錄。</p>
-            )}
-          </div>
-        </section>
       ) : null}
     </div>
   );
