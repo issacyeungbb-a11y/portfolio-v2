@@ -3,6 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { fetchLiveFxRates, generatePriceUpdates } from './updatePrices';
 import { getFirebaseAdminDb } from './firebaseAdmin';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
+import { runCoinGeckoCoinIdSync } from './syncCoinIds';
 import type { FxRates } from '../src/types/fxRates';
 import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/priceUpdates';
 
@@ -149,6 +150,12 @@ async function persistFxRates(fxRates: FxRates) {
 }
 
 export async function runScheduledPriceUpdate() {
+  try {
+    await runCoinGeckoCoinIdSync();
+  } catch (error) {
+    console.warn('CoinGecko coin id sync failed before price update.', error);
+  }
+
   const assets = await readAssetsForPriceUpdate();
   const fxRates = await fetchLiveFxRates();
   await persistFxRates(fxRates);

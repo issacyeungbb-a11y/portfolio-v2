@@ -6,9 +6,6 @@
     },
     "api/update-prices.ts": {
       "maxDuration": 30
-    },
-    "api/sync-coin-ids.ts": {
-      "maxDuration": 60
     }
   },
   "crons": [
