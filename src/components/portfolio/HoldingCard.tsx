@@ -3,7 +3,6 @@ import {
   formatCurrency,
   formatCurrencyRounded,
   formatPercent,
-  getAccountSourceLabel,
   getAssetTypeLabel,
   getHoldingValueInCurrency,
 } from '../../data/mockPortfolio';
@@ -59,7 +58,6 @@ export function HoldingCard({ holding, displayCurrency }: HoldingCardProps) {
       </div>
 
       <div className="holding-footer">
-        <span>{getAccountSourceLabel(holding.accountSource)}</span>
         <span>平均成本 {formatCurrency(averageCost, activeCurrency)}</span>
       </div>
     </article>

@@ -43,7 +43,7 @@ export function PriceUpdateReviewPanel({
     <section className="card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Price Review</p>
+          <p className="eyebrow">價格審查</p>
           <h2>需要人工確認</h2>
           <p className="table-hint">
             有效價格會即時寫入資產。下面係仍然需要你手動處理嘅項目。

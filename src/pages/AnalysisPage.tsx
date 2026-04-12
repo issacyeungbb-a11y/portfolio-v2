@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { jsPDF } from 'jspdf';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
+import { StatusMessages } from '../components/ui/StatusMessages';
 import { getHoldingValueInCurrency, mockPortfolio } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
@@ -980,7 +981,7 @@ export function AnalysisPage() {
       <section className="hero-panel">
         <div className="analysis-page-header">
           <div className="analysis-page-heading">
-            <p className="eyebrow">Analysis</p>
+            <p className="eyebrow">分析</p>
             <h2>分析與報告</h2>
             <p className="table-hint">分開睇對話、資產分析，同季度報告。</p>
           </div>
@@ -1036,7 +1037,7 @@ export function AnalysisPage() {
         <section className="card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Settings</p>
+              <p className="eyebrow">設定</p>
               <h2>分析設定</h2>
             </div>
           </div>
@@ -1094,30 +1095,30 @@ export function AnalysisPage() {
         </section>
       ) : null}
 
-      {assetsError ? <p className="status-message status-message-error">{assetsError}</p> : null}
-      {snapshotHashError ? <p className="status-message status-message-error">{snapshotHashError}</p> : null}
-      {cacheError ? <p className="status-message status-message-error">{cacheError}</p> : null}
-      {analysisSessionsError ? <p className="status-message status-message-error">{analysisSessionsError}</p> : null}
-      {analysisSettingsError ? <p className="status-message status-message-error">{analysisSettingsError}</p> : null}
-      {analysisError ? <p className="status-message status-message-error">{analysisError}</p> : null}
-      {analysisSuccess ? <p className="status-message status-message-success">{analysisSuccess}</p> : null}
-      {promptSettingsSuccess ? (
-        <p className="status-message status-message-success">{promptSettingsSuccess}</p>
-      ) : null}
-      {reportsError ? <p className="status-message status-message-error">{reportsError}</p> : null}
-      {reportActionError ? <p className="status-message status-message-error">{reportActionError}</p> : null}
-      {reportActionMessage ? <p className="status-message status-message-success">{reportActionMessage}</p> : null}
+      <StatusMessages
+        errors={[
+          assetsError,
+          snapshotHashError,
+          cacheError,
+          analysisSessionsError,
+          analysisSettingsError,
+          analysisError,
+          reportsError,
+          reportActionError,
+        ]}
+        successes={[analysisSuccess, promptSettingsSuccess, reportActionMessage]}
+      />
       {hasCachedAnalysis && !analysisSuccess && !isQuarterlyCategory ? (
         <p className="status-message">最近分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}</p>
       ) : null}
-      {assetsStatus === 'loading' && !isQuarterlyCategory ? <p className="status-message">同步中。</p> : null}
-      {isEmpty && !isQuarterlyCategory ? <p className="status-message">未有可分析資產。</p> : null}
+      {assetsStatus === 'loading' && !isQuarterlyCategory ? <p className="status-message">同步中</p> : null}
+      {isEmpty && !isQuarterlyCategory ? <p className="status-message">尚未有可分析資產</p> : null}
 
       {isInteractiveCategory ? (
         <section className="card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Conversation</p>
+              <p className="eyebrow">對話</p>
               <h2>直接提問</h2>
             </div>
           </div>
@@ -1160,13 +1161,13 @@ export function AnalysisPage() {
         <section className="card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Portfolio Review</p>
+              <p className="eyebrow">組合分析</p>
               <h2>資產分析</h2>
             </div>
             <span className="chip chip-soft">每月自動生成</span>
           </div>
 
-          <p className="status-message">每月 1 日香港時間上午 9:00 自動生成一次資產分析。</p>
+          <p className="status-message">每月 1 日上午 8:00（HKT）自動生成一次資產分析。</p>
 
           <div className="asset-form-grid">
             <label className="form-field" style={{ gridColumn: '1 / -1' }}>
@@ -1204,7 +1205,7 @@ export function AnalysisPage() {
           <section className="card quarterly-list-card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Quarterly Reports</p>
+                <p className="eyebrow">季度報告</p>
                 <h2>季度報告列表</h2>
               </div>
               <span className="chip chip-soft">
@@ -1212,7 +1213,7 @@ export function AnalysisPage() {
               </span>
             </div>
 
-            <p className="status-message">每季首日香港時間上午 9:00 自動生成一次季度報告。</p>
+            <p className="status-message">每季首日上午 9:00（HKT）自動生成一次季度報告。</p>
 
             {reportsStatus === 'ready' && reports.length === 0 ? (
               <p className="status-message">尚未生成季度報告。</p>
@@ -1273,7 +1274,7 @@ export function AnalysisPage() {
             <section className="card quarterly-viewer-card">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Report Body</p>
+                  <p className="eyebrow">報告內容</p>
                   <h2>{selectedReport.quarter}</h2>
                   <p className="table-hint">{formatGeneratedAt(selectedReport.generatedAt)}</p>
                 </div>
@@ -1298,7 +1299,7 @@ export function AnalysisPage() {
         <section className="card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Answer</p>
+              <p className="eyebrow">回答</p>
               <h2>{isInteractiveCategory ? '回答' : '分析結果'}</h2>
             </div>
             <span className="chip chip-strong">{displayedAnalysis?.model}</span>
@@ -1327,7 +1328,7 @@ export function AnalysisPage() {
             <div className="analysis-follow-up-card">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Follow Up</p>
+                  <p className="eyebrow">追問</p>
                   <h2>延續對話</h2>
                 </div>
               </div>
@@ -1336,7 +1337,7 @@ export function AnalysisPage() {
                 {activeConversation.map((turn, index) => (
                   <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
                     <div className="analysis-thread-bubble user">
-                      <span>你</span>
+                      <span>我</span>
                       <p>{turn.question}</p>
                     </div>
                     <div className="analysis-thread-bubble assistant">
@@ -1384,7 +1385,7 @@ export function AnalysisPage() {
         <section className="card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">History</p>
+              <p className="eyebrow">紀錄</p>
               <h2>{isInteractiveCategory ? '對話紀錄' : '分析紀錄'}</h2>
             </div>
           </div>
@@ -1453,7 +1454,7 @@ export function AnalysisPage() {
                 ) : null}
               </>
             ) : (
-              <p className="status-message">未有紀錄。</p>
+              <p className="status-message">尚未有紀錄</p>
             )}
           </div>
         </section>

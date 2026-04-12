@@ -33,6 +33,31 @@ function parseDateKey(date: string) {
   return new Date(`${date}T00:00:00+08:00`);
 }
 
+function formatDateChip(dateKey: string) {
+  try {
+    return new Intl.DateTimeFormat('zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }).format(new Date(`${dateKey}T00:00:00+08:00`));
+  } catch {
+    return dateKey;
+  }
+}
+
+function formatMonthChip(dateKey: string) {
+  try {
+    return new Intl.DateTimeFormat('zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+      month: 'long',
+    }).format(new Date(`${dateKey}-01T00:00:00+08:00`));
+  } catch {
+    return dateKey;
+  }
+}
+
 function buildTrendSeries(
   history: PortfolioPerformancePoint[],
   currentPoint: PortfolioPerformancePoint,
@@ -181,7 +206,7 @@ export function AssetTrendsPage() {
   const { entries: cashFlows, error: cashFlowsError } = useAccountCashFlows();
   const { entries: principals, error: principalsError } = useAccountPrincipals();
   const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
-  const [selectedRange, setSelectedRange] = useState<TrendRange | null>(null);
+  const [selectedRange, setSelectedRange] = useState<TrendRange | null>('7d');
 
   const holdings = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -259,7 +284,7 @@ export function AssetTrendsPage() {
       <section className="card trends-overview-card">
         <div className="trends-toolbar">
           <div>
-            <p className="eyebrow">Asset Trends</p>
+            <p className="eyebrow">資產走勢</p>
             <h2>資產總覽</h2>
           </div>
           <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
@@ -325,7 +350,7 @@ export function AssetTrendsPage() {
           </div>
         </div>
         <p className="trends-calendar-summary">
-          淨入金影響{' '}
+          額外投入/提取{' '}
           <span className={netExternalFlowTotalHKD >= 0 ? 'positive-text' : 'caution-text'}>
             {netExternalFlowTotalHKD >= 0 ? '+' : ''}
             {formatCurrencyRounded(
@@ -342,10 +367,10 @@ export function AssetTrendsPage() {
       <section className="card trends-chart-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Asset Trends</p>
+            <p className="eyebrow">資產走勢</p>
             <h2>資產走勢</h2>
           </div>
-          <span className="chip chip-soft">{currentPoint.date}</span>
+          <span className="chip chip-soft">{formatDateChip(currentPoint.date)}</span>
         </div>
 
         <div className="trends-range-row" role="tablist" aria-label="資產走勢期間">
@@ -354,7 +379,7 @@ export function AssetTrendsPage() {
               key={range.value}
               className={selectedRange === range.value ? 'filter-chip active' : 'filter-chip'}
               type="button"
-              onClick={() => setSelectedRange((current) => (current === range.value ? null : range.value))}
+              onClick={() => setSelectedRange(range.value)}
             >
               {range.label}
             </button>
@@ -386,7 +411,7 @@ export function AssetTrendsPage() {
                   )}
                 </strong>
                 <small>
-                  淨入金影響{' '}
+                  額外投入/提取{' '}
                   {`${rangeSummary.netExternalFlow >= 0 ? '+' : ''}${formatCurrencyRounded(
                     convertCurrency(rangeSummary.netExternalFlow, 'HKD', displayCurrency),
                     displayCurrency,
@@ -397,28 +422,36 @@ export function AssetTrendsPage() {
 
             <div className="trends-chart-shell">
               {trendSeries.length > 1 ? (
-                <svg viewBox="0 0 320 180" className="trends-line-chart" role="img" aria-label="資產走勢圖">
-                  <path d={linePath} />
-                </svg>
+                <div className="trends-chart-annotated">
+                  <div className="trends-chart-y-labels">
+                    <span>{formatCurrencyRounded(convertCurrency(Math.max(...trendSeries.map((point) => point.totalValue)), 'HKD', displayCurrency), displayCurrency)}</span>
+                    <span>{formatCurrencyRounded(convertCurrency(Math.min(...trendSeries.map((point) => point.totalValue)), 'HKD', displayCurrency), displayCurrency)}</span>
+                  </div>
+                  <svg viewBox="0 0 320 180" className="trends-line-chart" role="img" aria-label="資產走勢圖">
+                    <path d={linePath} />
+                  </svg>
+                  <div className="trends-chart-x-labels">
+                    <span>{trendSeries[0].date.slice(5)}</span>
+                    <span>{trendSeries[trendSeries.length - 1].date.slice(5)}</span>
+                  </div>
+                </div>
               ) : (
-                <p className="status-message">未有足夠快照資料。</p>
+                <p className="status-message">未有足夠快照資料</p>
               )}
             </div>
           </div>
         ) : selectedRange === '1d' ? (
-          <p className="status-message">今日快照待生成，收益暫不可用。</p>
-        ) : (
-          <p className="status-message">撳「今日 / 7日 / 30日」先展開對應變動。</p>
-        )}
+          <p className="status-message">今日快照待生成，收益暫不可用</p>
+        ) : null}
       </section>
 
       <section className="card trends-calendar-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Profit Calendar</p>
+            <p className="eyebrow">收益日曆</p>
             <h2>收益日曆</h2>
           </div>
-          <span className="chip chip-soft">{currentPoint.date.slice(0, 7)}</span>
+          <span className="chip chip-soft">{formatMonthChip(currentPoint.date.slice(0, 7))}</span>
         </div>
 
         <p className="trends-calendar-summary">
@@ -458,7 +491,7 @@ export function AssetTrendsPage() {
           })}
         </div>
 
-        {status === 'loading' ? <p className="status-message">同步中。</p> : null}
+        {status === 'loading' ? <p className="status-message">同步中</p> : null}
       </section>
     </div>
   );

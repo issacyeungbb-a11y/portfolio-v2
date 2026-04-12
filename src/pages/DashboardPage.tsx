@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { AllocationCard } from '../components/portfolio/AllocationCard';
 import { HoldingCard } from '../components/portfolio/HoldingCard';
 import { InsightCard } from '../components/portfolio/InsightCard';
+import { StatusMessages } from '../components/ui/StatusMessages';
 import {
   buildAllocationSlices,
   convertCurrency,
@@ -108,25 +109,20 @@ export function DashboardPage() {
                 ({formatPercent(todaySummary.returnPct)})
               </span>
             ) : (
-              <span className="table-hint">今日快照待生成，收益暫不可用</span>
+              <span className="table-hint">收益待更新</span>
             )}
             <span aria-hidden="true">›</span>
           </Link>
         </div>
       </section>
 
-      {error ? <p className="status-message status-message-error">{error}</p> : null}
-      {snapshotsError ? (
-        <p className="status-message status-message-error">{snapshotsError}</p>
-      ) : null}
-      {accountCashFlowsError ? (
-        <p className="status-message status-message-error">{accountCashFlowsError}</p>
-      ) : null}
-      {todaySnapshotError ? (
-        <p className="status-message status-message-error">{todaySnapshotError}</p>
-      ) : null}
+      <StatusMessages
+        errors={[error, snapshotsError, accountCashFlowsError, todaySnapshotError]}
+      />
       {isEmpty ? (
-        <p className="status-message">未有資產。</p>
+        <p className="status-message">
+          尚未加入資產。前往<Link className="text-link" to="/assets">資產頁面</Link>新增你嘅第一筆持倉。
+        </p>
       ) : null}
 
       <section className="content-grid">
@@ -134,7 +130,7 @@ export function DashboardPage() {
           <article className="card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Allocation</p>
+                <p className="eyebrow">分布</p>
                 <h2>資產分布</h2>
               </div>
             </div>
@@ -152,18 +148,18 @@ export function DashboardPage() {
           <article className="card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Allocation</p>
+                <p className="eyebrow">分布</p>
                 <h2>資產分布</h2>
               </div>
             </div>
-            <p className="status-message">未有分布資料。</p>
+            <p className="status-message">尚未有分布資料</p>
           </article>
         )}
 
         <article className="card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Holdings</p>
+              <p className="eyebrow">持倉</p>
               <h2>重點持倉</h2>
             </div>
             <Link className="text-link" to="/assets">
@@ -187,7 +183,7 @@ export function DashboardPage() {
                 />
               ))
             ) : (
-              <p className="status-message">未有持倉資料。</p>
+              <p className="status-message">尚未有持倉資料</p>
             )}
           </div>
         </article>
@@ -197,7 +193,7 @@ export function DashboardPage() {
         <article className="card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Portfolio Signals</p>
+              <p className="eyebrow">觀察</p>
               <h2>組合觀察</h2>
             </div>
             <Link className="text-link" to="/analysis">
@@ -211,7 +207,7 @@ export function DashboardPage() {
                 <InsightCard key={insight.id} insight={insight} />
               ))
             ) : (
-              <p className="status-message">未有可顯示內容。</p>
+              <p className="status-message">尚未有觀察內容</p>
             )}
           </div>
         </article>

@@ -52,6 +52,7 @@ export function FundsPage() {
   const [savingAccountSource, setSavingAccountSource] = useState<AccountSource | null>(null);
   const [principalSaveMessage, setPrincipalSaveMessage] = useState<string | null>(null);
   const [principalSaveError, setPrincipalSaveError] = useState<string | null>(null);
+  const [visibleFlowCount, setVisibleFlowCount] = useState(12);
 
   const principalEntries = useMemo(() => {
     const entryMap = new Map<AccountSource, AccountPrincipalEntry>();
@@ -170,7 +171,7 @@ export function FundsPage() {
         <article className="summary-card">
           <p className="summary-label">全部本金總數</p>
           <strong className="summary-value">{formatCurrency(totalPrincipalHKD, 'HKD')}</strong>
-          <p className="summary-hint">已合併各帳戶本金基線與資金流水</p>
+          <p className="summary-hint">包括初始本金及後續入金/提款</p>
         </article>
         {accountSummaries.map((summary) => (
           <article key={summary.accountSource} className="summary-card">
@@ -187,9 +188,8 @@ export function FundsPage() {
       <section className="card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Account Principals</p>
+            <p className="eyebrow">帳戶本金</p>
             <h2>各帳戶本金</h2>
-            <p className="table-hint">本金設定而家集中喺資金頁管理。</p>
           </div>
           <span className="chip chip-soft">
             {accountPrincipalStatus === 'loading' ? '同步中' : '已連接'}
@@ -214,7 +214,7 @@ export function FundsPage() {
       <section className="card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">New Entry</p>
+            <p className="eyebrow">新增</p>
             <h2>新增資金流水</h2>
             <p className="table-hint">用來記錄每個帳戶之後嘅入金、提款或手動調整。</p>
           </div>
@@ -312,14 +312,14 @@ export function FundsPage() {
       <section className="card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Recent Flows</p>
+            <p className="eyebrow">流水紀錄</p>
             <h2>最近資金紀錄</h2>
           </div>
         </div>
 
         <div className="settings-list">
           {cashFlows.length > 0 ? (
-            cashFlows.slice(0, 12).map((entry) => {
+            cashFlows.slice(0, visibleFlowCount).map((entry) => {
               const signedAmount = getCashFlowSignedAmount(entry);
               return (
                 <div key={entry.id} className="setting-row">
@@ -340,15 +340,26 @@ export function FundsPage() {
               );
             })
           ) : (
-            <p className="status-message">未有資金流水。</p>
+            <p className="status-message">尚未有資金流水，可以喺上方新增你嘅第一筆記錄</p>
           )}
+          {cashFlows.length > visibleFlowCount ? (
+            <div className="button-row" style={{ justifyContent: 'center', padding: '0.5rem 0' }}>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setVisibleFlowCount((current) => Math.min(current + 12, cashFlows.length))}
+              >
+                載入更多（剩餘 {cashFlows.length - visibleFlowCount} 筆）
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
 
       <section className="card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Access</p>
+            <p className="eyebrow">存取</p>
             <h2>資料與存取</h2>
           </div>
         </div>
@@ -356,17 +367,10 @@ export function FundsPage() {
         <div className="settings-list">
           <div className="setting-row">
             <div>
-              <strong>共享資料路徑</strong>
-              <p className="mono-value">portfolio/app</p>
-            </div>
-            <span className="chip chip-strong">Shared</span>
-          </div>
-          <div className="setting-row">
-            <div>
               <strong>目前模式</strong>
             </div>
             <span className="chip chip-soft">
-              {accessStatus === 'unlocked' ? 'Access Code' : accessStatus}
+              {accessStatus === 'unlocked' ? '已解鎖' : accessStatus === 'locked' ? '已鎖定' : '錯誤'}
             </span>
           </div>
         </div>

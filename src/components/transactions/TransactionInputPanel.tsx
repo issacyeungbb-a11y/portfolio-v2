@@ -478,7 +478,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
     <section className="card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Input</p>
+          <p className="eyebrow">輸入</p>
           <h2>輸入交易</h2>
           <p className="table-hint">
             你可以用 AI 文字輸入快速整理交易，或者直接手動填入每筆交易，再選新增資產交易或現有資產交易。
@@ -508,7 +508,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
 
       {inputMode === 'ai' ? (
         <div className="prompt-box import-command-box">
-          <strong>輸入文字後，AI 會拆成逐筆交易，再由你決定新增資產交易或者現有資產交易</strong>
+          <strong>貼入交易描述，AI 自動拆分</strong>
           <p className="table-hint">
             例如：今日買入 TSLA 5 股，240 美元，手續費 1.5；再新增 SOL 10 粒，成本 132 美元。
           </p>
