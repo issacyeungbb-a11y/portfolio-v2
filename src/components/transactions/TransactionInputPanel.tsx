@@ -58,7 +58,7 @@ function createBlankItem(
     settlementAccountSource,
     transactionType: 'buy',
     quantity: '',
-    currency: '',
+    currency: 'USD',
     price: '',
     fees: '0',
     date: new Date().toISOString().slice(0, 10),
