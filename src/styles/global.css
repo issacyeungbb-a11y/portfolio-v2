@@ -2675,3 +2675,32 @@ h3 {
     margin-top: auto;
   }
 }
+
+/* ── Skeleton loading ── */
+.skeleton {
+  background: linear-gradient(90deg, var(--color-surface-alt, #e8e0d8) 25%, var(--color-surface, #f5efe8) 50%, var(--color-surface-alt, #e8e0d8) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+.skeleton-card {
+  height: 120px;
+  width: 100%;
+}
+
+.skeleton-row {
+  height: 48px;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.skeleton-hero {
+  height: 80px;
+  width: 60%;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

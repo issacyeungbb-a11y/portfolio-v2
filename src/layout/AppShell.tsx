@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useMatches } from 'react-router-dom';
 
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { BottomNav } from '../components/layout/BottomNav';
 import { TopBar } from '../components/layout/TopBar';
 
@@ -51,7 +52,9 @@ export function AppShell() {
       <div className="shell-main">
         <TopBar title={currentHandle?.title ?? 'Portfolio V2'} />
         <main className="page-content">
-          <Outlet />
+          <ErrorBoundary>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 

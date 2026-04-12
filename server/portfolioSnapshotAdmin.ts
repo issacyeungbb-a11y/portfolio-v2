@@ -1,7 +1,8 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminDb } from './firebaseAdmin';
-import { fetchFxRates } from './updatePrices';
+import { fetchLiveFxRates } from './updatePrices';
+import type { FxRates } from '../src/types/fxRates';
 import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio';
 
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
@@ -20,7 +21,7 @@ function normalizeAssetType(value: unknown): AssetType {
   return 'stock';
 }
 
-function convertToHKD(amount: number, currency: string, fxRates: { USD: number; JPY: number; HKD: number }) {
+function convertToHKD(amount: number, currency: string, fxRates: FxRates) {
   const normalized = currency.trim().toUpperCase();
 
   if (normalized === 'USD') {
@@ -129,7 +130,7 @@ export async function captureAdminPortfolioSnapshot(params: {
   }
 
   const holdings = await readAdminPortfolioAssets();
-  const fxRates = await fetchFxRates();
+  const fxRates = await fetchLiveFxRates();
 
   const holdingsPayload = holdings.map((holding) => ({
     assetId: holding.id,

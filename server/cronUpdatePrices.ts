@@ -1,8 +1,9 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
-import { generatePriceUpdates } from './updatePrices';
+import { fetchLiveFxRates, generatePriceUpdates } from './updatePrices';
 import { getFirebaseAdminDb } from './firebaseAdmin';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
+import type { FxRates } from '../src/types/fxRates';
 import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/priceUpdates';
 
 const CRON_ROUTE = '/api/cron-update-prices' as const;
@@ -132,8 +133,25 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
   };
 }
 
+async function persistFxRates(fxRates: FxRates) {
+  const db = getFirebaseAdminDb();
+  const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
+
+  await portfolioRef.set(
+    {
+      fxRates: {
+        ...fxRates,
+        updatedAt: new Date().toISOString(),
+      },
+    },
+    { merge: true },
+  );
+}
+
 export async function runScheduledPriceUpdate() {
   const assets = await readAssetsForPriceUpdate();
+  const fxRates = await fetchLiveFxRates();
+  await persistFxRates(fxRates);
 
   if (assets.length === 0) {
     return {

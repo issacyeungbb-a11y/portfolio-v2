@@ -22,6 +22,7 @@ import {
   getAssetTypeLabel,
   getHoldingCostInCurrency,
   getHoldingValueInCurrency,
+  getCashFlowSignedAmount,
 } from '../data/mockPortfolio';
 import type {
   AccountCashFlowEntry,
@@ -65,14 +66,6 @@ function formatLatestPriceUpdate(value: string | null) {
   } catch {
     return value;
   }
-}
-
-function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
-  if (entry.type === 'withdrawal') {
-    return -Math.abs(entry.amount);
-  }
-
-  return entry.amount;
 }
 
 function getHongKongDateKey(date = new Date()) {
@@ -257,7 +250,7 @@ export function AssetsPage() {
         ? todaySnapshot.quality === 'fallback'
           ? `今日快照已完成（部分資產沿用昨日價格）${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
           : `今日快照已完成 · 正式快照${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
-        : '今日快照將於 06:30 自動生成';
+        : '今日快照將於 07:00 自動生成';
   const shouldShowMissingSnapshotNotice =
     todaySnapshotStatus === 'ready' &&
     nonCashHoldings.length > 0 &&
@@ -309,9 +302,6 @@ export function AssetsPage() {
           ? submissionError.message
           : '更新資產失敗，請稍後再試。';
       setSaveError(message);
-      throw submissionError instanceof Error
-        ? submissionError
-        : new Error(message);
     } finally {
       setIsEditingAsset(false);
     }
@@ -335,9 +325,6 @@ export function AssetsPage() {
           ? submissionError.message
           : '刪除資產失敗，請稍後再試。';
       setSaveError(message);
-      throw submissionError instanceof Error
-        ? submissionError
-        : new Error(message);
     } finally {
       setIsDeletingAsset(false);
     }
@@ -359,7 +346,6 @@ export function AssetsPage() {
           ? submissionError.message
           : '儲存交易失敗，請稍後再試。';
       setTransactionError(message);
-      throw submissionError instanceof Error ? submissionError : new Error(message);
     } finally {
       setIsSavingTransaction(false);
     }

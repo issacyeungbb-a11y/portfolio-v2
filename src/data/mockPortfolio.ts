@@ -10,6 +10,39 @@ import type {
   PortfolioPerformanceSummary,
   PortfolioSnapshot,
 } from '../types/portfolio';
+export {
+  convertCurrency,
+  normalizeCurrencyCode,
+  formatCurrency,
+  formatCurrencyRounded,
+  formatPercent,
+} from '../lib/currency';
+export {
+  getHoldingValueInCurrency,
+  getHoldingCostInCurrency,
+  getPortfolioTotalValue,
+  getPortfolioTotalCost,
+  buildAllocationSlices,
+  getAssetTypeLabel,
+  getAccountSourceLabel,
+  getCashFlowSignedAmount,
+} from '../lib/holdings';
+import {
+  convertCurrency,
+  formatCurrency,
+  formatCurrencyRounded,
+  formatPercent,
+} from '../lib/currency';
+import {
+  buildAllocationSlices,
+  getAccountSourceLabel,
+  getAssetTypeLabel,
+  getHoldingCostInCurrency,
+  getHoldingValueInCurrency,
+  getPortfolioTotalCost,
+  getPortfolioTotalValue,
+  getCashFlowSignedAmount,
+} from '../lib/holdings';
 
 const FX_TO_HKD: Record<string, number> = {
   HKD: 1,
@@ -32,14 +65,6 @@ const CURRENCY_ALIASES: Record<string, string> = {
   '日圓': 'JPY',
   '日元': 'JPY',
   '日幣': 'JPY',
-};
-
-const bucketMeta: Record<AllocationBucketKey, { label: string; color: string }> = {
-  stock: { label: '股票', color: '#0f766e' },
-  etf: { label: 'ETF', color: '#d97706' },
-  bond: { label: '債券', color: '#2563eb' },
-  crypto: { label: '加密貨幣', color: '#7c3aed' },
-  cash: { label: '現金', color: '#4b5563' },
 };
 
 const holdings: Holding[] = [
@@ -243,128 +268,12 @@ function shiftDate(date: Date, range: PerformanceRange) {
   return shifted;
 }
 
-export function convertCurrency(amount: number, fromCurrency: string, toCurrency: string) {
-  const normalizedFromCurrency = normalizeCurrencyCode(fromCurrency);
-  const normalizedToCurrency = normalizeCurrencyCode(toCurrency);
-
-  if (normalizedFromCurrency === normalizedToCurrency) return amount;
-
-  const fromRate = FX_TO_HKD[normalizedFromCurrency];
-  const toRate = FX_TO_HKD[normalizedToCurrency];
-
-  if (!fromRate || !toRate) return amount;
-
-  const valueInHKD = amount * fromRate;
-  return valueInHKD / toRate;
-}
-
-export function formatCurrency(value: number, currency: string) {
-  const normalizedCurrency = normalizeCurrencyCode(currency);
-
-  try {
-    return new Intl.NumberFormat('zh-HK', {
-      style: 'currency',
-      currency: normalizedCurrency,
-      maximumFractionDigits: normalizedCurrency === 'JPY' ? 0 : 2,
-    }).format(value);
-  } catch {
-    return `${new Intl.NumberFormat('zh-HK', {
-      maximumFractionDigits: 2,
-    }).format(value)} ${normalizedCurrency}`.trim();
-  }
-}
-
-export function formatCurrencyRounded(value: number, currency: string) {
-  const normalizedCurrency = normalizeCurrencyCode(currency);
-
-  try {
-    return new Intl.NumberFormat('zh-HK', {
-      style: 'currency',
-      currency: normalizedCurrency,
-      maximumFractionDigits: 0,
-      minimumFractionDigits: 0,
-    }).format(value);
-  } catch {
-    return `${new Intl.NumberFormat('zh-HK', {
-      maximumFractionDigits: 0,
-      minimumFractionDigits: 0,
-    }).format(value)} ${normalizedCurrency}`.trim();
-  }
-}
-
-export function normalizeCurrencyCode(currency: string) {
-  const normalized = currency.trim().toUpperCase().replace(/\s+/g, '');
-  return CURRENCY_ALIASES[normalized] ?? normalized;
-}
-
-export function formatPercent(value: number) {
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(2)}%`;
-}
-
 export function formatDateLabel(dateString: string) {
   return new Intl.DateTimeFormat('zh-HK', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   }).format(parseISODate(dateString));
-}
-
-export function getHoldingValueInCurrency(holding: Holding, currency: string) {
-  return convertCurrency(holding.marketValue, holding.currency, currency);
-}
-
-export function getHoldingCostInCurrency(holding: Holding, currency: string) {
-  if (holding.assetType === 'cash') {
-    return getHoldingValueInCurrency(holding, currency);
-  }
-
-  return convertCurrency(holding.quantity * holding.averageCost, holding.currency, currency);
-}
-
-export function getPortfolioTotalValue(holdingsList: Holding[], currency: string) {
-  return holdingsList.reduce(
-    (sum, holding) => sum + getHoldingValueInCurrency(holding, currency),
-    0,
-  );
-}
-
-export function getPortfolioTotalCost(holdingsList: Holding[], currency: string) {
-  return holdingsList.reduce(
-    (sum, holding) => sum + getHoldingCostInCurrency(holding, currency),
-    0,
-  );
-}
-
-export function buildAllocationSlices(holdingsList: Holding[]): AllocationSlice[] {
-  const totalHKD = getPortfolioTotalValue(holdingsList, 'HKD');
-  const grouped = new Map<AllocationBucketKey, Holding[]>();
-
-  for (const holding of holdingsList) {
-    const bucketKey = holding.assetType;
-    const current = grouped.get(bucketKey) ?? [];
-    grouped.set(bucketKey, [...current, holding]);
-  }
-
-  return [...grouped.entries()]
-    .map(([key, bucketHoldings]) => {
-      const totalValueHKD = getPortfolioTotalValue(bucketHoldings, 'HKD');
-      const totalValueUSD = getPortfolioTotalValue(bucketHoldings, 'USD');
-
-      return {
-        key,
-        label: bucketMeta[key].label,
-        color: bucketMeta[key].color,
-        value: totalHKD === 0 ? 0 : (totalValueHKD / totalHKD) * 100,
-        totalValueHKD,
-        totalValueUSD,
-        holdings: [...bucketHoldings].sort(
-          (left, right) =>
-            getHoldingValueInCurrency(right, 'HKD') - getHoldingValueInCurrency(left, 'HKD'),
-        ),
-      };
-    })
-    .sort((left, right) => right.totalValueHKD - left.totalValueHKD);
 }
 
 const derivedTotalValueHKD = getPortfolioTotalValue(holdings, 'HKD');
@@ -409,23 +318,6 @@ export function getHoldingValueLabel(holding: Holding) {
     alternateValue,
     alternateCurrency,
   )}`;
-}
-
-export function getAssetTypeLabel(assetType: Holding['assetType'] | 'all') {
-  if (assetType === 'stock') return '股票';
-  if (assetType === 'etf') return 'ETF';
-  if (assetType === 'bond') return '債券';
-  if (assetType === 'crypto') return '加密貨幣';
-  if (assetType === 'cash') return '現金';
-  return '全部資產類別';
-}
-
-export function getAccountSourceLabel(accountSource: Holding['accountSource'] | 'all') {
-  if (accountSource === 'Futu') return 'Futu';
-  if (accountSource === 'IB') return 'IB';
-  if (accountSource === 'Crypto') return 'Crypto';
-  if (accountSource === 'Other') return '其他';
-  return '全部帳戶來源';
 }
 
 export function getPerformanceRangeLabel(range: PerformanceRange) {

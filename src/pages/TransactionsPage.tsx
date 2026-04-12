@@ -89,7 +89,6 @@ export function TransactionsPage() {
           ? submissionError.message
           : '更新交易失敗，請稍後再試。';
       setActionError(message);
-      throw submissionError instanceof Error ? submissionError : new Error(message);
     } finally {
       setIsSaving(false);
     }

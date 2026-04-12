@@ -4,6 +4,7 @@ import {
   convertCurrency,
   formatCurrency,
   getAccountSourceLabel,
+  getCashFlowSignedAmount,
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
@@ -21,14 +22,6 @@ const cashFlowTypeOptions: Array<{ value: AccountCashFlowType; label: string }> 
   { value: 'withdrawal', label: '提款' },
   { value: 'adjustment', label: '調整' },
 ];
-
-function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
-  if (entry.type === 'withdrawal') {
-    return -Math.abs(entry.amount);
-  }
-
-  return entry.amount;
-}
 
 function getCashFlowTypeLabel(type: AccountCashFlowType) {
   return cashFlowTypeOptions.find((option) => option.value === type)?.label ?? type;

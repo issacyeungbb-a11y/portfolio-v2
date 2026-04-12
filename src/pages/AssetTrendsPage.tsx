@@ -4,6 +4,7 @@ import {
   convertCurrency,
   formatCurrencyRounded,
   formatPercent,
+  getCashFlowSignedAmount,
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
@@ -27,14 +28,6 @@ const trendRanges: Array<{ value: TrendRange; label: string }> = [
   { value: '7d', label: '7日' },
   { value: '30d', label: '30日' },
 ];
-
-function getSignedCashFlowAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
-  if (entry.type === 'withdrawal') {
-    return -Math.abs(entry.amount);
-  }
-
-  return entry.amount;
-}
 
 function parseDateKey(date: string) {
   return new Date(`${date}T00:00:00+08:00`);
@@ -94,7 +87,7 @@ function buildCalendarEntries(
   const points = [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
   const cashFlowByDate = cashFlows.reduce<Map<string, number>>((map, entry) => {
     const current = map.get(entry.date) ?? 0;
-    map.set(entry.date, current + convertCurrency(getSignedCashFlowAmount(entry), entry.currency, 'HKD'));
+    map.set(entry.date, current + convertCurrency(getCashFlowSignedAmount(entry), entry.currency, 'HKD'));
     return map;
   }, new Map());
 
@@ -154,7 +147,7 @@ function formatCalendarChange(value: number) {
 
 function sumSignedCashFlowsHKD(entries: AccountCashFlowEntry[]) {
   return entries.reduce(
-    (sum, entry) => sum + convertCurrency(getSignedCashFlowAmount(entry), entry.currency, 'HKD'),
+    (sum, entry) => sum + convertCurrency(getCashFlowSignedAmount(entry), entry.currency, 'HKD'),
     0,
   );
 }
@@ -216,7 +209,7 @@ export function AssetTrendsPage() {
       return sum;
     }
 
-    return sum + convertCurrency(getSignedCashFlowAmount(entry), entry.currency, 'HKD');
+    return sum + convertCurrency(getCashFlowSignedAmount(entry), entry.currency, 'HKD');
   }, 0);
   const monthlyReturnHKD = currentPoint.totalValue - monthStartValueHKD - monthFlowsHKD;
   const monthlyReturnPct = monthStartValueHKD === 0 ? 0 : (monthlyReturnHKD / monthStartValueHKD) * 100;

@@ -138,7 +138,7 @@ export function DashboardPage() {
                 <h2>資產分布</h2>
               </div>
             </div>
-            <p className="status-message">同步中。</p>
+            <div className="skeleton skeleton-card" />
           </article>
         ) : allocations.length > 0 ? (
           <AllocationCard
@@ -173,7 +173,11 @@ export function DashboardPage() {
 
           <div className="stack-list">
             {status === 'loading' ? (
-              <p className="status-message">同步中。</p>
+              <>
+                <div className="skeleton skeleton-row" />
+                <div className="skeleton skeleton-row" />
+                <div className="skeleton skeleton-row" />
+              </>
             ) : topHoldings.length > 0 ? (
               topHoldings.map((holding) => (
                 <HoldingCard

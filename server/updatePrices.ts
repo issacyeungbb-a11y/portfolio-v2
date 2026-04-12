@@ -7,6 +7,7 @@ import type {
   PriceUpdateResponse,
 } from '../src/types/priceUpdates';
 import type { AssetType } from '../src/types/portfolio';
+import type { FxRates } from '../src/types/fxRates';
 
 const UPDATE_PRICES_ROUTE = '/api/update-prices' as const;
 const DEFAULT_STOCK_DIFF_THRESHOLD = 0.15;
@@ -39,12 +40,6 @@ const COINGECKO_ID_MAP: Record<string, string> = {
   SOL: 'solana',
   SUI: 'sui',
 };
-
-interface FxRates {
-  USD: number;
-  JPY: number;
-  HKD: number;
-}
 
 interface MarketPriceResult {
   assetId: string;
@@ -233,25 +228,25 @@ function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
   return normalizedTicker;
 }
 
-export async function fetchFxRates(): Promise<FxRates> {
+export async function fetchLiveFxRates(): Promise<FxRates> {
   try {
-    const quotes = await yahooFinanceClient.quote(['USDHKD=X', 'JPYHKD=X'], {
+    const quotes = await yahooFinanceClient.quote(['USDHKD=X', 'USDJPY=X'], {
       fields: ['symbol', 'regularMarketPrice'],
       return: 'array',
     });
     const bySymbol = new Map(
       quotes.map((quote) => [readStringValue(quote.symbol) ?? '', quote] as const),
     );
-    const usd = readPositiveNumber(bySymbol.get('USDHKD=X')?.regularMarketPrice);
-    const jpy = readPositiveNumber(bySymbol.get('JPYHKD=X')?.regularMarketPrice);
+    const usdToHkd = readPositiveNumber(bySymbol.get('USDHKD=X')?.regularMarketPrice);
+    const usdToJpy = readPositiveNumber(bySymbol.get('USDJPY=X')?.regularMarketPrice);
 
-    if (!usd || !jpy) {
+    if (!usdToHkd || !usdToJpy) {
       throw new Error('missing fx quote');
     }
 
     return {
-      USD: usd,
-      JPY: jpy,
+      USD: usdToHkd,
+      JPY: usdToHkd / usdToJpy,
       HKD: 1,
     };
   } catch (error) {
@@ -259,6 +254,8 @@ export async function fetchFxRates(): Promise<FxRates> {
     return { ...DEFAULT_FX_RATES };
   }
 }
+
+export { fetchLiveFxRates as fetchFxRates };
 
 async function fetchYahooPrice(
   assets: PriceUpdateRequestAsset[],
@@ -538,7 +535,7 @@ export function getUpdatePricesErrorResponse(error: unknown) {
 
 export async function generatePriceUpdates(payload: unknown): Promise<PriceUpdateResponse> {
   const request = normalizeRequest(payload);
-  await fetchFxRates();
+  await fetchLiveFxRates();
 
   const yahooAssets = request.assets.filter(
     (asset) =>
