@@ -2,6 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { generatePriceUpdates } from './updatePrices.js';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
 const CRON_ROUTE = '/api/cron-update-prices';
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
@@ -63,7 +64,6 @@ async function applyCronResults(results) {
             priceAsOf: review.asOf,
             priceSourceName: review.sourceName,
             priceSourceUrl: review.sourceUrl,
-            priceConfidence: review.confidence,
         });
         batch.set(reviewRef, {
             ...review,
@@ -81,7 +81,6 @@ async function applyCronResults(results) {
             asOf: review.asOf,
             sourceName: review.sourceName,
             sourceUrl: review.sourceUrl,
-            confidence: review.confidence,
             recordedAt: FieldValue.serverTimestamp(),
         });
     }
@@ -103,6 +102,12 @@ async function applyCronResults(results) {
     };
 }
 export async function runScheduledPriceUpdate() {
+    try {
+        await runCoinGeckoCoinIdSync();
+    }
+    catch (error) {
+        console.warn('CoinGecko coin id sync failed before price update.', error);
+    }
     const assets = await readAssetsForPriceUpdate();
     if (assets.length === 0) {
         return {
