@@ -2,6 +2,9 @@ import { cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 
+const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
+const SHARED_PORTFOLIO_DOC_ID = 'app';
+
 const ADMIN_ENV_KEYS = [
   'FIREBASE_ADMIN_PROJECT_ID',
   'FIREBASE_ADMIN_CLIENT_EMAIL',
@@ -133,4 +136,16 @@ export async function verifyFirebaseIdToken(idToken: string) {
 
 export function getFirebaseAdminDb() {
   return getFirestore(getFirebaseAdminApp());
+}
+
+export function getSharedPortfolioDocRef() {
+  return getFirebaseAdminDb().collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
+}
+
+export function getSharedCoinGeckoCoinIdCacheCollectionRef() {
+  return getSharedPortfolioDocRef().collection('coinIdCache');
+}
+
+export function getSharedCoinGeckoCoinIdCacheDocRef(ticker: string) {
+  return getSharedCoinGeckoCoinIdCacheCollectionRef().doc(ticker.trim().toUpperCase());
 }

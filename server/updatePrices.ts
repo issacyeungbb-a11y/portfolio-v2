@@ -1,5 +1,8 @@
 import yahooFinance from 'yahoo-finance2';
 
+import {
+  getSharedCoinGeckoCoinIdCacheDocRef,
+} from './firebaseAdmin';
 import type {
   PendingPriceUpdateReview,
   PriceUpdateRequest,
@@ -21,6 +24,8 @@ const YAHOO_SOURCE_NAME = 'Yahoo Finance';
 const YAHOO_SOURCE_URL = 'https://finance.yahoo.com';
 const COINGECKO_SOURCE_NAME = 'CoinGecko';
 const COINGECKO_SOURCE_URL = 'https://www.coingecko.com';
+const COINGECKO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const COINGECKO_SEARCH_MIN_INTERVAL_MS = 2100;
 const yahooFinanceClient = yahooFinance as unknown as {
   quote: (
     symbols: string | string[],
@@ -28,18 +33,29 @@ const yahooFinanceClient = yahooFinance as unknown as {
   ) => Promise<Array<Record<string, unknown>>>;
 };
 
-const COINGECKO_ID_MAP: Record<string, string> = {
-  ADA: 'cardano',
-  ASTER: 'aster',
-  ATONE: 'atone',
-  BNB: 'binancecoin',
-  BTC: 'bitcoin',
-  ETH: 'ethereum',
-  KAS: 'kaspa',
-  NIGHT: 'midnight',
-  SOL: 'solana',
-  SUI: 'sui',
+const COINGECKO_ID_OVERRIDES: Record<string, { coinId: string }> = {
+  ASTER: { coinId: 'aster-2' },
+  ATONE: { coinId: 'atomone' },
+  NIGHT: { coinId: 'night' },
 };
+
+interface CoinGeckoSearchCoin {
+  id: string;
+  symbol: string;
+  name: string;
+  market_cap_rank: number | null;
+}
+
+interface CoinGeckoCoinIdCacheEntry {
+  ticker: string;
+  coinId: string;
+  coinSymbol: string;
+  coinName: string;
+  marketCapRank: number | null;
+  source: 'override' | 'search';
+  updatedAt: string;
+  expiresAt: string;
+}
 
 interface MarketPriceResult {
   assetId: string;
@@ -52,6 +68,7 @@ interface MarketPriceResult {
   sourceName: string | null;
   sourceUrl: string | null;
   marketState?: string | null;
+  coinGeckoLookupStatus?: 'override' | 'cache' | 'search' | 'fallback_cache' | 'missing' | 'lookup_failed';
 }
 
 function readStringValue(value: unknown) {
@@ -78,6 +95,290 @@ function readDateValue(value: unknown) {
   }
 
   return null;
+}
+
+function normalizeCoinGeckoTicker(ticker: string) {
+  return ticker.trim().toUpperCase();
+}
+
+function parseCoinGeckoCacheExpiry(value: unknown) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function serializeCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
+  return {
+    ticker: entry.ticker,
+    coinId: entry.coinId,
+    coinSymbol: entry.coinSymbol,
+    coinName: entry.coinName,
+    marketCapRank: entry.marketCapRank,
+    source: entry.source,
+    updatedAt: entry.updatedAt,
+    expiresAt: entry.expiresAt,
+  };
+}
+
+function normalizeCoinGeckoCacheEntry(
+  ticker: string,
+  value: Record<string, unknown>,
+): CoinGeckoCoinIdCacheEntry | null {
+  const coinId = readStringValue(value.coinId)?.trim();
+  const coinSymbol = readStringValue(value.coinSymbol)?.trim();
+  const coinName = readStringValue(value.coinName)?.trim();
+  const source = value.source === 'override' || value.source === 'search' ? value.source : null;
+  const updatedAt = readDateValue(value.updatedAt);
+  const expiresAt = readDateValue(value.expiresAt);
+  const marketCapRank =
+    typeof value.marketCapRank === 'number' && Number.isFinite(value.marketCapRank)
+      ? value.marketCapRank
+      : null;
+
+  if (!coinId || !coinSymbol || !coinName || !source || !updatedAt || !expiresAt) {
+    return null;
+  }
+
+  return {
+    ticker,
+    coinId,
+    coinSymbol,
+    coinName,
+    marketCapRank,
+    source,
+    updatedAt,
+    expiresAt,
+  };
+}
+
+function isFreshCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
+  const parsedExpiresAt = parseCoinGeckoCacheExpiry(entry.expiresAt);
+  return parsedExpiresAt ? parsedExpiresAt.getTime() > Date.now() : false;
+}
+
+function isCacheOverride(entry: CoinGeckoCoinIdCacheEntry) {
+  return entry.source === 'override';
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const coinGeckoCoinIdMemoryCache = new Map<string, CoinGeckoCoinIdCacheEntry>();
+let lastCoinGeckoSearchAt = 0;
+
+async function throttleCoinGeckoSearch() {
+  const elapsed = Date.now() - lastCoinGeckoSearchAt;
+
+  if (elapsed < COINGECKO_SEARCH_MIN_INTERVAL_MS) {
+    await sleep(COINGECKO_SEARCH_MIN_INTERVAL_MS - elapsed);
+  }
+
+  lastCoinGeckoSearchAt = Date.now();
+}
+
+function pickBestCoinGeckoSearchCoin(
+  coins: CoinGeckoSearchCoin[],
+  ticker: string,
+): CoinGeckoSearchCoin | null {
+  if (coins.length === 0) {
+    return null;
+  }
+
+  const normalizedTicker = normalizeCoinGeckoTicker(ticker);
+  const exactMatches = coins.filter(
+    (coin) => normalizeCoinGeckoTicker(coin.symbol) === normalizedTicker,
+  );
+  const candidates = exactMatches.length > 0 ? exactMatches : coins;
+
+  return [...candidates].sort((left, right) => {
+    const leftRank = typeof left.market_cap_rank === 'number' ? left.market_cap_rank : Number.POSITIVE_INFINITY;
+    const rightRank = typeof right.market_cap_rank === 'number' ? right.market_cap_rank : Number.POSITIVE_INFINITY;
+
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
+    }
+
+    const leftSymbolMatch = normalizeCoinGeckoTicker(left.symbol) === normalizedTicker ? 0 : 1;
+    const rightSymbolMatch = normalizeCoinGeckoTicker(right.symbol) === normalizedTicker ? 0 : 1;
+
+    if (leftSymbolMatch !== rightSymbolMatch) {
+      return leftSymbolMatch - rightSymbolMatch;
+    }
+
+    return left.id.localeCompare(right.id);
+  })[0] ?? null;
+}
+
+async function readCoinGeckoCacheEntry(ticker: string) {
+  try {
+    const docRef = getSharedCoinGeckoCoinIdCacheDocRef(ticker);
+    const snapshot = await docRef.get();
+
+    if (!snapshot.exists) {
+      return null;
+    }
+
+    const cached = normalizeCoinGeckoCacheEntry(
+      normalizeCoinGeckoTicker(ticker),
+      snapshot.data() as Record<string, unknown>,
+    );
+
+    if (cached) {
+      coinGeckoCoinIdMemoryCache.set(cached.ticker, cached);
+    }
+
+    return cached;
+  } catch (error) {
+    console.warn(`Failed to read CoinGecko coin id cache for ${ticker}.`, error);
+    return null;
+  }
+}
+
+async function writeCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
+  try {
+    const docRef = getSharedCoinGeckoCoinIdCacheDocRef(entry.ticker);
+    await docRef.set(serializeCoinGeckoCacheEntry(entry), { merge: true });
+    coinGeckoCoinIdMemoryCache.set(entry.ticker, entry);
+  } catch (error) {
+    console.warn(`Failed to write CoinGecko coin id cache for ${entry.ticker}.`, error);
+  }
+}
+
+function createCoinGeckoCacheEntry(params: {
+  ticker: string;
+  coinId: string;
+  coinSymbol: string;
+  coinName: string;
+  marketCapRank: number | null;
+  source: 'override' | 'search';
+}) {
+  const now = new Date();
+  return {
+    ticker: normalizeCoinGeckoTicker(params.ticker),
+    coinId: params.coinId,
+    coinSymbol: params.coinSymbol,
+    coinName: params.coinName,
+    marketCapRank: params.marketCapRank,
+    source: params.source,
+    updatedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + COINGECKO_CACHE_TTL_MS).toISOString(),
+  };
+}
+
+async function fetchCoinGeckoSearchCoins(ticker: string) {
+  const response = await fetch(
+    `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(ticker)}`,
+    {
+      signal: AbortSignal.timeout(15000),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`CoinGecko search HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { coins?: CoinGeckoSearchCoin[] };
+  return Array.isArray(payload.coins) ? payload.coins : [];
+}
+
+async function fetchCoinGeckoCoinIdFromSearch(ticker: string) {
+  await throttleCoinGeckoSearch();
+  const coins = await fetchCoinGeckoSearchCoins(ticker);
+  const bestCoin = pickBestCoinGeckoSearchCoin(coins, ticker);
+
+  if (!bestCoin) {
+    return null;
+  }
+
+  return createCoinGeckoCacheEntry({
+    ticker,
+    coinId: bestCoin.id,
+    coinSymbol: bestCoin.symbol.toUpperCase(),
+    coinName: bestCoin.name,
+    marketCapRank: typeof bestCoin.market_cap_rank === 'number' ? bestCoin.market_cap_rank : null,
+    source: 'search',
+  });
+}
+
+async function resolveCoinGeckoCoinId(ticker: string) {
+  const normalizedTicker = normalizeCoinGeckoTicker(ticker);
+  const override = COINGECKO_ID_OVERRIDES[normalizedTicker];
+
+  if (override) {
+    const entry = createCoinGeckoCacheEntry({
+      ticker: normalizedTicker,
+      coinId: override.coinId,
+      coinSymbol: normalizedTicker,
+      coinName: normalizedTicker,
+      marketCapRank: null,
+      source: 'override',
+    });
+    await writeCoinGeckoCacheEntry(entry);
+
+    return {
+      entry,
+      status: 'override' as const,
+    };
+  }
+
+  const memoryEntry = coinGeckoCoinIdMemoryCache.get(normalizedTicker);
+  if (memoryEntry && isFreshCoinGeckoCacheEntry(memoryEntry)) {
+    return {
+      entry: memoryEntry,
+      status: memoryEntry.source === 'override' ? ('override' as const) : ('cache' as const),
+    };
+  }
+
+  const cacheEntry = memoryEntry ?? (await readCoinGeckoCacheEntry(normalizedTicker));
+  if (cacheEntry && isFreshCoinGeckoCacheEntry(cacheEntry)) {
+    coinGeckoCoinIdMemoryCache.set(normalizedTicker, cacheEntry);
+    return {
+      entry: cacheEntry,
+      status: cacheEntry.source === 'override' ? ('override' as const) : ('cache' as const),
+    };
+  }
+
+  try {
+    const resolvedEntry = await fetchCoinGeckoCoinIdFromSearch(normalizedTicker);
+
+    if (resolvedEntry) {
+      await writeCoinGeckoCacheEntry(resolvedEntry);
+      return {
+        entry: resolvedEntry,
+        status: 'search' as const,
+      };
+    }
+
+    if (cacheEntry) {
+      return {
+        entry: cacheEntry,
+        status: 'fallback_cache' as const,
+      };
+    }
+
+    return {
+      entry: null,
+      status: 'missing' as const,
+    };
+  } catch (error) {
+    console.warn(`Failed to resolve CoinGecko coin id for ${normalizedTicker}.`, error);
+
+    if (cacheEntry) {
+      return {
+        entry: cacheEntry,
+        status: 'fallback_cache' as const,
+      };
+    }
+
+    return {
+      entry: null,
+      status: 'lookup_failed' as const,
+    };
+  }
 }
 
 class UpdatePricesError extends Error {
@@ -196,6 +497,7 @@ function createFailedMarketResult(
   asset: PriceUpdateRequestAsset,
   sourceName: string,
   sourceUrl = '',
+  coinGeckoLookupStatus?: MarketPriceResult['coinGeckoLookupStatus'],
 ): MarketPriceResult {
   return {
     assetId: asset.assetId,
@@ -208,6 +510,7 @@ function createFailedMarketResult(
     sourceName,
     sourceUrl,
     marketState: null,
+    coinGeckoLookupStatus,
   };
 }
 
@@ -323,20 +626,6 @@ async function fetchCoinGeckoPrice(
     return [];
   }
 
-  const idToAsset = new Map<string, PriceUpdateRequestAsset>();
-  const unresolvedAssets: PriceUpdateRequestAsset[] = [];
-
-  for (const asset of assets) {
-    const id = COINGECKO_ID_MAP[asset.ticker.toUpperCase()];
-    if (!id) {
-      unresolvedAssets.push(asset);
-      continue;
-    }
-
-    idToAsset.set(id, asset);
-  }
-
-  const resolvedIds = Array.from(idToAsset.keys());
   const headers: Record<string, string> = {};
   const apiKey = process.env.COINGECKO_API_KEY?.trim();
   if (apiKey) {
@@ -344,12 +633,44 @@ async function fetchCoinGeckoPrice(
   }
 
   const resolvedResults: MarketPriceResult[] = [];
+  const unresolvedResults: MarketPriceResult[] = [];
+  const coinIdToAssets = new Map<
+    string,
+    Array<{ asset: PriceUpdateRequestAsset; status: NonNullable<MarketPriceResult['coinGeckoLookupStatus']> }>
+  >();
 
-  if (resolvedIds.length > 0) {
+  for (const asset of assets) {
+    const resolution = await resolveCoinGeckoCoinId(asset.ticker);
+
+    if (!resolution.entry) {
+      unresolvedResults.push(
+        createFailedMarketResult(
+          asset,
+          resolution.status === 'lookup_failed'
+            ? `${COINGECKO_SOURCE_NAME} 查詢失敗`
+            : `${COINGECKO_SOURCE_NAME} 未能解析代號`,
+          COINGECKO_SOURCE_URL,
+          resolution.status,
+        ),
+      );
+      continue;
+    }
+
+    const current = coinIdToAssets.get(resolution.entry.coinId) ?? [];
+    current.push({
+      asset,
+      status: resolution.status,
+    });
+    coinIdToAssets.set(resolution.entry.coinId, current);
+  }
+
+  const resolvedCoinIds = Array.from(coinIdToAssets.keys());
+
+  if (resolvedCoinIds.length > 0) {
     try {
       const response = await fetch(
         `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
-          resolvedIds.join(','),
+          resolvedCoinIds.join(','),
         )}&vs_currencies=usd&include_last_updated_at=true`,
         {
           headers,
@@ -366,51 +687,57 @@ async function fetchCoinGeckoPrice(
         { usd?: number; last_updated_at?: number }
       >;
 
-      for (const id of resolvedIds) {
-        const asset = idToAsset.get(id)!;
-        const entry = payload[id];
+      for (const coinId of resolvedCoinIds) {
+        const entries = coinIdToAssets.get(coinId) ?? [];
+        const entry = payload[coinId];
 
-        if (!entry || entry.usd == null || entry.usd <= 0) {
-          resolvedResults.push(
-            createFailedMarketResult(asset, `${COINGECKO_SOURCE_NAME} 未返回有效價格`, COINGECKO_SOURCE_URL),
-          );
-          continue;
+        for (const { asset, status } of entries) {
+          if (!entry || entry.usd == null || entry.usd <= 0) {
+            resolvedResults.push(
+              createFailedMarketResult(
+                asset,
+                `${COINGECKO_SOURCE_NAME} 未返回有效價格`,
+                COINGECKO_SOURCE_URL,
+                status,
+              ),
+            );
+            continue;
+          }
+
+          resolvedResults.push({
+            assetId: asset.assetId,
+            assetName: asset.assetName,
+            ticker: asset.ticker,
+            assetType: asset.assetType,
+            price: entry.usd,
+            currency: 'USD',
+            asOf: entry.last_updated_at
+              ? new Date(entry.last_updated_at * 1000).toISOString()
+              : new Date().toISOString(),
+            sourceName: COINGECKO_SOURCE_NAME,
+            sourceUrl: `${COINGECKO_SOURCE_URL}/en/coins/${coinId}`,
+            marketState: 'CRYPTO',
+            coinGeckoLookupStatus: status,
+          });
         }
-
-        resolvedResults.push({
-          assetId: asset.assetId,
-          assetName: asset.assetName,
-          ticker: asset.ticker,
-          assetType: asset.assetType,
-          price: entry.usd,
-          currency: 'USD',
-          asOf: entry.last_updated_at
-            ? new Date(entry.last_updated_at * 1000).toISOString()
-            : new Date().toISOString(),
-          sourceName: COINGECKO_SOURCE_NAME,
-          sourceUrl: `${COINGECKO_SOURCE_URL}/en/coins/${id}`,
-          marketState: 'CRYPTO',
-        });
       }
     } catch (error) {
       resolvedResults.push(
-        ...resolvedIds.map((id) =>
-          createFailedMarketResult(
-            idToAsset.get(id)!,
-            `${COINGECKO_SOURCE_NAME} 查詢失敗`,
-            COINGECKO_SOURCE_URL,
+        ...resolvedCoinIds.flatMap((coinId) =>
+          (coinIdToAssets.get(coinId) ?? []).map(({ asset, status }) =>
+            createFailedMarketResult(
+              asset,
+              `${COINGECKO_SOURCE_NAME} 查詢失敗`,
+              COINGECKO_SOURCE_URL,
+              status === 'override' ? 'override' : 'lookup_failed',
+            ),
           ),
         ),
       );
     }
   }
 
-  return [
-    ...resolvedResults,
-    ...unresolvedAssets.map((asset) =>
-      createFailedMarketResult(asset, `${COINGECKO_SOURCE_NAME} 未設定對應 coin id`, COINGECKO_SOURCE_URL),
-    ),
-  ];
+  return [...resolvedResults, ...unresolvedResults];
 }
 
 function detectFailureCategory(params: {
@@ -428,10 +755,17 @@ function detectFailureCategory(params: {
   }
 
   if (nextPrice == null || nextPrice <= 0) {
-    return asset.assetType === 'crypto' &&
-      !COINGECKO_ID_MAP[asset.ticker.toUpperCase()]
-      ? 'source_missing'
-      : 'price_missing';
+    if (asset.assetType === 'crypto') {
+      if (matched?.coinGeckoLookupStatus === 'missing' || matched?.coinGeckoLookupStatus === 'lookup_failed') {
+        return 'source_missing';
+      }
+
+      if (matched?.sourceName?.includes('CoinGecko')) {
+        return 'price_missing';
+      }
+    }
+
+    return 'price_missing';
   }
 
   if (staleQuote) {
