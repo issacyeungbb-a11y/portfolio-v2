@@ -8,12 +8,6 @@ import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/
 const CRON_ROUTE = '/api/cron-update-prices' as const;
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
-const BATCH_ASSET_MAP: Record<string, string[]> = {
-  '1': ['ADA', 'ASTER', 'ATONE'],
-  '2': ['BNB', 'BTC', 'CRCL'],
-  '3': ['ETH', 'GOOG', 'KAS'],
-  '4': ['MOAT', 'NIGHT', 'NVDA'],
-};
 
 class CronPriceUpdateError extends Error {
   status: number;
@@ -44,16 +38,9 @@ export function verifyCronRequest(authorizationHeader?: string) {
   }
 }
 
-async function readAssetsForPriceUpdate(batch?: string) {
+async function readAssetsForPriceUpdate() {
   const assets = await readAdminPortfolioAssets();
-  const nonCashAssets = assets.filter((asset) => asset.assetType !== 'cash');
-
-  if (batch && BATCH_ASSET_MAP[batch]) {
-    const batchTickers = BATCH_ASSET_MAP[batch].map((ticker) => ticker.toUpperCase());
-    return nonCashAssets.filter((asset) => batchTickers.includes(asset.symbol.toUpperCase()));
-  }
-
-  return nonCashAssets;
+  return assets.filter((asset) => asset.assetType !== 'cash');
 }
 
 function buildPriceUpdateRequest(assets: Awaited<ReturnType<typeof readAssetsForPriceUpdate>>): PriceUpdateRequest {
@@ -145,8 +132,8 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
   };
 }
 
-export async function runScheduledPriceUpdate(batch?: string) {
-  const assets = await readAssetsForPriceUpdate(batch);
+export async function runScheduledPriceUpdate() {
+  const assets = await readAssetsForPriceUpdate();
 
   if (assets.length === 0) {
     return {
@@ -156,7 +143,6 @@ export async function runScheduledPriceUpdate(batch?: string) {
       assetCount: 0,
       appliedCount: 0,
       pendingCount: 0,
-      batch: batch ?? null,
       triggeredAt: new Date().toISOString(),
     };
   }
@@ -174,7 +160,6 @@ export async function runScheduledPriceUpdate(batch?: string) {
     assetCount: assets.length,
     appliedCount: outcome.appliedCount,
     pendingCount: outcome.pendingCount,
-    batch: batch ?? null,
     triggeredAt: new Date().toISOString(),
     model: response.model,
   };
