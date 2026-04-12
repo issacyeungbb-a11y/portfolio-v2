@@ -1769,6 +1769,13 @@ h3 {
   gap: 0.1rem;
 }
 
+.table-metric-pending {
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
 .table-metric-primary {
   font-size: 0.9rem;
   line-height: 1.15;
@@ -1779,6 +1786,10 @@ h3 {
   color: var(--text-muted);
   font-size: 0.76rem;
   line-height: 1.1;
+}
+
+.table-metric-reason {
+  max-width: 7rem;
 }
 
 .holdings-table strong[data-tone="positive"] {
@@ -2832,6 +2843,10 @@ h3 {
   .holdings-table th,
   .holdings-table td {
     padding: 0.68rem 0.76rem;
+  }
+
+  .table-metric-reason {
+    max-width: 5.6rem;
   }
 }
 

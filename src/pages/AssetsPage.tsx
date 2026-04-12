@@ -94,6 +94,36 @@ function formatSnapshotCapturedAt(value?: string) {
   }
 }
 
+function getPendingPriceUpdateReason(review: PendingPriceUpdateReview) {
+  if (review.invalidReason) {
+    const trimmedReason = review.invalidReason.trim();
+    if (trimmedReason.length <= 24) {
+      return trimmedReason;
+    }
+  }
+
+  switch (review.failureCategory) {
+    case 'quote_time':
+      return '價格過舊';
+    case 'source_missing':
+      return '來源缺失';
+    case 'diff_too_large':
+      return '變動過大';
+    case 'price_missing':
+      return '價格缺失';
+    case 'response_format':
+      return '回應格式異常';
+    case 'confidence_low':
+      return '可信度不足';
+    case 'ticker_format':
+      return '代號格式錯誤';
+    case 'unknown':
+      return '待人工檢查';
+    default:
+      return '價格過舊';
+  }
+}
+
 function hasPassedHongKongSnapshotDeadline(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Hong_Kong',
@@ -186,6 +216,10 @@ export function AssetsPage() {
   const pendingPriceCount = holdings.filter(
     (holding) => holding.assetType !== 'cash' && !hasValidHoldingPrice(holding),
   ).length;
+  const pendingPriceUpdateReasons = reviews.reduce<Record<string, string>>((accumulator, review) => {
+    accumulator[review.assetId] = getPendingPriceUpdateReason(review);
+    return accumulator;
+  }, {});
   const latestValidPriceUpdate =
     holdings
       .map((holding) => holding.lastPriceUpdatedAt || '')
@@ -820,6 +854,7 @@ export function AssetsPage() {
           }}
           onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
           updatingAssetIds={updatingAssetIds}
+          pendingPriceUpdateReasons={pendingPriceUpdateReasons}
         />
       </section>
     </div>

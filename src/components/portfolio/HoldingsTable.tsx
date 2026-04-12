@@ -20,6 +20,7 @@ interface HoldingsTableProps {
   onEdit?: (holding: Holding) => void;
   onTrade?: (holding: Holding) => void;
   updatingAssetIds?: string[];
+  pendingPriceUpdateReasons?: Record<string, string>;
 }
 
 type HoldingsSortKey =
@@ -40,6 +41,7 @@ export function HoldingsTable({
   onEdit,
   onTrade,
   updatingAssetIds = [],
+  pendingPriceUpdateReasons = {},
 }: HoldingsTableProps) {
   const [sortKey, setSortKey] = useState<HoldingsSortKey>('marketValue');
   const [sortDirection, setSortDirection] = useState<HoldingsSortDirection>('desc');
@@ -112,6 +114,7 @@ export function HoldingsTable({
     marketValue: number,
     costValue: number,
     hasPendingPrice: boolean,
+    pendingReason?: string,
   ) {
     const unrealizedPnl = marketValue - costValue;
     const unrealizedPct = costValue === 0 ? 0 : (unrealizedPnl / costValue) * 100;
@@ -119,9 +122,11 @@ export function HoldingsTable({
 
     if (hasPendingPrice) {
       return (
-        <div className="table-metric">
+        <div className="table-metric table-metric-pending">
           <strong className="table-metric-primary">待更新</strong>
-          <span className="table-metric-secondary">--</span>
+          <span className="table-metric-secondary table-metric-reason">
+            {pendingReason || '價格過舊'}
+          </span>
         </div>
       );
     }
@@ -198,6 +203,7 @@ export function HoldingsTable({
             {sortedHoldings.map((holding) => {
               const isUpdating = updatingAssetIds.includes(holding.id);
               const hasPendingPrice = !hasValidHoldingPrice(holding);
+              const pendingReason = pendingPriceUpdateReasons[holding.id];
               const averageCost = convertCurrency(
                 holding.averageCost,
                 holding.currency,
@@ -221,22 +227,30 @@ export function HoldingsTable({
                     </div>
                   </td>
                   <td>
-                    <div className="table-metric">
+                    <div className={hasPendingPrice ? 'table-metric table-metric-pending' : 'table-metric'}>
                       <strong className="table-metric-primary">
                         {hasPendingPrice ? '待更新' : formatCurrencyRounded(marketValue, displayCurrency)}
                       </strong>
-                      <span className="table-metric-secondary">
-                        {isCashHolding ? `${holding.currency} 現金` : holding.quantity}
+                      <span className={hasPendingPrice ? 'table-metric-secondary table-metric-reason' : 'table-metric-secondary'}>
+                        {hasPendingPrice
+                          ? pendingReason || '價格過舊'
+                          : isCashHolding
+                            ? `${holding.currency} 現金`
+                            : holding.quantity}
                       </span>
                     </div>
                   </td>
                   <td>
-                    <div className="table-metric">
+                    <div className={hasPendingPrice ? 'table-metric table-metric-pending' : 'table-metric'}>
                       <strong className="table-metric-primary">
                         {hasPendingPrice ? '待更新' : formatCurrency(currentPrice, displayCurrency)}
                       </strong>
-                      <span className="table-metric-secondary">
-                        {isCashHolding ? '現金金額' : formatCurrency(averageCost, displayCurrency)}
+                      <span className={hasPendingPrice ? 'table-metric-secondary table-metric-reason' : 'table-metric-secondary'}>
+                        {hasPendingPrice
+                          ? pendingReason || '價格過舊'
+                          : isCashHolding
+                            ? '現金金額'
+                            : formatCurrency(averageCost, displayCurrency)}
                       </span>
                     </div>
                   </td>
@@ -247,7 +261,7 @@ export function HoldingsTable({
                         <span className="table-metric-secondary">現金不計損益</span>
                       </div>
                     ) : (
-                      renderPnlMetric(marketValue, costValue, hasPendingPrice)
+                      renderPnlMetric(marketValue, costValue, hasPendingPrice, pendingReason)
                     )}
                   </td>
                   <td>{holding.allocation.toFixed(1)}%</td>
