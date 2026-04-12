@@ -1094,6 +1094,13 @@ h3 {
   gap: 0.2rem;
 }
 
+.allocation-value-group {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.45rem;
+  white-space: nowrap;
+}
+
 .allocation-label-group {
   display: flex;
   align-items: center;
