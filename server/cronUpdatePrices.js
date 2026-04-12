@@ -1,7 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { generatePriceUpdates } from './updatePrices.js';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
-import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 const CRON_ROUTE = '/api/cron-update-prices';
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
@@ -59,7 +59,7 @@ async function applyCronResults(results) {
             currentPrice: review.price,
             updatedAt: FieldValue.serverTimestamp(),
             lastPriceUpdatedAt: FieldValue.serverTimestamp(),
-            priceSource: 'ai_auto_applied_cron',
+            priceSource: 'api_auto_cron',
             priceAsOf: review.asOf,
             priceSourceName: review.sourceName,
             priceSourceUrl: review.sourceUrl,
@@ -96,11 +96,6 @@ async function applyCronResults(results) {
     }
     if (validResults.length > 0 || invalidResults.length > 0) {
         await batch.commit();
-    }
-    if (validResults.length > 0) {
-        await captureAdminPortfolioSnapshot({
-            reason: 'price_update_confirmed',
-        });
     }
     return {
         appliedCount: validResults.length,

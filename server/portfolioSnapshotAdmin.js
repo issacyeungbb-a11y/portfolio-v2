@@ -35,6 +35,16 @@ function getHongKongDateKey(date = new Date()) {
   }).format(date);
 }
 
+function validateDailySnapshotId(snapshotId) {
+  if (!snapshotId) {
+    throw new Error('snapshotId is required，必須使用 daily-YYYY-MM-DD 格式');
+  }
+
+  if (!/^daily-\d{4}-\d{2}-\d{2}$/.test(snapshotId)) {
+    throw new Error('snapshotId is required，必須使用 daily-YYYY-MM-DD 格式');
+  }
+}
+
 function normalizeAssetInput(value) {
   return {
     name: typeof value.name === 'string' ? value.name : '',
@@ -70,19 +80,24 @@ export async function readAdminPortfolioAssets() {
 
 export async function captureAdminPortfolioSnapshot(params = {}) {
   const db = getFirebaseAdminDb();
-  const holdings = await readAdminPortfolioAssets();
   const snapshotId = typeof params.snapshotId === 'string' ? params.snapshotId.trim() : '';
-  const snapshotRef = snapshotId
-    ? db
-        .collection(SHARED_PORTFOLIO_COLLECTION)
-        .doc(SHARED_PORTFOLIO_DOC_ID)
-        .collection('portfolioSnapshots')
-        .doc(snapshotId)
-    : db
-        .collection(SHARED_PORTFOLIO_COLLECTION)
-        .doc(SHARED_PORTFOLIO_DOC_ID)
-        .collection('portfolioSnapshots')
-        .doc();
+  validateDailySnapshotId(snapshotId);
+
+  const snapshotRef = db
+    .collection(SHARED_PORTFOLIO_COLLECTION)
+    .doc(SHARED_PORTFOLIO_DOC_ID)
+    .collection('portfolioSnapshots')
+    .doc(snapshotId);
+
+  const existingSnapshot = await snapshotRef.get();
+  if (existingSnapshot.exists) {
+    return {
+      skipped: true,
+      reason: 'already_exists',
+    };
+  }
+
+  const holdings = await readAdminPortfolioAssets();
 
   const holdingsPayload = holdings.map((holding) => ({
     assetId: holding.id,

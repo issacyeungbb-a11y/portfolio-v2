@@ -49,9 +49,9 @@ function isFallbackUsable(asset, todayKey) {
     }
     const hoursSinceUpdate = getHoursSinceUpdate(asset.lastPriceUpdatedAt);
     if (asset.assetType === 'crypto') {
-        return hoursSinceUpdate <= 36;
+        return hoursSinceUpdate <= 72;
     }
-    return hoursSinceUpdate <= 48;
+    return hoursSinceUpdate <= 96;
 }
 function sanitizeFailureCategory(value) {
     if (value === 'ticker_format' ||
@@ -71,7 +71,8 @@ function isSoftPendingCategory(category) {
         category === 'source_missing' ||
         category === 'response_format' ||
         category === 'price_missing' ||
-        category === 'confidence_low');
+        category === 'confidence_low' ||
+        category === 'diff_too_large');
 }
 function parseReviewUpdatedAt(value) {
     if (typeof value === 'string') {
@@ -130,7 +131,7 @@ async function verifyAssetsReadyForDailySnapshot() {
         : Math.round(((nonCashAssets.length - missingAssets.length) / nonCashAssets.length) * 100);
     const canUseFallback = hardPendingReviews.length === 0 &&
         nonCashAssets.length > 0 &&
-        (missingAssets.length <= 2 || coveragePct >= 95);
+        (missingAssets.length <= 5 || coveragePct >= 80);
     return {
         todayKey,
         totalAssets: nonCashAssets.length,
@@ -179,6 +180,19 @@ async function runDailySnapshotWorkflow(mode) {
             coveragePct: 100,
             fallbackAssetCount: 0,
         });
+        if (result.skipped) {
+            return {
+                ok: true,
+                skipped: true,
+                route,
+                message: mode === 'manual'
+                    ? '今日快照已存在，唔會重複補生成。'
+                    : '今日快照已存在，已略過重複寫入。',
+                snapshotId,
+                reason: result.reason,
+                triggeredAt: new Date().toISOString(),
+            };
+        }
         return {
             ok: true,
             route,
@@ -202,6 +216,19 @@ async function runDailySnapshotWorkflow(mode) {
             coveragePct: readiness.coveragePct,
             fallbackAssetCount: readiness.missingAssetCount,
         });
+        if (result.skipped) {
+            return {
+                ok: true,
+                skipped: true,
+                route,
+                message: mode === 'manual'
+                    ? '今日快照已存在，唔會重複補生成。'
+                    : '今日快照已存在，已略過重複寫入。',
+                snapshotId,
+                reason: result.reason,
+                triggeredAt: new Date().toISOString(),
+            };
+        }
         return {
             ok: true,
             route,
