@@ -43,6 +43,7 @@ function buildPriceUpdateRequest(assets) {
             assetType: asset.assetType,
             currentPrice: asset.currentPrice,
             currency: asset.currency,
+            lastPriceUpdatedAt: asset.lastPriceUpdatedAt,
         })),
     };
 }

@@ -15,8 +15,8 @@ import type { AssetType } from '../src/types/portfolio';
 import type { FxRates } from '../src/types/fxRates';
 
 const UPDATE_PRICES_ROUTE = '/api/update-prices' as const;
-const DEFAULT_STOCK_DIFF_THRESHOLD = 0.15;
-const DEFAULT_CRYPTO_DIFF_THRESHOLD = 0.3;
+const DEFAULT_STOCK_DIFF_THRESHOLD = 0.5;
+const DEFAULT_CRYPTO_DIFF_THRESHOLD = 0.8;
 const DEFAULT_FX_RATES = {
   USD: 7.8,
   JPY: 0.052,
@@ -29,7 +29,10 @@ const COINGECKO_SOURCE_URL = 'https://www.coingecko.com';
 const COINGECKO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COINGECKO_SEARCH_MIN_INTERVAL_MS = 2100;
 const YAHOO_PRICE_TIMEOUT_MS = 12000;
+const YAHOO_SINGLE_PRICE_TIMEOUT_MS = 8000;
 const YAHOO_FX_TIMEOUT_MS = 12000;
+const COINGECKO_ON_DEMAND_RESOLVE_LIMIT = 5;
+const COINGECKO_ON_DEMAND_RESOLVE_TIMEOUT_MS = 3000;
 const yahooFinanceClient = new YahooFinance();
 
 const COINGECKO_ID_OVERRIDES: Record<string, { coinId: string }> = {
@@ -158,6 +161,10 @@ function isFreshCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
   return parsedExpiresAt ? parsedExpiresAt.getTime() > Date.now() : false;
 }
 
+export function isCoinGeckoCacheEntryFresh(entry: CoinGeckoCoinIdCacheEntry) {
+  return isFreshCoinGeckoCacheEntry(entry);
+}
+
 function isCacheOverride(entry: CoinGeckoCoinIdCacheEntry) {
   return entry.source === 'override';
 }
@@ -193,6 +200,10 @@ async function readCoinGeckoCacheEntries(tickers: string[]) {
   });
 
   return cacheEntries;
+}
+
+export async function readCoinGeckoCacheEntriesForTickers(tickers: string[]) {
+  return readCoinGeckoCacheEntries(tickers);
 }
 
 const coinGeckoCoinIdMemoryCache = new Map<string, CoinGeckoCoinIdCacheEntry>();
@@ -453,6 +464,7 @@ function normalizeRequestAsset(asset: unknown): PriceUpdateRequestAsset | null {
     assetType: normalizeAssetType(value.assetType),
     currentPrice: value.currentPrice,
     currency: value.currency.trim().toUpperCase(),
+    lastPriceUpdatedAt: typeof value.lastPriceUpdatedAt === 'string' ? value.lastPriceUpdatedAt : undefined,
   };
 }
 
@@ -478,10 +490,31 @@ function normalizeRequest(payload: unknown): PriceUpdateRequest {
   return { assets };
 }
 
-function getReviewThresholdForAsset(assetType: AssetType) {
-  return assetType === 'crypto'
-    ? DEFAULT_CRYPTO_DIFF_THRESHOLD
-    : DEFAULT_STOCK_DIFF_THRESHOLD;
+function getReviewThresholdForAsset(assetType: AssetType, lastUpdatedAt?: string) {
+  const base =
+    assetType === 'crypto'
+      ? DEFAULT_CRYPTO_DIFF_THRESHOLD
+      : DEFAULT_STOCK_DIFF_THRESHOLD;
+
+  if (!lastUpdatedAt) {
+    return base * 3;
+  }
+
+  const parsed = new Date(lastUpdatedAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return base * 3;
+  }
+
+  const hoursSinceUpdate = (Date.now() - parsed.getTime()) / (1000 * 60 * 60);
+  if (hoursSinceUpdate > 72) {
+    return base * 2.5;
+  }
+
+  if (hoursSinceUpdate > 24) {
+    return base * 1.5;
+  }
+
+  return base;
 }
 
 function parseAsOf(value: string | null | undefined) {
@@ -596,6 +629,27 @@ async function fetchCoinGeckoPricePayload(
   return (await response.json()) as CoinGeckoPricePayload;
 }
 
+async function raceWithTimeout<T>(
+  work: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+) {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
   if (asset.assetType === 'crypto') {
     return asset.ticker.toUpperCase();
@@ -648,6 +702,31 @@ export async function fetchLiveFxRates(): Promise<FxRates> {
 
 export { fetchLiveFxRates as fetchFxRates };
 
+function buildYahooResultFromQuote(
+  asset: PriceUpdateRequestAsset,
+  symbol: string,
+  quote: Record<string, unknown> | undefined,
+): MarketPriceResult {
+  const price = readPositiveNumber(quote?.regularMarketPrice);
+
+  if (!quote || price == null) {
+    return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
+  }
+
+  return {
+    assetId: asset.assetId,
+    assetName: asset.assetName,
+    ticker: asset.ticker,
+    assetType: asset.assetType,
+    price,
+    currency: (readStringValue(quote.currency) ?? asset.currency).toUpperCase(),
+    asOf: readDateValue(quote.regularMarketTime) ?? new Date().toISOString(),
+    sourceName: YAHOO_SOURCE_NAME,
+    sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
+    marketState: readStringValue(quote.marketState),
+  };
+}
+
 async function fetchYahooPrice(
   assets: PriceUpdateRequestAsset[],
 ): Promise<MarketPriceResult[]> {
@@ -687,29 +766,43 @@ async function fetchYahooPrice(
     return symbols.map((symbol) => {
       const asset = symbolToAsset.get(symbol)!;
       const quote = quoteBySymbol.get(symbol.toUpperCase());
-      const price = readPositiveNumber(quote?.regularMarketPrice);
-
-      if (!quote || price == null) {
-        return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
-      }
-
-      return {
-        assetId: asset.assetId,
-        assetName: asset.assetName,
-        ticker: asset.ticker,
-        assetType: asset.assetType,
-        price,
-        currency: (readStringValue(quote.currency) ?? asset.currency).toUpperCase(),
-        asOf: readDateValue(quote.regularMarketTime),
-        sourceName: YAHOO_SOURCE_NAME,
-        sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
-        marketState: readStringValue(quote.marketState),
-      };
+      return buildYahooResultFromQuote(asset, symbol, quote as Record<string, unknown> | undefined);
     });
   } catch (error) {
-    return assets.map((asset) =>
-      createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL),
-    );
+    console.warn('Yahoo Finance batch quote failed, retrying one-by-one.', error);
+    const results: MarketPriceResult[] = [];
+
+    for (const symbol of symbols) {
+      const asset = symbolToAsset.get(symbol)!;
+
+      try {
+        const quotes = await yahooFinanceClient.quote(
+          [symbol],
+          {
+            fields: ['symbol', 'currency', 'marketState', 'regularMarketPrice', 'regularMarketTime'],
+            return: 'array',
+          },
+          {
+            fetchOptions: { signal: AbortSignal.timeout(YAHOO_SINGLE_PRICE_TIMEOUT_MS) },
+          },
+        );
+
+        results.push(
+          buildYahooResultFromQuote(
+            asset,
+            symbol,
+            (Array.isArray(quotes) ? quotes[0] : undefined) as Record<string, unknown> | undefined,
+          ),
+        );
+      } catch (retryError) {
+        console.warn(`Yahoo Finance single quote fallback failed for ${symbol}.`, retryError);
+        results.push(
+          createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL),
+        );
+      }
+    }
+
+    return results;
   }
 }
 
@@ -730,6 +823,7 @@ async function fetchCoinGeckoPrice(
   const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
   const resolvedResults: MarketPriceResult[] = [];
   const unresolvedResults: MarketPriceResult[] = [];
+  const missingAssetsByTicker = new Map<string, PriceUpdateRequestAsset[]>();
   const coinIdToAssets = new Map<
     string,
     Array<{ asset: PriceUpdateRequestAsset; status: NonNullable<MarketPriceResult['coinGeckoLookupStatus']> }>
@@ -754,6 +848,9 @@ async function fetchCoinGeckoPrice(
       unresolvedResults.push(
         createFailedMarketResult(asset, '', '', 'missing'),
       );
+      const currentMissing = missingAssetsByTicker.get(normalizedTicker) ?? [];
+      currentMissing.push(asset);
+      missingAssetsByTicker.set(normalizedTicker, currentMissing);
       continue;
     }
 
@@ -763,6 +860,38 @@ async function fetchCoinGeckoPrice(
       status: resolvedEntry.source === 'override' ? 'override' : 'cache',
     });
     coinIdToAssets.set(resolvedEntry.coinId, current);
+  }
+
+  const resolvedOnDemandAssetIds = new Set<string>();
+  const onDemandTickers = Array.from(missingAssetsByTicker.keys()).slice(0, COINGECKO_ON_DEMAND_RESOLVE_LIMIT);
+
+  for (const ticker of onDemandTickers) {
+    try {
+      const resolution = await raceWithTimeout(
+        resolveCoinGeckoCoinId(ticker),
+        COINGECKO_ON_DEMAND_RESOLVE_TIMEOUT_MS,
+        `CoinGecko on-demand resolve timeout for ${ticker}`,
+      );
+
+      if (!resolution.entry) {
+        continue;
+      }
+
+      const assetsForTicker = missingAssetsByTicker.get(ticker) ?? [];
+      const current = coinIdToAssets.get(resolution.entry.coinId) ?? [];
+
+      for (const asset of assetsForTicker) {
+        current.push({
+          asset,
+          status: resolution.status,
+        });
+        resolvedOnDemandAssetIds.add(asset.assetId);
+      }
+
+      coinIdToAssets.set(resolution.entry.coinId, current);
+    } catch (error) {
+      console.warn(`CoinGecko on-demand resolve failed for ${ticker}.`, error);
+    }
   }
 
   const resolvedCoinIds = Array.from(coinIdToAssets.keys());
@@ -808,7 +937,10 @@ async function fetchCoinGeckoPrice(
     }
   }
 
-  return [...resolvedResults, ...unresolvedResults];
+  return [
+    ...resolvedResults,
+    ...unresolvedResults.filter((result) => !resolvedOnDemandAssetIds.has(result.assetId)),
+  ];
 }
 
 function detectFailureCategory(params: {
@@ -847,7 +979,7 @@ function detectFailureCategory(params: {
     return 'source_missing';
   }
 
-  if (diffPct >= getReviewThresholdForAsset(asset.assetType)) {
+  if (diffPct >= getReviewThresholdForAsset(asset.assetType, asset.lastPriceUpdatedAt)) {
     return 'diff_too_large';
   }
 
@@ -863,7 +995,9 @@ function buildReviewResults(
       marketResults.find((item) => item.assetId === asset.assetId) ??
       createFailedMarketResult(asset, '未取得回應');
     const nextPrice = matched.price ?? null;
-    const staleQuote = isStaleQuote(matched.asOf, asset.assetType);
+    const effectiveAsOf =
+      matched.asOf || (nextPrice != null && nextPrice > 0 ? new Date().toISOString() : null);
+    const staleQuote = isStaleQuote(effectiveAsOf, asset.assetType);
     const diffPct =
       nextPrice != null && asset.currentPrice > 0
         ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
@@ -873,7 +1007,7 @@ function buildReviewResults(
       nextPrice > 0 &&
       !staleQuote &&
       Boolean(matched.sourceName || matched.sourceUrl) &&
-      diffPct < getReviewThresholdForAsset(asset.assetType);
+      diffPct < getReviewThresholdForAsset(asset.assetType, asset.lastPriceUpdatedAt);
     const failureCategory = detectFailureCategory({
       asset,
       matched,
@@ -892,7 +1026,7 @@ function buildReviewResults(
       assetType: matched.assetType || asset.assetType,
       price: isValid ? nextPrice : nextPrice,
       currency: (matched.currency || asset.currency).toUpperCase(),
-      asOf: matched.asOf || '',
+      asOf: effectiveAsOf || '',
       sourceName: matched.sourceName || '',
       sourceUrl: matched.sourceUrl || '',
       isValid,
