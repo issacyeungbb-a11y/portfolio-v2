@@ -154,7 +154,7 @@ function normalizeCoinGeckoCacheEntry(
   };
 }
 
-function isFreshCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
+export function isFreshCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
   const parsedExpiresAt = parseCoinGeckoCacheExpiry(entry.expiresAt);
   return parsedExpiresAt ? parsedExpiresAt.getTime() > Date.now() : false;
 }
@@ -167,7 +167,7 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function readCoinGeckoCacheEntries(tickers: string[]) {
+export async function readCoinGeckoCacheEntries(tickers: string[]) {
   if (tickers.length === 0) {
     return new Map<string, CoinGeckoCoinIdCacheEntry>();
   }
@@ -604,11 +604,18 @@ function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
 
   const normalizedTicker = asset.ticker.trim().toUpperCase();
   if (normalizedTicker.endsWith('.HK')) {
+    // 處理 "02800.HK" → "2800.HK"
+    const numPart = normalizedTicker.slice(0, -3).replace(/^0+/, '');
+    if (/^\d{1,5}$/.test(numPart)) {
+      return `${numPart.padStart(4, '0')}.HK`;
+    }
     return normalizedTicker;
   }
 
   if (asset.currency === 'HKD' && /^\d{1,5}$/.test(normalizedTicker)) {
-    return `${normalizedTicker.padStart(4, '0')}.HK`;
+    // 處理 "02800" → "2800.HK"
+    const stripped = normalizedTicker.replace(/^0+/, '') || normalizedTicker;
+    return `${stripped.padStart(4, '0')}.HK`;
   }
 
   return normalizedTicker;
@@ -804,12 +811,16 @@ async function fetchCoinGeckoPrice(
     coinIdToAssets.set(resolvedEntry.coinId, current);
   }
 
-  const ON_DEMAND_RESOLVE_LIMIT = 5;
+  const ON_DEMAND_TIME_BUDGET_MS = 25000;
+  const onDemandStartedAt = Date.now();
   const missingToResolve = unresolvedResults
-    .filter((result) => result.coinGeckoLookupStatus === 'missing')
-    .slice(0, ON_DEMAND_RESOLVE_LIMIT);
+    .filter((result) => result.coinGeckoLookupStatus === 'missing');
 
   for (const missingResult of missingToResolve) {
+    if (Date.now() - onDemandStartedAt >= ON_DEMAND_TIME_BUDGET_MS) {
+      console.warn(`On-demand CoinGecko resolve stopped: time budget exhausted (${ON_DEMAND_TIME_BUDGET_MS}ms).`);
+      break;
+    }
     const asset = assets.find((item) => item.assetId === missingResult.assetId);
     if (!asset) continue;
 

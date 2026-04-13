@@ -1,5 +1,5 @@
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
-import { resolveCoinGeckoCoinId } from './updatePrices.js';
+import { resolveCoinGeckoCoinId, readCoinGeckoCacheEntries, isFreshCoinGeckoCacheEntry } from './updatePrices.js';
 const SYNC_ROUTE = '/api/sync-coin-ids';
 class CoinIdSyncError extends Error {
     status;
@@ -49,12 +49,23 @@ export async function runCoinGeckoCoinIdSync(payload, options) {
             triggeredAt: new Date().toISOString(),
         };
     }
+    const cacheEntries = await readCoinGeckoCacheEntries(tickers);
+    const sortedTickers = [...tickers].sort((a, b) => {
+        const cacheA = cacheEntries.get(a);
+        const cacheB = cacheEntries.get(b);
+        // 完全無 cache → 最優先 (0)
+        // cache 過期 → 次優先 (1)
+        // cache 仲新鮮 → 最後 (2)
+        const scoreA = !cacheA ? 0 : isFreshCoinGeckoCacheEntry(cacheA) ? 2 : 1;
+        const scoreB = !cacheB ? 0 : isFreshCoinGeckoCacheEntry(cacheB) ? 2 : 1;
+        return scoreA - scoreB;
+    });
     const results = [];
     let skippedCount = 0;
-    for (const ticker of tickers) {
+    for (const ticker of sortedTickers) {
         if (typeof timeBudgetMs === 'number' && timeBudgetMs > 0 && Date.now() - startedAt >= timeBudgetMs) {
             const processedCount = results.length;
-            const remainingTickers = tickers.slice(processedCount);
+            const remainingTickers = sortedTickers.slice(processedCount);
             skippedCount = remainingTickers.length;
             for (const skippedTicker of remainingTickers) {
                 results.push({
