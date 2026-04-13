@@ -9,7 +9,6 @@ export interface PriceUpdateRequestAsset {
   assetType: AssetType;
   currentPrice: number;
   currency: string;
-  lastPriceUpdatedAt?: string;
 }
 
 export interface PriceUpdateRequest {

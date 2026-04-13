@@ -400,7 +400,6 @@ export function AssetsPage() {
         assetType: holding.assetType,
         currentPrice: holding.currentPrice,
         currency: holding.currency,
-        lastPriceUpdatedAt: holding.lastPriceUpdatedAt,
       })),
     };
   }

@@ -1,9 +1,5 @@
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
-import {
-  isCoinGeckoCacheEntryFresh,
-  readCoinGeckoCacheEntriesForTickers,
-  resolveCoinGeckoCoinId,
-} from './updatePrices.js';
+import { resolveCoinGeckoCoinId } from './updatePrices.js';
 
 const SYNC_ROUTE = '/api/sync-coin-ids' as const;
 
@@ -85,22 +81,13 @@ export async function runCoinGeckoCoinIdSync(payload?: unknown, options?: CoinId
     };
   }
 
-  const cacheEntries = await readCoinGeckoCacheEntriesForTickers(tickers);
-  const prioritizedTickers = [...tickers].sort((left, right) => {
-    const leftEntry = cacheEntries.get(left);
-    const rightEntry = cacheEntries.get(right);
-    const leftScore = !leftEntry ? 0 : isCoinGeckoCacheEntryFresh(leftEntry) ? 2 : 1;
-    const rightScore = !rightEntry ? 0 : isCoinGeckoCacheEntryFresh(rightEntry) ? 2 : 1;
-    return leftScore - rightScore;
-  });
-
   const results: CoinIdSyncResultItem[] = [];
   let skippedCount = 0;
 
-  for (const ticker of prioritizedTickers) {
+  for (const ticker of tickers) {
     if (typeof timeBudgetMs === 'number' && timeBudgetMs > 0 && Date.now() - startedAt >= timeBudgetMs) {
       const processedCount = results.length;
-      const remainingTickers = prioritizedTickers.slice(processedCount);
+      const remainingTickers = tickers.slice(processedCount);
       skippedCount = remainingTickers.length;
 
       for (const skippedTicker of remainingTickers) {
@@ -117,20 +104,6 @@ export async function runCoinGeckoCoinIdSync(payload?: unknown, options?: CoinId
       }
 
       break;
-    }
-
-    const cacheEntry = cacheEntries.get(ticker);
-    if (cacheEntry && isCoinGeckoCacheEntryFresh(cacheEntry)) {
-      results.push({
-        ticker,
-        status: cacheEntry.source === 'override' ? 'override' : 'cache',
-        coinId: cacheEntry.coinId,
-        coinSymbol: cacheEntry.coinSymbol,
-        marketCapRank: cacheEntry.marketCapRank,
-        updatedAt: cacheEntry.updatedAt,
-        expiresAt: cacheEntry.expiresAt,
-      });
-      continue;
     }
 
     try {

@@ -31,8 +31,6 @@ const COINGECKO_SEARCH_MIN_INTERVAL_MS = 2100;
 const YAHOO_PRICE_TIMEOUT_MS = 12000;
 const YAHOO_SINGLE_PRICE_TIMEOUT_MS = 8000;
 const YAHOO_FX_TIMEOUT_MS = 12000;
-const COINGECKO_ON_DEMAND_RESOLVE_LIMIT = 5;
-const COINGECKO_ON_DEMAND_RESOLVE_TIMEOUT_MS = 3000;
 const yahooFinanceClient = new YahooFinance();
 
 const COINGECKO_ID_OVERRIDES: Record<string, { coinId: string }> = {
@@ -161,10 +159,6 @@ function isFreshCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
   return parsedExpiresAt ? parsedExpiresAt.getTime() > Date.now() : false;
 }
 
-export function isCoinGeckoCacheEntryFresh(entry: CoinGeckoCoinIdCacheEntry) {
-  return isFreshCoinGeckoCacheEntry(entry);
-}
-
 function isCacheOverride(entry: CoinGeckoCoinIdCacheEntry) {
   return entry.source === 'override';
 }
@@ -200,10 +194,6 @@ async function readCoinGeckoCacheEntries(tickers: string[]) {
   });
 
   return cacheEntries;
-}
-
-export async function readCoinGeckoCacheEntriesForTickers(tickers: string[]) {
-  return readCoinGeckoCacheEntries(tickers);
 }
 
 const coinGeckoCoinIdMemoryCache = new Map<string, CoinGeckoCoinIdCacheEntry>();
@@ -464,7 +454,6 @@ function normalizeRequestAsset(asset: unknown): PriceUpdateRequestAsset | null {
     assetType: normalizeAssetType(value.assetType),
     currentPrice: value.currentPrice,
     currency: value.currency.trim().toUpperCase(),
-    lastPriceUpdatedAt: typeof value.lastPriceUpdatedAt === 'string' ? value.lastPriceUpdatedAt : undefined,
   };
 }
 
@@ -490,31 +479,10 @@ function normalizeRequest(payload: unknown): PriceUpdateRequest {
   return { assets };
 }
 
-function getReviewThresholdForAsset(assetType: AssetType, lastUpdatedAt?: string) {
-  const base =
-    assetType === 'crypto'
-      ? DEFAULT_CRYPTO_DIFF_THRESHOLD
-      : DEFAULT_STOCK_DIFF_THRESHOLD;
-
-  if (!lastUpdatedAt) {
-    return base * 3;
-  }
-
-  const parsed = new Date(lastUpdatedAt);
-  if (Number.isNaN(parsed.getTime())) {
-    return base * 3;
-  }
-
-  const hoursSinceUpdate = (Date.now() - parsed.getTime()) / (1000 * 60 * 60);
-  if (hoursSinceUpdate > 72) {
-    return base * 2.5;
-  }
-
-  if (hoursSinceUpdate > 24) {
-    return base * 1.5;
-  }
-
-  return base;
+function getReviewThresholdForAsset(assetType: AssetType) {
+  return assetType === 'crypto'
+    ? DEFAULT_CRYPTO_DIFF_THRESHOLD
+    : DEFAULT_STOCK_DIFF_THRESHOLD;
 }
 
 function parseAsOf(value: string | null | undefined) {
@@ -629,27 +597,6 @@ async function fetchCoinGeckoPricePayload(
   return (await response.json()) as CoinGeckoPricePayload;
 }
 
-async function raceWithTimeout<T>(
-  work: Promise<T>,
-  timeoutMs: number,
-  timeoutMessage: string,
-) {
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-
-  try {
-    return await Promise.race([
-      work,
-      new Promise<T>((_, reject) => {
-        timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeoutHandle) {
-      clearTimeout(timeoutHandle);
-    }
-  }
-}
-
 function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
   if (asset.assetType === 'crypto') {
     return asset.ticker.toUpperCase();
@@ -702,31 +649,6 @@ export async function fetchLiveFxRates(): Promise<FxRates> {
 
 export { fetchLiveFxRates as fetchFxRates };
 
-function buildYahooResultFromQuote(
-  asset: PriceUpdateRequestAsset,
-  symbol: string,
-  quote: Record<string, unknown> | undefined,
-): MarketPriceResult {
-  const price = readPositiveNumber(quote?.regularMarketPrice);
-
-  if (!quote || price == null) {
-    return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
-  }
-
-  return {
-    assetId: asset.assetId,
-    assetName: asset.assetName,
-    ticker: asset.ticker,
-    assetType: asset.assetType,
-    price,
-    currency: (readStringValue(quote.currency) ?? asset.currency).toUpperCase(),
-    asOf: readDateValue(quote.regularMarketTime) ?? new Date().toISOString(),
-    sourceName: YAHOO_SOURCE_NAME,
-    sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
-    marketState: readStringValue(quote.marketState),
-  };
-}
-
 async function fetchYahooPrice(
   assets: PriceUpdateRequestAsset[],
 ): Promise<MarketPriceResult[]> {
@@ -766,43 +688,67 @@ async function fetchYahooPrice(
     return symbols.map((symbol) => {
       const asset = symbolToAsset.get(symbol)!;
       const quote = quoteBySymbol.get(symbol.toUpperCase());
-      return buildYahooResultFromQuote(asset, symbol, quote as Record<string, unknown> | undefined);
+      const price = readPositiveNumber(quote?.regularMarketPrice);
+
+      if (!quote || price == null) {
+        return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
+      }
+
+      return {
+        assetId: asset.assetId,
+        assetName: asset.assetName,
+        ticker: asset.ticker,
+        assetType: asset.assetType,
+        price,
+        currency: (readStringValue(quote.currency) ?? asset.currency).toUpperCase(),
+        asOf: readDateValue(quote.regularMarketTime),
+        sourceName: YAHOO_SOURCE_NAME,
+        sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
+        marketState: readStringValue(quote.marketState),
+      };
     });
   } catch (error) {
     console.warn('Yahoo Finance batch quote failed, retrying one-by-one.', error);
-    const results: MarketPriceResult[] = [];
+    const retryResults: MarketPriceResult[] = [];
 
     for (const symbol of symbols) {
       const asset = symbolToAsset.get(symbol)!;
 
       try {
-        const quotes = await yahooFinanceClient.quote(
+        const retryQuotes = await yahooFinanceClient.quote(
           [symbol],
           {
             fields: ['symbol', 'currency', 'marketState', 'regularMarketPrice', 'regularMarketTime'],
             return: 'array',
           },
-          {
-            fetchOptions: { signal: AbortSignal.timeout(YAHOO_SINGLE_PRICE_TIMEOUT_MS) },
-          },
+          { fetchOptions: { signal: AbortSignal.timeout(YAHOO_SINGLE_PRICE_TIMEOUT_MS) } },
         );
+        const quote = retryQuotes[0];
+        const price = readPositiveNumber(quote?.regularMarketPrice);
 
-        results.push(
-          buildYahooResultFromQuote(
-            asset,
-            symbol,
-            (Array.isArray(quotes) ? quotes[0] : undefined) as Record<string, unknown> | undefined,
-          ),
-        );
+        if (!quote || price == null) {
+          retryResults.push(createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL));
+          continue;
+        }
+
+        retryResults.push({
+          assetId: asset.assetId,
+          assetName: asset.assetName,
+          ticker: asset.ticker,
+          assetType: asset.assetType,
+          price,
+          currency: (readStringValue(quote.currency) ?? asset.currency).toUpperCase(),
+          asOf: readDateValue(quote.regularMarketTime),
+          sourceName: YAHOO_SOURCE_NAME,
+          sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
+          marketState: readStringValue(quote.marketState),
+        });
       } catch (retryError) {
-        console.warn(`Yahoo Finance single quote fallback failed for ${symbol}.`, retryError);
-        results.push(
-          createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL),
-        );
+        retryResults.push(createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL));
       }
     }
 
-    return results;
+    return retryResults;
   }
 }
 
@@ -823,7 +769,6 @@ async function fetchCoinGeckoPrice(
   const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
   const resolvedResults: MarketPriceResult[] = [];
   const unresolvedResults: MarketPriceResult[] = [];
-  const missingAssetsByTicker = new Map<string, PriceUpdateRequestAsset[]>();
   const coinIdToAssets = new Map<
     string,
     Array<{ asset: PriceUpdateRequestAsset; status: NonNullable<MarketPriceResult['coinGeckoLookupStatus']> }>
@@ -848,9 +793,6 @@ async function fetchCoinGeckoPrice(
       unresolvedResults.push(
         createFailedMarketResult(asset, '', '', 'missing'),
       );
-      const currentMissing = missingAssetsByTicker.get(normalizedTicker) ?? [];
-      currentMissing.push(asset);
-      missingAssetsByTicker.set(normalizedTicker, currentMissing);
       continue;
     }
 
@@ -862,35 +804,26 @@ async function fetchCoinGeckoPrice(
     coinIdToAssets.set(resolvedEntry.coinId, current);
   }
 
-  const resolvedOnDemandAssetIds = new Set<string>();
-  const onDemandTickers = Array.from(missingAssetsByTicker.keys()).slice(0, COINGECKO_ON_DEMAND_RESOLVE_LIMIT);
+  const ON_DEMAND_RESOLVE_LIMIT = 5;
+  const missingToResolve = unresolvedResults
+    .filter((result) => result.coinGeckoLookupStatus === 'missing')
+    .slice(0, ON_DEMAND_RESOLVE_LIMIT);
 
-  for (const ticker of onDemandTickers) {
+  for (const missingResult of missingToResolve) {
+    const asset = assets.find((item) => item.assetId === missingResult.assetId);
+    if (!asset) continue;
+
     try {
-      const resolution = await raceWithTimeout(
-        resolveCoinGeckoCoinId(ticker),
-        COINGECKO_ON_DEMAND_RESOLVE_TIMEOUT_MS,
-        `CoinGecko on-demand resolve timeout for ${ticker}`,
-      );
-
-      if (!resolution.entry) {
-        continue;
+      const resolution = await resolveCoinGeckoCoinId(asset.ticker);
+      if (resolution.entry) {
+        const idx = unresolvedResults.indexOf(missingResult);
+        if (idx >= 0) unresolvedResults.splice(idx, 1);
+        const current = coinIdToAssets.get(resolution.entry.coinId) ?? [];
+        current.push({ asset, status: resolution.status });
+        coinIdToAssets.set(resolution.entry.coinId, current);
       }
-
-      const assetsForTicker = missingAssetsByTicker.get(ticker) ?? [];
-      const current = coinIdToAssets.get(resolution.entry.coinId) ?? [];
-
-      for (const asset of assetsForTicker) {
-        current.push({
-          asset,
-          status: resolution.status,
-        });
-        resolvedOnDemandAssetIds.add(asset.assetId);
-      }
-
-      coinIdToAssets.set(resolution.entry.coinId, current);
-    } catch (error) {
-      console.warn(`CoinGecko on-demand resolve failed for ${ticker}.`, error);
+    } catch (resolveError) {
+      console.warn(`On-demand CoinGecko resolve failed for ${asset.ticker}.`, resolveError);
     }
   }
 
@@ -937,10 +870,7 @@ async function fetchCoinGeckoPrice(
     }
   }
 
-  return [
-    ...resolvedResults,
-    ...unresolvedResults.filter((result) => !resolvedOnDemandAssetIds.has(result.assetId)),
-  ];
+  return [...resolvedResults, ...unresolvedResults];
 }
 
 function detectFailureCategory(params: {
@@ -979,7 +909,7 @@ function detectFailureCategory(params: {
     return 'source_missing';
   }
 
-  if (diffPct >= getReviewThresholdForAsset(asset.assetType, asset.lastPriceUpdatedAt)) {
+  if (diffPct >= getReviewThresholdForAsset(asset.assetType)) {
     return 'diff_too_large';
   }
 
@@ -1007,7 +937,7 @@ function buildReviewResults(
       nextPrice > 0 &&
       !staleQuote &&
       Boolean(matched.sourceName || matched.sourceUrl) &&
-      diffPct < getReviewThresholdForAsset(asset.assetType, asset.lastPriceUpdatedAt);
+      diffPct < getReviewThresholdForAsset(asset.assetType);
     const failureCategory = detectFailureCategory({
       asset,
       matched,

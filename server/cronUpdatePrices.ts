@@ -56,7 +56,6 @@ function buildPriceUpdateRequest(assets: Awaited<ReturnType<typeof readAssetsFor
       assetType: asset.assetType,
       currentPrice: asset.currentPrice,
       currency: asset.currency,
-      lastPriceUpdatedAt: asset.lastPriceUpdatedAt,
     })),
   };
 }
