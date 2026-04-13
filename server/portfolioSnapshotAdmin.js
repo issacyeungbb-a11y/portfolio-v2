@@ -89,12 +89,14 @@ export async function captureAdminPortfolioSnapshot(params = {}) {
     .collection('portfolioSnapshots')
     .doc(snapshotId);
 
-  const existingSnapshot = await snapshotRef.get();
-  if (existingSnapshot.exists) {
-    return {
-      skipped: true,
-      reason: 'already_exists',
-    };
+  if (!params.force) {
+    const existingSnapshot = await snapshotRef.get();
+    if (existingSnapshot.exists) {
+      return {
+        skipped: true,
+        reason: 'already_exists',
+      };
+    }
   }
 
   const holdings = await readAdminPortfolioAssets();
@@ -121,7 +123,10 @@ export async function captureAdminPortfolioSnapshot(params = {}) {
     netExternalFlowHKD: typeof params.netExternalFlowHKD === 'number' ? params.netExternalFlowHKD : 0,
     assetCount: holdings.length,
     holdings: holdingsPayload,
-    reason: typeof params.reason === 'string' ? params.reason : 'snapshot',
+    reason: typeof params.reason === 'string' ? params.reason : 'daily_snapshot',
+    snapshotQuality: params.snapshotQuality ?? 'strict',
+    coveragePct: typeof params.coveragePct === 'number' ? params.coveragePct : 100,
+    fallbackAssetCount: typeof params.fallbackAssetCount === 'number' ? params.fallbackAssetCount : 0,
     updatedAt: FieldValue.serverTimestamp(),
   });
 

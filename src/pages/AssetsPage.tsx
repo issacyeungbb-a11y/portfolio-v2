@@ -305,20 +305,14 @@ export function AssetsPage() {
     try {
       const result = (await triggerManualSnapshot()) as {
         ok?: boolean;
-        skipped?: boolean;
         message?: string;
       };
 
-      if (result.skipped) {
-        setManualSnapshotError(result.message ?? '今日快照仍未能補生成。');
-        return;
-      }
-
-      setManualSnapshotSuccess(result.message ?? '已補生成今日快照。');
+      setManualSnapshotSuccess(result.message ?? '已後補今日快照。');
       await refreshTodaySnapshot();
     } catch (error) {
       setManualSnapshotError(
-        error instanceof Error ? error.message : '補生成今日快照失敗，請稍後再試。',
+        error instanceof Error ? error.message : '後補快照失敗，請稍後再試。',
       );
     } finally {
       setIsGeneratingManualSnapshot(false);
@@ -759,7 +753,7 @@ export function AssetsPage() {
       />
       {shouldShowMissingSnapshotNotice ? (
         <div className="status-message status-message-error">
-          <p>今日快照未能自動生成，建議手動補生成以確保走勢數據完整。</p>
+          <p>今日快照未能自動生成，建議手動後補以確保走勢數據完整。</p>
           <div className="button-row">
             <button
               className="button button-secondary"
@@ -767,7 +761,7 @@ export function AssetsPage() {
               onClick={handleTriggerManualSnapshot}
               disabled={isGeneratingManualSnapshot}
             >
-              {isGeneratingManualSnapshot ? '生成中...' : '補生成今日快照'}
+              {isGeneratingManualSnapshot ? '生成中...' : '後補快照'}
             </button>
           </div>
         </div>

@@ -109,6 +109,7 @@ export async function captureAdminPortfolioSnapshot(params: {
   snapshotQuality?: 'strict' | 'fallback';
   coveragePct?: number;
   fallbackAssetCount?: number;
+  force?: boolean;
 }) {
   const db = getFirebaseAdminDb();
   const snapshotId = params.snapshotId?.trim();
@@ -120,13 +121,16 @@ export async function captureAdminPortfolioSnapshot(params: {
     .doc(SHARED_PORTFOLIO_DOC_ID)
     .collection('portfolioSnapshots')
     .doc(snapshotId);
-  const existingSnapshot = await snapshotRef.get();
 
-  if (existingSnapshot.exists) {
-    return {
-      skipped: true as const,
-      reason: 'already_exists' as const,
-    };
+  if (!params.force) {
+    const existingSnapshot = await snapshotRef.get();
+
+    if (existingSnapshot.exists) {
+      return {
+        skipped: true as const,
+        reason: 'already_exists' as const,
+      };
+    }
   }
 
   const holdings = await readAdminPortfolioAssets();

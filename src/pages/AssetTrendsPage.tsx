@@ -100,10 +100,10 @@ function buildLinePath(values: number[], width: number, height: number) {
 
 function buildCalendarEntries(
   history: PortfolioPerformancePoint[],
-  currentPoint: PortfolioPerformancePoint,
+  currentPoint: PortfolioPerformancePoint | null,
   cashFlows: AccountCashFlowEntry[],
 ) {
-  const byDate = [...history, currentPoint]
+  const byDate = [...history, ...(currentPoint ? [currentPoint] : [])]
     .sort((left, right) => left.date.localeCompare(right.date))
     .reduce<Map<string, PortfolioPerformancePoint>>((map, point) => {
       map.set(point.date, point);
@@ -261,7 +261,7 @@ export function AssetTrendsPage() {
     320,
     180,
   );
-  const calendarEntries = buildCalendarEntries(history, currentPoint, cashFlows);
+  const calendarEntries = buildCalendarEntries(history, todaySnapshotExists ? currentPoint : null, cashFlows);
   const calendarMap = new Map(calendarEntries.map((entry) => [entry.date, entry]));
   const calendarGrid = buildCalendarGrid(currentPoint.date);
   const monthlyCalendarPnLHKD = calendarEntries

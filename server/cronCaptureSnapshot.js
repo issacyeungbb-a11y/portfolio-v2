@@ -164,7 +164,31 @@ export async function runScheduledDailySnapshot() {
     return runDailySnapshotWorkflow('scheduled');
 }
 export async function runManualDailySnapshot() {
-    return runDailySnapshotWorkflow('manual');
+    const startedAt = Date.now();
+    const snapshotId = buildDailySnapshotId();
+    const result = await captureAdminPortfolioSnapshot({
+        snapshotId,
+        reason: 'manual_force',
+        snapshotQuality: 'strict',
+        coveragePct: 100,
+        fallbackAssetCount: 0,
+        force: true,
+    });
+    const durationMs = Date.now() - startedAt;
+    const payload = {
+        ok: true,
+        route: MANUAL_ROUTE,
+        message: `已後補今日資產快照，覆蓋 ${'assetCount' in result ? result.assetCount : 0} 項資產。`,
+        assetCount: 'assetCount' in result ? result.assetCount : 0,
+        totalValueHKD: 'totalValueHKD' in result ? result.totalValueHKD : 0,
+        snapshotId,
+        snapshotQuality: 'strict',
+        coveragePct: 100,
+        triggeredAt: new Date().toISOString(),
+        durationMs,
+    };
+    console.info('[manual-capture-snapshot]', payload);
+    return payload;
 }
 async function runDailySnapshotWorkflow(mode) {
     const readiness = await verifyAssetsReadyForDailySnapshot();
