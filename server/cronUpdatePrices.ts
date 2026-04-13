@@ -10,7 +10,8 @@ import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/
 const CRON_ROUTE = '/api/cron-update-prices' as const;
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
-const CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS = 12000;
+const CRON_COIN_GECKO_SYNC_TIMEOUT_MS = 20_000;
+const CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS = 18_000;
 
 class CronPriceUpdateError extends Error {
   status: number;
@@ -150,30 +151,83 @@ async function persistFxRates(fxRates: FxRates) {
   );
 }
 
+function createStepTimings() {
+  return {
+    readAssetsMs: 0,
+    coinGeckoSyncMs: 0,
+    fxRatesMs: 0,
+    persistFxRatesMs: 0,
+    generatePricesMs: 0,
+    writeResultsMs: 0,
+  };
+}
+
+function getDurationMs(startedAt: number) {
+  return Date.now() - startedAt;
+}
+
+async function raceWithTimeout<T>(work: Promise<T>, timeoutMs: number, timeoutMessage: string) {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 export async function runScheduledPriceUpdate() {
+  const startedAt = Date.now();
+  const stepTimings = createStepTimings();
+  const assetsStartedAt = Date.now();
   const assets = await readAssetsForPriceUpdate();
+  stepTimings.readAssetsMs = getDurationMs(assetsStartedAt);
   const cryptoTickers = [...new Set(
     assets
       .filter((asset) => asset.assetType === 'crypto')
       .map((asset) => asset.symbol.trim().toUpperCase())
       .filter(Boolean),
   )];
+  let coinGeckoSyncStatus: 'skipped' | 'ok' | 'timeout' | 'failed' = 'skipped';
 
   if (cryptoTickers.length > 0) {
+    const syncStartedAt = Date.now();
     try {
-      await runCoinGeckoCoinIdSync({ tickers: cryptoTickers }, {
-        timeBudgetMs: CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS,
-      });
+      await raceWithTimeout(
+        runCoinGeckoCoinIdSync({ tickers: cryptoTickers }, {
+          timeBudgetMs: CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS,
+        }),
+        CRON_COIN_GECKO_SYNC_TIMEOUT_MS,
+        'CoinGecko sync timeout',
+      );
+      coinGeckoSyncStatus = 'ok';
     } catch (error) {
+      coinGeckoSyncStatus =
+        error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'failed';
       console.warn('CoinGecko coin id sync failed before price update.', error);
+    } finally {
+      stepTimings.coinGeckoSyncMs = getDurationMs(syncStartedAt);
     }
   }
 
+  const fxStartedAt = Date.now();
   const fxRates = await fetchLiveFxRates();
+  stepTimings.fxRatesMs = getDurationMs(fxStartedAt);
+
+  const persistStartedAt = Date.now();
   await persistFxRates(fxRates);
+  stepTimings.persistFxRatesMs = getDurationMs(persistStartedAt);
 
   if (assets.length === 0) {
-    return {
+    const durationMs = getDurationMs(startedAt);
+    const response = {
       ok: true,
       route: CRON_ROUTE,
       message: '目前沒有可自動更新價格的資產。',
@@ -181,13 +235,25 @@ export async function runScheduledPriceUpdate() {
       appliedCount: 0,
       pendingCount: 0,
       triggeredAt: new Date().toISOString(),
+      durationMs,
+      coinGeckoSyncStatus,
+      stepTimings,
+    };
+    console.info('[cron-update-prices]', response);
+    return {
+      ...response,
     };
   }
 
+  const generateStartedAt = Date.now();
   const response = await generatePriceUpdates(buildPriceUpdateRequest(assets));
-  const outcome = await applyCronResults(response.results);
+  stepTimings.generatePricesMs = getDurationMs(generateStartedAt);
 
-  return {
+  const writeStartedAt = Date.now();
+  const outcome = await applyCronResults(response.results);
+  stepTimings.writeResultsMs = getDurationMs(writeStartedAt);
+  const durationMs = getDurationMs(startedAt);
+  const payload = {
     ok: true,
     route: CRON_ROUTE,
     message:
@@ -199,6 +265,14 @@ export async function runScheduledPriceUpdate() {
     pendingCount: outcome.pendingCount,
     triggeredAt: new Date().toISOString(),
     model: response.model,
+    durationMs,
+    coinGeckoSyncStatus,
+    stepTimings,
+  };
+  console.info('[cron-update-prices]', payload);
+
+  return {
+    ...payload,
   };
 }
 

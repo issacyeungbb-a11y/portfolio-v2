@@ -125,6 +125,17 @@ function parseReviewUpdatedAt(value: unknown) {
   return null;
 }
 
+function createSnapshotStepTimings() {
+  return {
+    readinessMs: 0,
+    snapshotWriteMs: 0,
+  };
+}
+
+function getDurationMs(startedAt: number) {
+  return Date.now() - startedAt;
+}
+
 async function verifyAssetsReadyForDailySnapshot() {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection('portfolio').doc('app');
@@ -214,13 +225,18 @@ export async function runManualDailySnapshot() {
 }
 
 async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
+  const startedAt = Date.now();
+  const stepTimings = createSnapshotStepTimings();
+  const readinessStartedAt = Date.now();
   const readiness = await verifyAssetsReadyForDailySnapshot();
+  stepTimings.readinessMs = getDurationMs(readinessStartedAt);
   const snapshotReason = 'daily_snapshot';
   const fallbackReason = 'daily_snapshot_fallback';
   const route = mode === 'manual' ? MANUAL_ROUTE : CRON_ROUTE;
 
   if (readiness.isReady) {
     const snapshotId = buildDailySnapshotId();
+    const snapshotWriteStartedAt = Date.now();
     const result = await captureAdminPortfolioSnapshot({
       snapshotId,
       reason: snapshotReason,
@@ -228,9 +244,11 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
       coveragePct: 100,
       fallbackAssetCount: 0,
     });
+    stepTimings.snapshotWriteMs = getDurationMs(snapshotWriteStartedAt);
+    const durationMs = getDurationMs(startedAt);
 
     if (result.skipped) {
-      return {
+      const payload = {
         ok: true,
         skipped: true,
         route,
@@ -241,10 +259,14 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
         snapshotId,
         reason: result.reason,
         triggeredAt: new Date().toISOString(),
+        durationMs,
+        stepTimings,
       };
+      console.info('[cron-capture-snapshot]', payload);
+      return payload;
     }
 
-    return {
+    const payload = {
       ok: true,
       route,
       message:
@@ -257,11 +279,16 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
       snapshotQuality: 'strict' as const,
       coveragePct: 100,
       triggeredAt: new Date().toISOString(),
+      durationMs,
+      stepTimings,
     };
+    console.info('[cron-capture-snapshot]', payload);
+    return payload;
   }
 
   if (readiness.canUseFallback) {
     const snapshotId = buildDailySnapshotId();
+    const snapshotWriteStartedAt = Date.now();
     const result = await captureAdminPortfolioSnapshot({
       snapshotId,
       reason: fallbackReason,
@@ -269,9 +296,11 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
       coveragePct: readiness.coveragePct,
       fallbackAssetCount: readiness.missingAssetCount,
     });
+    stepTimings.snapshotWriteMs = getDurationMs(snapshotWriteStartedAt);
+    const durationMs = getDurationMs(startedAt);
 
     if (result.skipped) {
-      return {
+      const payload = {
         ok: true,
         skipped: true,
         route,
@@ -282,10 +311,14 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
         snapshotId,
         reason: result.reason,
         triggeredAt: new Date().toISOString(),
+        durationMs,
+        stepTimings,
       };
+      console.info('[cron-capture-snapshot]', payload);
+      return payload;
     }
 
-    return {
+    const payload = {
       ok: true,
       route,
       message:
@@ -301,10 +334,15 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
       fallbackAssetSymbols: readiness.fallbackAssets.map((asset) => asset.symbol).slice(0, 10),
       softPendingReviewCount: readiness.softPendingReviewCount,
       triggeredAt: new Date().toISOString(),
+      durationMs,
+      stepTimings,
     };
+    console.info('[cron-capture-snapshot]', payload);
+    return payload;
   }
 
-  return {
+  const durationMs = getDurationMs(startedAt);
+  const payload = {
     ok: true,
     skipped: true,
     route,
@@ -320,7 +358,11 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
     coveragePct: readiness.coveragePct,
     staleAssetSymbols: readiness.staleAssets.map((asset) => asset.symbol).slice(0, 10),
     triggeredAt: new Date().toISOString(),
+    durationMs,
+    stepTimings,
   };
+  console.info('[cron-capture-snapshot]', payload);
+  return payload;
 }
 
 export function getCronSnapshotErrorResponse(error: unknown, route: string = CRON_ROUTE) {

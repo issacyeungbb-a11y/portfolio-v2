@@ -36,6 +36,7 @@ import type {
 import type { PendingPriceUpdateReview, PriceUpdateRequest, PriceUpdateResponse } from '../types/priceUpdates';
 
 const MANUAL_PRICE_UPDATE_BATCH_SIZE = 3;
+const MANUAL_PRICE_UPDATE_RETRY_DELAY_MS = 2000;
 
 const assetFilterOptions: Array<{ value: AssetType | 'all'; label: string }> = [
   { value: 'all', label: '全部' },
@@ -137,6 +138,10 @@ function hasPassedHongKongSnapshotDeadline(date = new Date()) {
   const currentMinutes = hour * 60 + minute;
 
   return currentMinutes >= 8 * 60;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function AssetsPage() {
@@ -409,6 +414,21 @@ export function AssetsPage() {
     return chunks;
   }
 
+  async function callPriceUpdateChunkWithRetry(chunk: Holding[]) {
+    try {
+      return (await callPortfolioFunction(
+        'update-prices',
+        buildPriceUpdateRequest(chunk),
+      )) as PriceUpdateResponse;
+    } catch (error) {
+      await sleep(MANUAL_PRICE_UPDATE_RETRY_DELAY_MS);
+      return (await callPortfolioFunction(
+        'update-prices',
+        buildPriceUpdateRequest(chunk),
+      )) as PriceUpdateResponse;
+    }
+  }
+
   async function handleRunPriceUpdates(targetHoldings: Holding[]) {
     if (targetHoldings.length === 0) {
       setPriceUpdateError('目前沒有可更新的資產。');
@@ -434,10 +454,7 @@ export function AssetsPage() {
       const responses: PriceUpdateResponse[] = [];
 
       for (const chunk of chunks) {
-        const response = (await callPortfolioFunction(
-          'update-prices',
-          buildPriceUpdateRequest(chunk),
-        )) as PriceUpdateResponse;
+        const response = await callPriceUpdateChunkWithRetry(chunk);
         responses.push(response);
       }
 
