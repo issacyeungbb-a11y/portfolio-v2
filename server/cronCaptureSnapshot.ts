@@ -53,6 +53,19 @@ function getHoursSinceUpdate(value?: string) {
   return Math.max(0, (Date.now() - date.getTime()) / (1000 * 60 * 60));
 }
 
+/**
+ * 快照降級時窗。
+ * 數值定義於 src/config/priceFreshness.ts → SNAPSHOT_FALLBACK_WINDOW_MS。
+ * 不要在此處硬編碼，與 server/priceFreshness.js 保持同步。
+ */
+const SNAPSHOT_FALLBACK_WINDOW_MS: Record<string, number> = {
+  crypto: 72 * 60 * 60 * 1000,   // 72h
+  stock:  96 * 60 * 60 * 1000,   // 4d (96h)
+  etf:    96 * 60 * 60 * 1000,
+  bond:   96 * 60 * 60 * 1000,
+  cash:   Number.POSITIVE_INFINITY,
+};
+
 function isFallbackUsable(asset: Awaited<ReturnType<typeof readAdminPortfolioAssets>>[number], todayKey: string) {
   if (!asset.currentPrice || asset.currentPrice <= 0) {
     return false;
@@ -65,13 +78,9 @@ function isFallbackUsable(asset: Awaited<ReturnType<typeof readAdminPortfolioAss
     return true;
   }
 
+  const windowMs = SNAPSHOT_FALLBACK_WINDOW_MS[asset.assetType] ?? SNAPSHOT_FALLBACK_WINDOW_MS.stock;
   const hoursSinceUpdate = getHoursSinceUpdate(asset.lastPriceUpdatedAt);
-
-  if (asset.assetType === 'crypto') {
-    return hoursSinceUpdate <= 72;
-  }
-
-  return hoursSinceUpdate <= 96;
+  return hoursSinceUpdate * 60 * 60 * 1000 <= windowMs;
 }
 
 function sanitizeFailureCategory(value: unknown): PendingPriceUpdateReview['failureCategory'] {

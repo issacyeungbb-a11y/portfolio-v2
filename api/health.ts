@@ -72,6 +72,8 @@ function readEnvStatus() {
   const firebaseAdminPrivateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.trim() ?? '';
   const cronSecret = process.env.CRON_SECRET?.trim() ?? '';
   const coingeckoApiKey = process.env.COINGECKO_API_KEY?.trim() ?? '';
+  // P0-2: 明確記錄 CoinGecko plan 配置
+  const coingeckoPlan = (process.env.COINGECKO_PLAN?.trim().toLowerCase() || 'demo') as 'demo' | 'pro';
   const portfolioAccessCode =
     process.env.PORTFOLIO_ACCESS_CODE?.trim() ||
     process.env.VITE_PORTFOLIO_ACCESS_CODE?.trim() ||
@@ -82,6 +84,9 @@ function readEnvStatus() {
     (Boolean(firebaseAdminProjectId) &&
       Boolean(firebaseAdminClientEmail) &&
       Boolean(firebaseAdminPrivateKey));
+
+  // CoinGecko 配置校驗：pro plan 必須有 API key
+  const coingeckoMisconfigured = coingeckoPlan === 'pro' && !coingeckoApiKey;
 
   const missing: string[] = [];
 
@@ -99,6 +104,10 @@ function readEnvStatus() {
     missing.push('COINGECKO_API_KEY');
   }
 
+  if (coingeckoMisconfigured) {
+    missing.push('COINGECKO_API_KEY（COINGECKO_PLAN=pro 必須設定）');
+  }
+
   if (!portfolioAccessCode) {
     missing.push('PORTFOLIO_ACCESS_CODE / VITE_PORTFOLIO_ACCESS_CODE');
   }
@@ -113,14 +122,21 @@ function readEnvStatus() {
       firebaseAdminConfigured,
       cronSecretConfigured: Boolean(cronSecret),
       coingeckoApiKeyConfigured: Boolean(coingeckoApiKey),
+      coingeckoPlan,
+      coingeckoMisconfigured,
       portfolioAccessCodeConfigured: Boolean(portfolioAccessCode),
       missing,
     },
   };
 }
 
-async function fetchJsonWithTimeout<T>(url: string, timeoutMs: number): Promise<T> {
+async function fetchJsonWithTimeout<T>(
+  url: string,
+  timeoutMs: number,
+  headers?: Record<string, string>,
+): Promise<T> {
   const response = await fetch(url, {
+    headers,
     signal: AbortSignal.timeout(timeoutMs),
   });
 
@@ -234,10 +250,27 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     };
   });
 
+  // P0-2: CoinGecko 健康檢查使用正確 plan 配置
   const coinGecko = await runStep(async () => {
+    const cgPlan = (process.env.COINGECKO_PLAN?.trim().toLowerCase() || 'demo') as 'demo' | 'pro';
+    const cgApiKey = process.env.COINGECKO_API_KEY?.trim();
+
+    if (cgPlan === 'pro' && !cgApiKey) {
+      throw new Error('COINGECKO_PLAN=pro 但未設定 COINGECKO_API_KEY，無法連線 Pro API。');
+    }
+
+    const baseUrl = cgPlan === 'pro'
+      ? 'https://pro-api.coingecko.com/api/v3'
+      : 'https://api.coingecko.com/api/v3';
+    const headers: Record<string, string> = {};
+    if (cgApiKey) {
+      headers[cgPlan === 'pro' ? 'x-cg-pro-api-key' : 'x-cg-demo-api-key'] = cgApiKey;
+    }
+
     const payload = await fetchJsonWithTimeout<Record<string, { usd?: number }>>(
-      'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd',
+      `${baseUrl}/simple/price?ids=bitcoin&vs_currencies=usd`,
       10_000,
+      headers,
     );
     const price = payload.bitcoin?.usd ?? null;
 
@@ -246,10 +279,11 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     }
 
     return {
-      detail: 'CoinGecko 單一價格測試成功。',
+      detail: `CoinGecko 單一價格測試成功（plan=${cgPlan}）。`,
       data: {
         coinId: 'bitcoin',
         usd: price,
+        plan: cgPlan,
       },
     };
   });

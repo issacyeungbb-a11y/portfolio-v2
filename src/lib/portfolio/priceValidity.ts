@@ -1,15 +1,13 @@
+import { DISPLAY_FRESHNESS_WINDOW_MS } from '../../config/priceFreshness';
 import type { Holding } from '../../types/portfolio';
 
+/**
+ * 前端價格新鮮度判斷。
+ * 時窗常數定義於 src/config/priceFreshness.ts → DISPLAY_FRESHNESS_WINDOW_MS。
+ * 不要在此處硬編碼時窗數值。
+ */
 function getPriceFreshnessWindowMs(assetType: Holding['assetType']) {
-  if (assetType === 'crypto') {
-    return 36 * 60 * 60 * 1000;
-  }
-
-  if (assetType === 'cash') {
-    return Number.POSITIVE_INFINITY;
-  }
-
-  return 4 * 24 * 60 * 60 * 1000;
+  return DISPLAY_FRESHNESS_WINDOW_MS[assetType] ?? DISPLAY_FRESHNESS_WINDOW_MS.stock;
 }
 
 export function isHoldingPriceStale(holding: Holding) {

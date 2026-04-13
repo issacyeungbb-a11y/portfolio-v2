@@ -4,6 +4,7 @@ import { AssetInputForm } from '../components/assets/AssetInputForm';
 import { AssetTransactionForm } from '../components/assets/AssetTransactionForm';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
 import { StatusMessages } from '../components/ui/StatusMessages';
+import { SystemDiagnosticsPanel } from '../components/ui/SystemDiagnosticsPanel';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
@@ -868,6 +869,9 @@ export function AssetsPage() {
           pendingPriceUpdateReasons={pendingPriceUpdateReasons}
         />
       </section>
+
+      {/* P1-2: 系統診斷面板（管理用途，按需展開） */}
+      <SystemDiagnosticsPanel />
     </div>
   );
 }

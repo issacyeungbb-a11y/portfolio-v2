@@ -298,10 +298,45 @@ function createCoinGeckoCacheEntry(params: {
   };
 }
 
+/**
+ * CoinGecko API 配置。
+ * COINGECKO_PLAN=demo（預設）使用 api.coingecko.com + x-cg-demo-api-key。
+ * COINGECKO_PLAN=pro 使用 pro-api.coingecko.com + x-cg-pro-api-key。
+ * 如果 plan=pro 但未設定 COINGECKO_API_KEY，拋出明確錯誤而非靜默失敗。
+ */
+function getCoinGeckoConfig(): { baseUrl: string; headers: Record<string, string> } {
+  const plan = (process.env.COINGECKO_PLAN?.trim().toLowerCase() || 'demo') as 'demo' | 'pro';
+  const apiKey = process.env.COINGECKO_API_KEY?.trim();
+
+  if (plan === 'pro') {
+    if (!apiKey) {
+      throw new Error(
+        'COINGECKO_PLAN=pro 但未設定 COINGECKO_API_KEY。請在環境變數中設定 Pro API Key。',
+      );
+    }
+    return {
+      baseUrl: 'https://pro-api.coingecko.com/api/v3',
+      headers: { 'x-cg-pro-api-key': apiKey },
+    };
+  }
+
+  // demo plan（預設）
+  const headers: Record<string, string> = {};
+  if (apiKey) {
+    headers['x-cg-demo-api-key'] = apiKey;
+  }
+  return {
+    baseUrl: 'https://api.coingecko.com/api/v3',
+    headers,
+  };
+}
+
 async function fetchCoinGeckoSearchCoins(ticker: string) {
+  const { baseUrl, headers } = getCoinGeckoConfig();
   const response = await fetch(
-    `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(ticker)}`,
+    `${baseUrl}/search?query=${encodeURIComponent(ticker)}`,
     {
+      headers,
       signal: AbortSignal.timeout(15000),
     },
   );
@@ -494,10 +529,21 @@ function parseAsOf(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/**
+ * 伺服器端報價接受時窗。
+ * 數值定義於 src/config/priceFreshness.ts → QUOTE_FRESHNESS_WINDOW_MS。
+ * 不要在此處硬編碼時窗數值。
+ */
+const QUOTE_FRESHNESS_WINDOW_MS: Record<string, number> = {
+  crypto: 72 * 60 * 60 * 1000,      // 72h
+  stock:  5 * 24 * 60 * 60 * 1000,  // 5d
+  etf:    5 * 24 * 60 * 60 * 1000,
+  bond:   5 * 24 * 60 * 60 * 1000,
+  cash:   Number.POSITIVE_INFINITY,
+};
+
 function getQuoteFreshnessWindowMs(assetType: AssetType) {
-  return assetType === 'crypto'
-    ? 72 * 60 * 60 * 1000
-    : 5 * 24 * 60 * 60 * 1000;
+  return QUOTE_FRESHNESS_WINDOW_MS[assetType] ?? QUOTE_FRESHNESS_WINDOW_MS.stock;
 }
 
 function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
@@ -576,12 +622,10 @@ function buildCoinGeckoResultsForEntries(
   });
 }
 
-async function fetchCoinGeckoPricePayload(
-  coinIds: string[],
-  headers: Record<string, string>,
-) {
+async function fetchCoinGeckoPricePayload(coinIds: string[]) {
+  const { baseUrl, headers } = getCoinGeckoConfig();
   const response = await fetch(
-    `https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(
+    `${baseUrl}/simple/price?ids=${encodeURIComponent(
       coinIds.join(','),
     )}&vs_currencies=usd&include_last_updated_at=true`,
     {
@@ -621,7 +665,22 @@ function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
   return normalizedTicker;
 }
 
+export interface FxRatesResult {
+  rates: FxRates;
+  /** true 表示 Yahoo Finance 匯率抓取失敗，使用備援靜態匯率 */
+  usingFallback: boolean;
+}
+
 export async function fetchLiveFxRates(): Promise<FxRates> {
+  const result = await fetchLiveFxRatesWithStatus();
+  return result.rates;
+}
+
+/**
+ * 與 fetchLiveFxRates 相同，但額外回傳是否使用備援匯率。
+ * 用於 cronUpdatePrices 記錄 systemRun 及前端顯示 P2-1。
+ */
+export async function fetchLiveFxRatesWithStatus(): Promise<FxRatesResult> {
   try {
     const quotes = await yahooFinanceClient.quote(
       ['USDHKD=X', 'USDJPY=X'],
@@ -644,13 +703,12 @@ export async function fetchLiveFxRates(): Promise<FxRates> {
     }
 
     return {
-      USD: usdToHkd,
-      JPY: usdToHkd / usdToJpy,
-      HKD: 1,
+      rates: { USD: usdToHkd, JPY: usdToHkd / usdToJpy, HKD: 1 },
+      usingFallback: false,
     };
   } catch (error) {
     console.warn('Failed to fetch Yahoo Finance FX rates, using fallback rates.', error);
-    return { ...DEFAULT_FX_RATES };
+    return { rates: { ...DEFAULT_FX_RATES }, usingFallback: true };
   }
 }
 
@@ -766,12 +824,6 @@ async function fetchCoinGeckoPrice(
     return [];
   }
 
-  const headers: Record<string, string> = {};
-  const apiKey = process.env.COINGECKO_API_KEY?.trim();
-  if (apiKey) {
-    headers['x-cg-demo-api-key'] = apiKey;
-  }
-
   const uniqueTickers = [...new Set(assets.map((asset) => normalizeCoinGeckoTicker(asset.ticker)))];
   const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
   const resolvedResults: MarketPriceResult[] = [];
@@ -842,7 +894,7 @@ async function fetchCoinGeckoPrice(
 
   if (resolvedCoinIds.length > 0) {
     try {
-      const payload = await fetchCoinGeckoPricePayload(resolvedCoinIds, headers);
+      const payload = await fetchCoinGeckoPricePayload(resolvedCoinIds);
 
       for (const coinId of resolvedCoinIds) {
         resolvedResults.push(
@@ -860,7 +912,7 @@ async function fetchCoinGeckoPrice(
         const entries = coinIdToAssets.get(coinId) ?? [];
 
         try {
-          const payload = await fetchCoinGeckoPricePayload([coinId], headers);
+          const payload = await fetchCoinGeckoPricePayload([coinId]);
           resolvedResults.push(
             ...buildCoinGeckoResultsForEntries(coinId, payload[coinId], entries),
           );
@@ -1015,7 +1067,8 @@ export function getUpdatePricesErrorResponse(error: unknown) {
 
 export async function generatePriceUpdates(payload: unknown): Promise<PriceUpdateResponse> {
   const request = normalizeRequest(payload);
-  await fetchLiveFxRates();
+  // 注意：不在此處抓取匯率。匯率由 cronUpdatePrices 在呼叫此函數前統一抓取並持久化。
+  // 手動更新路徑的匯率由 api/update-prices.ts 處理。
 
   const yahooAssets = request.assets.filter(
     (asset) =>

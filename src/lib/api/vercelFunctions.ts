@@ -115,3 +115,19 @@ export async function callPortfolioFunction(
 export async function triggerManualSnapshot() {
   return callPortfolioFunction('manual-capture-snapshot');
 }
+
+/** P1-2: 呼叫系統診斷端點 */
+export async function fetchSystemDiagnose(): Promise<unknown> {
+  const response = await fetch('/api/health?mode=diagnose', {
+    method: 'GET',
+  });
+
+  const rawText = await response.text();
+  if (!rawText) return null;
+
+  try {
+    return JSON.parse(rawText) as unknown;
+  } catch {
+    return null;
+  }
+}

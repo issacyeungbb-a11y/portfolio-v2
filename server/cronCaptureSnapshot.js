@@ -1,6 +1,7 @@
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { verifyCronRequest } from './cronUpdatePrices.js';
+import { SNAPSHOT_FALLBACK_WINDOW_MS } from './priceFreshness.js';
 const CRON_ROUTE = '/api/cron-capture-snapshot';
 const MANUAL_ROUTE = '/api/manual-capture-snapshot';
 class CronSnapshotError extends Error {
@@ -38,6 +39,7 @@ function getHoursSinceUpdate(value) {
     }
     return Math.max(0, (Date.now() - date.getTime()) / (1000 * 60 * 60));
 }
+// 快照降級時窗由 server/priceFreshness.js 集中管理，不要硬編碼。
 function isFallbackUsable(asset, todayKey) {
     if (!asset.currentPrice || asset.currentPrice <= 0) {
         return false;
@@ -47,11 +49,9 @@ function isFallbackUsable(asset, todayKey) {
     if (updatedKey === todayKey) {
         return true;
     }
+    const windowMs = SNAPSHOT_FALLBACK_WINDOW_MS[asset.assetType] ?? SNAPSHOT_FALLBACK_WINDOW_MS.stock;
     const hoursSinceUpdate = getHoursSinceUpdate(asset.lastPriceUpdatedAt);
-    if (asset.assetType === 'crypto') {
-        return hoursSinceUpdate <= 72;
-    }
-    return hoursSinceUpdate <= 96;
+    return hoursSinceUpdate * 60 * 60 * 1000 <= windowMs;
 }
 function sanitizeFailureCategory(value) {
     if (value === 'ticker_format' ||

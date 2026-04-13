@@ -4,6 +4,9 @@
     "api/cron-update-prices.ts": {
       "maxDuration": 120
     },
+    "api/cron-update-prices-rescue.ts": {
+      "maxDuration": 120
+    },
     "api/update-prices.ts": {
       "maxDuration": 60
     },
@@ -18,6 +21,10 @@
     {
       "path": "/api/cron-update-prices",
       "schedule": "0 22 * * *"
+    },
+    {
+      "path": "/api/cron-update-prices-rescue",
+      "schedule": "30 22 * * *"
     },
     {
       "path": "/api/cron-capture-snapshot",

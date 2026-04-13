@@ -1,13 +1,23 @@
 import { FieldValue } from 'firebase-admin/firestore';
-import { fetchLiveFxRates, generatePriceUpdates } from './updatePrices.js';
+import { fetchLiveFxRatesWithStatus, generatePriceUpdates } from './updatePrices.js';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
+import { writeSystemRun, readRecentSystemRuns } from './systemRuns.js';
+
 const CRON_ROUTE = '/api/cron-update-prices';
+const RESCUE_ROUTE = '/api/cron-update-prices-rescue';
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 const CRON_COIN_GECKO_SYNC_TIMEOUT_MS = 20000;
-const CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS = 12000;
+const CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS = 18000;
+const SYSTEM_RUN_TASK_NAME = 'cron-update-prices';
+
+// 補救排程：若上次執行距今 > 25 分鐘才允許跑
+const RESCUE_MIN_ELAPSED_MS = 25 * 60 * 1000;
+// 上次 ok=true 且 pendingCount <= 此值，跳過補救
+const RESCUE_SKIP_IF_PENDING_BELOW = 3;
+
 class CronPriceUpdateError extends Error {
     status;
     constructor(message, status = 500) {
@@ -73,12 +83,34 @@ function raceWithTimeout(promise, timeoutMs, timeoutMessage) {
         }
     });
 }
+
+/**
+ * P1-3: 寫入結果，保留 pending review 的 firstSeenAt。
+ * 策略：先讀取現有文件，若已有 firstSeenAt 則不覆寫。
+ */
 async function applyCronResults(results) {
     const db = getFirebaseAdminDb();
     const batch = db.batch();
     const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
     const validResults = results.filter(isValidReview);
     const invalidResults = results.filter((review) => !isValidReview(review));
+
+    // 讀取現有 pending review 文件，判斷 firstSeenAt 是否已存在
+    const existingHasFirstSeen = new Map();
+    if (invalidResults.length > 0) {
+        const existingDocs = await Promise.all(
+            invalidResults.map((r) =>
+                portfolioRef.collection('priceUpdateReviews').doc(r.assetId).get()
+            )
+        );
+        existingDocs.forEach((snap, i) => {
+            existingHasFirstSeen.set(
+                invalidResults[i].assetId,
+                snap.exists && snap.data()?.firstSeenAt != null
+            );
+        });
+    }
+
     for (const review of validResults) {
         const assetRef = portfolioRef.collection('assets').doc(review.assetId);
         const reviewRef = portfolioRef.collection('priceUpdateReviews').doc(review.assetId);
@@ -111,23 +143,36 @@ async function applyCronResults(results) {
             recordedAt: FieldValue.serverTimestamp(),
         });
     }
+
     for (const review of invalidResults) {
         const reviewRef = portfolioRef.collection('priceUpdateReviews').doc(review.assetId);
+        const hasFirstSeen = existingHasFirstSeen.get(review.assetId) ?? false;
         batch.set(reviewRef, {
             ...review,
             status: 'pending',
+            lastSeenAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
-            createdAt: FieldValue.serverTimestamp(),
+            // firstSeenAt 只在首次出現時設定
+            ...(hasFirstSeen ? {} : { firstSeenAt: FieldValue.serverTimestamp() }),
         }, { merge: true });
     }
+
     if (validResults.length > 0 || invalidResults.length > 0) {
         await batch.commit();
     }
+
+    const nonCashAssetCount = results.length;
+    const coveragePct = nonCashAssetCount === 0
+        ? 100
+        : Math.round((validResults.length / nonCashAssetCount) * 100);
+
     return {
         appliedCount: validResults.length,
         pendingCount: invalidResults.length,
+        coveragePct,
     };
 }
+
 async function persistFxRates(fxRates) {
     const db = getFirebaseAdminDb();
     const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -138,17 +183,24 @@ async function persistFxRates(fxRates) {
         },
     }, { merge: true });
 }
-export async function runScheduledPriceUpdate() {
+
+async function runPriceUpdateCore(trigger) {
     const startedAt = Date.now();
+    const startedAtISO = new Date(startedAt).toISOString();
     const stepTimings = createStepTimings();
+    const route = trigger === 'rescue' ? RESCUE_ROUTE : CRON_ROUTE;
+    const isRescueRun = trigger === 'rescue';
+
     const assetsStartedAt = Date.now();
     const assets = await readAssetsForPriceUpdate();
     stepTimings.readAssetsMs = getDurationMs(assetsStartedAt);
+
     const cryptoTickers = [...new Set(assets
-            .filter((asset) => asset.assetType === 'crypto')
-            .map((asset) => asset.symbol.trim().toUpperCase())
-            .filter(Boolean))];
+        .filter((asset) => asset.assetType === 'crypto')
+        .map((asset) => asset.symbol.trim().toUpperCase())
+        .filter(Boolean))];
     let coinGeckoSyncStatus = 'skipped';
+
     if (cryptoTickers.length > 0) {
         const syncStartedAt = Date.now();
         try {
@@ -166,58 +218,146 @@ export async function runScheduledPriceUpdate() {
             stepTimings.coinGeckoSyncMs = getDurationMs(syncStartedAt);
         }
     }
+
     const fxStartedAt = Date.now();
-    const fxRates = await fetchLiveFxRates();
+    const { rates: fxRates, usingFallback: fxUsingFallback } = await fetchLiveFxRatesWithStatus();
     stepTimings.fxRatesMs = getDurationMs(fxStartedAt);
+
     const persistStartedAt = Date.now();
     await persistFxRates(fxRates);
     stepTimings.persistFxRatesMs = getDurationMs(persistStartedAt);
+
+    if (fxUsingFallback) {
+        console.warn('[cron-update-prices] 使用備援匯率（Yahoo Finance FX 抓取失敗）。');
+    }
+
     if (assets.length === 0) {
         const durationMs = getDurationMs(startedAt);
-        const response = {
+        const payload = {
             ok: true,
-            route: CRON_ROUTE,
+            route,
             message: '目前沒有可自動更新價格的資產。',
             assetCount: 0,
             appliedCount: 0,
             pendingCount: 0,
-            triggeredAt: new Date().toISOString(),
+            coveragePct: 100,
+            fxUsingFallback,
+            triggeredAt: startedAtISO,
             durationMs,
             coinGeckoSyncStatus,
+            isRescueRun,
             stepTimings,
         };
-        console.info('[cron-update-prices]', response);
-        return {
-            ...response,
-        };
+        console.info('[cron-update-prices]', payload);
+        await writeSystemRun({
+            taskName: SYSTEM_RUN_TASK_NAME,
+            trigger,
+            startedAt: startedAtISO,
+            finishedAt: new Date().toISOString(),
+            durationMs,
+            assetCount: 0,
+            appliedCount: 0,
+            pendingCount: 0,
+            coinGeckoSyncStatus,
+            coveragePct: 100,
+            fxUsingFallback,
+            isRescueRun,
+            errorMessage: null,
+            ok: true,
+        });
+        return { ...payload };
     }
+
     const generateStartedAt = Date.now();
     const response = await generatePriceUpdates(buildPriceUpdateRequest(assets));
     stepTimings.generatePricesMs = getDurationMs(generateStartedAt);
+
     const writeStartedAt = Date.now();
     const outcome = await applyCronResults(response.results);
     stepTimings.writeResultsMs = getDurationMs(writeStartedAt);
     const durationMs = getDurationMs(startedAt);
+
     const payload = {
         ok: true,
-        route: CRON_ROUTE,
+        route,
         message: outcome.pendingCount > 0
             ? `已自動更新 ${outcome.appliedCount} 項資產；${outcome.pendingCount} 項需要人工檢查。`
             : `已自動更新 ${outcome.appliedCount} 項資產價格。`,
         assetCount: assets.length,
         appliedCount: outcome.appliedCount,
         pendingCount: outcome.pendingCount,
-        triggeredAt: new Date().toISOString(),
+        coveragePct: outcome.coveragePct,
+        fxUsingFallback,
+        triggeredAt: startedAtISO,
         model: response.model,
         durationMs,
         coinGeckoSyncStatus,
+        isRescueRun,
         stepTimings,
     };
     console.info('[cron-update-prices]', payload);
-    return {
-        ...payload,
-    };
+
+    // P1-1: 記錄執行結果
+    await writeSystemRun({
+        taskName: SYSTEM_RUN_TASK_NAME,
+        trigger,
+        startedAt: startedAtISO,
+        finishedAt: new Date().toISOString(),
+        durationMs,
+        assetCount: assets.length,
+        appliedCount: outcome.appliedCount,
+        pendingCount: outcome.pendingCount,
+        coinGeckoSyncStatus,
+        coveragePct: outcome.coveragePct,
+        fxUsingFallback,
+        isRescueRun,
+        errorMessage: null,
+        ok: true,
+    });
+
+    return { ...payload };
 }
+
+export async function runScheduledPriceUpdate() {
+    return runPriceUpdateCore('scheduled');
+}
+
+/**
+ * P0-3: 補救排程。
+ * 條件：上次執行距今 > 25 分鐘，或上次失敗/pendingCount 高。
+ */
+export async function runRescuePriceUpdate() {
+    const recentRuns = await readRecentSystemRuns(SYSTEM_RUN_TASK_NAME, 1);
+    const lastRun = recentRuns[0];
+
+    if (lastRun) {
+        const lastRunAt = new Date(lastRun.startedAt).getTime();
+        const elapsed = Date.now() - (Number.isNaN(lastRunAt) ? 0 : lastRunAt);
+        const isRecent = elapsed < RESCUE_MIN_ELAPSED_MS;
+        const wasSuccessful = lastRun.ok && lastRun.pendingCount < RESCUE_SKIP_IF_PENDING_BELOW;
+
+        if (isRecent && wasSuccessful) {
+            const skipPayload = {
+                ok: true,
+                route: RESCUE_ROUTE,
+                skipped: true,
+                message: `補救排程跳過：上次執行於 ${Math.round(elapsed / 60000)} 分鐘前已成功完成（pendingCount=${lastRun.pendingCount}）。`,
+                triggeredAt: new Date().toISOString(),
+            };
+            console.info('[cron-update-prices-rescue]', skipPayload);
+            return skipPayload;
+        }
+
+        console.info(
+            `[cron-update-prices-rescue] 執行補救排程。上次結果：ok=${lastRun.ok}, pending=${lastRun.pendingCount}, elapsed=${Math.round(elapsed / 60000)}min`
+        );
+    } else {
+        console.info('[cron-update-prices-rescue] 未找到上次執行記錄，執行補救排程。');
+    }
+
+    return runPriceUpdateCore('rescue');
+}
+
 export function getCronPriceUpdateErrorResponse(error) {
     if (error instanceof CronPriceUpdateError) {
         return {

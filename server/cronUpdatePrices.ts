@@ -1,17 +1,31 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
-import { fetchLiveFxRates, generatePriceUpdates } from './updatePrices.js';
+import { fetchLiveFxRatesWithStatus, generatePriceUpdates } from './updatePrices.js';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
+import { writeSystemRun, readRecentSystemRuns } from './systemRuns.js';
 import type { FxRates } from '../src/types/fxRates';
 import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/priceUpdates';
 
 const CRON_ROUTE = '/api/cron-update-prices' as const;
+const RESCUE_ROUTE = '/api/cron-update-prices-rescue' as const;
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 const CRON_COIN_GECKO_SYNC_TIMEOUT_MS = 20_000;
 const CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS = 18_000;
+const SYSTEM_RUN_TASK_NAME = 'cron-update-prices';
+
+/**
+ * 補救排程：若上次執行距今 > 這個時長（ms）才允許補救排程跑。
+ * 設定為 25 分鐘，確保主排程（06:00 HKT）與補救排程（06:30 HKT）不會重疊。
+ */
+const RESCUE_MIN_ELAPSED_MS = 25 * 60 * 1000;
+
+/**
+ * 補救排程跳過門檻：上次執行 ok=true 且 pendingCount <= 此值，視為不需要補救。
+ */
+const RESCUE_SKIP_IF_PENDING_BELOW = 3;
 
 class CronPriceUpdateError extends Error {
   status: number;
@@ -64,12 +78,36 @@ function isValidReview(review: PendingPriceUpdateReview) {
   return review.price != null && review.price > 0 && !review.invalidReason;
 }
 
+/**
+ * 寫入 cron 結果到 Firestore。
+ *
+ * P1-3 修正：pending review 的首次出現時間保留在 firstSeenAt。
+ * 策略：先批次讀取現有 pending review 文件，若已存在則不覆寫 firstSeenAt。
+ */
 async function applyCronResults(results: PendingPriceUpdateReview[]) {
   const db = getFirebaseAdminDb();
-  const batch = db.batch();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
   const validResults = results.filter(isValidReview);
   const invalidResults = results.filter((review) => !isValidReview(review));
+
+  // P1-3: 讀取現有 pending review，判斷是否已有 firstSeenAt
+  const existingHasFirstSeen = new Map<string, boolean>();
+  if (invalidResults.length > 0) {
+    const existingDocs = await Promise.all(
+      invalidResults.map((r) =>
+        portfolioRef.collection('priceUpdateReviews').doc(r.assetId).get(),
+      ),
+    );
+    existingDocs.forEach((snap, i) => {
+      existingHasFirstSeen.set(
+        invalidResults[i].assetId,
+        snap.exists && snap.data()?.firstSeenAt != null,
+      );
+    });
+  }
+
+  const batch = db.batch();
+  const nonCashAssetCount = results.length;
 
   for (const review of validResults) {
     const assetRef = portfolioRef.collection('assets').doc(review.assetId);
@@ -113,14 +151,18 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
 
   for (const review of invalidResults) {
     const reviewRef = portfolioRef.collection('priceUpdateReviews').doc(review.assetId);
+    const hasFirstSeen = existingHasFirstSeen.get(review.assetId) ?? false;
 
     batch.set(
       reviewRef,
       {
         ...review,
         status: 'pending',
+        // lastSeenAt：每次都更新
+        lastSeenAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-        createdAt: FieldValue.serverTimestamp(),
+        // firstSeenAt：只在首次出現時設定，不覆寫已有值
+        ...(hasFirstSeen ? {} : { firstSeenAt: FieldValue.serverTimestamp() }),
       },
       { merge: true },
     );
@@ -130,9 +172,15 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
     await batch.commit();
   }
 
+  const coveragePct =
+    nonCashAssetCount === 0
+      ? 100
+      : Math.round((validResults.length / nonCashAssetCount) * 100);
+
   return {
     appliedCount: validResults.length,
     pendingCount: invalidResults.length,
+    coveragePct,
   };
 }
 
@@ -183,12 +231,17 @@ async function raceWithTimeout<T>(work: Promise<T>, timeoutMs: number, timeoutMe
   }
 }
 
-export async function runScheduledPriceUpdate() {
+async function runPriceUpdateCore(trigger: 'scheduled' | 'rescue' | 'manual') {
   const startedAt = Date.now();
+  const startedAtISO = new Date(startedAt).toISOString();
   const stepTimings = createStepTimings();
+  const route = trigger === 'rescue' ? RESCUE_ROUTE : CRON_ROUTE;
+  const isRescueRun = trigger === 'rescue';
+
   const assetsStartedAt = Date.now();
   const assets = await readAssetsForPriceUpdate();
   stepTimings.readAssetsMs = getDurationMs(assetsStartedAt);
+
   const cryptoTickers = [...new Set(
     assets
       .filter((asset) => asset.assetType === 'crypto')
@@ -218,31 +271,54 @@ export async function runScheduledPriceUpdate() {
   }
 
   const fxStartedAt = Date.now();
-  const fxRates = await fetchLiveFxRates();
+  const { rates: fxRates, usingFallback: fxUsingFallback } = await fetchLiveFxRatesWithStatus();
   stepTimings.fxRatesMs = getDurationMs(fxStartedAt);
 
   const persistStartedAt = Date.now();
   await persistFxRates(fxRates);
   stepTimings.persistFxRatesMs = getDurationMs(persistStartedAt);
 
+  if (fxUsingFallback) {
+    console.warn('[cron-update-prices] 使用備援匯率（Yahoo Finance FX 抓取失敗）。');
+  }
+
   if (assets.length === 0) {
     const durationMs = getDurationMs(startedAt);
-    const response = {
+    const payload = {
       ok: true,
-      route: CRON_ROUTE,
+      route,
       message: '目前沒有可自動更新價格的資產。',
       assetCount: 0,
       appliedCount: 0,
       pendingCount: 0,
-      triggeredAt: new Date().toISOString(),
+      coveragePct: 100,
+      fxUsingFallback,
+      triggeredAt: startedAtISO,
       durationMs,
       coinGeckoSyncStatus,
+      isRescueRun,
       stepTimings,
     };
-    console.info('[cron-update-prices]', response);
-    return {
-      ...response,
-    };
+    console.info('[cron-update-prices]', payload);
+
+    await writeSystemRun({
+      taskName: SYSTEM_RUN_TASK_NAME,
+      trigger,
+      startedAt: startedAtISO,
+      finishedAt: new Date().toISOString(),
+      durationMs,
+      assetCount: 0,
+      appliedCount: 0,
+      pendingCount: 0,
+      coinGeckoSyncStatus,
+      coveragePct: 100,
+      fxUsingFallback,
+      isRescueRun,
+      errorMessage: null,
+      ok: true,
+    });
+
+    return payload;
   }
 
   const generateStartedAt = Date.now();
@@ -252,10 +328,11 @@ export async function runScheduledPriceUpdate() {
   const writeStartedAt = Date.now();
   const outcome = await applyCronResults(response.results);
   stepTimings.writeResultsMs = getDurationMs(writeStartedAt);
+
   const durationMs = getDurationMs(startedAt);
   const payload = {
     ok: true,
-    route: CRON_ROUTE,
+    route,
     message:
       outcome.pendingCount > 0
         ? `已自動更新 ${outcome.appliedCount} 項資產；${outcome.pendingCount} 項需要人工檢查。`
@@ -263,17 +340,79 @@ export async function runScheduledPriceUpdate() {
     assetCount: assets.length,
     appliedCount: outcome.appliedCount,
     pendingCount: outcome.pendingCount,
-    triggeredAt: new Date().toISOString(),
+    coveragePct: outcome.coveragePct,
+    fxUsingFallback,
+    triggeredAt: startedAtISO,
     model: response.model,
     durationMs,
     coinGeckoSyncStatus,
+    isRescueRun,
     stepTimings,
   };
   console.info('[cron-update-prices]', payload);
 
-  return {
-    ...payload,
-  };
+  // P1-1: 記錄執行結果到 Firestore
+  await writeSystemRun({
+    taskName: SYSTEM_RUN_TASK_NAME,
+    trigger,
+    startedAt: startedAtISO,
+    finishedAt: new Date().toISOString(),
+    durationMs,
+    assetCount: assets.length,
+    appliedCount: outcome.appliedCount,
+    pendingCount: outcome.pendingCount,
+    coinGeckoSyncStatus,
+    coveragePct: outcome.coveragePct,
+    fxUsingFallback,
+    isRescueRun,
+    errorMessage: null,
+    ok: true,
+  });
+
+  return payload;
+}
+
+export async function runScheduledPriceUpdate() {
+  return runPriceUpdateCore('scheduled');
+}
+
+/**
+ * P0-3: 補救排程邏輯。
+ *
+ * 呼叫時機：每日 06:30 HKT（UTC 22:30 前一天）。
+ * 跳過條件：上次執行距今 < 25 分鐘 AND ok=true AND pendingCount < 門檻。
+ * 否則：重新執行完整價格更新流程，trigger 標記為 'rescue'。
+ */
+export async function runRescuePriceUpdate() {
+  const recentRuns = await readRecentSystemRuns(SYSTEM_RUN_TASK_NAME, 1);
+  const lastRun = recentRuns[0];
+
+  if (lastRun) {
+    const lastRunAt = new Date(lastRun.startedAt).getTime();
+    const elapsed = Date.now() - (Number.isNaN(lastRunAt) ? 0 : lastRunAt);
+    const isRecent = elapsed < RESCUE_MIN_ELAPSED_MS;
+    const wasSuccessful = lastRun.ok && lastRun.pendingCount < RESCUE_SKIP_IF_PENDING_BELOW;
+
+    if (isRecent && wasSuccessful) {
+      const skipPayload = {
+        ok: true,
+        route: RESCUE_ROUTE,
+        skipped: true,
+        message: `補救排程跳過：上次執行於 ${Math.round(elapsed / 60000)} 分鐘前已成功完成（pendingCount=${lastRun.pendingCount}）。`,
+        triggeredAt: new Date().toISOString(),
+      };
+      console.info('[cron-update-prices-rescue]', skipPayload);
+      return skipPayload;
+    }
+
+    console.info(
+      `[cron-update-prices-rescue] 執行補救排程。上次結果：ok=${lastRun.ok}, pending=${lastRun.pendingCount}, elapsed=${Math.round(elapsed / 60000)}min`,
+    );
+  } else {
+    console.info('[cron-update-prices-rescue] 未找到上次執行記錄，執行補救排程。');
+  }
+
+  return runPriceUpdateCore('rescue');
 }
 
 export function getCronPriceUpdateErrorResponse(error: unknown) {

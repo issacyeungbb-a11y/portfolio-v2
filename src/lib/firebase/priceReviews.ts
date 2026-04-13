@@ -139,15 +139,31 @@ export async function savePendingPriceUpdateReviews(
   const reviewsCollection = getSharedPriceReviewsCollectionRef();
   const batch = writeBatch(reviewsCollection.firestore);
 
+  // P1-3: 讀取現有文件以判斷 firstSeenAt 是否已存在
+  const existingDocs = await Promise.all(
+    reviews.map((r) => doc(reviewsCollection, r.assetId)).map((ref) =>
+      import('firebase/firestore').then(({ getDoc }) => getDoc(ref)),
+    ),
+  );
+  const existingHasFirstSeen = new Map<string, boolean>(
+    reviews.map((r, i) => [
+      r.assetId,
+      existingDocs[i]?.exists() && existingDocs[i]?.data()?.firstSeenAt != null,
+    ]),
+  );
+
   for (const review of reviews) {
     const reviewRef = doc(reviewsCollection, review.assetId);
+    const hasFirstSeen = existingHasFirstSeen.get(review.assetId) ?? false;
     batch.set(
       reviewRef,
       {
         ...review,
         status: 'pending',
-        createdAt: serverTimestamp(),
+        lastSeenAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+        // firstSeenAt 只在首次出現時設定，不覆寫已有值
+        ...(hasFirstSeen ? {} : { firstSeenAt: serverTimestamp() }),
       },
       { merge: true },
     );
