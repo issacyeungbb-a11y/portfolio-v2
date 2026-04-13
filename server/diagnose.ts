@@ -3,7 +3,7 @@ import YahooFinance from 'yahoo-finance2';
 import { getFirebaseAdminApp, getFirebaseAdminDb } from './firebaseAdmin';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
 
-const DIAGNOSE_ROUTE = '/api/diagnose' as const;
+const DIAGNOSE_ROUTE = '/api/health' as const;
 const yahooFinanceClient = new YahooFinance();
 
 type DiagnoseStepResult = {
