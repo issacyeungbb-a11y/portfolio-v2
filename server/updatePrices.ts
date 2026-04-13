@@ -28,6 +28,8 @@ const COINGECKO_SOURCE_NAME = 'CoinGecko';
 const COINGECKO_SOURCE_URL = 'https://www.coingecko.com';
 const COINGECKO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COINGECKO_SEARCH_MIN_INTERVAL_MS = 2100;
+const YAHOO_PRICE_TIMEOUT_MS = 10000;
+const YAHOO_FX_TIMEOUT_MS = 8000;
 const yahooFinanceClient = yahooFinance as unknown as {
   quote: (
     symbols: string | string[],
@@ -167,6 +169,25 @@ function isCacheOverride(entry: CoinGeckoCoinIdCacheEntry) {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runWithTimeout<T>(work: Promise<T>, timeoutMs: number, timeoutMessage: string) {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      work,
+      new Promise<T>((_, reject) => {
+        timeoutHandle = setTimeout(() => {
+          reject(new Error(timeoutMessage));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+  }
 }
 
 async function readCoinGeckoCacheEntries(tickers: string[]) {
@@ -564,10 +585,14 @@ function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
 
 export async function fetchLiveFxRates(): Promise<FxRates> {
   try {
-    const quotes = await yahooFinanceClient.quote(['USDHKD=X', 'USDJPY=X'], {
-      fields: ['symbol', 'regularMarketPrice'],
-      return: 'array',
-    });
+    const quotes = await runWithTimeout(
+      yahooFinanceClient.quote(['USDHKD=X', 'USDJPY=X'], {
+        fields: ['symbol', 'regularMarketPrice'],
+        return: 'array',
+      }),
+      YAHOO_FX_TIMEOUT_MS,
+      'Yahoo Finance 匯率查詢超時。',
+    );
     const bySymbol = new Map(
       quotes.map((quote) => [readStringValue(quote.symbol) ?? '', quote] as const),
     );
@@ -606,16 +631,20 @@ async function fetchYahooPrice(
   });
 
   try {
-    const quotes = await yahooFinanceClient.quote(symbols, {
-      fields: [
-        'symbol',
-        'currency',
-        'marketState',
-        'regularMarketPrice',
-        'regularMarketTime',
-      ],
-      return: 'array',
-    });
+    const quotes = await runWithTimeout(
+      yahooFinanceClient.quote(symbols, {
+        fields: [
+          'symbol',
+          'currency',
+          'marketState',
+          'regularMarketPrice',
+          'regularMarketTime',
+        ],
+        return: 'array',
+      }),
+      YAHOO_PRICE_TIMEOUT_MS,
+      'Yahoo Finance 價格查詢超時。',
+    );
 
     const quoteBySymbol = new Map(
       quotes.map((quote) => [(readStringValue(quote.symbol) ?? '').toUpperCase(), quote] as const),

@@ -16,6 +16,10 @@ interface CoinIdSyncResultItem {
   error?: string;
 }
 
+interface CoinIdSyncOptions {
+  timeBudgetMs?: number;
+}
+
 class CoinIdSyncError extends Error {
   status: number;
 
@@ -59,8 +63,10 @@ async function readTargetTickers(payload?: unknown) {
   ];
 }
 
-export async function runCoinGeckoCoinIdSync(payload?: unknown) {
+export async function runCoinGeckoCoinIdSync(payload?: unknown, options?: CoinIdSyncOptions) {
   const tickers = await readTargetTickers(payload);
+  const startedAt = Date.now();
+  const timeBudgetMs = options?.timeBudgetMs;
 
   if (tickers.length === 0) {
     return {
@@ -76,8 +82,30 @@ export async function runCoinGeckoCoinIdSync(payload?: unknown) {
   }
 
   const results: CoinIdSyncResultItem[] = [];
+  let skippedCount = 0;
 
   for (const ticker of tickers) {
+    if (typeof timeBudgetMs === 'number' && timeBudgetMs > 0 && Date.now() - startedAt >= timeBudgetMs) {
+      const processedCount = results.length;
+      const remainingTickers = tickers.slice(processedCount);
+      skippedCount = remainingTickers.length;
+
+      for (const skippedTicker of remainingTickers) {
+        results.push({
+          ticker: skippedTicker,
+          status: 'lookup_failed',
+          error: 'CoinGecko 代號同步因時間限制而略過。',
+          coinId: null,
+          coinSymbol: null,
+          marketCapRank: null,
+          updatedAt: null,
+          expiresAt: null,
+        });
+      }
+
+      break;
+    }
+
     try {
       const resolution = await resolveCoinGeckoCoinId(ticker);
       results.push({
@@ -112,9 +140,11 @@ export async function runCoinGeckoCoinIdSync(payload?: unknown) {
     ok: true,
     route: SYNC_ROUTE,
     message:
-      pendingCount > 0
-        ? `已同步 ${resolvedCount} 個 crypto 代號；${pendingCount} 個未能完成。`
-        : `已同步 ${resolvedCount} 個 crypto 代號。`,
+      skippedCount > 0
+        ? `已同步 ${resolvedCount} 個 crypto 代號；因時間限制略過 ${skippedCount} 個。`
+        : pendingCount > 0
+          ? `已同步 ${resolvedCount} 個 crypto 代號；${pendingCount} 個未能完成。`
+          : `已同步 ${resolvedCount} 個 crypto 代號。`,
     totalCount: results.length,
     resolvedCount,
     pendingCount,

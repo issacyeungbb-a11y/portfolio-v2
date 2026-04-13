@@ -10,6 +10,7 @@ import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/
 const CRON_ROUTE = '/api/cron-update-prices' as const;
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
+const CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS = 12000;
 
 class CronPriceUpdateError extends Error {
   status: number;
@@ -150,13 +151,24 @@ async function persistFxRates(fxRates: FxRates) {
 }
 
 export async function runScheduledPriceUpdate() {
-  try {
-    await runCoinGeckoCoinIdSync();
-  } catch (error) {
-    console.warn('CoinGecko coin id sync failed before price update.', error);
+  const assets = await readAssetsForPriceUpdate();
+  const cryptoTickers = [...new Set(
+    assets
+      .filter((asset) => asset.assetType === 'crypto')
+      .map((asset) => asset.symbol.trim().toUpperCase())
+      .filter(Boolean),
+  )];
+
+  if (cryptoTickers.length > 0) {
+    try {
+      await runCoinGeckoCoinIdSync({ tickers: cryptoTickers }, {
+        timeBudgetMs: CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS,
+      });
+    } catch (error) {
+      console.warn('CoinGecko coin id sync failed before price update.', error);
+    }
   }
 
-  const assets = await readAssetsForPriceUpdate();
   const fxRates = await fetchLiveFxRates();
   await persistFxRates(fxRates);
 
