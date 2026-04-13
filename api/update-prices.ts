@@ -2,7 +2,7 @@ import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from './_sh
 import {
   generatePriceUpdates,
   getUpdatePricesErrorResponse,
-} from '../server/updatePrices';
+} from '../server/updatePrices.js';
 import {
   getPortfolioAccessErrorResponse,
   isPortfolioAccessError,

@@ -3,7 +3,7 @@ import {
   getCronSnapshotErrorResponse,
   runScheduledDailySnapshot,
   verifySnapshotCronRequest,
-} from '../server/cronCaptureSnapshot';
+} from '../server/cronCaptureSnapshot.js';
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/cron-capture-snapshot';

@@ -33,8 +33,10 @@ async function readTargetTickers(payload) {
             .filter(Boolean)),
     ];
 }
-export async function runCoinGeckoCoinIdSync(payload) {
+export async function runCoinGeckoCoinIdSync(payload, options) {
     const tickers = await readTargetTickers(payload);
+    const startedAt = Date.now();
+    const timeBudgetMs = options?.timeBudgetMs;
     if (tickers.length === 0) {
         return {
             ok: true,
@@ -48,7 +50,26 @@ export async function runCoinGeckoCoinIdSync(payload) {
         };
     }
     const results = [];
+    let skippedCount = 0;
     for (const ticker of tickers) {
+        if (typeof timeBudgetMs === 'number' && timeBudgetMs > 0 && Date.now() - startedAt >= timeBudgetMs) {
+            const processedCount = results.length;
+            const remainingTickers = tickers.slice(processedCount);
+            skippedCount = remainingTickers.length;
+            for (const skippedTicker of remainingTickers) {
+                results.push({
+                    ticker: skippedTicker,
+                    status: 'lookup_failed',
+                    error: 'CoinGecko 代號同步因時間限制而略過。',
+                    coinId: null,
+                    coinSymbol: null,
+                    marketCapRank: null,
+                    updatedAt: null,
+                    expiresAt: null,
+                });
+            }
+            break;
+        }
         try {
             const resolution = await resolveCoinGeckoCoinId(ticker);
             results.push({
@@ -79,8 +100,10 @@ export async function runCoinGeckoCoinIdSync(payload) {
     return {
         ok: true,
         route: SYNC_ROUTE,
-        message: pendingCount > 0
-            ? `已同步 ${resolvedCount} 個 crypto 代號；${pendingCount} 個未能完成。`
+        message: skippedCount > 0
+            ? `已同步 ${resolvedCount} 個 crypto 代號；因時間限制略過 ${skippedCount} 個。`
+            : pendingCount > 0
+                ? `已同步 ${resolvedCount} 個 crypto 代號；${pendingCount} 個未能完成。`
             : `已同步 ${resolvedCount} 個 crypto 代號。`,
         totalCount: results.length,
         resolvedCount,

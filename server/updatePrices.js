@@ -1,4 +1,4 @@
-import yahooFinance from 'yahoo-finance2';
+import YahooFinance from 'yahoo-finance2';
 import { getFirebaseAdminDb, getSharedCoinGeckoCoinIdCacheDocRef, getSharedCoinGeckoCoinIdCacheDocRefs, } from './firebaseAdmin.js';
 const UPDATE_PRICES_ROUTE = '/api/update-prices';
 const DEFAULT_STOCK_DIFF_THRESHOLD = 0.15;
@@ -14,7 +14,9 @@ const COINGECKO_SOURCE_NAME = 'CoinGecko';
 const COINGECKO_SOURCE_URL = 'https://www.coingecko.com';
 const COINGECKO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COINGECKO_SEARCH_MIN_INTERVAL_MS = 2100;
-const yahooFinanceClient = yahooFinance;
+const YAHOO_PRICE_TIMEOUT_MS = 12000;
+const YAHOO_FX_TIMEOUT_MS = 12000;
+const yahooFinanceClient = new YahooFinance();
 const COINGECKO_ID_OVERRIDES = {
     ASTER: { coinId: 'aster-2' },
     ATONE: { coinId: 'atomone' },
@@ -392,6 +394,28 @@ function createFailedMarketResult(asset, sourceName, sourceUrl = '', coinGeckoLo
         coinGeckoLookupStatus,
     };
 }
+function buildCoinGeckoResultsForEntries(coinId, entry, entries) {
+    return entries.map(({ asset, status }) => {
+        if (!entry || entry.usd == null || entry.usd <= 0) {
+            return createFailedMarketResult(asset, '', '', status);
+        }
+        return {
+            assetId: asset.assetId,
+            assetName: asset.assetName,
+            ticker: asset.ticker,
+            assetType: asset.assetType,
+            price: entry.usd,
+            currency: 'USD',
+            asOf: entry.last_updated_at
+                ? new Date(entry.last_updated_at * 1000).toISOString()
+                : new Date().toISOString(),
+            sourceName: COINGECKO_SOURCE_NAME,
+            sourceUrl: `${COINGECKO_SOURCE_URL}/en/coins/${coinId}`,
+            marketState: 'CRYPTO',
+            coinGeckoLookupStatus: status,
+        };
+    });
+}
 function normalizeYahooTicker(asset) {
     if (asset.assetType === 'crypto') {
         return asset.ticker.toUpperCase();
@@ -410,6 +434,8 @@ export async function fetchLiveFxRates() {
         const quotes = await yahooFinanceClient.quote(['USDHKD=X', 'USDJPY=X'], {
             fields: ['symbol', 'regularMarketPrice'],
             return: 'array',
+        }, {
+            fetchOptions: { signal: AbortSignal.timeout(YAHOO_FX_TIMEOUT_MS) },
         });
         const bySymbol = new Map(quotes.map((quote) => [readStringValue(quote.symbol) ?? '', quote]));
         const usdToHkd = readPositiveNumber(bySymbol.get('USDHKD=X')?.regularMarketPrice);
@@ -449,6 +475,8 @@ async function fetchYahooPrice(assets) {
                 'regularMarketTime',
             ],
             return: 'array',
+        }, {
+            fetchOptions: { signal: AbortSignal.timeout(YAHOO_PRICE_TIMEOUT_MS) },
         });
         const quoteBySymbol = new Map(quotes.map((quote) => [(readStringValue(quote.symbol) ?? '').toUpperCase(), quote]));
         return symbols.map((symbol) => {
@@ -527,33 +555,29 @@ async function fetchCoinGeckoPrice(assets) {
             }
             const payload = (await response.json());
             for (const coinId of resolvedCoinIds) {
-                const entries = coinIdToAssets.get(coinId) ?? [];
-                const entry = payload[coinId];
-                for (const { asset, status } of entries) {
-                    if (!entry || entry.usd == null || entry.usd <= 0) {
-                        resolvedResults.push(createFailedMarketResult(asset, '', '', status));
-                        continue;
-                    }
-                    resolvedResults.push({
-                        assetId: asset.assetId,
-                        assetName: asset.assetName,
-                        ticker: asset.ticker,
-                        assetType: asset.assetType,
-                        price: entry.usd,
-                        currency: 'USD',
-                        asOf: entry.last_updated_at
-                            ? new Date(entry.last_updated_at * 1000).toISOString()
-                            : new Date().toISOString(),
-                        sourceName: COINGECKO_SOURCE_NAME,
-                        sourceUrl: `${COINGECKO_SOURCE_URL}/en/coins/${coinId}`,
-                        marketState: 'CRYPTO',
-                        coinGeckoLookupStatus: status,
-                    });
-                }
+                resolvedResults.push(...buildCoinGeckoResultsForEntries(coinId, payload[coinId], coinIdToAssets.get(coinId) ?? []));
             }
         }
         catch (error) {
-            resolvedResults.push(...resolvedCoinIds.flatMap((coinId) => (coinIdToAssets.get(coinId) ?? []).map(({ asset, status }) => createFailedMarketResult(asset, '', '', status === 'override' ? 'override' : 'lookup_failed'))));
+            console.warn('CoinGecko batch price lookup failed, retrying coin-by-coin.', error);
+            for (const coinId of resolvedCoinIds) {
+                const entries = coinIdToAssets.get(coinId) ?? [];
+                try {
+                    const response = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=usd&include_last_updated_at=true`, {
+                        headers,
+                        signal: AbortSignal.timeout(15000),
+                    });
+                    if (!response.ok) {
+                        throw new Error(`CoinGecko HTTP ${response.status}`);
+                    }
+                    const payload = (await response.json());
+                    resolvedResults.push(...buildCoinGeckoResultsForEntries(coinId, payload[coinId], entries));
+                }
+                catch (coinError) {
+                    console.warn(`CoinGecko fallback lookup failed for ${coinId}.`, coinError);
+                    resolvedResults.push(...entries.map(({ asset, status }) => createFailedMarketResult(asset, '', '', status === 'override' ? 'override' : 'lookup_failed')));
+                }
+            }
         }
     }
     return [...resolvedResults, ...unresolvedResults];

@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
-import { getFirebaseAdminDb } from './firebaseAdmin';
+import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import {
   getAnalyzePortfolioErrorResponse,
   runPortfolioAnalysisRequest,
-} from './analyzePortfolio';
-import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
+} from './analyzePortfolio.js';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import type {
   AnalysisCategory,
   AnalysisPromptSettings,

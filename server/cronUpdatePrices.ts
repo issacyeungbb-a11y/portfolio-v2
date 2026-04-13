@@ -1,9 +1,9 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
-import { fetchLiveFxRates, generatePriceUpdates } from './updatePrices';
-import { getFirebaseAdminDb } from './firebaseAdmin';
-import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
-import { runCoinGeckoCoinIdSync } from './syncCoinIds';
+import { fetchLiveFxRates, generatePriceUpdates } from './updatePrices.js';
+import { getFirebaseAdminDb } from './firebaseAdmin.js';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
 import type { FxRates } from '../src/types/fxRates';
 import type { PendingPriceUpdateReview, PriceUpdateRequest } from '../src/types/priceUpdates';
 

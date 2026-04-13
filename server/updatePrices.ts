@@ -4,7 +4,7 @@ import {
   getFirebaseAdminDb,
   getSharedCoinGeckoCoinIdCacheDocRef,
   getSharedCoinGeckoCoinIdCacheDocRefs,
-} from './firebaseAdmin';
+} from './firebaseAdmin.js';
 import type {
   PendingPriceUpdateReview,
   PriceUpdateRequest,

@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
-import { getFirebaseAdminDb } from './firebaseAdmin';
-import { fetchLiveFxRates } from './updatePrices';
+import { getFirebaseAdminDb } from './firebaseAdmin.js';
+import { fetchLiveFxRates } from './updatePrices.js';
 import type { FxRates } from '../src/types/fxRates';
 import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio';
 

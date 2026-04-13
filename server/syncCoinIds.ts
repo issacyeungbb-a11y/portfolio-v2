@@ -1,5 +1,5 @@
-import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin';
-import { resolveCoinGeckoCoinId } from './updatePrices';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+import { resolveCoinGeckoCoinId } from './updatePrices.js';
 
 const SYNC_ROUTE = '/api/sync-coin-ids' as const;
 
