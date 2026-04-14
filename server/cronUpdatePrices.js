@@ -191,15 +191,22 @@ async function runPriceUpdateCore(trigger) {
     const route = trigger === 'rescue' ? RESCUE_ROUTE : CRON_ROUTE;
     const isRescueRun = trigger === 'rescue';
 
+    // Track partial state so a failed systemRun can include what was known at error time
+    let assetCount = 0;
+    let coinGeckoSyncStatus = 'skipped';
+    let fxUsingFallback = false;
+    let coveragePct = 0;
+
+    try {
     const assetsStartedAt = Date.now();
     const assets = await readAssetsForPriceUpdate();
     stepTimings.readAssetsMs = getDurationMs(assetsStartedAt);
+    assetCount = assets.length;
 
     const cryptoTickers = [...new Set(assets
         .filter((asset) => asset.assetType === 'crypto')
         .map((asset) => asset.symbol.trim().toUpperCase())
         .filter(Boolean))];
-    let coinGeckoSyncStatus = 'skipped';
 
     if (cryptoTickers.length > 0) {
         const syncStartedAt = Date.now();
@@ -220,11 +227,12 @@ async function runPriceUpdateCore(trigger) {
     }
 
     const fxStartedAt = Date.now();
-    const { rates: fxRates, usingFallback: fxUsingFallback } = await fetchLiveFxRatesWithStatus();
+    const fxResult = await fetchLiveFxRatesWithStatus();
+    fxUsingFallback = fxResult.usingFallback;
     stepTimings.fxRatesMs = getDurationMs(fxStartedAt);
 
     const persistStartedAt = Date.now();
-    await persistFxRates(fxRates);
+    await persistFxRates(fxResult.rates);
     stepTimings.persistFxRatesMs = getDurationMs(persistStartedAt);
 
     if (fxUsingFallback) {
@@ -232,6 +240,7 @@ async function runPriceUpdateCore(trigger) {
     }
 
     if (assets.length === 0) {
+        coveragePct = 100;
         const durationMs = getDurationMs(startedAt);
         const payload = {
             ok: true,
@@ -240,7 +249,7 @@ async function runPriceUpdateCore(trigger) {
             assetCount: 0,
             appliedCount: 0,
             pendingCount: 0,
-            coveragePct: 100,
+            coveragePct,
             fxUsingFallback,
             triggeredAt: startedAtISO,
             durationMs,
@@ -259,7 +268,7 @@ async function runPriceUpdateCore(trigger) {
             appliedCount: 0,
             pendingCount: 0,
             coinGeckoSyncStatus,
-            coveragePct: 100,
+            coveragePct,
             fxUsingFallback,
             isRescueRun,
             errorMessage: null,
@@ -275,6 +284,7 @@ async function runPriceUpdateCore(trigger) {
     const writeStartedAt = Date.now();
     const outcome = await applyCronResults(response.results);
     stepTimings.writeResultsMs = getDurationMs(writeStartedAt);
+    coveragePct = outcome.coveragePct;
     const durationMs = getDurationMs(startedAt);
 
     const payload = {
@@ -286,7 +296,7 @@ async function runPriceUpdateCore(trigger) {
         assetCount: assets.length,
         appliedCount: outcome.appliedCount,
         pendingCount: outcome.pendingCount,
-        coveragePct: outcome.coveragePct,
+        coveragePct,
         fxUsingFallback,
         triggeredAt: startedAtISO,
         model: response.model,
@@ -297,7 +307,6 @@ async function runPriceUpdateCore(trigger) {
     };
     console.info('[cron-update-prices]', payload);
 
-    // P1-1: 記錄執行結果
     await writeSystemRun({
         taskName: SYSTEM_RUN_TASK_NAME,
         trigger,
@@ -308,7 +317,7 @@ async function runPriceUpdateCore(trigger) {
         appliedCount: outcome.appliedCount,
         pendingCount: outcome.pendingCount,
         coinGeckoSyncStatus,
-        coveragePct: outcome.coveragePct,
+        coveragePct,
         fxUsingFallback,
         isRescueRun,
         errorMessage: null,
@@ -316,6 +325,33 @@ async function runPriceUpdateCore(trigger) {
     });
 
     return { ...payload };
+
+    } catch (error) {
+        // Always record a failed systemRun with whatever partial state was captured,
+        // then re-throw so the API handler returns the original error response.
+        const durationMs = getDurationMs(startedAt);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('[cron-update-prices] runPriceUpdateCore failed:', errorMessage);
+
+        await writeSystemRun({
+            taskName: SYSTEM_RUN_TASK_NAME,
+            trigger,
+            startedAt: startedAtISO,
+            finishedAt: new Date().toISOString(),
+            durationMs,
+            assetCount,
+            appliedCount: 0,
+            pendingCount: 0,
+            coinGeckoSyncStatus,
+            coveragePct,
+            fxUsingFallback,
+            isRescueRun,
+            errorMessage,
+            ok: false,
+        });
+
+        throw error;
+    }
 }
 
 export async function runScheduledPriceUpdate() {

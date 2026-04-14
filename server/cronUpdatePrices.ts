@@ -238,62 +238,122 @@ async function runPriceUpdateCore(trigger: 'scheduled' | 'rescue' | 'manual') {
   const route = trigger === 'rescue' ? RESCUE_ROUTE : CRON_ROUTE;
   const isRescueRun = trigger === 'rescue';
 
-  const assetsStartedAt = Date.now();
-  const assets = await readAssetsForPriceUpdate();
-  stepTimings.readAssetsMs = getDurationMs(assetsStartedAt);
-
-  const cryptoTickers = [...new Set(
-    assets
-      .filter((asset) => asset.assetType === 'crypto')
-      .map((asset) => asset.symbol.trim().toUpperCase())
-      .filter(Boolean),
-  )];
+  // Track partial state so failed systemRun can include what was known at time of error
+  let assetCount = 0;
   let coinGeckoSyncStatus: 'skipped' | 'ok' | 'timeout' | 'failed' = 'skipped';
+  let fxUsingFallback = false;
+  let coveragePct = 0;
 
-  if (cryptoTickers.length > 0) {
-    const syncStartedAt = Date.now();
-    try {
-      await raceWithTimeout(
-        runCoinGeckoCoinIdSync({ tickers: cryptoTickers }, {
-          timeBudgetMs: CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS,
-        }),
-        CRON_COIN_GECKO_SYNC_TIMEOUT_MS,
-        'CoinGecko sync timeout',
-      );
-      coinGeckoSyncStatus = 'ok';
-    } catch (error) {
-      coinGeckoSyncStatus =
-        error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'failed';
-      console.warn('CoinGecko coin id sync failed before price update.', error);
-    } finally {
-      stepTimings.coinGeckoSyncMs = getDurationMs(syncStartedAt);
+  try {
+    const assetsStartedAt = Date.now();
+    const assets = await readAssetsForPriceUpdate();
+    stepTimings.readAssetsMs = getDurationMs(assetsStartedAt);
+    assetCount = assets.length;
+
+    const cryptoTickers = [...new Set(
+      assets
+        .filter((asset) => asset.assetType === 'crypto')
+        .map((asset) => asset.symbol.trim().toUpperCase())
+        .filter(Boolean),
+    )];
+
+    if (cryptoTickers.length > 0) {
+      const syncStartedAt = Date.now();
+      try {
+        await raceWithTimeout(
+          runCoinGeckoCoinIdSync({ tickers: cryptoTickers }, {
+            timeBudgetMs: CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS,
+          }),
+          CRON_COIN_GECKO_SYNC_TIMEOUT_MS,
+          'CoinGecko sync timeout',
+        );
+        coinGeckoSyncStatus = 'ok';
+      } catch (error) {
+        coinGeckoSyncStatus =
+          error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'failed';
+        console.warn('CoinGecko coin id sync failed before price update.', error);
+      } finally {
+        stepTimings.coinGeckoSyncMs = getDurationMs(syncStartedAt);
+      }
     }
-  }
 
-  const fxStartedAt = Date.now();
-  const { rates: fxRates, usingFallback: fxUsingFallback } = await fetchLiveFxRatesWithStatus();
-  stepTimings.fxRatesMs = getDurationMs(fxStartedAt);
+    const fxStartedAt = Date.now();
+    const fxResult = await fetchLiveFxRatesWithStatus();
+    fxUsingFallback = fxResult.usingFallback;
+    stepTimings.fxRatesMs = getDurationMs(fxStartedAt);
 
-  const persistStartedAt = Date.now();
-  await persistFxRates(fxRates);
-  stepTimings.persistFxRatesMs = getDurationMs(persistStartedAt);
+    const persistStartedAt = Date.now();
+    await persistFxRates(fxResult.rates);
+    stepTimings.persistFxRatesMs = getDurationMs(persistStartedAt);
 
-  if (fxUsingFallback) {
-    console.warn('[cron-update-prices] 使用備援匯率（Yahoo Finance FX 抓取失敗）。');
-  }
+    if (fxUsingFallback) {
+      console.warn('[cron-update-prices] 使用備援匯率（Yahoo Finance FX 抓取失敗）。');
+    }
 
-  if (assets.length === 0) {
+    if (assets.length === 0) {
+      coveragePct = 100;
+      const durationMs = getDurationMs(startedAt);
+      const payload = {
+        ok: true,
+        route,
+        message: '目前沒有可自動更新價格的資產。',
+        assetCount: 0,
+        appliedCount: 0,
+        pendingCount: 0,
+        coveragePct,
+        fxUsingFallback,
+        triggeredAt: startedAtISO,
+        durationMs,
+        coinGeckoSyncStatus,
+        isRescueRun,
+        stepTimings,
+      };
+      console.info('[cron-update-prices]', payload);
+
+      await writeSystemRun({
+        taskName: SYSTEM_RUN_TASK_NAME,
+        trigger,
+        startedAt: startedAtISO,
+        finishedAt: new Date().toISOString(),
+        durationMs,
+        assetCount: 0,
+        appliedCount: 0,
+        pendingCount: 0,
+        coinGeckoSyncStatus,
+        coveragePct,
+        fxUsingFallback,
+        isRescueRun,
+        errorMessage: null,
+        ok: true,
+      });
+
+      return payload;
+    }
+
+    const generateStartedAt = Date.now();
+    const response = await generatePriceUpdates(buildPriceUpdateRequest(assets));
+    stepTimings.generatePricesMs = getDurationMs(generateStartedAt);
+
+    const writeStartedAt = Date.now();
+    const outcome = await applyCronResults(response.results);
+    stepTimings.writeResultsMs = getDurationMs(writeStartedAt);
+    coveragePct = outcome.coveragePct;
+
     const durationMs = getDurationMs(startedAt);
     const payload = {
       ok: true,
       route,
-      message: '目前沒有可自動更新價格的資產。',
-      assetCount: 0,
-      appliedCount: 0,
-      pendingCount: 0,
-      coveragePct: 100,
+      message:
+        outcome.pendingCount > 0
+          ? `已自動更新 ${outcome.appliedCount} 項資產；${outcome.pendingCount} 項需要人工檢查。`
+          : `已自動更新 ${outcome.appliedCount} 項資產價格。`,
+      assetCount: assets.length,
+      appliedCount: outcome.appliedCount,
+      pendingCount: outcome.pendingCount,
+      coveragePct,
       fxUsingFallback,
       triggeredAt: startedAtISO,
+      model: response.model,
       durationMs,
       coinGeckoSyncStatus,
       isRescueRun,
@@ -307,11 +367,11 @@ async function runPriceUpdateCore(trigger: 'scheduled' | 'rescue' | 'manual') {
       startedAt: startedAtISO,
       finishedAt: new Date().toISOString(),
       durationMs,
-      assetCount: 0,
-      appliedCount: 0,
-      pendingCount: 0,
+      assetCount: assets.length,
+      appliedCount: outcome.appliedCount,
+      pendingCount: outcome.pendingCount,
       coinGeckoSyncStatus,
-      coveragePct: 100,
+      coveragePct,
       fxUsingFallback,
       isRescueRun,
       errorMessage: null,
@@ -319,57 +379,32 @@ async function runPriceUpdateCore(trigger: 'scheduled' | 'rescue' | 'manual') {
     });
 
     return payload;
+  } catch (error) {
+    // Always record a failed systemRun with whatever partial state was captured,
+    // then re-throw so the API handler returns the original error response.
+    const durationMs = getDurationMs(startedAt);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[cron-update-prices] runPriceUpdateCore failed:', errorMessage);
+
+    await writeSystemRun({
+      taskName: SYSTEM_RUN_TASK_NAME,
+      trigger,
+      startedAt: startedAtISO,
+      finishedAt: new Date().toISOString(),
+      durationMs,
+      assetCount,
+      appliedCount: 0,
+      pendingCount: 0,
+      coinGeckoSyncStatus,
+      coveragePct,
+      fxUsingFallback,
+      isRescueRun,
+      errorMessage,
+      ok: false,
+    });
+
+    throw error;
   }
-
-  const generateStartedAt = Date.now();
-  const response = await generatePriceUpdates(buildPriceUpdateRequest(assets));
-  stepTimings.generatePricesMs = getDurationMs(generateStartedAt);
-
-  const writeStartedAt = Date.now();
-  const outcome = await applyCronResults(response.results);
-  stepTimings.writeResultsMs = getDurationMs(writeStartedAt);
-
-  const durationMs = getDurationMs(startedAt);
-  const payload = {
-    ok: true,
-    route,
-    message:
-      outcome.pendingCount > 0
-        ? `已自動更新 ${outcome.appliedCount} 項資產；${outcome.pendingCount} 項需要人工檢查。`
-        : `已自動更新 ${outcome.appliedCount} 項資產價格。`,
-    assetCount: assets.length,
-    appliedCount: outcome.appliedCount,
-    pendingCount: outcome.pendingCount,
-    coveragePct: outcome.coveragePct,
-    fxUsingFallback,
-    triggeredAt: startedAtISO,
-    model: response.model,
-    durationMs,
-    coinGeckoSyncStatus,
-    isRescueRun,
-    stepTimings,
-  };
-  console.info('[cron-update-prices]', payload);
-
-  // P1-1: 記錄執行結果到 Firestore
-  await writeSystemRun({
-    taskName: SYSTEM_RUN_TASK_NAME,
-    trigger,
-    startedAt: startedAtISO,
-    finishedAt: new Date().toISOString(),
-    durationMs,
-    assetCount: assets.length,
-    appliedCount: outcome.appliedCount,
-    pendingCount: outcome.pendingCount,
-    coinGeckoSyncStatus,
-    coveragePct: outcome.coveragePct,
-    fxUsingFallback,
-    isRescueRun,
-    errorMessage: null,
-    ok: true,
-  });
-
-  return payload;
 }
 
 export async function runScheduledPriceUpdate() {
