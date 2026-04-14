@@ -1,6 +1,8 @@
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { verifyCronRequest } from './cronUpdatePrices.js';
+// SNAPSHOT_FALLBACK_WINDOW_MS 由 priceFreshness.js 集中管理（runtime）
+// 此 TS 來源保留本地引用以供類型推導，數值需與 src/config/priceFreshness.ts 一致
 import type { PendingPriceUpdateReview } from '../src/types/priceUpdates';
 
 const CRON_ROUTE = '/api/cron-capture-snapshot' as const;
@@ -54,9 +56,8 @@ function getHoursSinceUpdate(value?: string) {
 }
 
 /**
- * 快照降級時窗。
- * 數值定義於 src/config/priceFreshness.ts → SNAPSHOT_FALLBACK_WINDOW_MS。
- * 不要在此處硬編碼，與 server/priceFreshness.js 保持同步。
+ * 快照降級時窗（TS 來源引用，runtime 使用 server/priceFreshness.js）。
+ * 數值來源：src/config/priceFreshness.ts → SNAPSHOT_FALLBACK_WINDOW_MS（由 prebuild 同步）。
  */
 const SNAPSHOT_FALLBACK_WINDOW_MS: Record<string, number> = {
   crypto: 72 * 60 * 60 * 1000,   // 72h

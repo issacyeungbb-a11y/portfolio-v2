@@ -35,6 +35,7 @@ type DiagnoseResponse = {
     yahooFinance: DiagnoseStepResult;
     coinGecko: DiagnoseStepResult;
     pendingReviews: DiagnoseStepResult;
+    systemRuns: DiagnoseStepResult;
   };
 };
 
@@ -149,15 +150,17 @@ async function fetchJsonWithTimeout<T>(
 
 async function runDiagnostics(): Promise<DiagnoseResponse> {
   const startedAt = Date.now();
-  const [firebaseAdminModule, portfolioSnapshotModule, yahooFinanceModule] = await Promise.all([
+  const [firebaseAdminModule, portfolioSnapshotModule, yahooFinanceModule, systemRunsModule] = await Promise.all([
     import('../server/firebaseAdmin.js'),
     import('../server/portfolioSnapshotAdmin.js'),
     import('yahoo-finance2'),
+    import('../server/systemRuns.js'),
   ]);
 
   const { getFirebaseAdminApp, getFirebaseAdminDb } = firebaseAdminModule;
   const { readAdminPortfolioAssets } = portfolioSnapshotModule;
   const YahooFinance = yahooFinanceModule.default;
+  const { readRecentSystemRuns } = systemRunsModule;
   const yahooFinanceClient = new YahooFinance();
 
   const environment: DiagnoseStepResult = {
@@ -305,6 +308,54 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     };
   });
 
+  const systemRuns = await runStep(async () => {
+    const runs = await readRecentSystemRuns('cron-update-prices', 5);
+
+    if (runs.length === 0) {
+      return {
+        detail: '尚無 systemRun 記錄。',
+        data: { runs: [] },
+      };
+    }
+
+    const lastRun = runs[0];
+    const lastScheduled = runs.find((r) => r.trigger === 'scheduled');
+    const lastRescue = runs.find((r) => r.trigger === 'rescue');
+    const lastFailed = runs.find((r) => !r.ok);
+
+    const detail = lastRun.ok
+      ? `上次執行成功（${lastRun.trigger}）：覆蓋率 ${lastRun.coveragePct}%，待審核 ${lastRun.pendingCount} 項${lastRun.fxUsingFallback ? '，使用備援匯率' : ''}`
+      : `上次執行失敗（${lastRun.trigger}）：${lastRun.errorMessage ?? '未知錯誤'}`;
+
+    return {
+      detail,
+      data: {
+        runs: runs.map((r) => ({
+          trigger: r.trigger,
+          startedAt: r.startedAt,
+          ok: r.ok,
+          coveragePct: r.coveragePct,
+          appliedCount: r.appliedCount,
+          pendingCount: r.pendingCount,
+          fxUsingFallback: r.fxUsingFallback,
+          durationMs: r.durationMs,
+          errorMessage: r.errorMessage,
+        })),
+        lastRun: {
+          trigger: lastRun.trigger,
+          startedAt: lastRun.startedAt,
+          ok: lastRun.ok,
+          coveragePct: lastRun.coveragePct,
+          pendingCount: lastRun.pendingCount,
+          fxUsingFallback: lastRun.fxUsingFallback,
+        },
+        lastScheduledAt: lastScheduled?.startedAt ?? null,
+        lastRescueAt: lastRescue?.startedAt ?? null,
+        lastFailedAt: lastFailed?.startedAt ?? null,
+      },
+    };
+  });
+
   const steps = {
     environment,
     firebaseAdmin,
@@ -313,6 +364,7 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     yahooFinance,
     coinGecko,
     pendingReviews,
+    systemRuns,
   };
 
   const passedSteps = Object.values(steps).filter((step) => step.ok).length;

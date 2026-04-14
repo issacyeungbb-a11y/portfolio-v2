@@ -7,6 +7,33 @@ export interface DiagnoseStepResult {
   data?: unknown;
 }
 
+export interface SystemRunEntry {
+  trigger: 'scheduled' | 'rescue' | 'manual';
+  startedAt: string;
+  ok: boolean;
+  coveragePct: number;
+  appliedCount: number;
+  pendingCount: number;
+  fxUsingFallback: boolean;
+  durationMs: number;
+  errorMessage: string | null;
+}
+
+export interface SystemRunsSummary {
+  runs: SystemRunEntry[];
+  lastRun: {
+    trigger: string;
+    startedAt: string;
+    ok: boolean;
+    coveragePct: number;
+    pendingCount: number;
+    fxUsingFallback: boolean;
+  } | null;
+  lastScheduledAt: string | null;
+  lastRescueAt: string | null;
+  lastFailedAt: string | null;
+}
+
 export interface SystemDiagnoseResult {
   ok: boolean;
   triggeredAt: string;
@@ -20,6 +47,7 @@ export interface SystemDiagnoseResult {
     yahooFinance: DiagnoseStepResult;
     coinGecko: DiagnoseStepResult;
     pendingReviews: DiagnoseStepResult;
+    systemRuns: DiagnoseStepResult;
   };
 }
 

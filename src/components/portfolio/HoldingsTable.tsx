@@ -10,7 +10,7 @@ import {
   getHoldingCostInCurrency,
   getHoldingValueInCurrency,
 } from '../../data/mockPortfolio';
-import { hasValidHoldingPrice } from '../../lib/portfolio/priceValidity';
+import { hasValidHoldingPrice, isHoldingPriceStale } from '../../lib/portfolio/priceValidity';
 import type { DisplayCurrency, Holding } from '../../types/portfolio';
 
 interface HoldingsTableProps {
@@ -203,6 +203,8 @@ export function HoldingsTable({
             {sortedHoldings.map((holding) => {
               const isUpdating = updatingAssetIds.includes(holding.id);
               const hasPendingPrice = !hasValidHoldingPrice(holding);
+              // isPriceStale: 價格偏舊（超過 DISPLAY 時窗）但系統已接受（未超過 QUOTE 時窗）
+              const isPriceStale = !hasPendingPrice && isHoldingPriceStale(holding);
               const pendingReason = pendingPriceUpdateReasons[holding.id];
               const averageCost = convertCurrency(
                 holding.averageCost,
@@ -252,6 +254,9 @@ export function HoldingsTable({
                             ? '現金金額'
                             : formatCurrency(averageCost, displayCurrency)}
                       </span>
+                      {isPriceStale && (
+                        <span className="table-metric-stale">價格偏舊</span>
+                      )}
                     </div>
                   </td>
                   <td>

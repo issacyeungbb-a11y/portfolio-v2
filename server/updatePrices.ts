@@ -531,11 +531,14 @@ function parseAsOf(value: string | null | undefined) {
 
 /**
  * 伺服器端報價接受時窗。
- * 數值定義於 src/config/priceFreshness.ts → QUOTE_FRESHNESS_WINDOW_MS。
- * 不要在此處硬編碼時窗數值。
+ * 數值由 server/priceFreshness.js 集中管理（自動從 src/config/priceFreshness.ts 產生）。
+ * 不要在此處硬編碼時窗數值 — 直接從 './priceFreshness.js' 引入。
  */
-const QUOTE_FRESHNESS_WINDOW_MS: Record<string, number> = {
-  crypto: 72 * 60 * 60 * 1000,      // 72h
+// import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';  ← 已在 server/updatePrices.js 引入
+// 此 TypeScript 來源檔的對應 runtime 檔 (updatePrices.js) 使用 priceFreshness.js 的值。
+// 以下僅為 TS 類型推導保留，確保與 runtime 數值一致（由 gen-price-freshness 保證同步）。
+const _QUOTE_FRESHNESS_WINDOW_MS_REF: Record<string, number> = {
+  crypto: 72 * 60 * 60 * 1000,      // 72h — 見 src/config/priceFreshness.ts
   stock:  5 * 24 * 60 * 60 * 1000,  // 5d
   etf:    5 * 24 * 60 * 60 * 1000,
   bond:   5 * 24 * 60 * 60 * 1000,
@@ -543,7 +546,7 @@ const QUOTE_FRESHNESS_WINDOW_MS: Record<string, number> = {
 };
 
 function getQuoteFreshnessWindowMs(assetType: AssetType) {
-  return QUOTE_FRESHNESS_WINDOW_MS[assetType] ?? QUOTE_FRESHNESS_WINDOW_MS.stock;
+  return _QUOTE_FRESHNESS_WINDOW_MS_REF[assetType] ?? _QUOTE_FRESHNESS_WINDOW_MS_REF.stock;
 }
 
 function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
@@ -1067,8 +1070,9 @@ export function getUpdatePricesErrorResponse(error: unknown) {
 
 export async function generatePriceUpdates(payload: unknown): Promise<PriceUpdateResponse> {
   const request = normalizeRequest(payload);
-  // 注意：不在此處抓取匯率。匯率由 cronUpdatePrices 在呼叫此函數前統一抓取並持久化。
-  // 手動更新路徑的匯率由 api/update-prices.ts 處理。
+  // 注意：不在此處抓取匯率。
+  // 自動排程路徑：匯率由 cronUpdatePrices.ts 在呼叫此函數前統一抓取並持久化。
+  // 手動更新路徑（api/update-prices.ts）：不更新匯率，僅回傳報價結果。
 
   const yahooAssets = request.assets.filter(
     (asset) =>

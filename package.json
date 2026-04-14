@@ -5,9 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "node scripts/gen-price-freshness.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "diagnose:coingecko": "node scripts/checkCoinGeckoCrypto.mjs"
+    "diagnose:coingecko": "node scripts/checkCoinGeckoCrypto.mjs",
+    "gen-freshness": "node scripts/gen-price-freshness.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.46.0",

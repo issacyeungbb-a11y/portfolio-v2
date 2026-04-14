@@ -1,12 +1,13 @@
 /**
- * 價格新鮮度集中配置
+ * 價格新鮮度集中配置 — 單一來源（Single Source of Truth）
  *
- * 三類時窗有不同用途，定義在此處以避免各模組硬編碼而產生不一致。
+ * 此檔案是唯一需要修改時窗數值的地方。
+ * server/priceFreshness.js 由 `npm run prebuild` 自動從此檔案產生，
+ * 請勿直接修改 server/priceFreshness.js。
  *
- * 引用此模組的檔案：
- *   - server/updatePrices.ts      — 伺服器端報價接受判斷 (QUOTE_FRESHNESS_WINDOW_MS)
- *   - server/cronCaptureSnapshot.ts — 快照降級判斷 (SNAPSHOT_FALLBACK_WINDOW_MS)
- *   - src/lib/portfolio/priceValidity.ts — 前端顯示判斷 (DISPLAY_FRESHNESS_WINDOW_MS)
+ * 引用此模組的路徑：
+ *   - src/lib/portfolio/priceValidity.ts — 前端顯示判斷
+ *   - server/priceFreshness.js（自動產生）— 伺服器端所有判斷
  *
  * ┌──────────────────────────────────┬───────────┬────────────┐
  * │ 時窗                             │ crypto    │ 非 crypto  │
@@ -19,9 +20,10 @@
  * 設計原則：
  *   QUOTE_FRESHNESS > DISPLAY_FRESHNESS：
  *     報價接受窗口較寬，讓系統有更多機會接受市場資料；
- *     前端顯示窗口較嚴，提示使用者資料可能偏舊。
- *   SNAPSHOT_FALLBACK 與 QUOTE_FRESHNESS 故意相同：
- *     快照降級只在確認市場資料仍算可信時才使用舊價格。
+ *     前端顯示窗口較嚴（DISPLAY），額外提示價格偏舊，不等同「未更新」。
+ *   SNAPSHOT_FALLBACK 介於兩者之間（非 crypto 與 DISPLAY 相同，crypto 與 QUOTE 相同）：
+ *     快照降級只在確認市場資料仍算可信時才沿用舊價格。
+ *     注意：SNAPSHOT_FALLBACK 與 QUOTE_FRESHNESS 並不相同（非 crypto：96h vs 120h）。
  */
 
 export interface AssetFreshnessWindows {

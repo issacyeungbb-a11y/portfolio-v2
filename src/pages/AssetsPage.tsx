@@ -212,13 +212,15 @@ export function AssetsPage() {
 
   const nonCashHoldings = holdings.filter((holding) => holding.assetType !== 'cash');
   const todayKey = getHongKongDateKey();
+  // 今日已更新：lastPriceUpdatedAt 在今日（HKT），無論 priceAsOf 是否符合顯示時窗
   const todayUpdatedCount = nonCashHoldings.filter((holding) => {
-    if (!hasValidHoldingPrice(holding) || !holding.lastPriceUpdatedAt) {
+    if (!holding.lastPriceUpdatedAt) {
       return false;
     }
 
     return getHongKongDateKey(new Date(holding.lastPriceUpdatedAt)) === todayKey;
   }).length;
+  // 待更新：後端 QUOTE_FRESHNESS 時窗內無有效價格（hasValidHoldingPrice 使用 QUOTE 時窗）
   const pendingPriceCount = holdings.filter(
     (holding) => holding.assetType !== 'cash' && !hasValidHoldingPrice(holding),
   ).length;

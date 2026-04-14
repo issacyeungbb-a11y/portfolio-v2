@@ -13,10 +13,10 @@ const CRON_COIN_GECKO_SYNC_TIMEOUT_MS = 20000;
 const CRON_COIN_GECKO_SYNC_TIME_BUDGET_MS = 18000;
 const SYSTEM_RUN_TASK_NAME = 'cron-update-prices';
 
-// 補救排程：若上次執行距今 > 25 分鐘才允許跑
-const RESCUE_MIN_ELAPSED_MS = 25 * 60 * 1000;
-// 上次 ok=true 且 pendingCount <= 此值，跳過補救
+// 補救排程跳過門檻：今日已成功且 pendingCount < 此值，跳過補救
 const RESCUE_SKIP_IF_PENDING_BELOW = 3;
+// 防並發緩衝：上次執行距今 < 5 分鐘，可能仍在執行中
+const RESCUE_OVERLAP_BUFFER_MS = 5 * 60 * 1000;
 
 class CronPriceUpdateError extends Error {
     status;
@@ -322,9 +322,20 @@ export async function runScheduledPriceUpdate() {
     return runPriceUpdateCore('scheduled');
 }
 
+function getHongKongDateKey(date = new Date()) {
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Hong_Kong',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date);
+}
+
 /**
  * P0-3: 補救排程。
- * 條件：上次執行距今 > 25 分鐘，或上次失敗/pendingCount 高。
+ * 跳過條件（狀態判斷，不依賴平台分鐘級排程精準度）：
+ *   1. 今日（HKT）已有一次成功執行（ok=true AND pendingCount < 門檻）→ 跳過
+ *   2. 上次執行距今 < 5 分鐘（防並發重疊）→ 跳過
  */
 export async function runRescuePriceUpdate() {
     const recentRuns = await readRecentSystemRuns(SYSTEM_RUN_TASK_NAME, 1);
@@ -333,15 +344,32 @@ export async function runRescuePriceUpdate() {
     if (lastRun) {
         const lastRunAt = new Date(lastRun.startedAt).getTime();
         const elapsed = Date.now() - (Number.isNaN(lastRunAt) ? 0 : lastRunAt);
-        const isRecent = elapsed < RESCUE_MIN_ELAPSED_MS;
-        const wasSuccessful = lastRun.ok && lastRun.pendingCount < RESCUE_SKIP_IF_PENDING_BELOW;
 
-        if (isRecent && wasSuccessful) {
+        // 防並發：上次執行可能仍在進行中
+        if (elapsed < RESCUE_OVERLAP_BUFFER_MS) {
             const skipPayload = {
                 ok: true,
                 route: RESCUE_ROUTE,
                 skipped: true,
-                message: `補救排程跳過：上次執行於 ${Math.round(elapsed / 60000)} 分鐘前已成功完成（pendingCount=${lastRun.pendingCount}）。`,
+                message: `補救排程跳過：上次執行於 ${Math.round(elapsed / 60000)} 分鐘前，可能仍在進行中。`,
+                triggeredAt: new Date().toISOString(),
+            };
+            console.info('[cron-update-prices-rescue]', skipPayload);
+            return skipPayload;
+        }
+
+        // 今日已成功完成 → 不需要補救
+        const todayKey = getHongKongDateKey();
+        const lastRunDateKey = getHongKongDateKey(new Date(lastRun.startedAt));
+        const ranToday = lastRunDateKey === todayKey;
+        const wasSuccessful = lastRun.ok && lastRun.pendingCount < RESCUE_SKIP_IF_PENDING_BELOW;
+
+        if (ranToday && wasSuccessful) {
+            const skipPayload = {
+                ok: true,
+                route: RESCUE_ROUTE,
+                skipped: true,
+                message: `補救排程跳過：今日排程已成功完成（pendingCount=${lastRun.pendingCount}，coveragePct=${lastRun.coveragePct}%）。`,
                 triggeredAt: new Date().toISOString(),
             };
             console.info('[cron-update-prices-rescue]', skipPayload);
@@ -349,7 +377,7 @@ export async function runRescuePriceUpdate() {
         }
 
         console.info(
-            `[cron-update-prices-rescue] 執行補救排程。上次結果：ok=${lastRun.ok}, pending=${lastRun.pendingCount}, elapsed=${Math.round(elapsed / 60000)}min`
+            `[cron-update-prices-rescue] 執行補救排程。上次結果：ok=${lastRun.ok}, ranToday=${ranToday}, pending=${lastRun.pendingCount}, elapsed=${Math.round(elapsed / 60000)}min`
         );
     } else {
         console.info('[cron-update-prices-rescue] 未找到上次執行記錄，執行補救排程。');

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSystemDiagnose } from '../../hooks/useSystemDiagnose';
-import type { DiagnoseStepResult } from '../../hooks/useSystemDiagnose';
+import type { DiagnoseStepResult, SystemRunEntry, SystemRunsSummary } from '../../hooks/useSystemDiagnose';
 
 function StepRow({ name, step }: { name: string; step: DiagnoseStepResult }) {
   return (
@@ -30,10 +30,66 @@ function formatHKTime(iso: string) {
   }
 }
 
+function SystemRunRow({ run }: { run: SystemRunEntry }) {
+  const triggerLabel =
+    run.trigger === 'rescue' ? '補救' : run.trigger === 'manual' ? '手動' : '排程';
+
+  return (
+    <div className={`diagnose-run-row ${run.ok ? 'diagnose-run-ok' : 'diagnose-run-fail'}`}>
+      <span className="diagnose-run-status">{run.ok ? '✓' : '✗'}</span>
+      <span className="diagnose-run-trigger">{triggerLabel}</span>
+      <span className="diagnose-run-time">{formatHKTime(run.startedAt)}</span>
+      <span className="diagnose-run-coverage">{run.coveragePct}%</span>
+      <span className="diagnose-run-pending">待審核 {run.pendingCount}</span>
+      {run.fxUsingFallback && <span className="diagnose-run-flag">備援匯率</span>}
+      {!run.ok && run.errorMessage && (
+        <span className="diagnose-run-error">{run.errorMessage}</span>
+      )}
+    </div>
+  );
+}
+
+function SystemRunsSection({ data }: { data: unknown }) {
+  if (!data || typeof data !== 'object') return null;
+
+  const summary = data as SystemRunsSummary;
+  const runs = Array.isArray(summary.runs) ? (summary.runs as SystemRunEntry[]) : [];
+
+  if (runs.length === 0) {
+    return <div className="diagnose-runs-empty">尚無執行記錄。</div>;
+  }
+
+  return (
+    <div className="diagnose-runs">
+      <div className="diagnose-runs-header">
+        <span className="diagnose-runs-title">最近執行記錄</span>
+        {summary.lastScheduledAt && (
+          <span className="diagnose-runs-meta">
+            上次排程：{formatHKTime(summary.lastScheduledAt)}
+          </span>
+        )}
+        {summary.lastRescueAt && (
+          <span className="diagnose-runs-meta">
+            上次補救：{formatHKTime(summary.lastRescueAt)}
+          </span>
+        )}
+        {summary.lastFailedAt && (
+          <span className="diagnose-runs-meta diagnose-runs-meta-fail">
+            上次失敗：{formatHKTime(summary.lastFailedAt)}
+          </span>
+        )}
+      </div>
+      {runs.map((run, i) => (
+        <SystemRunRow key={i} run={run} />
+      ))}
+    </div>
+  );
+}
+
 /**
- * P1-2: 系統診斷面板。
+ * P1-2 / P4: 系統診斷面板。
  * 需要手動觸發，避免每次載入都消耗 API 配額。
- * 顯示 Yahoo Finance、CoinGecko、Firestore、pending reviews 等狀態。
+ * 顯示 Yahoo Finance、CoinGecko、Firestore、pending reviews、systemRuns 等狀態。
  */
 export function SystemDiagnosticsPanel() {
   const { result, loading, error, lastFetchedAt, run } = useSystemDiagnose();
@@ -99,7 +155,13 @@ export function SystemDiagnosticsPanel() {
             <StepRow name="Yahoo Finance" step={result.steps.yahooFinance} />
             <StepRow name="CoinGecko" step={result.steps.coinGecko} />
             <StepRow name="待審核項目" step={result.steps.pendingReviews} />
+            <StepRow name="系統執行記錄" step={result.steps.systemRuns} />
           </div>
+
+          {/* systemRuns 詳細記錄 */}
+          {result.steps.systemRuns.data != null && (
+            <SystemRunsSection data={result.steps.systemRuns.data} />
+          )}
 
           {/* CoinGecko plan 摘要 */}
           {result.steps.coinGecko.data != null && typeof result.steps.coinGecko.data === 'object' && (
@@ -127,4 +189,3 @@ export function SystemDiagnosticsPanel() {
     </div>
   );
 }
-
