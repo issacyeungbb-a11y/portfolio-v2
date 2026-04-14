@@ -1,5 +1,6 @@
 import YahooFinance from 'yahoo-finance2';
 import { getFirebaseAdminDb, getSharedCoinGeckoCoinIdCacheDocRef, getSharedCoinGeckoCoinIdCacheDocRefs, } from './firebaseAdmin.js';
+import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
 const UPDATE_PRICES_ROUTE = '/api/update-prices';
 const DEFAULT_STOCK_DIFF_THRESHOLD = 0.5;
 const DEFAULT_CRYPTO_DIFF_THRESHOLD = 0.8;
@@ -375,7 +376,6 @@ function parseAsOf(value) {
     const parsed = new Date(value);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
-import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
 // 報價接受時窗由 server/priceFreshness.js 集中管理，不要在此硬編碼。
 function getQuoteFreshnessWindowMs(assetType) {
     return QUOTE_FRESHNESS_WINDOW_MS[assetType] ?? QUOTE_FRESHNESS_WINDOW_MS.stock;

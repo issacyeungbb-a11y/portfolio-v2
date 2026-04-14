@@ -49,9 +49,9 @@ function isFallbackUsable(asset, todayKey) {
     if (updatedKey === todayKey) {
         return true;
     }
-    const windowMs = SNAPSHOT_FALLBACK_WINDOW_MS[asset.assetType] ?? SNAPSHOT_FALLBACK_WINDOW_MS.stock;
+    const windowHours = (SNAPSHOT_FALLBACK_WINDOW_MS[asset.assetType] ?? SNAPSHOT_FALLBACK_WINDOW_MS.stock) / (60 * 60 * 1000);
     const hoursSinceUpdate = getHoursSinceUpdate(asset.lastPriceUpdatedAt);
-    return hoursSinceUpdate * 60 * 60 * 1000 <= windowMs;
+    return hoursSinceUpdate <= windowHours;
 }
 function sanitizeFailureCategory(value) {
     if (value === 'ticker_format' ||

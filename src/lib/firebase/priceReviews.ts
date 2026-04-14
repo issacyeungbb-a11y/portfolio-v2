@@ -1,5 +1,6 @@
 import {
   doc,
+  getDoc,
   onSnapshot,
   serverTimestamp,
   updateDoc,
@@ -141,9 +142,7 @@ export async function savePendingPriceUpdateReviews(
 
   // P1-3: 讀取現有文件以判斷 firstSeenAt 是否已存在
   const existingDocs = await Promise.all(
-    reviews.map((r) => doc(reviewsCollection, r.assetId)).map((ref) =>
-      import('firebase/firestore').then(({ getDoc }) => getDoc(ref)),
-    ),
+    reviews.map((r) => getDoc(doc(reviewsCollection, r.assetId))),
   );
   const existingHasFirstSeen = new Map<string, boolean>(
     reviews.map((r, i) => [
