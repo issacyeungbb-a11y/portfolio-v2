@@ -427,10 +427,16 @@ export function AssetsPage() {
   }
 
   async function handleRunPriceUpdates(targetHoldings: Holding[]) {
-    if (targetHoldings.length === 0) {
+    // 現金資產不走價格更新流程，餘額只由交易調整
+    const updatableHoldings = targetHoldings.filter((h) => h.assetType !== 'cash');
+
+    if (updatableHoldings.length === 0) {
       setPriceUpdateError('目前沒有可更新的資產。');
       return;
     }
+
+    // Rebind target to filtered list for the rest of the function
+    targetHoldings = updatableHoldings;
 
     const targetIds = targetHoldings.map((holding) => holding.id);
     const isBulkUpdate = targetHoldings.length > 1;

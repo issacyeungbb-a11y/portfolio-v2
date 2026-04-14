@@ -30,8 +30,12 @@ function hasMissingOrInvalidPrice(holding: Holding) {
  * 後端已接受此價格（priceAsOf 在 QUOTE_FRESHNESS 時窗內且 currentPrice > 0）。
  * 對應 server/updatePrices → isStaleQuote 的接受窗口。
  * 用途：「待更新」計數、coverage 計算。
+ *
+ * 現金：永遠有效（currentPrice >= 0 即可）。現金餘額只由交易增減，不走價格更新流程，
+ * 因此沒有 priceAsOf，不應以時窗判斷。
  */
 export function hasValidHoldingPrice(holding: Holding) {
+  if (holding.assetType === 'cash') return holding.currentPrice >= 0;
   if (hasMissingOrInvalidPrice(holding)) return false;
   return Date.now() - new Date(holding.priceAsOf!).getTime() <= getQuoteFreshnessWindowMs(holding.assetType);
 }
@@ -39,6 +43,7 @@ export function hasValidHoldingPrice(holding: Holding) {
 /**
  * 價格偏舊（超過 DISPLAY_FRESHNESS 但可能仍在 QUOTE_FRESHNESS 內）。
  * 純視覺提示；不代表系統未更新，不影響「待更新」計數。
+ * 現金：永遠不算 stale（餘額由交易決定，無時窗概念）。
  */
 export function isHoldingPriceStale(holding: Holding) {
   if (holding.assetType === 'cash') return false;
