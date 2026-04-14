@@ -1,5 +1,4 @@
 import { useState, useCallback } from 'react';
-import { fetchSystemDiagnose } from '../lib/api/vercelFunctions';
 
 export interface DiagnoseStepResult {
   ok: boolean;
@@ -24,6 +23,13 @@ export interface SystemDiagnoseResult {
   };
 }
 
+async function fetchSystemDiagnoseData(): Promise<SystemDiagnoseResult | null> {
+  const response = await fetch('/api/health?mode=diagnose', { method: 'GET' });
+  const text = await response.text();
+  if (!text) return null;
+  return JSON.parse(text) as SystemDiagnoseResult;
+}
+
 export function useSystemDiagnose() {
   const [result, setResult] = useState<SystemDiagnoseResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -35,8 +41,8 @@ export function useSystemDiagnose() {
     setError(null);
 
     try {
-      const data = await fetchSystemDiagnose();
-      setResult(data as SystemDiagnoseResult);
+      const data = await fetchSystemDiagnoseData();
+      setResult(data);
       setLastFetchedAt(new Date().toISOString());
     } catch (err) {
       setError(err instanceof Error ? err.message : '系統診斷失敗。');
