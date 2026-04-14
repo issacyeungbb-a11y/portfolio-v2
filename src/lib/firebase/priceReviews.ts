@@ -19,6 +19,13 @@ function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
 }
 
+/** Strip undefined values before writing to Firestore (undefined is not a valid Firestore value). */
+function omitUndefined<T extends object>(obj: T): { [K in keyof T]: Exclude<T[K], undefined> } {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined),
+  ) as { [K in keyof T]: Exclude<T[K], undefined> };
+}
+
 function getRequiredFirebaseDb() {
   if (!firebaseDb) {
     throw createMissingConfigError();
@@ -157,7 +164,7 @@ export async function savePendingPriceUpdateReviews(
     batch.set(
       reviewRef,
       {
-        ...review,
+        ...omitUndefined(review),
         status: 'pending',
         lastSeenAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -210,7 +217,7 @@ export async function applyPriceUpdateReviews(
     batch.set(
       reviewRef,
       {
-        ...review,
+        ...omitUndefined(review),
         status,
         confirmedAt: status === 'confirmed' ? serverTimestamp() : null,
         updatedAt: serverTimestamp(),

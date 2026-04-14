@@ -27,6 +27,13 @@ const RESCUE_SKIP_IF_PENDING_BELOW = 3;
  */
 const RESCUE_OVERLAP_BUFFER_MS = 5 * 60 * 1000;
 
+/** Strip undefined values before writing to Firestore (undefined is not a valid Firestore value). */
+function omitUndefined<T extends object>(obj: T): { [K in keyof T]: Exclude<T[K], undefined> } {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined),
+  ) as { [K in keyof T]: Exclude<T[K], undefined> };
+}
+
 class CronPriceUpdateError extends Error {
   status: number;
 
@@ -127,7 +134,7 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
     batch.set(
       reviewRef,
       {
-        ...review,
+        ...omitUndefined(review),
         status: 'confirmed',
         confirmedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -156,7 +163,7 @@ async function applyCronResults(results: PendingPriceUpdateReview[]) {
     batch.set(
       reviewRef,
       {
-        ...review,
+        ...omitUndefined(review),
         status: 'pending',
         // lastSeenAt：每次都更新
         lastSeenAt: FieldValue.serverTimestamp(),

@@ -18,6 +18,11 @@ const RESCUE_SKIP_IF_PENDING_BELOW = 3;
 // 防並發緩衝：上次執行距今 < 5 分鐘，可能仍在執行中
 const RESCUE_OVERLAP_BUFFER_MS = 5 * 60 * 1000;
 
+/** Strip undefined values before writing to Firestore (undefined is not a valid Firestore value). */
+function omitUndefined(obj) {
+    return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+}
+
 class CronPriceUpdateError extends Error {
     status;
     constructor(message, status = 500) {
@@ -125,7 +130,7 @@ async function applyCronResults(results) {
             priceSourceUrl: review.sourceUrl,
         });
         batch.set(reviewRef, {
-            ...review,
+            ...omitUndefined(review),
             status: 'confirmed',
             confirmedAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
@@ -148,7 +153,7 @@ async function applyCronResults(results) {
         const reviewRef = portfolioRef.collection('priceUpdateReviews').doc(review.assetId);
         const hasFirstSeen = existingHasFirstSeen.get(review.assetId) ?? false;
         batch.set(reviewRef, {
-            ...review,
+            ...omitUndefined(review),
             status: 'pending',
             lastSeenAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
