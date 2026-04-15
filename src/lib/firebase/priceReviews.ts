@@ -181,7 +181,7 @@ export async function savePendingPriceUpdateReviews(
 export async function applyPriceUpdateReviews(
   reviews: PendingPriceUpdateReview[],
   options?: {
-    priceSource?: 'api_auto' | 'api_review_confirmed';
+    priceSource?: 'api_auto' | 'api_review_confirmed' | 'manual';
     status?: 'confirmed' | 'pending';
   },
 ) {
@@ -234,6 +234,27 @@ export async function applyPriceUpdateReviews(
 export async function confirmPriceUpdateReview(review: PendingPriceUpdateReview) {
   await applyPriceUpdateReviews([review], {
     priceSource: 'api_review_confirmed',
+    status: 'confirmed',
+  });
+}
+
+export async function manualOverridePriceReview(
+  review: PendingPriceUpdateReview,
+  manualPrice: number,
+) {
+  const overriddenReview: PendingPriceUpdateReview = {
+    ...review,
+    price: manualPrice,
+    isValid: true,
+    invalidReason: undefined,
+    failureCategory: undefined,
+    asOf: new Date().toISOString(),
+    sourceName: 'manual',
+    sourceUrl: '',
+  };
+
+  await applyPriceUpdateReviews([overriddenReview], {
+    priceSource: 'manual',
     status: 'confirmed',
   });
 }

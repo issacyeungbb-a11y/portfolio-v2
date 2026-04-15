@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 import {
   formatCurrency,
   formatPercent,
@@ -9,32 +11,70 @@ interface PriceUpdateReviewPanelProps {
   reviews: PendingPriceUpdateReview[];
   onConfirm: (review: PendingPriceUpdateReview) => Promise<void> | void;
   onDismiss: (assetId: string) => Promise<void> | void;
+  onOverride: (review: PendingPriceUpdateReview, manualPrice: number) => Promise<void> | void;
   confirmingAssetIds: string[];
   dismissingAssetIds: string[];
+  overridingAssetIds: string[];
   actionError: string | null;
   actionSuccess: string | null;
 }
 
 function getFailureCategoryLabel(category?: PendingPriceUpdateReview['failureCategory']) {
   if (category === 'ticker_format') return '代號格式問題';
-  if (category === 'quote_time') return 'quote 時間問題';
+  if (category === 'quote_time') return 'Quote 時間過舊';
   if (category === 'source_missing') return '來源不足';
   if (category === 'response_format') return '回覆格式問題';
-  if (category === 'price_missing') return '未取得價格';
+  if (category === 'price_missing') return '未能取得價格';
   if (category === 'confidence_low') return '可信度不足';
-  if (category === 'diff_too_large') return '價格差距過大';
-  return '待檢查';
+  if (category === 'diff_too_large') return '價格差距過大，需人工確認';
+  if (category === 'unknown') return '原因不明';
+  return '需要人工檢查';
+}
+
+function getFailureTone(
+  category?: PendingPriceUpdateReview['failureCategory'],
+): 'caution' | 'warning' | 'error' {
+  if (category === 'diff_too_large') return 'caution';
+  if (category === 'quote_time' || category === 'confidence_low') return 'warning';
+  return 'error';
 }
 
 export function PriceUpdateReviewPanel({
   reviews,
   onConfirm,
   onDismiss,
+  onOverride,
   confirmingAssetIds,
   dismissingAssetIds,
+  overridingAssetIds,
   actionError,
   actionSuccess,
 }: PriceUpdateReviewPanelProps) {
+  const [editingIds, setEditingIds] = useState<string[]>([]);
+  const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
+
+  function startEditing(assetId: string) {
+    setEditingIds((prev) => (prev.includes(assetId) ? prev : [...prev, assetId]));
+    setPriceInputs((prev) => (assetId in prev ? prev : { ...prev, [assetId]: '' }));
+  }
+
+  function cancelEditing(assetId: string) {
+    setEditingIds((prev) => prev.filter((id) => id !== assetId));
+    setPriceInputs((prev) => {
+      const next = { ...prev };
+      delete next[assetId];
+      return next;
+    });
+  }
+
+  async function handleSaveManualPrice(review: PendingPriceUpdateReview) {
+    const price = parseFloat(priceInputs[review.assetId] ?? '');
+    if (!isNaN(price) && price > 0) {
+      await onOverride(review, price);
+      cancelEditing(review.assetId);
+    }
+  }
+
   if (reviews.length === 0) {
     return null;
   }
@@ -59,24 +99,34 @@ export function PriceUpdateReviewPanel({
         {reviews.map((review) => {
           const isConfirming = confirmingAssetIds.includes(review.assetId);
           const isDismissing = dismissingAssetIds.includes(review.assetId);
-          const hasValidSuggestedPrice = review.price != null && review.price > 0 && !review.invalidReason;
-          const diffTone = review.diffPct >= 0.15 ? 'caution' : 'positive';
+          const isOverriding = overridingAssetIds.includes(review.assetId);
+          const isEditing = editingIds.includes(review.assetId);
+          const isLoading = isConfirming || isDismissing || isOverriding;
+
+          const hasValidSuggestedPrice =
+            review.price != null && review.price > 0 && !review.invalidReason;
+          const hasSuggestedPrice = review.price != null && review.price > 0;
+          const diffTone = Math.abs(review.diffPct) >= 0.15 ? 'caution' : 'positive';
+
+          const failureTone = getFailureTone(review.failureCategory);
+          const failureLabel = getFailureCategoryLabel(review.failureCategory);
+
+          const manualPriceRaw = priceInputs[review.assetId] ?? '';
+          const manualPrice = parseFloat(manualPriceRaw);
+          const isManualPriceValid = !isNaN(manualPrice) && manualPrice > 0;
 
           return (
             <article key={review.assetId} className="extract-preview-card">
+              {/* Header */}
               <div className="extract-preview-header">
                 <div>
                   <p className="holding-symbol">{review.ticker}</p>
                   <h3>{review.assetName}</h3>
                 </div>
-                <div className="button-row">
-                  <span className="chip chip-soft">{getAssetTypeLabel(review.assetType)}</span>
-                  <span className={review.isValid ? 'chip chip-soft' : 'chip chip-strong'}>
-                    {review.isValid ? '可直接確認' : '需要人工檢查'}
-                  </span>
-                </div>
+                <span className="chip chip-soft">{getAssetTypeLabel(review.assetType)}</span>
               </div>
 
+              {/* Price comparison */}
               <div className="holding-grid">
                 <div>
                   <p className="muted-label">現有價格</p>
@@ -85,25 +135,34 @@ export function PriceUpdateReviewPanel({
                 <div>
                   <p className="muted-label">建議新價格</p>
                   <strong>
-                    {!hasValidSuggestedPrice
-                      ? '未取得'
-                      : formatCurrency(review.price as number, review.currency)}
+                    {hasSuggestedPrice
+                      ? formatCurrency(review.price as number, review.currency)
+                      : '未取得'}
                   </strong>
                 </div>
                 <div>
-                  <p className="muted-label">價格差距</p>
-                  <strong data-tone={diffTone}>{formatPercent(review.diffPct * 100)}</strong>
+                  <p className="muted-label">差距</p>
+                  <strong data-tone={hasSuggestedPrice ? diffTone : undefined}>
+                    {hasSuggestedPrice ? formatPercent(review.diffPct * 100) : '—'}
+                  </strong>
                 </div>
               </div>
 
+              {/* Failure reason — prominent block */}
+              {(!review.isValid || review.invalidReason || review.failureCategory) ? (
+                <div className="review-failure-block" data-tone={failureTone}>
+                  <p className="review-failure-label">
+                    <span aria-hidden="true">⚠</span>
+                    <span>{failureLabel}</span>
+                  </p>
+                  {review.invalidReason ? (
+                    <p className="review-failure-reason">{review.invalidReason}</p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {/* Source and time details */}
               <div className="roadmap-list">
-                {review.invalidReason ? (
-                  <div className="roadmap-item">
-                    <strong>結果</strong>
-                    <p>{review.invalidReason}</p>
-                    <p>分類：{getFailureCategoryLabel(review.failureCategory)}</p>
-                  </div>
-                ) : null}
                 <div className="roadmap-item">
                   <strong>來源</strong>
                   <p>{review.sourceName || '未提供來源名稱'}</p>
@@ -122,24 +181,73 @@ export function PriceUpdateReviewPanel({
                 </div>
                 <div className="roadmap-item">
                   <strong>價格時間</strong>
-                  <p>{review.asOf || '未提供 asOf'}</p>
+                  <p>{review.asOf || '未提供'}</p>
                 </div>
               </div>
 
+              {/* Manual price input form */}
+              {isEditing ? (
+                <div className="manual-price-form">
+                  <input
+                    className="manual-price-input"
+                    type="number"
+                    min="0"
+                    step="any"
+                    placeholder={`輸入 ${review.currency} 最新價格`}
+                    value={manualPriceRaw}
+                    onChange={(e) =>
+                      setPriceInputs((prev) => ({ ...prev, [review.assetId]: e.target.value }))
+                    }
+                    disabled={isLoading}
+                    autoFocus
+                  />
+                  <span className="manual-price-currency">{review.currency}</span>
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    onClick={() => handleSaveManualPrice(review)}
+                    disabled={isLoading || !isManualPriceValid}
+                  >
+                    {isOverriding ? '儲存中...' : '儲存'}
+                  </button>
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => cancelEditing(review.assetId)}
+                    disabled={isLoading}
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : null}
+
+              {/* Actions */}
               <div className="form-actions">
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={() => onConfirm(review)}
-                  disabled={isConfirming || isDismissing || !hasValidSuggestedPrice}
-                >
-                  {isConfirming ? '確認中...' : hasValidSuggestedPrice ? '確認寫入正式價格' : '無法確認'}
-                </button>
+                {hasValidSuggestedPrice ? (
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    onClick={() => onConfirm(review)}
+                    disabled={isLoading}
+                  >
+                    {isConfirming ? '確認中...' : '確認寫入正式價格'}
+                  </button>
+                ) : null}
+                {!isEditing ? (
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => startEditing(review.assetId)}
+                    disabled={isLoading}
+                  >
+                    手動輸入價格
+                  </button>
+                ) : null}
                 <button
                   className="button button-secondary"
                   type="button"
                   onClick={() => onDismiss(review.assetId)}
-                  disabled={isConfirming || isDismissing}
+                  disabled={isLoading}
                 >
                   {isDismissing ? '略過中...' : '略過這次更新'}
                 </button>

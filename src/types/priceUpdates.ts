@@ -1,6 +1,6 @@
 import type { AssetType } from './portfolio';
 
-export type PriceSource = 'api_auto' | 'api_auto_cron' | 'api_review_confirmed';
+export type PriceSource = 'api_auto' | 'api_auto_cron' | 'api_review_confirmed' | 'manual';
 
 export interface PriceUpdateRequestAsset {
   assetId: string;

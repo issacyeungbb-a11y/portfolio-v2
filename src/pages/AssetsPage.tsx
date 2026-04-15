@@ -171,6 +171,7 @@ export function AssetsPage() {
     applyReviews,
     confirmReview,
     dismissReview,
+    overrideReview,
   } = usePriceUpdateReviews();
   const [assetFilter, setAssetFilter] = useState<AssetType | 'all'>('all');
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
@@ -192,6 +193,7 @@ export function AssetsPage() {
   const [priceUpdateSuccess, setPriceUpdateSuccess] = useState<string | null>(null);
   const [confirmingAssetIds, setConfirmingAssetIds] = useState<string[]>([]);
   const [dismissingAssetIds, setDismissingAssetIds] = useState<string[]>([]);
+  const [overridingAssetIds, setOverridingAssetIds] = useState<string[]>([]);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionSuccess, setReviewActionSuccess] = useState<string | null>(null);
   const [isGeneratingManualSnapshot, setIsGeneratingManualSnapshot] = useState(false);
@@ -537,6 +539,25 @@ export function AssetsPage() {
     }
   }
 
+  async function handleOverrideReview(review: PendingPriceUpdateReview, manualPrice: number) {
+    setReviewActionError(null);
+    setReviewActionSuccess(null);
+    setOverridingAssetIds((current) => [...current, review.assetId]);
+
+    try {
+      await overrideReview(review, manualPrice);
+      setReviewActionSuccess(
+        `已手動寫入 ${review.ticker} 最新價格 ${manualPrice} ${review.currency}。`,
+      );
+    } catch (error) {
+      setReviewActionError(
+        error instanceof Error ? error.message : '手動寫入價格失敗，請稍後再試。',
+      );
+    } finally {
+      setOverridingAssetIds((current) => current.filter((id) => id !== review.assetId));
+    }
+  }
+
   return (
     <div className="page-stack">
       <section className="hero-panel assets-toolbar assets-toolbar-hero">
@@ -779,8 +800,10 @@ export function AssetsPage() {
         reviews={reviews}
         onConfirm={handleConfirmReview}
         onDismiss={handleDismissReview}
+        onOverride={handleOverrideReview}
         confirmingAssetIds={confirmingAssetIds}
         dismissingAssetIds={dismissingAssetIds}
+        overridingAssetIds={overridingAssetIds}
         actionError={reviewActionError}
         actionSuccess={reviewActionSuccess}
       />

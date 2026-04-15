@@ -6,6 +6,7 @@ import {
   confirmPriceUpdateReview,
   dismissPriceUpdateReview,
   getPriceReviewsErrorMessage,
+  manualOverridePriceReview,
   savePendingPriceUpdateReviews,
   subscribeToPriceUpdateReviews,
 } from '../lib/firebase/priceReviews';
@@ -92,6 +93,16 @@ export function usePriceUpdateReviews() {
     }
   }
 
+  async function overrideReview(review: PendingPriceUpdateReview, manualPrice: number) {
+    try {
+      await manualOverridePriceReview(review, manualPrice);
+    } catch (error) {
+      const message = getPriceReviewsErrorMessage(error);
+      setState((current) => ({ ...current, error: message }));
+      throw new Error(message);
+    }
+  }
+
   return {
     ...state,
     hasPendingReviews: state.reviews.length > 0,
@@ -99,5 +110,6 @@ export function usePriceUpdateReviews() {
     applyReviews,
     confirmReview,
     dismissReview,
+    overrideReview,
   };
 }
