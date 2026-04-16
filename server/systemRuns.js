@@ -38,12 +38,13 @@ export async function readRecentSystemRuns(taskName, limitCount = 3) {
             .collection(SYSTEM_RUNS_COLLECTION)
             .doc(SYSTEM_RUNS_DOC)
             .collection(SYSTEM_RUNS_SUBCOLLECTION);
+        // 不加 where('taskName') 過濾：避免需要 composite index（taskName + startedAt）。
+        // 改為讀取最近 limitCount * 4 筆後 client-side 過濾，確保取到足夠筆數。
         const snapshot = await runsRef
-            .where('taskName', '==', taskName)
             .orderBy('startedAt', 'desc')
-            .limit(limitCount)
+            .limit(limitCount * 4)
             .get();
-        return snapshot.docs.map((doc) => {
+        return snapshot.docs.filter((doc) => doc.data().taskName === taskName).slice(0, limitCount).map((doc) => {
             const data = doc.data();
             return {
                 taskName: String(data.taskName ?? ''),
