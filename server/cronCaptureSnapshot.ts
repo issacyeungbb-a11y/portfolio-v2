@@ -1,6 +1,6 @@
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
-import { verifyCronRequest } from './cronUpdatePrices.js';
+import { verifyCronRequest } from './cronDailyUpdate.js';
 // SNAPSHOT_FALLBACK_WINDOW_MS 由 priceFreshness.js 集中管理（runtime）
 // 此 TS 來源保留本地引用以供類型推導，數值需與 src/config/priceFreshness.ts 一致
 import type { PendingPriceUpdateReview } from '../src/types/priceUpdates';

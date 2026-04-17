@@ -779,7 +779,10 @@ export async function fetchLiveFxRatesWithStatus(): Promise<FxRatesResult> {
 
 export { fetchLiveFxRates as fetchFxRates };
 
-async function fetchYahooPrice(
+// P2-2: Hard cap on Yahoo batch size to avoid query-string length / rate-limit issues.
+const YAHOO_BATCH_MAX = 20;
+
+async function fetchYahooPriceBatch(
   assets: PriceUpdateRequestAsset[],
 ): Promise<MarketPriceResult[]> {
   if (assets.length === 0) {
@@ -882,6 +885,25 @@ async function fetchYahooPrice(
   }
 }
 
+/**
+ * P2-2: Wrapper that splits assets into chunks of YAHOO_BATCH_MAX (20) before
+ * calling fetchYahooPriceBatch, preventing over-long query strings and Yahoo
+ * rate-limit errors when the portfolio grows large.
+ */
+async function fetchYahooPrice(
+  assets: PriceUpdateRequestAsset[],
+): Promise<MarketPriceResult[]> {
+  if (assets.length === 0) return [];
+  if (assets.length <= YAHOO_BATCH_MAX) return fetchYahooPriceBatch(assets);
+
+  const chunks: PriceUpdateRequestAsset[][] = [];
+  for (let i = 0; i < assets.length; i += YAHOO_BATCH_MAX) {
+    chunks.push(assets.slice(i, i + YAHOO_BATCH_MAX));
+  }
+  const chunkResults = await Promise.all(chunks.map((chunk) => fetchYahooPriceBatch(chunk)));
+  return chunkResults.flat();
+}
+
 async function fetchCoinGeckoPrice(
   assets: PriceUpdateRequestAsset[],
 ): Promise<MarketPriceResult[]> {
@@ -928,7 +950,7 @@ async function fetchCoinGeckoPrice(
     coinIdToAssets.set(resolvedEntry.coinId, current);
   }
 
-  const ON_DEMAND_TIME_BUDGET_MS = 25000;
+  const ON_DEMAND_TIME_BUDGET_MS = 15000; // P2-3: reduced from 25s to leave headroom within serverless timeout
   const onDemandStartedAt = Date.now();
   const missingToResolve = unresolvedResults
     .filter((result) => result.coinGeckoLookupStatus === 'missing');
