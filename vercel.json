@@ -10,9 +10,6 @@
     "api/update-prices.ts": {
       "maxDuration": 60
     },
-    "api/cron-capture-snapshot.ts": {
-      "maxDuration": 60
-    },
     "api/manual-capture-snapshot.ts": {
       "maxDuration": 60
     }
