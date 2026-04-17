@@ -15,6 +15,7 @@ import type {
 import type { AssetType } from '../src/types/portfolio';
 import type { FxRates } from '../src/types/fxRates';
 import { getAnomalyThreshold } from './priceAnomalyDetection.js';
+import { withRetry } from './retry.js';
 
 const UPDATE_PRICES_ROUTE = '/api/update-prices' as const;
 const DEFAULT_FX_RATES = {
@@ -664,44 +665,41 @@ function buildCoinGeckoResultsForEntries(
 }
 
 /**
- * P0-4 / P2-7: fetch CoinGecko price payload with 5xx retry (3 attempts, exp backoff).
+ * P0-4 / P2-7: fetch CoinGecko price payload with 5xx retry via withRetry helper.
  * 4xx errors (e.g. 429, 404) are non-retryable to avoid wasting time budget.
  */
 async function fetchCoinGeckoPricePayload(coinIds: string[]): Promise<CoinGeckoPricePayload> {
   const { baseUrl, headers } = getCoinGeckoConfig();
+  const url = `${baseUrl}/simple/price?ids=${encodeURIComponent(coinIds.join(','))}&vs_currencies=usd&include_last_updated_at=true`;
 
-  let lastError: unknown;
-  const maxAttempts = 3;
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const response = await fetch(
-      `${baseUrl}/simple/price?ids=${encodeURIComponent(
-        coinIds.join(','),
-      )}&vs_currencies=usd&include_last_updated_at=true`,
-      {
+  return withRetry(
+    async () => {
+      const response = await fetch(url, {
         headers,
         signal: AbortSignal.timeout(15000),
+      });
+      if (response.ok) {
+        return (await response.json()) as CoinGeckoPricePayload;
+      }
+      // Attach HTTP status to the error so withRetry.retryable can inspect it
+      const err = Object.assign(
+        new Error(`CoinGecko HTTP ${response.status}`),
+        { httpStatus: response.status },
+      );
+      throw err;
+    },
+    {
+      attempts: 3,
+      baseDelayMs: 1000,
+      maxDelayMs: 4000,
+      label: 'fetchCoinGeckoPricePayload',
+      // 5xx → retryable; 4xx (e.g. 429, 404) → give up immediately
+      retryable: (err) => {
+        const s = (err as { httpStatus?: number }).httpStatus;
+        return s != null && s >= 500;
       },
-    );
-
-    if (response.ok) {
-      return (await response.json()) as CoinGeckoPricePayload;
-    }
-
-    // 5xx → retryable with backoff; 4xx → give up immediately
-    if (response.status >= 400 && response.status < 500) {
-      throw new Error(`CoinGecko HTTP ${response.status}`);
-    }
-
-    lastError = new Error(`CoinGecko HTTP ${response.status}`);
-    if (attempt < maxAttempts - 1) {
-      const delay = Math.min(1000 * Math.pow(2, attempt), 4000);
-      console.warn(`[coingecko price] HTTP ${response.status}, retry in ${delay}ms (attempt ${attempt + 1}/${maxAttempts})`);
-      await sleep(delay);
-    }
-  }
-
-  throw lastError;
+    },
+  );
 }
 
 function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {

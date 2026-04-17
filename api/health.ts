@@ -370,13 +370,18 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
   });
 
   const systemRuns = await runStep(async () => {
-    // P2-5 follow-up: task name changed from 'cron-update-prices' → 'cron-daily-update'
-    const runs = await readRecentSystemRuns('cron-daily-update', 5);
+    // Primary task name is 'cron-daily-update' (new orchestrator).
+    // Fall back to 'cron-update-prices' for backward compat during migration period.
+    let runs = await readRecentSystemRuns('cron-daily-update', 5);
+    const taskNameUsed = runs.length > 0 ? 'cron-daily-update' : 'cron-update-prices';
+    if (runs.length === 0) {
+      runs = await readRecentSystemRuns('cron-update-prices', 5);
+    }
 
     if (runs.length === 0) {
       return {
         detail: '尚無 systemRun 記錄。',
-        data: { runs: [] },
+        data: { runs: [], taskNameUsed },
       };
     }
 
@@ -392,6 +397,7 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     return {
       detail,
       data: {
+        taskNameUsed,
         runs: runs.map((r) => ({
           trigger: r.trigger,
           startedAt: r.startedAt,

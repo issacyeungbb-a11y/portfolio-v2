@@ -398,6 +398,11 @@ export function getDailyUpdateErrorResponse(
   route = DAILY_ROUTE,
 ): { status: number; body: Record<string, unknown> } {
   const msg = error instanceof Error ? error.message : '每日自動更新失敗，請稍後再試。';
-  const status = (error instanceof DailyUpdateError) ? error.status : 500;
+  // Respect .status on any typed error (DailyUpdateError, CronAuthError, etc.)
+  const statusProp =
+    error instanceof Error && 'status' in error
+      ? (error as { status: unknown }).status
+      : undefined;
+  const status = typeof statusProp === 'number' ? statusProp : 500;
   return { status, body: { ok: false, route, message: msg } };
 }
