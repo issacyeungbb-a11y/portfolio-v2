@@ -190,7 +190,8 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
   const lockResult = await acquireDailyJobLock(dateKey, trigger);
 
   if (!lockResult.acquired) {
-    const msg = lockResult.reason === 'already_completed'
+    const failedLock = lockResult as { acquired: false; reason: 'already_completed' | 'locked' };
+    const msg = failedLock.reason === 'already_completed'
       ? '今日更新與快照已完成，跳過執行。'
       : '另一個更新程序正在進行中，跳過此次執行。';
     console.info(`[${route}] ${msg}`);
@@ -248,7 +249,7 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
         }
 
         // FX rates once
-        const fxResult = await fetchLiveFxRatesWithStatus() as { rates: Record<string, unknown>; usingFallback: boolean };
+        const fxResult = await fetchLiveFxRatesWithStatus() as unknown as { rates: Record<string, unknown>; usingFallback: boolean };
         fxUsingFallback = fxResult.usingFallback;
         await persistFxRates(fxResult.rates);
         if (fxUsingFallback) console.warn('[cron-daily-update] 使用備援匯率。');
