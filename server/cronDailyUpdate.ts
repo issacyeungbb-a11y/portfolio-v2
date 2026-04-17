@@ -220,6 +220,7 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
   let fxUsingFallback = existingJob?.fxUsingFallback ?? false;
   let coinGeckoSyncStatus: CoinGeckoSyncStatus = (existingJob?.coinGeckoSyncStatus as CoinGeckoSyncStatus) ?? 'skipped';
   let coveragePct = existingJob?.coveragePct ?? 0;
+  let processCoveragePct = existingJob?.processCoveragePct ?? 0;
   let totalAssets = existingJob?.totalAssets ?? 0;
   // P0-1: 持有 cron 主流程抓到的 fxRates，傳給快照階段以確保匯率一致
   let snapshotFxRates: FxRates | undefined;
@@ -326,10 +327,9 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
       const refreshed = await readDailyJob(dateKey);
       const processedCount = (refreshed?.processedAssets ?? []).length;
       // processCoveragePct: how many assets were attempted (processed / total)
-      const processCoveragePct = totalAssets === 0 ? 100 : Math.round((processedCount / totalAssets) * 100);
-      // validCoveragePct: how many assets received a valid price (applied / total) — main metric
-      const validCoveragePct = totalAssets === 0 ? 100 : Math.round((appliedCount / totalAssets) * 100);
-      coveragePct = validCoveragePct;
+      processCoveragePct = totalAssets === 0 ? 100 : Math.round((processedCount / totalAssets) * 100);
+      // coveragePct (validCoveragePct): how many assets received a valid price — main metric
+      coveragePct = totalAssets === 0 ? 100 : Math.round((appliedCount / totalAssets) * 100);
 
       await markUpdateDone(dateKey, lockToken, {
         appliedCount, pendingReviewCount, coveragePct,

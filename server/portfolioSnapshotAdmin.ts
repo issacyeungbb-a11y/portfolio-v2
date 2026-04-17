@@ -190,7 +190,10 @@ export async function captureAdminPortfolioSnapshot(params: {
       fxRates = persisted;
       fxSource = 'persisted';
     } else {
-      fxRates = await fetchLiveFxRates();
+      fxRates = await withRetry(() => fetchLiveFxRates(), {
+        attempts: 3,
+        label: 'fetchLiveFxRates-snapshot',
+      });
       fxSource = 'live';
     }
   }

@@ -1,8 +1,8 @@
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
-import { verifyCronRequest } from './cronUpdatePrices.js';
+import { verifyCronRequest } from './cronAuth.js';
 import { SNAPSHOT_FALLBACK_WINDOW_MS } from './priceFreshness.js';
-const CRON_ROUTE = '/api/cron-capture-snapshot';
+const CRON_ROUTE = '/api/cron-daily-update';
 const MANUAL_ROUTE = '/api/manual-capture-snapshot';
 class CronSnapshotError extends Error {
     constructor(message, status = 500) {
@@ -160,37 +160,40 @@ export function verifySnapshotCronRequest(authorizationHeader) {
         throw error;
     }
 }
-export async function runScheduledDailySnapshot() {
-    return runDailySnapshotWorkflow('scheduled');
+export async function runScheduledDailySnapshot(fxRates) {
+    return runDailySnapshotWorkflow('scheduled', fxRates);
 }
 export async function runManualDailySnapshot() {
     const startedAt = Date.now();
     const snapshotId = buildDailySnapshotId();
-    const result = await captureAdminPortfolioSnapshot({
-        snapshotId,
-        reason: 'manual_force',
-        snapshotQuality: 'strict',
-        coveragePct: 100,
-        fallbackAssetCount: 0,
-        force: true,
-    });
-    const durationMs = Date.now() - startedAt;
-    const payload = {
-        ok: true,
-        route: MANUAL_ROUTE,
-        message: `已後補今日資產快照，覆蓋 ${'assetCount' in result ? result.assetCount : 0} 項資產。`,
-        assetCount: 'assetCount' in result ? result.assetCount : 0,
-        totalValueHKD: 'totalValueHKD' in result ? result.totalValueHKD : 0,
-        snapshotId,
-        snapshotQuality: 'strict',
-        coveragePct: 100,
-        triggeredAt: new Date().toISOString(),
-        durationMs,
-    };
-    console.info('[manual-capture-snapshot]', payload);
-    return payload;
+
+    // P0-5: 檢查現有快照品質，避免低品質覆蓋高品質
+    const db = getFirebaseAdminDb();
+    const existingRef = db
+        .collection('portfolio').doc('app')
+        .collection('portfolioSnapshots').doc(snapshotId);
+    const existing = await existingRef.get();
+    const existingQuality = existing.exists ? existing.data()?.snapshotQuality : undefined;
+
+    if (existingQuality === 'strict') {
+        const payload = {
+            ok: true,
+            skipped: true,
+            route: MANUAL_ROUTE,
+            message: '今日已有 strict 品質快照，唔覆蓋。如需強制覆蓋，請先刪除現有快照。',
+            snapshotId,
+            reason: 'strict_already_exists',
+            triggeredAt: new Date().toISOString(),
+            durationMs: Date.now() - startedAt,
+        };
+        console.info('[manual-capture-snapshot]', payload);
+        return payload;
+    }
+
+    // 冇快照或 fallback → 走正常 readiness workflow（可升級成 strict）
+    return runDailySnapshotWorkflow('manual');
 }
-async function runDailySnapshotWorkflow(mode) {
+async function runDailySnapshotWorkflow(mode, fxRates) {
     const readiness = await verifyAssetsReadyForDailySnapshot();
     const snapshotReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot';
     const fallbackReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot_fallback';
@@ -199,6 +202,7 @@ async function runDailySnapshotWorkflow(mode) {
         const snapshotId = buildDailySnapshotId();
         const result = await captureAdminPortfolioSnapshot({
             snapshotId,
+            fxRates,
             reason: snapshotReason,
             snapshotQuality: 'strict',
             coveragePct: 100,
@@ -239,6 +243,7 @@ async function runDailySnapshotWorkflow(mode) {
             snapshotQuality: 'fallback',
             coveragePct: readiness.coveragePct,
             fallbackAssetCount: readiness.missingAssetCount,
+            fxRates,
         });
         if (result.skipped) {
             return {

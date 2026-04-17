@@ -26,7 +26,7 @@ export interface DailyJobDocument {
   appliedCount: number;
   pendingReviewCount: number;
   coveragePct: number;
-  processCoveragePct?: number;
+  processCoveragePct: number;
   fxUsingFallback: boolean;
   coinGeckoSyncStatus: CoinGeckoSyncStatus;
   snapshotStatus: SnapshotStatus;
@@ -41,7 +41,7 @@ export interface UpdateDoneStats {
   appliedCount: number;
   pendingReviewCount: number;
   coveragePct: number;
-  processCoveragePct?: number;
+  processCoveragePct: number;
   fxUsingFallback: boolean;
   coinGeckoSyncStatus: CoinGeckoSyncStatus;
   totalAssets: number;
@@ -82,7 +82,7 @@ export async function acquireDailyJobLock(
           lockAcquiredAt: FieldValue.serverTimestamp(),
           startedAt: FieldValue.serverTimestamp(),
           finishedAt: null, totalAssets: 0, processedAssets: [], failedAssets: [],
-          appliedCount: 0, pendingReviewCount: 0, coveragePct: 0,
+          appliedCount: 0, pendingReviewCount: 0, coveragePct: 0, processCoveragePct: 0,
           fxUsingFallback: false, coinGeckoSyncStatus: 'skipped',
           snapshotStatus: 'not_started', snapshotStartedAt: null,
           snapshotFinishedAt: null, snapshotError: null, lastError: null, nextRetryAt: null,

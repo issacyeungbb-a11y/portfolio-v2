@@ -337,7 +337,7 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: 
       durationMs,
       stepTimings,
     };
-    console.info('[cron-capture-snapshot]', payload);
+    console.info(logLabel, payload);
     return payload;
   }
 
@@ -393,7 +393,7 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: 
       durationMs,
       stepTimings,
     };
-    console.info('[cron-capture-snapshot]', payload);
+    console.info(logLabel, payload);
     return payload;
   }
 
@@ -417,7 +417,7 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: 
     durationMs,
     stepTimings,
   };
-  console.info('[cron-capture-snapshot]', payload);
+  console.info(logLabel, payload);
   return payload;
 }
 
