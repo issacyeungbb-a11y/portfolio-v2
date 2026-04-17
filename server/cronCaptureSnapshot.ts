@@ -4,6 +4,7 @@ import { verifyCronRequest } from './cronUpdatePrices.js';
 // SNAPSHOT_FALLBACK_WINDOW_MS 由 priceFreshness.js 集中管理（runtime）
 // 此 TS 來源保留本地引用以供類型推導，數值需與 src/config/priceFreshness.ts 一致
 import type { PendingPriceUpdateReview } from '../src/types/priceUpdates';
+import type { FxRates } from '../src/types/fxRates';
 
 const CRON_ROUTE = '/api/cron-capture-snapshot' as const;
 const MANUAL_ROUTE = '/api/manual-capture-snapshot' as const;
@@ -226,8 +227,12 @@ export function verifySnapshotCronRequest(authorizationHeader?: string) {
   }
 }
 
-export async function runScheduledDailySnapshot() {
-  return runDailySnapshotWorkflow('scheduled');
+/**
+ * P0-1: 接受 pre-fetched fxRates，讓 cron 主流程傳入已抓取的匯率，
+ * 確保 snapshot 與價格更新階段使用相同匯率。
+ */
+export async function runScheduledDailySnapshot(fxRates?: FxRates) {
+  return runDailySnapshotWorkflow('scheduled', fxRates);
 }
 
 export async function runManualDailySnapshot() {
@@ -258,7 +263,7 @@ export async function runManualDailySnapshot() {
   return payload;
 }
 
-async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
+async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: FxRates) {
   const startedAt = Date.now();
   const stepTimings = createSnapshotStepTimings();
   const readinessStartedAt = Date.now();
@@ -277,6 +282,7 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
       snapshotQuality: 'strict',
       coveragePct: 100,
       fallbackAssetCount: 0,
+      fxRates,  // P0-1: pass through pre-fetched rates
     });
     stepTimings.snapshotWriteMs = getDurationMs(snapshotWriteStartedAt);
     const durationMs = getDurationMs(startedAt);
@@ -329,6 +335,7 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual') {
       snapshotQuality: 'fallback',
       coveragePct: readiness.coveragePct,
       fallbackAssetCount: readiness.missingAssetCount,
+      fxRates,  // P0-1: pass through pre-fetched rates
     });
     stepTimings.snapshotWriteMs = getDurationMs(snapshotWriteStartedAt);
     const durationMs = getDurationMs(startedAt);

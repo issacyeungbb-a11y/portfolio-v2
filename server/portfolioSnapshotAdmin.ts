@@ -2,6 +2,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { fetchLiveFxRates } from './updatePrices.js';
+import { withRetry } from './retry.js';
 import type { FxRates } from '../src/types/fxRates';
 import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio';
 
@@ -88,20 +89,62 @@ function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsse
   };
 }
 
-export async function readAdminPortfolioAssets() {
-  const db = getFirebaseAdminDb();
-  const snapshot = await db
-    .collection(SHARED_PORTFOLIO_COLLECTION)
-    .doc(SHARED_PORTFOLIO_DOC_ID)
-    .collection('assets')
-    .get();
-
-  return snapshot.docs.map((document) => ({
-    id: document.id,
-    ...normalizeAssetInput(document.data() as Record<string, unknown>),
-  })).filter((asset) => !asset.archivedAt);
+/**
+ * 讀取已持久化到 Firestore 的匯率（由 cron 主流程寫入）。
+ * 優先讓 snapshot 使用與主流程相同的匯率，避免兩者不一致。
+ */
+async function readPersistedFxRates(): Promise<FxRates | null> {
+  try {
+    const db = getFirebaseAdminDb();
+    const docSnap = await db
+      .collection(SHARED_PORTFOLIO_COLLECTION)
+      .doc(SHARED_PORTFOLIO_DOC_ID)
+      .get();
+    const data = docSnap.data()?.fxRates as Record<string, unknown> | undefined;
+    if (!data) return null;
+    const USD = typeof data.USD === 'number' && data.USD > 0 ? data.USD : null;
+    const JPY = typeof data.JPY === 'number' && data.JPY > 0 ? data.JPY : null;
+    const HKD = typeof data.HKD === 'number' && data.HKD > 0 ? data.HKD : 1;
+    if (!USD || !JPY) return null;
+    return { USD, JPY, HKD };
+  } catch {
+    return null;
+  }
 }
 
+/**
+ * P0-3: 加入 withRetry 保護，Firestore transient error 最多重試 3 次。
+ */
+export async function readAdminPortfolioAssets() {
+  return withRetry(
+    async () => {
+      const db = getFirebaseAdminDb();
+      const snapshot = await db
+        .collection(SHARED_PORTFOLIO_COLLECTION)
+        .doc(SHARED_PORTFOLIO_DOC_ID)
+        .collection('assets')
+        .get();
+
+      return snapshot.docs
+        .map((document) => ({
+          id: document.id,
+          ...normalizeAssetInput(document.data() as Record<string, unknown>),
+        }))
+        .filter((asset) => !asset.archivedAt);
+    },
+    { attempts: 3, label: 'readAdminPortfolioAssets' },
+  );
+}
+
+/**
+ * P0-1: 新增 fxRates 參數，允許主流程傳入 pre-fetched 匯率，避免 snapshot 獨立再抓。
+ * P0-2: 新增 fxRatesUsed / fxSource 欄位到 snapshot 文件，提升可追溯性。
+ *
+ * 匯率解析優先順序：
+ *   1. params.fxRates（主流程傳入）— 'cron_pipeline'
+ *   2. readPersistedFxRates()（Firestore 持久化值）— 'persisted'
+ *   3. fetchLiveFxRates()（live fetch）— 'live'
+ */
 export async function captureAdminPortfolioSnapshot(params: {
   netExternalFlowHKD?: number;
   reason?: string;
@@ -110,6 +153,7 @@ export async function captureAdminPortfolioSnapshot(params: {
   coveragePct?: number;
   fallbackAssetCount?: number;
   force?: boolean;
+  fxRates?: FxRates;  // P0-1: pre-fetched rates from cron pipeline
 }) {
   const db = getFirebaseAdminDb();
   const snapshotId = params.snapshotId?.trim();
@@ -133,8 +177,25 @@ export async function captureAdminPortfolioSnapshot(params: {
     }
   }
 
+  // P0-1: 匯率解析（三級 fallback）
+  let fxSource: 'cron_pipeline' | 'persisted' | 'live';
+  let fxRates: FxRates;
+
+  if (params.fxRates) {
+    fxRates = params.fxRates;
+    fxSource = 'cron_pipeline';
+  } else {
+    const persisted = await readPersistedFxRates();
+    if (persisted) {
+      fxRates = persisted;
+      fxSource = 'persisted';
+    } else {
+      fxRates = await fetchLiveFxRates();
+      fxSource = 'live';
+    }
+  }
+
   const holdings = await readAdminPortfolioAssets();
-  const fxRates = await fetchLiveFxRates();
 
   const holdingsPayload = holdings.map((holding) => ({
     assetId: holding.id,
@@ -145,6 +206,7 @@ export async function captureAdminPortfolioSnapshot(params: {
     currency: holding.currency,
     quantity: holding.quantity,
     currentPrice: holding.currentPrice,
+    priceAsOf: holding.lastPriceUpdatedAt ?? null,  // P2-6: 追溯價格時間
     averageCost: holding.averageCost,
     marketValueHKD: convertToHKD(
       holding.quantity * holding.currentPrice,
@@ -166,6 +228,13 @@ export async function captureAdminPortfolioSnapshot(params: {
     snapshotQuality: params.snapshotQuality ?? 'strict',
     coveragePct: typeof params.coveragePct === 'number' ? params.coveragePct : 100,
     fallbackAssetCount: typeof params.fallbackAssetCount === 'number' ? params.fallbackAssetCount : 0,
+    // P0-2: 記錄當次 snapshot 使用的匯率，提升可追溯性
+    fxRatesUsed: {
+      USD: fxRates.USD,
+      JPY: fxRates.JPY,
+      HKD: fxRates.HKD ?? 1,
+    },
+    fxSource,
     updatedAt: FieldValue.serverTimestamp(),
   });
 

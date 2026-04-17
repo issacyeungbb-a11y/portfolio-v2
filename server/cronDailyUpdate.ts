@@ -16,6 +16,7 @@ import {
   finalizeDailyJob,
 } from './dailyJobs.js';
 import type { CoinGeckoSyncStatus } from './dailyJobs.js';
+import type { FxRates } from '../src/types/fxRates';
 
 const DAILY_ROUTE = '/api/cron-daily-update';
 const RESCUE_ROUTE = '/api/cron-daily-rescue';
@@ -149,18 +150,21 @@ async function applyCronResults(results: PriceUpdateResult[]): Promise<ApplyCron
   };
 }
 
-async function persistFxRates(fxRates: Record<string, unknown>): Promise<void> {
+async function persistFxRates(fxRates: FxRates): Promise<void> {
   await getFirebaseAdminDb()
     .collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID)
     .set({ fxRates: { ...fxRates, updatedAt: new Date().toISOString() } }, { merge: true });
 }
 
-async function runSnapshotPhase(dateKey: string): Promise<Record<string, unknown> | null> {
+/**
+ * P0-1: 接受 fxRates 並傳入 runScheduledDailySnapshot，確保匯率全程一致。
+ */
+async function runSnapshotPhase(dateKey: string, fxRates?: FxRates): Promise<Record<string, unknown> | null> {
   await updateSnapshotStatus(dateKey, 'running', {
     snapshotStartedAt: FieldValue.serverTimestamp(),
   });
   try {
-    const result = await runScheduledDailySnapshot() as Record<string, unknown>;
+    const result = await runScheduledDailySnapshot(fxRates) as Record<string, unknown>;
     const finalStatus = result.skipped ? 'skipped' : 'completed';
     await updateSnapshotStatus(dateKey, finalStatus, {
       snapshotFinishedAt: FieldValue.serverTimestamp(),
@@ -214,6 +218,8 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
   let coinGeckoSyncStatus: CoinGeckoSyncStatus = (existingJob?.coinGeckoSyncStatus as CoinGeckoSyncStatus) ?? 'skipped';
   let coveragePct = existingJob?.coveragePct ?? 0;
   let totalAssets = existingJob?.totalAssets ?? 0;
+  // P0-1: 持有 cron 主流程抓到的 fxRates，傳給快照階段以確保匯率一致
+  let snapshotFxRates: FxRates | undefined;
 
   try {
     // 3. Update phase (skip if already done)
@@ -248,9 +254,10 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
           }
         }
 
-        // FX rates once
-        const fxResult = await fetchLiveFxRatesWithStatus() as unknown as { rates: Record<string, unknown>; usingFallback: boolean };
+        // FX rates once — P0-1: 同時儲存到 snapshotFxRates 供快照階段使用
+        const fxResult = await fetchLiveFxRatesWithStatus();
         fxUsingFallback = fxResult.usingFallback;
+        snapshotFxRates = fxResult.rates;
         await persistFxRates(fxResult.rates);
         if (fxUsingFallback) console.warn('[cron-daily-update] 使用備援匯率。');
 
@@ -298,9 +305,10 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
     }
 
     // 4. Snapshot phase (skip if already done)
+    // P0-1: 傳入主流程 fxRates，snapshot 優先使用相同匯率（無需再次 fetch）
     let snapshotResult: Record<string, unknown> | null = null;
     if (!snapshotAlreadyDone) {
-      snapshotResult = await runSnapshotPhase(dateKey);
+      snapshotResult = await runSnapshotPhase(dateKey, snapshotFxRates);
     }
 
     // 5. Finalize
