@@ -2,6 +2,8 @@ import YahooFinance from 'yahoo-finance2';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getFirebaseAdminDb, getSharedCoinGeckoCoinIdCacheDocRef, getSharedCoinGeckoCoinIdCacheDocRefs, } from './firebaseAdmin.js';
 import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
+import { getAnomalyThreshold, detectHistoricalAnomaly } from './priceAnomalyDetection.js';
+import { withRetry } from './retry.js';
 const UPDATE_PRICES_ROUTE = '/api/update-prices';
 const DEFAULT_STOCK_DIFF_THRESHOLD = 0.5;
 const DEFAULT_CRYPTO_DIFF_THRESHOLD = 0.8;
@@ -137,7 +139,7 @@ async function throttleCoinGeckoSearchDistributed() {
         const ref = db.collection('portfolio').doc('app').collection('coinGeckoThrottle').doc('state');
         const doc = await ref.get();
         const remoteLast = doc.exists ? (doc.data()?.lastRequestAt?.toMillis?.() ?? 0) : 0;
-        const lastAt = Math.max(lastCoinGeckoSearchAt, remoteLast);
+        const lastAt = Math.max(lastCoinGeckoSearchAt, remoteLast + 500);
         const elapsed = Date.now() - lastAt;
         if (elapsed < COINGECKO_SEARCH_MIN_INTERVAL_MS) {
             await sleep(COINGECKO_SEARCH_MIN_INTERVAL_MS - elapsed);
@@ -440,32 +442,33 @@ function createFailedMarketResult(asset, sourceName, sourceUrl = '', coinGeckoLo
         coinGeckoLookupStatus,
     };
 }
-/** P0-4 / P2-7: fetch CoinGecko price payload with 5xx retry (3 attempts, exp backoff). */
+/** P0-4 / P2-7: fetch CoinGecko price payload with retry/backoff. */
 async function fetchCoinGeckoPricePayload(coinIds) {
     const { baseUrl, headers } = getCoinGeckoConfig();
-    let lastError;
-    const maxAttempts = 3;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        const response = await fetch(
-            `${baseUrl}/simple/price?ids=${encodeURIComponent(coinIds.join(','))}&vs_currencies=usd&include_last_updated_at=true`,
-            { headers, signal: AbortSignal.timeout(15000) }
-        );
+    const url = `${baseUrl}/simple/price?ids=${encodeURIComponent(coinIds.join(','))}&vs_currencies=usd&include_last_updated_at=true`;
+    return withRetry(async () => {
+        const response = await fetch(url, {
+            headers,
+            signal: AbortSignal.timeout(15000),
+        });
         if (response.ok) {
             return await response.json();
         }
-        // 4xx → give up immediately (non-retryable)
-        if (response.status >= 400 && response.status < 500) {
-            throw new Error(`CoinGecko HTTP ${response.status}`);
-        }
-        // 5xx → retry with backoff
-        lastError = new Error(`CoinGecko HTTP ${response.status}`);
-        if (attempt < maxAttempts - 1) {
-            const delay = Math.min(1000 * Math.pow(2, attempt), 4000);
-            console.warn(`[coingecko price] HTTP ${response.status}, retry in ${delay}ms (attempt ${attempt + 1}/${maxAttempts})`);
-            await sleep(delay);
-        }
-    }
-    throw lastError;
+        throw Object.assign(new Error(`CoinGecko HTTP ${response.status}`), { httpStatus: response.status });
+    }, {
+        attempts: 3,
+        maxDelayMs: 4000,
+        label: 'fetchCoinGeckoPricePayload',
+        retryable: (err) => {
+            const s = err?.httpStatus;
+            return s === 429 || (s != null && s >= 500);
+        },
+        retryDelayMs: (err, attemptIndex) => {
+            const s = err?.httpStatus;
+            const base = s === 429 ? 4000 : 1000;
+            return Math.min(base * Math.pow(2, attemptIndex), 4000);
+        },
+    });
 }
 function buildCoinGeckoResultsForEntries(coinId, entry, entries) {
     return entries.map(({ asset, status }) => {
@@ -708,7 +711,7 @@ async function fetchCoinGeckoPrice(assets) {
     return [...resolvedResults, ...unresolvedResults];
 }
 function detectFailureCategory(params) {
-    const { asset, matched, nextPrice, staleQuote, diffPct, isValid } = params;
+    const { asset, matched, nextPrice, staleQuote, diffPct, isValid, historicalAnomaly } = params;
     if (isValid) {
         return undefined;
     }
@@ -729,13 +732,16 @@ function detectFailureCategory(params) {
     if (!(matched?.sourceName || matched?.sourceUrl)) {
         return 'source_missing';
     }
+    if (historicalAnomaly) {
+        return 'diff_too_large';
+    }
     if (diffPct >= getReviewThresholdForAsset(asset.assetType)) {
         return 'diff_too_large';
     }
     return 'unknown';
 }
-function buildReviewResults(requestedAssets, marketResults) {
-    return requestedAssets.map((asset) => {
+async function buildReviewResults(requestedAssets, marketResults) {
+    return Promise.all(requestedAssets.map(async (asset) => {
         const matched = marketResults.find((item) => item.assetId === asset.assetId) ??
             createFailedMarketResult(asset, '未取得回應');
         const nextPrice = matched.price ?? null;
@@ -744,11 +750,17 @@ function buildReviewResults(requestedAssets, marketResults) {
         const diffPct = nextPrice != null && asset.currentPrice > 0
             ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
             : 0;
-        const isValid = nextPrice != null &&
+        let isValid = nextPrice != null &&
             nextPrice > 0 &&
             !staleQuote &&
             Boolean(matched.sourceName || matched.sourceUrl) &&
             diffPct < getReviewThresholdForAsset(asset.assetType);
+        const historicalAnomaly = isValid && nextPrice != null
+            ? await detectHistoricalAnomaly(asset.assetId, nextPrice)
+            : null;
+        if (historicalAnomaly?.isAnomaly) {
+            isValid = false;
+        }
         const failureCategory = detectFailureCategory({
             asset,
             matched,
@@ -756,8 +768,13 @@ function buildReviewResults(requestedAssets, marketResults) {
             staleQuote,
             diffPct,
             isValid,
+            historicalAnomaly: historicalAnomaly?.isAnomaly ?? false,
         });
-        const invalidReason = failureCategory ? buildInvalidReason(failureCategory) : '';
+        const invalidReason = historicalAnomaly?.isAnomaly && historicalAnomaly.reason
+            ? historicalAnomaly.reason
+            : failureCategory
+                ? buildInvalidReason(failureCategory)
+                : '';
         return {
             id: asset.assetId,
             assetId: asset.assetId,
@@ -776,7 +793,7 @@ function buildReviewResults(requestedAssets, marketResults) {
             invalidReason,
             status: isValid ? 'confirmed' : 'pending',
         };
-    });
+    }));
 }
 export function getUpdatePricesErrorResponse(error) {
     if (error instanceof UpdatePricesError) {
@@ -819,11 +836,12 @@ export async function generatePriceUpdates(payload) {
         fetchYahooPrice(yahooAssets),
         fetchCoinGeckoPrice(cryptoAssets),
     ]);
+    const results = await buildReviewResults(request.assets, [...yahooResults, ...cryptoResults]);
     return {
         ok: true,
         route: UPDATE_PRICES_ROUTE,
         mode: 'live',
         model: 'market-api',
-        results: buildReviewResults(request.assets, [...yahooResults, ...cryptoResults]),
+        results,
     };
 }

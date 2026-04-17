@@ -1,8 +1,7 @@
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { verifyCronRequest } from './cronAuth.js';
-// SNAPSHOT_FALLBACK_WINDOW_MS 由 priceFreshness.js 集中管理（runtime）
-// 此 TS 來源保留本地引用以供類型推導，數值需與 src/config/priceFreshness.ts 一致
+import { SNAPSHOT_FALLBACK_WINDOW_MS } from './priceFreshness.js';
 import type { PendingPriceUpdateReview } from '../src/types/priceUpdates';
 import type { FxRates } from '../src/types/fxRates';
 
@@ -57,18 +56,6 @@ function getHoursSinceUpdate(value?: string) {
 
   return Math.max(0, (Date.now() - date.getTime()) / (1000 * 60 * 60));
 }
-
-/**
- * 快照降級時窗（TS 來源引用，runtime 使用 server/priceFreshness.js）。
- * 數值來源：src/config/priceFreshness.ts → SNAPSHOT_FALLBACK_WINDOW_MS（由 prebuild 同步）。
- */
-const SNAPSHOT_FALLBACK_WINDOW_MS: Record<string, number> = {
-  crypto: 72 * 60 * 60 * 1000,   // 72h
-  stock:  96 * 60 * 60 * 1000,   // 4d (96h)
-  etf:    96 * 60 * 60 * 1000,
-  bond:   96 * 60 * 60 * 1000,
-  cash:   Number.POSITIVE_INFINITY,
-};
 
 function isFallbackUsable(asset: Awaited<ReturnType<typeof readAdminPortfolioAssets>>[number], todayKey: string) {
   if (!asset.currentPrice || asset.currentPrice <= 0) {
@@ -149,10 +136,10 @@ function getDurationMs(startedAt: number) {
   return Date.now() - startedAt;
 }
 
-async function verifyAssetsReadyForDailySnapshot() {
+async function verifyAssetsReadyForDailySnapshot(preloadedAssets?: Awaited<ReturnType<typeof readAdminPortfolioAssets>>) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection('portfolio').doc('app');
-  const assets = await readAdminPortfolioAssets();
+  const assets = preloadedAssets ?? await readAdminPortfolioAssets();
   const reviewSnapshot = await portfolioRef.collection('priceUpdateReviews').where('status', '==', 'pending').get();
   const todayKey = getHongKongDateKey();
   const nonCashAssets = assets.filter((asset) => asset.assetType !== 'cash');
@@ -233,8 +220,8 @@ export function verifySnapshotCronRequest(authorizationHeader?: string) {
  * P0-1: 接受 pre-fetched fxRates，讓 cron 主流程傳入已抓取的匯率，
  * 確保 snapshot 與價格更新階段使用相同匯率。
  */
-export async function runScheduledDailySnapshot(fxRates?: FxRates) {
-  return runDailySnapshotWorkflow('scheduled', fxRates);
+export async function runScheduledDailySnapshot(fxRates?: FxRates, preloadedAssets?: Awaited<ReturnType<typeof readAdminPortfolioAssets>>) {
+  return runDailySnapshotWorkflow('scheduled', fxRates, preloadedAssets);
 }
 
 /**
@@ -243,9 +230,10 @@ export async function runScheduledDailySnapshot(fxRates?: FxRates) {
  * - 已有 fallback snapshot / 冇 snapshot → 走正常 readiness check workflow
  *   若而家 coverage 足夠，可升級成 strict
  */
-export async function runManualDailySnapshot() {
+export async function runManualDailySnapshot(options: { force?: boolean } = {}) {
   const startedAt = Date.now();
   const snapshotId = buildDailySnapshotId();
+  const force = options.force === true;
 
   // Check existing snapshot quality before deciding how to proceed
   const db = getFirebaseAdminDb();
@@ -257,7 +245,7 @@ export async function runManualDailySnapshot() {
     ? (existing.data()?.snapshotQuality as string | undefined)
     : undefined;
 
-  if (existingQuality === 'strict') {
+  if (existingQuality === 'strict' && !force) {
     const payload = {
       ok: true,
       skipped: true,
@@ -273,17 +261,22 @@ export async function runManualDailySnapshot() {
   }
 
   // No snapshot or fallback only → run normal readiness workflow (may upgrade to strict)
-  return runDailySnapshotWorkflow('manual');
+  return runDailySnapshotWorkflow('manual', undefined, undefined, force);
 }
 
-async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: FxRates) {
+async function runDailySnapshotWorkflow(
+  mode: 'scheduled' | 'manual',
+  fxRates?: FxRates,
+  preloadedAssets?: Awaited<ReturnType<typeof readAdminPortfolioAssets>>,
+  force = false,
+) {
   const startedAt = Date.now();
   const stepTimings = createSnapshotStepTimings();
   const readinessStartedAt = Date.now();
-  const readiness = await verifyAssetsReadyForDailySnapshot();
+  const readiness = await verifyAssetsReadyForDailySnapshot(preloadedAssets);
   stepTimings.readinessMs = getDurationMs(readinessStartedAt);
-  const snapshotReason = 'daily_snapshot';
-  const fallbackReason = 'daily_snapshot_fallback';
+  const snapshotReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot';
+  const fallbackReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot_fallback';
   const route = mode === 'manual' ? MANUAL_ROUTE : CRON_ROUTE;
   // Log prefix reflects the real entrypoint so logs are easy to trace
   const logLabel = mode === 'manual' ? '[manual-capture-snapshot]' : '[cron-daily-update/snapshot]';
@@ -298,6 +291,8 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: 
       coveragePct: 100,
       fallbackAssetCount: 0,
       fxRates,  // P0-1: pass through pre-fetched rates
+      holdings: preloadedAssets,
+      force,
     });
     stepTimings.snapshotWriteMs = getDurationMs(snapshotWriteStartedAt);
     const durationMs = getDurationMs(startedAt);
@@ -351,6 +346,8 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: 
       coveragePct: readiness.coveragePct,
       fallbackAssetCount: readiness.missingAssetCount,
       fxRates,  // P0-1: pass through pre-fetched rates
+      holdings: preloadedAssets,
+      force,
     });
     stepTimings.snapshotWriteMs = getDurationMs(snapshotWriteStartedAt);
     const durationMs = getDurationMs(startedAt);

@@ -11,6 +11,13 @@ import {
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/manual-capture-snapshot';
+  const force = (() => {
+    try {
+      return new URL(request.url ?? route, 'http://localhost').searchParams.get('force') === 'true';
+    } catch {
+      return false;
+    }
+  })();
 
   if (request.method !== 'POST') {
     sendJson(response, 405, {
@@ -23,7 +30,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
   try {
     await requirePortfolioAccess(request, route);
-    const result = await runManualDailySnapshot();
+    const result = await runManualDailySnapshot({ force });
     sendJson(response, 200, result);
   } catch (error) {
     if (isPortfolioAccessError(error)) {

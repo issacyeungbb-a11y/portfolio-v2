@@ -61,8 +61,7 @@ function normalizeAssetInput(value) {
   };
 }
 
-/** P0-1: 讀取已持久化到 Firestore 的匯率（由 cron 主流程寫入）。 */
-async function readPersistedFxRates() {
+async function readPersistedFxRates(maxAgeMs = 24 * 60 * 60 * 1000) {
   try {
     const db = getFirebaseAdminDb();
     const docSnap = await db
@@ -71,6 +70,15 @@ async function readPersistedFxRates() {
       .get();
     const data = docSnap.data()?.fxRates;
     if (!data) return null;
+    const updatedAtRaw = data.updatedAt;
+    const updatedAt = typeof updatedAtRaw === 'string'
+      ? new Date(updatedAtRaw)
+      : updatedAtRaw instanceof Timestamp
+        ? updatedAtRaw.toDate()
+        : null;
+    if (!updatedAt || Number.isNaN(updatedAt.getTime()) || Date.now() - updatedAt.getTime() > maxAgeMs) {
+      return null;
+    }
     const USD = typeof data.USD === 'number' && data.USD > 0 ? data.USD : null;
     const JPY = typeof data.JPY === 'number' && data.JPY > 0 ? data.JPY : null;
     const HKD = typeof data.HKD === 'number' && data.HKD > 0 ? data.HKD : 1;
@@ -135,7 +143,7 @@ export async function captureAdminPortfolioSnapshot(params = {}) {
     }
   }
 
-  const holdings = await readAdminPortfolioAssets();
+  const holdings = params.holdings ?? await readAdminPortfolioAssets();
 
   const holdingsPayload = holdings.map((holding) => ({
     assetId: holding.id,

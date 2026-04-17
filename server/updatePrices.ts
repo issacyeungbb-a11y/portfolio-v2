@@ -15,6 +15,8 @@ import type {
 import type { AssetType } from '../src/types/portfolio';
 import type { FxRates } from '../src/types/fxRates';
 import { getAnomalyThreshold } from './priceAnomalyDetection.js';
+import { detectHistoricalAnomaly } from './priceAnomalyDetection.js';
+import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
 import { withRetry } from './retry.js';
 
 const UPDATE_PRICES_ROUTE = '/api/update-prices' as const;
@@ -229,7 +231,7 @@ async function throttleCoinGeckoSearchDistributed() {
         ? ((doc.data()?.lastRequestAt as { toMillis?: () => number } | undefined)?.toMillis?.() ?? 0)
         : 0;
 
-    const lastAt = Math.max(lastCoinGeckoSearchAt, remoteLast);
+    const lastAt = Math.max(lastCoinGeckoSearchAt, remoteLast + 500);
     const elapsed = Date.now() - lastAt;
 
     if (elapsed < COINGECKO_SEARCH_MIN_INTERVAL_MS) {
@@ -568,24 +570,8 @@ function parseAsOf(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-/**
- * 伺服器端報價接受時窗。
- * 數值由 server/priceFreshness.js 集中管理（自動從 src/config/priceFreshness.ts 產生）。
- * 不要在此處硬編碼時窗數值 — 直接從 './priceFreshness.js' 引入。
- */
-// import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';  ← 已在 server/updatePrices.js 引入
-// 此 TypeScript 來源檔的對應 runtime 檔 (updatePrices.js) 使用 priceFreshness.js 的值。
-// 以下僅為 TS 類型推導保留，確保與 runtime 數值一致（由 gen-price-freshness 保證同步）。
-const _QUOTE_FRESHNESS_WINDOW_MS_REF: Record<string, number> = {
-  crypto: 72 * 60 * 60 * 1000,      // 72h — 見 src/config/priceFreshness.ts
-  stock:  5 * 24 * 60 * 60 * 1000,  // 5d
-  etf:    5 * 24 * 60 * 60 * 1000,
-  bond:   5 * 24 * 60 * 60 * 1000,
-  cash:   Number.POSITIVE_INFINITY,
-};
-
 function getQuoteFreshnessWindowMs(assetType: AssetType) {
-  return _QUOTE_FRESHNESS_WINDOW_MS_REF[assetType] ?? _QUOTE_FRESHNESS_WINDOW_MS_REF.stock;
+  return QUOTE_FRESHNESS_WINDOW_MS[assetType] ?? QUOTE_FRESHNESS_WINDOW_MS.stock;
 }
 
 function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
@@ -665,8 +651,8 @@ function buildCoinGeckoResultsForEntries(
 }
 
 /**
- * P0-4 / P2-7: fetch CoinGecko price payload with 5xx retry via withRetry helper.
- * 4xx errors (e.g. 429, 404) are non-retryable to avoid wasting time budget.
+ * P0-4 / P2-7: fetch CoinGecko price payload with retry/backoff.
+ * 429 uses a longer backoff; 5xx uses a shorter backoff.
  */
 async function fetchCoinGeckoPricePayload(coinIds: string[]): Promise<CoinGeckoPricePayload> {
   const { baseUrl, headers } = getCoinGeckoConfig();
@@ -690,13 +676,16 @@ async function fetchCoinGeckoPricePayload(coinIds: string[]): Promise<CoinGeckoP
     },
     {
       attempts: 3,
-      baseDelayMs: 1000,
       maxDelayMs: 4000,
       label: 'fetchCoinGeckoPricePayload',
-      // 5xx → retryable; 4xx (e.g. 429, 404) → give up immediately
       retryable: (err) => {
         const s = (err as { httpStatus?: number }).httpStatus;
-        return s != null && s >= 500;
+        return s === 429 || (s != null && s >= 500);
+      },
+      retryDelayMs: (err, attemptIndex) => {
+        const s = (err as { httpStatus?: number }).httpStatus;
+        const base = s === 429 ? 4000 : 1000;
+        return Math.min(base * Math.pow(2, attemptIndex), 4000);
       },
     },
   );
@@ -1027,8 +1016,9 @@ function detectFailureCategory(params: {
   staleQuote: boolean;
   diffPct: number;
   isValid: boolean;
+  historicalAnomaly?: boolean;
 }) {
-  const { asset, matched, nextPrice, staleQuote, diffPct, isValid } = params;
+  const { asset, matched, nextPrice, staleQuote, diffPct, isValid, historicalAnomaly } = params;
 
   if (isValid) {
     return undefined;
@@ -1056,6 +1046,10 @@ function detectFailureCategory(params: {
     return 'source_missing';
   }
 
+  if (historicalAnomaly) {
+    return 'diff_too_large';
+  }
+
   if (diffPct >= getReviewThresholdForAsset(asset.assetType)) {
     return 'diff_too_large';
   }
@@ -1063,11 +1057,11 @@ function detectFailureCategory(params: {
   return 'unknown';
 }
 
-function buildReviewResults(
+async function buildReviewResults(
   requestedAssets: PriceUpdateRequestAsset[],
   marketResults: MarketPriceResult[],
-): PendingPriceUpdateReview[] {
-  return requestedAssets.map((asset) => {
+): Promise<PendingPriceUpdateReview[]> {
+  const reviews = await Promise.all(requestedAssets.map(async (asset) => {
     const matched =
       marketResults.find((item) => item.assetId === asset.assetId) ??
       createFailedMarketResult(asset, '未取得回應');
@@ -1079,12 +1073,19 @@ function buildReviewResults(
       nextPrice != null && asset.currentPrice > 0
         ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
         : 0;
-    const isValid =
+    let isValid =
       nextPrice != null &&
       nextPrice > 0 &&
       !staleQuote &&
       Boolean(matched.sourceName || matched.sourceUrl) &&
       diffPct < getReviewThresholdForAsset(asset.assetType);
+    const historicalAnomaly =
+      isValid && nextPrice != null
+        ? await detectHistoricalAnomaly(asset.assetId, nextPrice)
+        : null;
+    if (historicalAnomaly?.isAnomaly) {
+      isValid = false;
+    }
     const failureCategory = detectFailureCategory({
       asset,
       matched,
@@ -1092,8 +1093,14 @@ function buildReviewResults(
       staleQuote,
       diffPct,
       isValid,
+      historicalAnomaly: historicalAnomaly?.isAnomaly ?? false,
     });
-    const invalidReason = failureCategory ? buildInvalidReason(failureCategory) : '';
+    const invalidReason =
+      historicalAnomaly?.isAnomaly && historicalAnomaly.reason
+        ? historicalAnomaly.reason
+        : failureCategory
+          ? buildInvalidReason(failureCategory)
+          : '';
 
     return {
       id: asset.assetId,
@@ -1113,7 +1120,9 @@ function buildReviewResults(
       invalidReason,
       status: isValid ? 'confirmed' : 'pending',
     };
-  });
+  }));
+
+  return reviews;
 }
 
 export function getUpdatePricesErrorResponse(error: unknown) {
@@ -1168,11 +1177,13 @@ export async function generatePriceUpdates(payload: unknown): Promise<PriceUpdat
     fetchCoinGeckoPrice(cryptoAssets),
   ]);
 
+  const results = await buildReviewResults(request.assets, [...yahooResults, ...cryptoResults]);
+
   return {
     ok: true,
     route: UPDATE_PRICES_ROUTE,
     mode: 'live',
     model: 'market-api',
-    results: buildReviewResults(request.assets, [...yahooResults, ...cryptoResults]),
+    results,
   };
 }

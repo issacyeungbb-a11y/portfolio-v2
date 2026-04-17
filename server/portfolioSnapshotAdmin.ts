@@ -93,7 +93,7 @@ function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsse
  * 讀取已持久化到 Firestore 的匯率（由 cron 主流程寫入）。
  * 優先讓 snapshot 使用與主流程相同的匯率，避免兩者不一致。
  */
-async function readPersistedFxRates(): Promise<FxRates | null> {
+async function readPersistedFxRates(maxAgeMs = 24 * 60 * 60 * 1000): Promise<FxRates | null> {
   try {
     const db = getFirebaseAdminDb();
     const docSnap = await db
@@ -102,6 +102,16 @@ async function readPersistedFxRates(): Promise<FxRates | null> {
       .get();
     const data = docSnap.data()?.fxRates as Record<string, unknown> | undefined;
     if (!data) return null;
+    const updatedAtRaw = data.updatedAt;
+    const updatedAt =
+      typeof updatedAtRaw === 'string'
+        ? new Date(updatedAtRaw)
+        : updatedAtRaw instanceof Timestamp
+          ? updatedAtRaw.toDate()
+          : null;
+    if (!updatedAt || Number.isNaN(updatedAt.getTime()) || Date.now() - updatedAt.getTime() > maxAgeMs) {
+      return null;
+    }
     const USD = typeof data.USD === 'number' && data.USD > 0 ? data.USD : null;
     const JPY = typeof data.JPY === 'number' && data.JPY > 0 ? data.JPY : null;
     const HKD = typeof data.HKD === 'number' && data.HKD > 0 ? data.HKD : 1;
@@ -154,6 +164,7 @@ export async function captureAdminPortfolioSnapshot(params: {
   fallbackAssetCount?: number;
   force?: boolean;
   fxRates?: FxRates;  // P0-1: pre-fetched rates from cron pipeline
+  holdings?: Array<AdminPortfolioAsset & { id: string }>;
 }) {
   const db = getFirebaseAdminDb();
   const snapshotId = params.snapshotId?.trim();
@@ -198,7 +209,7 @@ export async function captureAdminPortfolioSnapshot(params: {
     }
   }
 
-  const holdings = await readAdminPortfolioAssets();
+  const holdings = params.holdings ?? await readAdminPortfolioAssets();
 
   const holdingsPayload = holdings.map((holding) => ({
     assetId: holding.id,

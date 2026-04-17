@@ -39,7 +39,6 @@ function getHoursSinceUpdate(value) {
     }
     return Math.max(0, (Date.now() - date.getTime()) / (1000 * 60 * 60));
 }
-// 快照降級時窗由 server/priceFreshness.js 集中管理，不要硬編碼。
 function isFallbackUsable(asset, todayKey) {
     if (!asset.currentPrice || asset.currentPrice <= 0) {
         return false;
@@ -91,10 +90,10 @@ function parseReviewUpdatedAt(value) {
     }
     return null;
 }
-async function verifyAssetsReadyForDailySnapshot() {
+async function verifyAssetsReadyForDailySnapshot(preloadedAssets) {
     const db = getFirebaseAdminDb();
     const portfolioRef = db.collection('portfolio').doc('app');
-    const assets = await readAdminPortfolioAssets();
+    const assets = preloadedAssets ?? await readAdminPortfolioAssets();
     const reviewSnapshot = await portfolioRef.collection('priceUpdateReviews').where('status', '==', 'pending').get();
     const todayKey = getHongKongDateKey();
     const nonCashAssets = assets.filter((asset) => asset.assetType !== 'cash');
@@ -160,12 +159,13 @@ export function verifySnapshotCronRequest(authorizationHeader) {
         throw error;
     }
 }
-export async function runScheduledDailySnapshot(fxRates) {
-    return runDailySnapshotWorkflow('scheduled', fxRates);
+export async function runScheduledDailySnapshot(fxRates, preloadedAssets) {
+    return runDailySnapshotWorkflow('scheduled', fxRates, preloadedAssets);
 }
-export async function runManualDailySnapshot() {
+export async function runManualDailySnapshot(options = {}) {
     const startedAt = Date.now();
     const snapshotId = buildDailySnapshotId();
+    const force = options.force === true;
 
     // P0-5: 檢查現有快照品質，避免低品質覆蓋高品質
     const db = getFirebaseAdminDb();
@@ -175,7 +175,7 @@ export async function runManualDailySnapshot() {
     const existing = await existingRef.get();
     const existingQuality = existing.exists ? existing.data()?.snapshotQuality : undefined;
 
-    if (existingQuality === 'strict') {
+    if (existingQuality === 'strict' && !force) {
         const payload = {
             ok: true,
             skipped: true,
@@ -191,10 +191,10 @@ export async function runManualDailySnapshot() {
     }
 
     // 冇快照或 fallback → 走正常 readiness workflow（可升級成 strict）
-    return runDailySnapshotWorkflow('manual');
+    return runDailySnapshotWorkflow('manual', undefined, undefined, force);
 }
-async function runDailySnapshotWorkflow(mode, fxRates) {
-    const readiness = await verifyAssetsReadyForDailySnapshot();
+async function runDailySnapshotWorkflow(mode, fxRates, preloadedAssets, force = false) {
+    const readiness = await verifyAssetsReadyForDailySnapshot(preloadedAssets);
     const snapshotReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot';
     const fallbackReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot_fallback';
     const route = mode === 'manual' ? MANUAL_ROUTE : CRON_ROUTE;
@@ -207,6 +207,8 @@ async function runDailySnapshotWorkflow(mode, fxRates) {
             snapshotQuality: 'strict',
             coveragePct: 100,
             fallbackAssetCount: 0,
+            holdings: preloadedAssets,
+            force,
         });
         if (result.skipped) {
             return {
@@ -244,6 +246,8 @@ async function runDailySnapshotWorkflow(mode, fxRates) {
             coveragePct: readiness.coveragePct,
             fallbackAssetCount: readiness.missingAssetCount,
             fxRates,
+            holdings: preloadedAssets,
+            force,
         });
         if (result.skipped) {
             return {

@@ -37,6 +37,7 @@ type DiagnoseResponse = {
     yahooFinance: DiagnoseStepResult;
     coinGecko: DiagnoseStepResult;
     pendingReviews: DiagnoseStepResult;
+    snapshotQualityTrend: DiagnoseStepResult;
     systemRuns: DiagnoseStepResult;
     dailyJob: DiagnoseStepResult;
   };
@@ -51,6 +52,8 @@ type CronLagAlert = {
   currentHktTime: string;
   /** Today's daily job status, or null if no job record found */
   jobStatus: string | null;
+  /** Today's snapshot status, or null if no job record found */
+  snapshotStatus: string | null;
   /** Human-readable description */
   detail: string;
 };
@@ -61,7 +64,7 @@ type CronLagAlert = {
  */
 const LAG_ALERT_HOUR_HKT = 10; // hours (24-hour, HKT)
 
-function buildCronLagAlert(job: { status: string } | null): CronLagAlert {
+function buildCronLagAlert(job: { status: string; snapshotStatus?: string | null } | null): CronLagAlert {
   const now = new Date();
   const hktHour = Number(
     new Intl.DateTimeFormat('en-CA', {
@@ -80,7 +83,8 @@ function buildCronLagAlert(job: { status: string } | null): CronLagAlert {
 
   const expectedCompleteBy = `${String(LAG_ALERT_HOUR_HKT).padStart(2, '0')}:00 HKT`;
   const jobStatus = job?.status ?? null;
-  const isCompleted = jobStatus === 'completed';
+  const snapshotStatus = job?.snapshotStatus ?? null;
+  const isCompleted = jobStatus === 'completed' && (snapshotStatus === 'completed' || snapshotStatus === 'skipped');
   const isPastAlertTime = hktHour >= LAG_ALERT_HOUR_HKT;
   const isLagging = isPastAlertTime && !isCompleted;
 
@@ -90,7 +94,7 @@ function buildCronLagAlert(job: { status: string } | null): CronLagAlert {
       ? `每日任務已按時完成。`
       : `現時 ${hktTimeStr} HKT，未到達 ${expectedCompleteBy} 預警門檻，尚在等待期。`;
 
-  return { isLagging, expectedCompleteBy, currentHktTime: `${hktTimeStr} HKT`, jobStatus, detail };
+  return { isLagging, expectedCompleteBy, currentHktTime: `${hktTimeStr} HKT`, jobStatus, snapshotStatus, detail };
 }
 
 function getDurationMs(startedAt: number) {
@@ -369,6 +373,39 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     };
   });
 
+  const snapshotQualityTrend = await runStep(async () => {
+    const db = getFirebaseAdminDb();
+    const snapshot = await db
+      .collection('portfolio')
+      .doc('app')
+      .collection('portfolioSnapshots')
+      .orderBy('capturedAt', 'desc')
+      .limit(7)
+      .get();
+
+    const counts = snapshot.docs.reduce(
+      (acc, document) => {
+        const quality = document.data().snapshotQuality;
+        if (quality === 'strict') {
+          acc.strict += 1;
+        } else if (quality === 'fallback') {
+          acc.fallback += 1;
+        } else {
+          acc.missing += 1;
+        }
+        return acc;
+      },
+      { strict: 0, fallback: 0, missing: 0 },
+    );
+
+    return {
+      detail: `最近 7 個快照：strict ${counts.strict}、fallback ${counts.fallback}、missing ${counts.missing}。`,
+      data: {
+        last7Days: counts,
+      },
+    };
+  });
+
   const systemRuns = await runStep(async () => {
     // Primary task name is 'cron-daily-update' (new orchestrator).
     // Fall back to 'cron-update-prices' for backward compat during migration period.
@@ -477,6 +514,7 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     yahooFinance,
     coinGecko,
     pendingReviews,
+    snapshotQualityTrend,
     systemRuns,
     dailyJob,
   };
@@ -486,9 +524,11 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
 
   // P2-4: Build cron lag alert from the dailyJob step data
   const jobData = dailyJob.ok
-    ? (dailyJob.data as { status?: string } | undefined)
+    ? (dailyJob.data as { status?: string; snapshotStatus?: string | null } | undefined)
     : null;
-  const cronLagAlert = buildCronLagAlert(jobData?.status ? { status: jobData.status } : null);
+  const cronLagAlert = buildCronLagAlert(
+    jobData?.status ? { status: jobData.status, snapshotStatus: jobData.snapshotStatus ?? null } : null,
+  );
 
   return {
     ok: failedSteps === 0,

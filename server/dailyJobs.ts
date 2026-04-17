@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 const DAILY_JOBS_COLLECTION = 'portfolio';
 const DAILY_JOBS_DOC = 'app';
 const DAILY_JOBS_SUBCOLLECTION = 'dailyJobs';
-const LOCK_TTL_MS = 5 * 60 * 1000;
+const LOCK_TTL_MS = 8 * 60 * 1000;
 
 export type DailyJobStatus = 'pending' | 'running' | 'update_done' | 'completed' | 'failed';
 export type SnapshotStatus = 'not_started' | 'running' | 'completed' | 'failed' | 'skipped';
@@ -34,6 +34,8 @@ export interface DailyJobDocument {
   snapshotFinishedAt: unknown | null;
   snapshotError: string | null;
   lastError: string | null;
+  rescueAttemptedAt?: unknown | null;
+  previousFailedAssets?: string[];
   nextRetryAt: unknown | null;
 }
 
@@ -86,12 +88,14 @@ export async function acquireDailyJobLock(
           fxUsingFallback: false, coinGeckoSyncStatus: 'skipped',
           snapshotStatus: 'not_started', snapshotStartedAt: null,
           snapshotFinishedAt: null, snapshotError: null, lastError: null, nextRetryAt: null,
+          rescueAttemptedAt: null, previousFailedAssets: [],
         });
         return { acquired: true, lockToken, existingJob: null } as LockAcquireResult;
       }
 
       const data = doc.data() as DailyJobDocument;
-      if (data.status === 'completed') {
+      const snapshotDone = data.snapshotStatus === 'completed' || data.snapshotStatus === 'skipped';
+      if (data.status === 'completed' && snapshotDone) {
         return { acquired: false, reason: 'already_completed' } as LockAcquireResult;
       }
 
@@ -124,7 +128,10 @@ export async function addProcessedAssets(dateKey: string, assetIds: string[]): P
 
 export async function addFailedAssets(dateKey: string, assetIds: string[], lastError: string): Promise<void> {
   if (!assetIds.length) return;
-  await updateDailyJob(dateKey, { failedAssets: FieldValue.arrayUnion(...assetIds), lastError });
+  await updateDailyJob(dateKey, {
+    failedAssets: FieldValue.arrayUnion(...assetIds),
+    lastError,
+  });
 }
 
 export async function markUpdateDone(dateKey: string, lockToken: string, stats: UpdateDoneStats): Promise<void> {
