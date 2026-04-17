@@ -12,7 +12,7 @@
  * 用於 server/updatePrices.ts → getQuoteFreshnessWindowMs()
  */
 export const QUOTE_FRESHNESS_WINDOW_MS = {
-  crypto: 72 * 60 * 60 * 1000,        // 72h — 加密貨幣全天候交易
+  crypto: 6 * 60 * 60 * 1000,         //  6h — 加密貨幣全天候交易，價格波動大，縮短接受窗口
   stock:  5 * 24 * 60 * 60 * 1000,    // 5d  — 覆蓋週末及假期停市
   etf:    5 * 24 * 60 * 60 * 1000,
   bond:   5 * 24 * 60 * 60 * 1000,
@@ -36,7 +36,7 @@ export const DISPLAY_FRESHNESS_WINDOW_MS = {
  * 用於 server/cronCaptureSnapshot.ts → isFallbackUsable()
  */
 export const SNAPSHOT_FALLBACK_WINDOW_MS = {
-  crypto: 72 * 60 * 60 * 1000,        // 72h
+  crypto: 12 * 60 * 60 * 1000,        // 12h — 價格波動大，降級窗口縮短
   stock:  96 * 60 * 60 * 1000,        // 4d (96h)
   etf:    96 * 60 * 60 * 1000,
   bond:   96 * 60 * 60 * 1000,

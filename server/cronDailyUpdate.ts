@@ -207,6 +207,13 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
   // 2. Determine what work remains
   const processedSet = new Set<string>(existingJob?.processedAssets ?? []);
   const failedSet = new Set<string>(existingJob?.failedAssets ?? []);
+
+  // P1-1: Rescue run — clear previously failed assets so they get retried this run
+  if (trigger === 'rescue' && failedSet.size > 0) {
+    console.info(`[cron-daily-update] Rescue 清空 ${failedSet.size} 項 failedAssets 重試`);
+    await updateDailyJob(dateKey, { failedAssets: [] });
+    failedSet.clear();
+  }
   const updateAlreadyDone = existingJob?.status === 'update_done';
   const snapshotAlreadyDone =
     existingJob?.snapshotStatus === 'completed' ||
@@ -286,20 +293,51 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
 
             console.info(`[cron-daily-update] Batch ${batchNum}/${totalBatches} 完成：applied=${outcome.appliedCount} pending=${outcome.pendingCount}`);
           } catch (batchError) {
-            const msg = batchError instanceof Error ? batchError.message : String(batchError);
-            console.error(`[cron-daily-update] Batch ${batchNum}/${totalBatches} 失敗:`, msg);
-            await addFailedAssets(dateKey, batchIds, msg);
+            // P1-2: Batch failed — fallback to per-asset retry with 300ms gap
+            const batchErrMsg = batchError instanceof Error ? batchError.message : String(batchError);
+            console.warn(`[cron-daily-update] Batch ${batchNum}/${totalBatches} 整批失敗，嘗試逐項重試:`, batchErrMsg);
+            const perAssetFailed: string[] = [];
+            for (const asset of batchAssets) {
+              await new Promise<void>((r) => setTimeout(r, 300));
+              try {
+                const singleRequest = {
+                  assets: [{
+                    assetId: asset.id, assetName: asset.name, ticker: asset.symbol,
+                    assetType: asset.assetType, currentPrice: asset.currentPrice, currency: asset.currency,
+                  }],
+                };
+                const singleResponse = await generatePriceUpdates(singleRequest) as { results: PriceUpdateResult[] };
+                const outcome = await applyCronResults(singleResponse.results);
+                appliedCount += outcome.appliedCount;
+                pendingReviewCount += outcome.pendingCount;
+                await addProcessedAssets(dateKey, [asset.id]);
+                console.info(`[cron-daily-update] 單項重試成功: ${asset.symbol}`);
+              } catch (assetError) {
+                const assetMsg = assetError instanceof Error ? assetError.message : String(assetError);
+                console.error(`[cron-daily-update] 單項重試失敗: ${asset.symbol}:`, assetMsg);
+                perAssetFailed.push(asset.id);
+              }
+            }
+            if (perAssetFailed.length > 0) {
+              await addFailedAssets(dateKey, perAssetFailed, batchErrMsg);
+            }
+            await updateDailyJob(dateKey, { appliedCount, pendingReviewCount });
           }
         }
       }
 
-      // Recalculate coverage from Firestore state
+      // P1-5: Recalculate both coverage metrics from Firestore state
       const refreshed = await readDailyJob(dateKey);
       const processedCount = (refreshed?.processedAssets ?? []).length;
-      coveragePct = totalAssets === 0 ? 100 : Math.round((processedCount / totalAssets) * 100);
+      // processCoveragePct: how many assets were attempted (processed / total)
+      const processCoveragePct = totalAssets === 0 ? 100 : Math.round((processedCount / totalAssets) * 100);
+      // validCoveragePct: how many assets received a valid price (applied / total) — main metric
+      const validCoveragePct = totalAssets === 0 ? 100 : Math.round((appliedCount / totalAssets) * 100);
+      coveragePct = validCoveragePct;
 
       await markUpdateDone(dateKey, lockToken, {
         appliedCount, pendingReviewCount, coveragePct,
+        processCoveragePct,
         fxUsingFallback, coinGeckoSyncStatus, totalAssets,
       });
     }

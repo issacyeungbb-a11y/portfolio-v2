@@ -5,7 +5,7 @@ import { randomUUID } from 'crypto';
 const DAILY_JOBS_COLLECTION = 'portfolio';
 const DAILY_JOBS_DOC = 'app';
 const DAILY_JOBS_SUBCOLLECTION = 'dailyJobs';
-const LOCK_TTL_MS = 20 * 60 * 1000;
+const LOCK_TTL_MS = 5 * 60 * 1000;
 
 export type DailyJobStatus = 'pending' | 'running' | 'update_done' | 'completed' | 'failed';
 export type SnapshotStatus = 'not_started' | 'running' | 'completed' | 'failed' | 'skipped';
@@ -26,6 +26,7 @@ export interface DailyJobDocument {
   appliedCount: number;
   pendingReviewCount: number;
   coveragePct: number;
+  processCoveragePct?: number;
   fxUsingFallback: boolean;
   coinGeckoSyncStatus: CoinGeckoSyncStatus;
   snapshotStatus: SnapshotStatus;
@@ -40,6 +41,7 @@ export interface UpdateDoneStats {
   appliedCount: number;
   pendingReviewCount: number;
   coveragePct: number;
+  processCoveragePct?: number;
   fxUsingFallback: boolean;
   coinGeckoSyncStatus: CoinGeckoSyncStatus;
   totalAssets: number;
