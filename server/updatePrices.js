@@ -1,4 +1,5 @@
 import YahooFinance from 'yahoo-finance2';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getFirebaseAdminDb, getSharedCoinGeckoCoinIdCacheDocRef, getSharedCoinGeckoCoinIdCacheDocRefs, } from './firebaseAdmin.js';
 import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
 const UPDATE_PRICES_ROUTE = '/api/update-prices';
@@ -129,6 +130,28 @@ async function throttleCoinGeckoSearch() {
     }
     lastCoinGeckoSearchAt = Date.now();
 }
+/** P0-4: Distributed CoinGecko throttle — persists last request time to Firestore. */
+async function throttleCoinGeckoSearchDistributed() {
+    try {
+        const db = getFirebaseAdminDb();
+        const ref = db.collection('portfolio').doc('app').collection('coinGeckoThrottle').doc('state');
+        const doc = await ref.get();
+        const remoteLast = doc.exists ? (doc.data()?.lastRequestAt?.toMillis?.() ?? 0) : 0;
+        const lastAt = Math.max(lastCoinGeckoSearchAt, remoteLast);
+        const elapsed = Date.now() - lastAt;
+        if (elapsed < COINGECKO_SEARCH_MIN_INTERVAL_MS) {
+            await sleep(COINGECKO_SEARCH_MIN_INTERVAL_MS - elapsed);
+        }
+        lastCoinGeckoSearchAt = Date.now();
+        // Write back without awaiting — best-effort persistence
+        ref.set({ lastRequestAt: FieldValue.serverTimestamp() }, { merge: true }).catch((err) =>
+            console.warn('[coingecko throttle] persist failed:', err instanceof Error ? err.message : String(err))
+        );
+    } catch (err) {
+        console.warn('[coingecko throttle] fallback to in-memory:', err instanceof Error ? err.message : String(err));
+        await throttleCoinGeckoSearch();
+    }
+}
 function pickBestCoinGeckoSearchCoin(coins, ticker) {
     if (coins.length === 0) {
         return null;
@@ -224,7 +247,7 @@ async function fetchCoinGeckoSearchCoins(ticker) {
     return Array.isArray(payload.coins) ? payload.coins : [];
 }
 async function fetchCoinGeckoCoinIdFromSearch(ticker) {
-    await throttleCoinGeckoSearch();
+    await throttleCoinGeckoSearchDistributed();
     const coins = await fetchCoinGeckoSearchCoins(ticker);
     const bestCoin = pickBestCoinGeckoSearchCoin(coins, ticker);
     if (!bestCoin) {
@@ -416,6 +439,33 @@ function createFailedMarketResult(asset, sourceName, sourceUrl = '', coinGeckoLo
         marketState: null,
         coinGeckoLookupStatus,
     };
+}
+/** P0-4 / P2-7: fetch CoinGecko price payload with 5xx retry (3 attempts, exp backoff). */
+async function fetchCoinGeckoPricePayload(coinIds) {
+    const { baseUrl, headers } = getCoinGeckoConfig();
+    let lastError;
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const response = await fetch(
+            `${baseUrl}/simple/price?ids=${encodeURIComponent(coinIds.join(','))}&vs_currencies=usd&include_last_updated_at=true`,
+            { headers, signal: AbortSignal.timeout(15000) }
+        );
+        if (response.ok) {
+            return await response.json();
+        }
+        // 4xx → give up immediately (non-retryable)
+        if (response.status >= 400 && response.status < 500) {
+            throw new Error(`CoinGecko HTTP ${response.status}`);
+        }
+        // 5xx → retry with backoff
+        lastError = new Error(`CoinGecko HTTP ${response.status}`);
+        if (attempt < maxAttempts - 1) {
+            const delay = Math.min(1000 * Math.pow(2, attempt), 4000);
+            console.warn(`[coingecko price] HTTP ${response.status}, retry in ${delay}ms (attempt ${attempt + 1}/${maxAttempts})`);
+            await sleep(delay);
+        }
+    }
+    throw lastError;
 }
 function buildCoinGeckoResultsForEntries(coinId, entry, entries) {
     return entries.map(({ asset, status }) => {
@@ -633,16 +683,8 @@ async function fetchCoinGeckoPrice(assets) {
     }
     const resolvedCoinIds = Array.from(coinIdToAssets.keys());
     if (resolvedCoinIds.length > 0) {
-        const { baseUrl, headers } = getCoinGeckoConfig();
         try {
-            const response = await fetch(`${baseUrl}/simple/price?ids=${encodeURIComponent(resolvedCoinIds.join(','))}&vs_currencies=usd&include_last_updated_at=true`, {
-                headers,
-                signal: AbortSignal.timeout(15000),
-            });
-            if (!response.ok) {
-                throw new Error(`CoinGecko HTTP ${response.status}`);
-            }
-            const payload = (await response.json());
+            const payload = await fetchCoinGeckoPricePayload(resolvedCoinIds);
             for (const coinId of resolvedCoinIds) {
                 resolvedResults.push(...buildCoinGeckoResultsForEntries(coinId, payload[coinId], coinIdToAssets.get(coinId) ?? []));
             }
@@ -652,14 +694,8 @@ async function fetchCoinGeckoPrice(assets) {
             for (const coinId of resolvedCoinIds) {
                 const entries = coinIdToAssets.get(coinId) ?? [];
                 try {
-                    const response = await fetch(`${baseUrl}/simple/price?ids=${encodeURIComponent(coinId)}&vs_currencies=usd&include_last_updated_at=true`, {
-                        headers,
-                        signal: AbortSignal.timeout(15000),
-                    });
-                    if (!response.ok) {
-                        throw new Error(`CoinGecko HTTP ${response.status}`);
-                    }
-                    const payload = (await response.json());
+                    await sleep(1500); // P0-4: avoid rate-limit burst during coin-by-coin fallback
+                    const payload = await fetchCoinGeckoPricePayload([coinId]);
                     resolvedResults.push(...buildCoinGeckoResultsForEntries(coinId, payload[coinId], entries));
                 }
                 catch (coinError) {
