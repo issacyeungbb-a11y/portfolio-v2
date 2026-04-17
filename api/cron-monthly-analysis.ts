@@ -1,5 +1,5 @@
 import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
-import { verifyCronRequest } from '../server/cronDailyUpdate.js';
+import { verifyCronRequest } from '../server/cronAuth.js';
 import {
   getScheduledAnalysisErrorResponse,
   runMonthlyAssetAnalysis,

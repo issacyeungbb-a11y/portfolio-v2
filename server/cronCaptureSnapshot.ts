@@ -6,7 +6,9 @@ import { verifyCronRequest } from './cronAuth.js';
 import type { PendingPriceUpdateReview } from '../src/types/priceUpdates';
 import type { FxRates } from '../src/types/fxRates';
 
-const CRON_ROUTE = '/api/cron-capture-snapshot' as const;
+// The standalone /api/cron-capture-snapshot endpoint was removed in P2-5.
+// Scheduled snapshots are now triggered internally by /api/cron-daily-update.
+const CRON_ROUTE = '/api/cron-daily-update' as const;
 const MANUAL_ROUTE = '/api/manual-capture-snapshot' as const;
 
 class CronSnapshotError extends Error {
@@ -283,6 +285,8 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: 
   const snapshotReason = 'daily_snapshot';
   const fallbackReason = 'daily_snapshot_fallback';
   const route = mode === 'manual' ? MANUAL_ROUTE : CRON_ROUTE;
+  // Log prefix reflects the real entrypoint so logs are easy to trace
+  const logLabel = mode === 'manual' ? '[manual-capture-snapshot]' : '[cron-daily-update/snapshot]';
 
   if (readiness.isReady) {
     const snapshotId = buildDailySnapshotId();
@@ -313,7 +317,7 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: 
         durationMs,
         stepTimings,
       };
-      console.info('[cron-capture-snapshot]', payload);
+      console.info(logLabel, payload);
       return payload;
     }
 
@@ -366,7 +370,7 @@ async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: 
         durationMs,
         stepTimings,
       };
-      console.info('[cron-capture-snapshot]', payload);
+      console.info(logLabel, payload);
       return payload;
     }
 
