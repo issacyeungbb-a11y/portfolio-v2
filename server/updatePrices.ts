@@ -1017,7 +1017,7 @@ function detectFailureCategory(params: {
   diffPct: number;
   isValid: boolean;
   historicalAnomaly?: boolean;
-}) {
+}): PendingPriceUpdateReview['failureCategory'] | undefined {
   const { asset, matched, nextPrice, staleQuote, diffPct, isValid, historicalAnomaly } = params;
 
   if (isValid) {
@@ -1102,7 +1102,7 @@ async function buildReviewResults(
           ? buildInvalidReason(failureCategory)
           : '';
 
-    return {
+    const review: PendingPriceUpdateReview = {
       id: asset.assetId,
       assetId: asset.assetId,
       assetName: matched.assetName || asset.assetName,
@@ -1120,6 +1120,8 @@ async function buildReviewResults(
       invalidReason,
       status: isValid ? 'confirmed' : 'pending',
     };
+
+    return review;
   }));
 
   return reviews;
