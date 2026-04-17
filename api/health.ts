@@ -370,7 +370,8 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
   });
 
   const systemRuns = await runStep(async () => {
-    const runs = await readRecentSystemRuns('cron-update-prices', 5);
+    // P2-5 follow-up: task name changed from 'cron-update-prices' → 'cron-daily-update'
+    const runs = await readRecentSystemRuns('cron-daily-update', 5);
 
     if (runs.length === 0) {
       return {

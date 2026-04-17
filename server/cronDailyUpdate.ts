@@ -5,6 +5,9 @@ import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
 import { writeSystemRun } from './systemRuns.js';
 import { runScheduledDailySnapshot } from './cronCaptureSnapshot.js';
+// Re-export verifyCronRequest from cronAuth (dedicated auth module) so API routes
+// can keep their existing imports while avoiding a circular dep with cronCaptureSnapshot.
+export { verifyCronRequest } from './cronAuth.js';
 import {
   readDailyJob,
   acquireDailyJobLock,
@@ -36,13 +39,6 @@ class DailyUpdateError extends Error {
   }
 }
 
-export function verifyCronRequest(authorizationHeader: string | undefined): void {
-  const secret = process.env.CRON_SECRET?.trim();
-  if (!secret) throw new DailyUpdateError('未設定 CRON_SECRET。', 500);
-  if (authorizationHeader !== `Bearer ${secret}`) {
-    throw new DailyUpdateError('未授權的 cron 請求。', 401);
-  }
-}
 
 function getHongKongDateKey(date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {

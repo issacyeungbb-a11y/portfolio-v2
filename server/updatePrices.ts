@@ -741,7 +741,7 @@ export async function fetchLiveFxRates(): Promise<FxRates> {
 
 /**
  * 與 fetchLiveFxRates 相同，但額外回傳是否使用備援匯率。
- * 用於 cronUpdatePrices 記錄 systemRun 及前端顯示 P2-1。
+ * 用於 cronDailyUpdate 記錄 systemRun 及前端顯示。
  */
 export async function fetchLiveFxRatesWithStatus(): Promise<FxRatesResult> {
   try {
@@ -1154,7 +1154,7 @@ export function getUpdatePricesErrorResponse(error: unknown) {
 export async function generatePriceUpdates(payload: unknown): Promise<PriceUpdateResponse> {
   const request = normalizeRequest(payload);
   // 注意：不在此處抓取匯率。
-  // 自動排程路徑：匯率由 cronUpdatePrices.ts 在呼叫此函數前統一抓取並持久化。
+  // 自動排程路徑：匯率由 cronDailyUpdate.ts 在呼叫此函數前統一抓取並持久化。
   // 手動更新路徑（api/update-prices.ts）：不更新匯率，僅回傳報價結果。
 
   const yahooAssets = request.assets.filter(
