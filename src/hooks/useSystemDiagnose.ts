@@ -7,6 +7,22 @@ export interface DiagnoseStepResult {
   data?: unknown;
 }
 
+export interface DailyJobSummary {
+  dateKey: string;
+  status: 'pending' | 'running' | 'update_done' | 'completed' | 'failed' | null;
+  trigger: 'scheduled' | 'rescue' | 'manual' | null;
+  appliedCount: number;
+  pendingReviewCount: number;
+  coveragePct: number;
+  snapshotStatus: 'not_started' | 'running' | 'completed' | 'failed' | 'skipped' | null;
+  fxUsingFallback: boolean;
+  coinGeckoSyncStatus: 'ok' | 'timeout' | 'failed' | 'skipped' | null;
+  lastError: string | null;
+  totalAssets: number;
+  processedCount: number;
+  failedCount: number;
+}
+
 export interface SystemRunEntry {
   trigger: 'scheduled' | 'rescue' | 'manual';
   startedAt: string;
@@ -48,6 +64,7 @@ export interface SystemDiagnoseResult {
     coinGecko: DiagnoseStepResult;
     pendingReviews: DiagnoseStepResult;
     systemRuns: DiagnoseStepResult;
+    dailyJob: DiagnoseStepResult;
   };
 }
 

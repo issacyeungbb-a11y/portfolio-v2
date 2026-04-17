@@ -1,5 +1,6 @@
 import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
 import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
+import { readDailyJob } from '../server/dailyJobs.js';
 
 function readMode(request: ApiRequest) {
   const requestUrl = request.url ?? '/api/health';
@@ -36,6 +37,7 @@ type DiagnoseResponse = {
     coinGecko: DiagnoseStepResult;
     pendingReviews: DiagnoseStepResult;
     systemRuns: DiagnoseStepResult;
+    dailyJob: DiagnoseStepResult;
   };
 };
 
@@ -146,6 +148,13 @@ async function fetchJsonWithTimeout<T>(
   }
 
   return (await response.json()) as T;
+}
+
+function getHongKongDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date);
 }
 
 async function runDiagnostics(): Promise<DiagnoseResponse> {
@@ -356,6 +365,51 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     };
   });
 
+  const dailyJob = await runStep(async () => {
+    const dateKey = getHongKongDateKey();
+    const job = await readDailyJob(dateKey);
+
+    if (!job) {
+      return {
+        detail: `今日（${dateKey}）尚無每日任務記錄。`,
+        data: { dateKey, status: null },
+      };
+    }
+
+    const statusLabel: Record<string, string> = {
+      running: '執行中',
+      update_done: '更新完成，快照待執行',
+      completed: '已完成',
+      failed: '失敗',
+      pending: '等待中',
+    };
+
+    const detail = job.status === 'completed'
+      ? `今日任務完成：applied=${job.appliedCount} pending=${job.pendingReviewCount} coverage=${job.coveragePct}% snapshot=${job.snapshotStatus}`
+      : job.status === 'failed'
+        ? `今日任務失敗：${job.lastError ?? '未知錯誤'}`
+        : `今日任務狀態：${statusLabel[job.status] ?? job.status}`;
+
+    return {
+      detail,
+      data: {
+        dateKey,
+        status: job.status,
+        trigger: job.trigger,
+        appliedCount: job.appliedCount,
+        pendingReviewCount: job.pendingReviewCount,
+        coveragePct: job.coveragePct,
+        snapshotStatus: job.snapshotStatus,
+        fxUsingFallback: job.fxUsingFallback,
+        coinGeckoSyncStatus: job.coinGeckoSyncStatus,
+        lastError: job.lastError,
+        totalAssets: job.totalAssets,
+        processedCount: (job.processedAssets ?? []).length,
+        failedCount: (job.failedAssets ?? []).length,
+      },
+    };
+  });
+
   const steps = {
     environment,
     firebaseAdmin,
@@ -365,6 +419,7 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     coinGecko,
     pendingReviews,
     systemRuns,
+    dailyJob,
   };
 
   const passedSteps = Object.values(steps).filter((step) => step.ok).length;

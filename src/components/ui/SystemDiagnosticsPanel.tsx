@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useSystemDiagnose } from '../../hooks/useSystemDiagnose';
-import type { DiagnoseStepResult, SystemRunEntry, SystemRunsSummary } from '../../hooks/useSystemDiagnose';
+import type { DiagnoseStepResult, SystemRunEntry, SystemRunsSummary, DailyJobSummary } from '../../hooks/useSystemDiagnose';
 
 function StepRow({ name, step }: { name: string; step: DiagnoseStepResult }) {
   return (
@@ -86,6 +86,67 @@ function SystemRunsSection({ data }: { data: unknown }) {
   );
 }
 
+function DailyJobSection({ data }: { data: unknown }) {
+  if (!data || typeof data !== 'object') return null;
+
+  const job = data as DailyJobSummary;
+  if (job.status === null) {
+    return <div className="diagnose-daily-job-empty">今日（{job.dateKey}）尚無每日任務記錄。</div>;
+  }
+
+  const statusLabel: Record<string, string> = {
+    running: '執行中',
+    update_done: '更新完成，快照待執行',
+    completed: '已完成',
+    failed: '失敗',
+    pending: '等待中',
+  };
+
+  const snapshotLabel: Record<string, string> = {
+    not_started: '未開始',
+    running: '執行中',
+    completed: '已完成',
+    failed: '失敗',
+    skipped: '已跳過',
+  };
+
+  const triggerLabel: Record<string, string> = {
+    scheduled: '排程',
+    rescue: '補救',
+    manual: '手動',
+  };
+
+  const isCompleted = job.status === 'completed';
+  const isFailed = job.status === 'failed';
+
+  return (
+    <div className={`diagnose-daily-job ${isCompleted ? 'diagnose-daily-job-ok' : isFailed ? 'diagnose-daily-job-fail' : 'diagnose-daily-job-running'}`}>
+      <div className="diagnose-daily-job-header">
+        <span className="diagnose-daily-job-title">今日任務（{job.dateKey}）</span>
+        {job.trigger && (
+          <span className="diagnose-daily-job-trigger">{triggerLabel[job.trigger] ?? job.trigger}</span>
+        )}
+        <span className="diagnose-daily-job-status">{statusLabel[job.status ?? ''] ?? job.status}</span>
+      </div>
+      <div className="diagnose-daily-job-body">
+        <span>資產：{job.processedCount}/{job.totalAssets}</span>
+        <span>已更新：{job.appliedCount}</span>
+        <span>待審核：{job.pendingReviewCount}</span>
+        <span>覆蓋率：{job.coveragePct}%</span>
+        {job.failedCount > 0 && <span className="diagnose-daily-job-failed">批次失敗：{job.failedCount}</span>}
+        <span>快照：{snapshotLabel[job.snapshotStatus ?? ''] ?? job.snapshotStatus ?? '—'}</span>
+        {job.fxUsingFallback && <span className="diagnose-run-flag">備援匯率</span>}
+        {job.coinGeckoSyncStatus && job.coinGeckoSyncStatus !== 'ok' && job.coinGeckoSyncStatus !== 'skipped' && (
+          <span className="diagnose-run-flag">CoinGecko: {job.coinGeckoSyncStatus}</span>
+        )}
+      </div>
+      {isFailed && job.lastError && (
+        <div className="diagnose-daily-job-error">{job.lastError}</div>
+      )}
+    </div>
+  );
+}
+
 /**
  * P1-2 / P4: 系統診斷面板。
  * 需要手動觸發，避免每次載入都消耗 API 配額。
@@ -156,7 +217,13 @@ export function SystemDiagnosticsPanel() {
             <StepRow name="CoinGecko" step={result.steps.coinGecko} />
             <StepRow name="待審核項目" step={result.steps.pendingReviews} />
             <StepRow name="系統執行記錄" step={result.steps.systemRuns} />
+            <StepRow name="今日任務狀態" step={result.steps.dailyJob} />
           </div>
+
+          {/* dailyJob 詳細狀態 */}
+          {result.steps.dailyJob.data != null && (
+            <DailyJobSection data={result.steps.dailyJob.data} />
+          )}
 
           {/* systemRuns 詳細記錄 */}
           {result.steps.systemRuns.data != null && (
