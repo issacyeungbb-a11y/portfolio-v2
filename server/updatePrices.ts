@@ -14,10 +14,9 @@ import type {
 } from '../src/types/priceUpdates';
 import type { AssetType } from '../src/types/portfolio';
 import type { FxRates } from '../src/types/fxRates';
+import { getAnomalyThreshold } from './priceAnomalyDetection.js';
 
 const UPDATE_PRICES_ROUTE = '/api/update-prices' as const;
-const DEFAULT_STOCK_DIFF_THRESHOLD = 0.5;
-const DEFAULT_CRYPTO_DIFF_THRESHOLD = 0.8;
 const DEFAULT_FX_RATES = {
   USD: 7.8,
   JPY: 0.052,
@@ -555,9 +554,8 @@ function normalizeRequest(payload: unknown): PriceUpdateRequest {
 }
 
 function getReviewThresholdForAsset(assetType: AssetType) {
-  return assetType === 'crypto'
-    ? DEFAULT_CRYPTO_DIFF_THRESHOLD
-    : DEFAULT_STOCK_DIFF_THRESHOLD;
+  // P2-1: delegates to centralised priceAnomalyDetection module
+  return getAnomalyThreshold(assetType);
 }
 
 function parseAsOf(value: string | null | undefined) {

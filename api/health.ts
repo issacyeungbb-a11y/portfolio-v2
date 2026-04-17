@@ -28,6 +28,7 @@ type DiagnoseResponse = {
     passedSteps: number;
     failedSteps: number;
   };
+  cronLagAlert: CronLagAlert;
   steps: {
     environment: DiagnoseStepResult;
     firebaseAdmin: DiagnoseStepResult;
@@ -40,6 +41,57 @@ type DiagnoseResponse = {
     dailyJob: DiagnoseStepResult;
   };
 };
+
+/** P2-4: Cron lag alert — surfaced when the daily job hasn't completed by the expected time. */
+type CronLagAlert = {
+  isLagging: boolean;
+  /** HKT time at which the job was expected to be complete */
+  expectedCompleteBy: string;
+  /** Current HKT time when the check ran */
+  currentHktTime: string;
+  /** Today's daily job status, or null if no job record found */
+  jobStatus: string | null;
+  /** Human-readable description */
+  detail: string;
+};
+
+/**
+ * P2-4: Returns a cron lag alert if today's daily job hasn't reached 'completed'
+ * status by LAG_ALERT_HOUR_HKT (default 10:00 HKT — 4h after rescue at 08:00 HKT).
+ */
+const LAG_ALERT_HOUR_HKT = 10; // hours (24-hour, HKT)
+
+function buildCronLagAlert(job: { status: string } | null): CronLagAlert {
+  const now = new Date();
+  const hktHour = Number(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Hong_Kong',
+      hour: 'numeric',
+      hour12: false,
+    }).format(now),
+  );
+  const hktTimeStr = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Hong_Kong',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
+
+  const expectedCompleteBy = `${String(LAG_ALERT_HOUR_HKT).padStart(2, '0')}:00 HKT`;
+  const jobStatus = job?.status ?? null;
+  const isCompleted = jobStatus === 'completed';
+  const isPastAlertTime = hktHour >= LAG_ALERT_HOUR_HKT;
+  const isLagging = isPastAlertTime && !isCompleted;
+
+  const detail = isLagging
+    ? `每日任務尚未完成（現時 ${hktTimeStr} HKT，預期 ${expectedCompleteBy} 前完成）。目前狀態：${jobStatus ?? '無記錄'}。`
+    : isCompleted
+      ? `每日任務已按時完成。`
+      : `現時 ${hktTimeStr} HKT，未到達 ${expectedCompleteBy} 預警門檻，尚在等待期。`;
+
+  return { isLagging, expectedCompleteBy, currentHktTime: `${hktTimeStr} HKT`, jobStatus, detail };
+}
 
 function getDurationMs(startedAt: number) {
   return Date.now() - startedAt;
@@ -425,6 +477,12 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
   const passedSteps = Object.values(steps).filter((step) => step.ok).length;
   const failedSteps = Object.values(steps).length - passedSteps;
 
+  // P2-4: Build cron lag alert from the dailyJob step data
+  const jobData = dailyJob.ok
+    ? (dailyJob.data as { status?: string } | undefined)
+    : null;
+  const cronLagAlert = buildCronLagAlert(jobData?.status ? { status: jobData.status } : null);
+
   return {
     ok: failedSteps === 0,
     route: '/api/health',
@@ -434,6 +492,7 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
       passedSteps,
       failedSteps,
     },
+    cronLagAlert,
     steps,
   };
 }
