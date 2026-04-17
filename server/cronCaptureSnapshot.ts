@@ -235,32 +235,43 @@ export async function runScheduledDailySnapshot(fxRates?: FxRates) {
   return runDailySnapshotWorkflow('scheduled', fxRates);
 }
 
+/**
+ * P0-5: 手動後補快照保護。
+ * - 已有 strict snapshot → 跳過（唔覆蓋高品質數據）
+ * - 已有 fallback snapshot / 冇 snapshot → 走正常 readiness check workflow
+ *   若而家 coverage 足夠，可升級成 strict
+ */
 export async function runManualDailySnapshot() {
   const startedAt = Date.now();
   const snapshotId = buildDailySnapshotId();
-  const result = await captureAdminPortfolioSnapshot({
-    snapshotId,
-    reason: 'manual_force',
-    snapshotQuality: 'strict',
-    coveragePct: 100,
-    fallbackAssetCount: 0,
-    force: true,
-  });
-  const durationMs = getDurationMs(startedAt);
-  const payload = {
-    ok: true,
-    route: MANUAL_ROUTE,
-    message: `已後補今日資產快照，覆蓋 ${'assetCount' in result ? result.assetCount : 0} 項資產。`,
-    assetCount: 'assetCount' in result ? result.assetCount : 0,
-    totalValueHKD: 'totalValueHKD' in result ? result.totalValueHKD : 0,
-    snapshotId,
-    snapshotQuality: 'strict' as const,
-    coveragePct: 100,
-    triggeredAt: new Date().toISOString(),
-    durationMs,
-  };
-  console.info('[manual-capture-snapshot]', payload);
-  return payload;
+
+  // Check existing snapshot quality before deciding how to proceed
+  const db = getFirebaseAdminDb();
+  const existingRef = db
+    .collection('portfolio').doc('app')
+    .collection('portfolioSnapshots').doc(snapshotId);
+  const existing = await existingRef.get();
+  const existingQuality = existing.exists
+    ? (existing.data()?.snapshotQuality as string | undefined)
+    : undefined;
+
+  if (existingQuality === 'strict') {
+    const payload = {
+      ok: true,
+      skipped: true,
+      route: MANUAL_ROUTE,
+      message: '今日已有 strict 品質快照，唔覆蓋。如需強制覆蓋，請先刪除現有快照。',
+      snapshotId,
+      reason: 'strict_already_exists',
+      triggeredAt: new Date().toISOString(),
+      durationMs: getDurationMs(startedAt),
+    };
+    console.info('[manual-capture-snapshot]', payload);
+    return payload;
+  }
+
+  // No snapshot or fallback only → run normal readiness workflow (may upgrade to strict)
+  return runDailySnapshotWorkflow('manual');
 }
 
 async function runDailySnapshotWorkflow(mode: 'scheduled' | 'manual', fxRates?: FxRates) {
