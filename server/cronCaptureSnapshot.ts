@@ -181,9 +181,14 @@ async function verifyAssetsReadyForDailySnapshot(preloadedAssets?: Awaited<Retur
     nonCashAssets.length === 0
       ? 100
       : Math.round(((nonCashAssets.length - missingAssets.length) / nonCashAssets.length) * 100);
+  // P1 修補：唔再因為 1-2 隻 hard pending 就封鎖全日快照。
+  // 容許少量 hard pending（max(2, 5% of assets)），前提係 coverage >= 80%。
+  // Fallback snapshot 會標記 quality='fallback'，UI 知道有資產沿用舊價。
+  const hardPendingTolerance = Math.max(2, Math.floor(nonCashAssets.length * 0.05));
   const canUseFallback =
-    hardPendingReviews.length === 0 &&
     nonCashAssets.length > 0 &&
+    coveragePct >= 80 &&
+    hardPendingReviews.length <= hardPendingTolerance &&
     (missingAssets.length <= 5 || coveragePct >= 80);
 
   return {
