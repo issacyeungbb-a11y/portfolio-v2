@@ -14,6 +14,7 @@ import {
 import type { Holding, PortfolioAssetInput } from '../../types/portfolio';
 import { getEffectiveHoldingPrice } from '../portfolio/priceValidity';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
+import { callPortfolioFunction } from '../api/vercelFunctions';
 import {
   getSharedAssetTransactionsCollectionRef,
   getSharedAssetsCollectionRef,
@@ -68,6 +69,22 @@ function formatTimestamp(value: unknown) {
   }
 
   return typeof value === 'string' ? value : '';
+}
+
+function normalizeTickerList(values: string[]) {
+  return [...new Set(values.map((value) => value.trim().toUpperCase()).filter(Boolean))];
+}
+
+function queueCoinGeckoSync(tickers: string[]) {
+  const cryptoTickers = normalizeTickerList(tickers);
+
+  if (cryptoTickers.length === 0) {
+    return;
+  }
+
+  void callPortfolioFunction('sync-coin-ids', { tickers: cryptoTickers }).catch((error) => {
+    console.warn('背景 CoinGecko 代號同步失敗。', error);
+  });
 }
 
 export function buildHoldingFromInput(
@@ -221,6 +238,10 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
     });
   }
 
+  if (normalized.assetType === 'crypto') {
+    queueCoinGeckoSync([normalized.symbol]);
+  }
+
   return createdDoc.id;
 }
 
@@ -289,6 +310,12 @@ export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
   }
 
   await batch.commit();
+
+  queueCoinGeckoSync(
+    payloads
+      .filter((payload) => payload.assetType === 'crypto')
+      .map((payload) => payload.symbol),
+  );
 }
 
 export async function updatePortfolioAsset(assetId: string, payload: PortfolioAssetInput) {
@@ -303,6 +330,10 @@ export async function updatePortfolioAsset(assetId: string, payload: PortfolioAs
     ...normalized,
     updatedAt: serverTimestamp(),
   });
+
+  if (normalized.assetType === 'crypto') {
+    queueCoinGeckoSync([normalized.symbol]);
+  }
 
 }
 

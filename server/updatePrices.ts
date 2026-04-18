@@ -5,6 +5,8 @@ import {
   getFirebaseAdminDb,
   getSharedCoinGeckoCoinIdCacheDocRef,
   getSharedCoinGeckoCoinIdCacheDocRefs,
+  getSharedCoinGeckoCoinIdOverrideDocRef,
+  getSharedCoinGeckoCoinIdOverrideDocRefs,
 } from './firebaseAdmin.js';
 import type {
   PendingPriceUpdateReview,
@@ -36,10 +38,10 @@ const YAHOO_SINGLE_PRICE_TIMEOUT_MS = 8000;
 const YAHOO_FX_TIMEOUT_MS = 12000;
 const yahooFinanceClient = new YahooFinance();
 
-const COINGECKO_ID_OVERRIDES: Record<string, { coinId: string }> = {
+const LEGACY_COIN_GECKO_ID_OVERRIDES: Record<string, { coinId: string }> = {
   ASTER: { coinId: 'aster-2' },
   ATONE: { coinId: 'atomone' },
-  NIGHT: { coinId: 'night' },
+  NIGHT: { coinId: 'midnight-3' },
 };
 
 interface CoinGeckoSearchCoin {
@@ -47,6 +49,14 @@ interface CoinGeckoSearchCoin {
   symbol: string;
   name: string;
   market_cap_rank: number | null;
+}
+
+interface CoinGeckoIdOverrideEntry {
+  ticker: string;
+  coinId: string;
+  coinSymbol: string;
+  coinName: string;
+  marketCapRank: number | null;
 }
 
 interface CoinGeckoCoinIdCacheEntry {
@@ -104,6 +114,32 @@ function normalizeCoinGeckoTicker(ticker: string) {
   return ticker.trim().toUpperCase();
 }
 
+function normalizeCoinGeckoOverrideEntry(
+  ticker: string,
+  value: Record<string, unknown>,
+): CoinGeckoIdOverrideEntry | null {
+  const coinId = readStringValue(value.coinId)?.trim();
+
+  if (!coinId) {
+    return null;
+  }
+
+  const coinSymbol = readStringValue(value.coinSymbol)?.trim() || ticker;
+  const coinName = readStringValue(value.coinName)?.trim() || ticker;
+  const marketCapRank =
+    typeof value.marketCapRank === 'number' && Number.isFinite(value.marketCapRank)
+      ? value.marketCapRank
+      : null;
+
+  return {
+    ticker,
+    coinId,
+    coinSymbol,
+    coinName,
+    marketCapRank,
+  };
+}
+
 function parseCoinGeckoCacheExpiry(value: unknown) {
   if (typeof value !== 'string') {
     return null;
@@ -124,6 +160,20 @@ function serializeCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
     updatedAt: entry.updatedAt,
     expiresAt: entry.expiresAt,
   };
+}
+
+function createCacheEntryFromOverride(
+  ticker: string,
+  override: CoinGeckoIdOverrideEntry,
+): CoinGeckoCoinIdCacheEntry {
+  return createCoinGeckoCacheEntry({
+    ticker,
+    coinId: override.coinId,
+    coinSymbol: override.coinSymbol,
+    coinName: override.coinName,
+    marketCapRank: override.marketCapRank,
+    source: 'override',
+  });
 }
 
 function normalizeCoinGeckoCacheEntry(
@@ -309,6 +359,134 @@ async function readCoinGeckoCacheEntry(ticker: string) {
   }
 }
 
+const coinGeckoOverrideMemoryCache = new Map<string, CoinGeckoIdOverrideEntry>();
+
+async function readCoinGeckoOverrideEntry(ticker: string) {
+  const normalizedTicker = normalizeCoinGeckoTicker(ticker);
+  const cached = coinGeckoOverrideMemoryCache.get(normalizedTicker);
+
+  if (cached) {
+    return cached;
+  }
+
+  try {
+    const docRef = getSharedCoinGeckoCoinIdOverrideDocRef(normalizedTicker);
+    const snapshot = await docRef.get();
+
+    if (!snapshot.exists) {
+      const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker];
+
+      if (!legacy) {
+        return null;
+      }
+
+      return {
+        ticker: normalizedTicker,
+        coinId: legacy.coinId,
+        coinSymbol: normalizedTicker,
+        coinName: normalizedTicker,
+        marketCapRank: null,
+      };
+    }
+
+    const override = normalizeCoinGeckoOverrideEntry(
+      normalizedTicker,
+      snapshot.data() as Record<string, unknown>,
+    );
+
+    if (override) {
+      coinGeckoOverrideMemoryCache.set(normalizedTicker, override);
+    }
+
+    return override;
+  } catch (error) {
+    console.warn(`Failed to read CoinGecko coin id override for ${normalizedTicker}.`, error);
+    return LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker]
+      ? {
+          ticker: normalizedTicker,
+          coinId: LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker].coinId,
+          coinSymbol: normalizedTicker,
+          coinName: normalizedTicker,
+          marketCapRank: null,
+        }
+      : null;
+  }
+}
+
+async function readCoinGeckoOverrideEntries(tickers: string[]) {
+  if (tickers.length === 0) {
+    return new Map<string, CoinGeckoIdOverrideEntry>();
+  }
+
+  const normalizedTickers = [...new Set(tickers.map(normalizeCoinGeckoTicker))];
+  const overrideEntries = new Map<string, CoinGeckoIdOverrideEntry>();
+  const missingTickers: string[] = [];
+
+  for (const ticker of normalizedTickers) {
+    const cached = coinGeckoOverrideMemoryCache.get(ticker);
+    if (cached) {
+      overrideEntries.set(ticker, cached);
+      continue;
+    }
+    missingTickers.push(ticker);
+  }
+
+  if (missingTickers.length === 0) {
+    return overrideEntries;
+  }
+
+  try {
+    const db = getFirebaseAdminDb();
+    const docRefs = getSharedCoinGeckoCoinIdOverrideDocRefs(missingTickers);
+    const snapshots = await db.getAll(...docRefs);
+
+    snapshots.forEach((snapshot, index) => {
+      const ticker = missingTickers[index] ?? '';
+      if (!ticker) {
+        return;
+      }
+
+      if (!snapshot.exists) {
+        const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[ticker];
+        if (legacy) {
+          const fallback = {
+            ticker,
+            coinId: legacy.coinId,
+            coinSymbol: ticker,
+            coinName: ticker,
+            marketCapRank: null,
+          };
+          overrideEntries.set(ticker, fallback);
+        }
+        return;
+      }
+
+      const override = normalizeCoinGeckoOverrideEntry(ticker, snapshot.data() as Record<string, unknown>);
+      if (override) {
+        coinGeckoOverrideMemoryCache.set(ticker, override);
+        overrideEntries.set(ticker, override);
+      }
+    });
+  } catch (error) {
+    console.warn('Failed to read CoinGecko override entries.', error);
+    for (const ticker of missingTickers) {
+      const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[ticker];
+      if (!legacy) {
+        continue;
+      }
+      overrideEntries.set(ticker, {
+        ticker,
+        coinId: legacy.coinId,
+        coinSymbol: ticker,
+        coinName: ticker,
+        marketCapRank: null,
+      });
+    }
+  }
+
+  return overrideEntries;
+}
+
 async function writeCoinGeckoCacheEntry(entry: CoinGeckoCoinIdCacheEntry) {
   try {
     const docRef = getSharedCoinGeckoCoinIdCacheDocRef(entry.ticker);
@@ -412,17 +590,10 @@ async function fetchCoinGeckoCoinIdFromSearch(ticker: string) {
 
 export async function resolveCoinGeckoCoinId(ticker: string) {
   const normalizedTicker = normalizeCoinGeckoTicker(ticker);
-  const override = COINGECKO_ID_OVERRIDES[normalizedTicker];
+  const override = await readCoinGeckoOverrideEntry(normalizedTicker);
 
   if (override) {
-    const entry = createCoinGeckoCacheEntry({
-      ticker: normalizedTicker,
-      coinId: override.coinId,
-      coinSymbol: normalizedTicker,
-      coinName: normalizedTicker,
-      marketCapRank: null,
-      source: 'override',
-    });
+    const entry = createCacheEntryFromOverride(normalizedTicker, override);
     await writeCoinGeckoCacheEntry(entry);
 
     return {
@@ -897,6 +1068,7 @@ async function fetchCoinGeckoPrice(
   }
 
   const uniqueTickers = [...new Set(assets.map((asset) => normalizeCoinGeckoTicker(asset.ticker)))];
+  const overrideEntries = await readCoinGeckoOverrideEntries(uniqueTickers);
   const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
   const resolvedResults: MarketPriceResult[] = [];
   const unresolvedResults: MarketPriceResult[] = [];
@@ -907,17 +1079,10 @@ async function fetchCoinGeckoPrice(
 
   for (const asset of assets) {
     const normalizedTicker = normalizeCoinGeckoTicker(asset.ticker);
-    const override = COINGECKO_ID_OVERRIDES[normalizedTicker];
+    const override = overrideEntries.get(normalizedTicker);
     const cacheEntry = cacheEntries.get(normalizedTicker);
     const resolvedEntry = override
-      ? createCoinGeckoCacheEntry({
-          ticker: normalizedTicker,
-          coinId: override.coinId,
-          coinSymbol: normalizedTicker,
-          coinName: normalizedTicker,
-          marketCapRank: null,
-          source: 'override',
-        })
+      ? createCacheEntryFromOverride(normalizedTicker, override)
       : cacheEntry;
 
     if (!resolvedEntry) {

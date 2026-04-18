@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
+const SHARED_COIN_GECKO_OVERRIDE_COLLECTION = 'coinIdOverrides';
 
 const ADMIN_ENV_KEYS = [
   'FIREBASE_ADMIN_PROJECT_ID',
@@ -152,4 +153,16 @@ export function getSharedCoinGeckoCoinIdCacheDocRef(ticker: string) {
 
 export function getSharedCoinGeckoCoinIdCacheDocRefs(tickers: string[]) {
   return tickers.map((ticker) => getSharedCoinGeckoCoinIdCacheDocRef(ticker));
+}
+
+export function getSharedCoinGeckoCoinIdOverridesCollectionRef() {
+  return getSharedPortfolioDocRef().collection(SHARED_COIN_GECKO_OVERRIDE_COLLECTION);
+}
+
+export function getSharedCoinGeckoCoinIdOverrideDocRef(ticker: string) {
+  return getSharedCoinGeckoCoinIdOverridesCollectionRef().doc(ticker.trim().toUpperCase());
+}
+
+export function getSharedCoinGeckoCoinIdOverrideDocRefs(tickers: string[]) {
+  return tickers.map((ticker) => getSharedCoinGeckoCoinIdOverrideDocRef(ticker));
 }

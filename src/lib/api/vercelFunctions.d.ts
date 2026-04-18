@@ -1,4 +1,4 @@
-export type PortfolioFunctionKey = 'health' | 'extract-assets' | 'extract-transactions' | 'manual-capture-snapshot' | 'parse-assets-command' | 'parse-transactions-command' | 'update-prices' | 'analyze';
+export type PortfolioFunctionKey = 'health' | 'extract-assets' | 'extract-transactions' | 'manual-capture-snapshot' | 'parse-assets-command' | 'parse-transactions-command' | 'sync-coin-ids' | 'update-prices' | 'analyze';
 export declare const portfolioFunctionConfig: Record<PortfolioFunctionKey, {
     path: string;
     method: 'GET' | 'POST';

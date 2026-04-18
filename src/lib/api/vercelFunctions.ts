@@ -7,6 +7,7 @@ export type PortfolioFunctionKey =
   | 'manual-capture-snapshot'
   | 'parse-assets-command'
   | 'parse-transactions-command'
+  | 'sync-coin-ids'
   | 'update-prices'
   | 'analyze';
 
@@ -20,6 +21,7 @@ export const portfolioFunctionConfig: Record<
   'manual-capture-snapshot': { path: '/api/manual-capture-snapshot', method: 'POST' },
   'parse-assets-command': { path: '/api/parse-assets-command', method: 'POST' },
   'parse-transactions-command': { path: '/api/parse-transactions-command', method: 'POST' },
+  'sync-coin-ids': { path: '/api/sync-coin-ids', method: 'POST' },
   'update-prices': { path: '/api/update-prices', method: 'POST' },
   analyze: { path: '/api/analyze', method: 'POST' },
 };
@@ -115,4 +117,3 @@ export async function callPortfolioFunction(
 export async function triggerManualSnapshot() {
   return callPortfolioFunction('manual-capture-snapshot');
 }
-
