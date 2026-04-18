@@ -7,6 +7,7 @@
     "dev": "vite",
     "prebuild": "node scripts/gen-price-freshness.mjs",
     "build": "tsc -b && vite build",
+    "test": "node --test",
     "preview": "vite preview",
     "diagnose:coingecko": "node scripts/checkCoinGeckoCrypto.mjs",
     "gen-freshness": "node scripts/gen-price-freshness.mjs"

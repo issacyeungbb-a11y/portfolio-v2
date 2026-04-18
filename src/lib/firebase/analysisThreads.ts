@@ -23,6 +23,7 @@ export interface AnalysisThread {
   id: string;
   title: string;
   category: AnalysisThreadCategory;
+  sourceReportId?: string;
   turnCount: number;
   lastQuestion: string;
   lastModel: string;
@@ -52,6 +53,7 @@ export interface CreateAnalysisThreadTurnInput {
   provider?: AnalysisThreadProvider;
   snapshotHash: string;
   generatedAt: string;
+  sourceReportId?: string;
 }
 
 export interface AppendAnalysisThreadTurnInput {
@@ -87,6 +89,7 @@ function normalizeThread(
     id,
     title: sanitizeString(value.title) || '未命名對話',
     category: 'general_question',
+    sourceReportId: sanitizeString(value.sourceReportId) || undefined,
     turnCount: typeof value.turnCount === 'number' ? value.turnCount : 0,
     lastQuestion: sanitizeString(value.lastQuestion),
     lastModel: sanitizeString(value.lastModel),
@@ -177,6 +180,7 @@ export async function createAnalysisThreadWithTurn(input: CreateAnalysisThreadTu
   const threadRef = await addDoc(getSharedAnalysisThreadsCollectionRef(), {
     title: input.title.trim() || '未命名對話',
     category: 'general_question',
+    sourceReportId: input.sourceReportId?.trim() || '',
     turnCount: 1,
     lastQuestion: input.question.trim(),
     lastModel: input.model,

@@ -588,6 +588,7 @@ function getAnalysisRules() {
 - Base your reasoning only on the provided holdings, latest prices, asset categories, currencies, and average costs.
 - Do not invent historical returns, dividends, macro news, or external facts that are not present in the input.
 - If the data lacks price history or cash-flow history, mention that limitation briefly where relevant.
+- If structured comparison, trend, or market summary data is included in the user prompt, treat it as provided evidence and引用其中數字。
 - Keep the tone practical, calm, and beginner-friendly.
 - Prioritize the user's analysis instruction when deciding what to emphasize, but do not invent any external facts or unsupported claims.
 - Answer the user's instruction directly. Do not force your response into sections unless the user's question naturally calls for it.

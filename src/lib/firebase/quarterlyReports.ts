@@ -19,6 +19,8 @@ export interface QuarterlyReport {
   searchSummary: string;
   model: string;
   provider: string;
+  currentSnapshotHash?: string;
+  previousSnapshotDate?: string;
   pdfUrl?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -48,6 +50,14 @@ function normalizeQuarterlyReport(
     searchSummary: typeof value.searchSummary === 'string' ? value.searchSummary : '',
     model: typeof value.model === 'string' ? value.model : '',
     provider: typeof value.provider === 'string' ? value.provider : '',
+    currentSnapshotHash:
+      typeof value.currentSnapshotHash === 'string' && value.currentSnapshotHash.trim()
+        ? value.currentSnapshotHash
+        : undefined,
+    previousSnapshotDate:
+      typeof value.previousSnapshotDate === 'string' && value.previousSnapshotDate.trim()
+        ? value.previousSnapshotDate
+        : undefined,
     pdfUrl: typeof value.pdfUrl === 'string' && value.pdfUrl.trim() ? value.pdfUrl : undefined,
     createdAt: formatTimestamp(value.createdAt),
     updatedAt: formatTimestamp(value.updatedAt),

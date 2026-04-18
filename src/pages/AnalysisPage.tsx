@@ -222,6 +222,26 @@ function formatConversationContext(turns: ConversationTurn[]) {
     .join('\n\n');
 }
 
+function buildMonthlyAnalysisContext(session: AnalysisSession) {
+  return [
+    `月度分析標題：${session.title}`,
+    `生成時間：${session.updatedAt}`,
+    `分析問題：${session.question}`,
+    '',
+    session.result,
+  ].join('\n');
+}
+
+function buildQuarterlyReportContext(report: QuarterlyReport) {
+  return [
+    `季度報告：${report.quarter}`,
+    `生成時間：${report.generatedAt}`,
+    `snapshotHash：${report.currentSnapshotHash ?? '未提供'}`,
+    '',
+    report.report,
+  ].join('\n');
+}
+
 function extractBase64FontPayload(rawText: string) {
   const trimmed = rawText.trim();
 
@@ -588,9 +608,12 @@ export function AnalysisPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isSavingPromptSettings, setIsSavingPromptSettings] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedMonthlyAnalysisId, setSelectedMonthlyAnalysisId] = useState<string | null>(null);
+  const [expandedMonthlyAnalysisId, setExpandedMonthlyAnalysisId] = useState<string | null>(null);
   const [selectedSettingsCategory, setSelectedSettingsCategory] = useState<AnalysisCategory>('general_question');
   const [isPromptSettingsOpen, setIsPromptSettingsOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(10);
+  const [generalQuestionSeedContext, setGeneralQuestionSeedContext] = useState<string>('');
   const [analysisQuestionByCategory, setAnalysisQuestionByCategory] = useState<Record<AnalysisCategory, string>>({
     asset_analysis: '',
     general_question: '',
@@ -678,6 +701,12 @@ export function AnalysisPage() {
       current && reports.some((report) => report.id === current) ? current : reports[0].id,
     );
   }, [reports]);
+
+  useEffect(() => {
+    if (selectedCategory !== 'general_question') {
+      setGeneralQuestionSeedContext('');
+    }
+  }, [selectedCategory]);
 
   useEffect(() => {
     if (!snapshotSignature) {
@@ -771,19 +800,49 @@ export function AnalysisPage() {
     entries: analysisThreads,
     error: analysisThreadsError,
   } = useAnalysisThreads();
+  const monthlyAnalysisSessions = useMemo(
+    () =>
+      analysisSessions
+        .filter((session) => session.category === 'asset_analysis' && session.delivery === 'scheduled')
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+    [analysisSessions],
+  );
+  const selectedMonthlyAnalysis =
+    monthlyAnalysisSessions.find((session) => session.id === selectedMonthlyAnalysisId) ??
+    monthlyAnalysisSessions[0] ??
+    null;
+  useEffect(() => {
+    if (monthlyAnalysisSessions.length === 0) {
+      setSelectedMonthlyAnalysisId(null);
+      setExpandedMonthlyAnalysisId(null);
+      return;
+    }
 
+    setSelectedMonthlyAnalysisId((current) =>
+      current && monthlyAnalysisSessions.some((session) => session.id === current)
+        ? current
+        : monthlyAnalysisSessions[0].id,
+    );
+    setExpandedMonthlyAnalysisId((current) =>
+      current && monthlyAnalysisSessions.some((session) => session.id === current)
+        ? current
+        : monthlyAnalysisSessions[0].id,
+    );
+  }, [monthlyAnalysisSessions]);
   const conversationArchiveSessions: ConversationArchiveItem[] =
     selectedCategory === 'general_question'
       ? [
-          ...analysisThreads.map(
-            (thread): ConversationArchiveItem => ({
-              id: thread.id,
-              title: thread.title,
-              updatedAt: thread.updatedAt,
-              turnCount: thread.turnCount,
-              source: 'thread',
-            }),
-          ),
+          ...analysisThreads
+            .filter((thread) => !thread.sourceReportId)
+            .map(
+              (thread): ConversationArchiveItem => ({
+                id: thread.id,
+                title: thread.title,
+                updatedAt: thread.updatedAt,
+                turnCount: thread.turnCount,
+                source: 'thread',
+              }),
+            ),
           ...analysisSessions
             .filter((session) => session.category === 'general_question')
             .map(
@@ -813,9 +872,20 @@ export function AnalysisPage() {
     [reports, selectedReportId],
   );
   const latestReport = reports[0] ?? null;
+  const selectedQuarterlyReportThread = useMemo(
+    () =>
+      selectedReport
+        ? analysisThreads.find((thread) => thread.sourceReportId === selectedReport.id) ?? null
+        : null,
+    [analysisThreads, selectedReport],
+  );
   const selectedSections = useMemo(
     () => splitReportIntoSections(selectedReport?.report ?? ''),
     [selectedReport],
+  );
+  const selectedMonthlyAnalysisSections = useMemo(
+    () => splitReportIntoSections(selectedMonthlyAnalysis?.result ?? ''),
+    [selectedMonthlyAnalysis],
   );
   const selectedLegacyConversationSession = useMemo(() => {
     if (!selectedSessionId || !isLegacyConversationId(selectedSessionId)) {
@@ -831,10 +901,15 @@ export function AnalysisPage() {
     !isLegacyConversationId(selectedSessionId)
       ? selectedSessionId
       : null;
+  const selectedQuarterlyReportThreadId = selectedQuarterlyReportThread?.id ?? null;
   const {
     entries: selectedThreadTurns,
     status: selectedThreadTurnsStatus,
   } = useAnalysisThreadTurns(selectedAnalysisThreadId);
+  const {
+    entries: selectedQuarterlyThreadTurns,
+    status: selectedQuarterlyThreadTurnsStatus,
+  } = useAnalysisThreadTurns(selectedQuarterlyReportThreadId);
   const activeConversationTurns = useMemo(() => {
     if (selectedLegacyConversationSession) {
       return [buildConversationTurnFromSession(selectedLegacyConversationSession)];
@@ -847,6 +922,16 @@ export function AnalysisPage() {
       model: turn.model,
     }));
   }, [selectedLegacyConversationSession, selectedThreadTurns]);
+  const quarterlyActiveConversationTurns = useMemo(
+    () =>
+      selectedQuarterlyThreadTurns.map((turn) => ({
+        question: turn.question,
+        answer: turn.answer,
+        generatedAt: turn.generatedAt,
+        model: turn.model,
+      })),
+    [selectedQuarterlyThreadTurns],
+  );
 
   async function handleAnalyzePortfolio() {
     if (!snapshotHash || !analysisCacheKey || holdings.length === 0 || isQuarterlyCategory) {
@@ -860,6 +945,12 @@ export function AnalysisPage() {
     setIsAnalyzing(true);
 
     try {
+      const conversationContext =
+        isInteractiveCategory && activeConversationTurns.length === 0
+          ? generalQuestionSeedContext
+          : isInteractiveCategory
+            ? formatConversationContext(activeConversationTurns)
+            : '';
       const request = await buildPortfolioAnalysisRequest(
         holdings,
         snapshotHash,
@@ -868,7 +959,7 @@ export function AnalysisPage() {
         selectedModel,
         analysisQuestion,
         analysisBackground,
-        isInteractiveCategory ? formatConversationContext(activeConversationTurns) : '',
+        conversationContext,
       );
       const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
 
@@ -897,6 +988,7 @@ export function AnalysisPage() {
       }));
       await persistAnalysis(cachedResult);
       if (isInteractiveCategory) {
+        const usedSeedContext = activeConversationTurns.length === 0 && generalQuestionSeedContext.trim().length > 0;
         if (!selectedSessionId || isLegacyConversationId(selectedSessionId)) {
           const threadId = await createAnalysisThreadWithTurn({
             title: createAnalysisTitle(response.analysisQuestion),
@@ -923,6 +1015,9 @@ export function AnalysisPage() {
             ? '已開啟新對話。'
             : '已加入追問。',
         );
+        if (usedSeedContext) {
+          setGeneralQuestionSeedContext('');
+        }
         return;
       }
 
@@ -1022,6 +1117,88 @@ export function AnalysisPage() {
         });
       }
       setAnalysisSuccess('已加入追問。');
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : '追問分析失敗，請稍後再試。');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
+
+  async function handleQuarterlyReportFollowUp() {
+    if (!selectedReport || !followUpQuestionByCategory.asset_report.trim()) {
+      return;
+    }
+
+    setAnalysisError(null);
+    setAnalysisSuccess(null);
+    setPromptSettingsSuccess(null);
+    setIsAnalyzing(true);
+
+    try {
+      const conversationContext = buildQuarterlyReportContext(selectedReport);
+      const followUpModel: PortfolioAnalysisModel = 'claude-opus-4-7';
+      const followUpCacheKey = await createPortfolioAnalysisCacheKey(
+        snapshotHash ?? selectedReport.currentSnapshotHash ?? '',
+        'general_question',
+        followUpModel,
+        followUpQuestionByCategory.asset_report,
+        savedPromptSettings.general_question,
+      );
+      const request = await buildPortfolioAnalysisRequest(
+        holdings,
+        snapshotHash ?? selectedReport.currentSnapshotHash ?? '',
+        followUpCacheKey,
+        'general_question',
+        followUpModel,
+        followUpQuestionByCategory.asset_report,
+        savedPromptSettings.general_question,
+        conversationContext,
+      );
+      const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
+
+      const cachedResult: CachedPortfolioAnalysis = {
+        cacheKey: response.cacheKey,
+        snapshotHash: response.snapshotHash,
+        category: response.category,
+        provider: response.provider,
+        model: response.model,
+        analysisQuestion: response.analysisQuestion,
+        analysisBackground: response.analysisBackground,
+        delivery: response.delivery ?? 'manual',
+        generatedAt: response.generatedAt,
+        assetCount: holdings.length,
+        answer: response.answer,
+      };
+
+      setLocalAnalysis(cachedResult);
+      setFollowUpQuestionByCategory((current) => ({
+        ...current,
+        asset_report: '',
+      }));
+      await persistAnalysis(cachedResult);
+      if (selectedQuarterlyReportThread) {
+        await appendAnalysisThreadTurn(selectedQuarterlyReportThread.id, {
+          question: response.analysisQuestion,
+          answer: response.answer,
+          model: response.model,
+          provider: response.provider,
+          snapshotHash: response.snapshotHash,
+          generatedAt: response.generatedAt,
+        });
+      } else {
+        const threadId = await createAnalysisThreadWithTurn({
+          title: `${selectedReport.quarter} 追問`,
+          question: response.analysisQuestion,
+          answer: response.answer,
+          model: response.model,
+          provider: response.provider,
+          snapshotHash: response.snapshotHash,
+          generatedAt: response.generatedAt,
+          sourceReportId: selectedReport.id,
+        });
+        void threadId;
+      }
+      setAnalysisSuccess('已向季度報告追問。');
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '追問分析失敗，請稍後再試。');
     } finally {
@@ -1399,6 +1576,10 @@ export function AnalysisPage() {
                 </div>
               ) : null}
 
+              {!selectedSessionId && generalQuestionSeedContext ? (
+                <p className="status-message">已套用月度分析做背景，可以直接追問。</p>
+              ) : null}
+
               <div className="analysis-chat-thread">
                 {activeConversationTurns.length > 0 ? (
                   activeConversationTurns.map((turn, index) => (
@@ -1485,13 +1666,133 @@ export function AnalysisPage() {
           <section className="card analysis-report-preview">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">最新分析</p>
-                <h2>資產分析</h2>
+                <p className="eyebrow">Monthly</p>
+                <h2>{selectedMonthlyAnalysis?.title ?? '資產分析'}</h2>
               </div>
-              <span className="chip chip-soft">尚未生成</span>
+              <div className="analysis-report-preview-footer">
+                {selectedMonthlyAnalysis ? (
+                  <>
+                    <span className="chip chip-soft">
+                      {getAnalysisModelLabel(selectedMonthlyAnalysis.model)}
+                    </span>
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() =>
+                        setExpandedMonthlyAnalysisId((current) =>
+                          current === selectedMonthlyAnalysis.id ? null : selectedMonthlyAnalysis.id,
+                        )
+                      }
+                    >
+                      {expandedMonthlyAnalysisId === selectedMonthlyAnalysis.id ? '收合' : '展開'}
+                    </button>
+                  </>
+                ) : (
+                  <span className="chip chip-soft">尚未生成</span>
+                )}
+              </div>
             </div>
 
-            <p className="status-message">尚未生成資產分析，這裡暫時保持空白。</p>
+            {selectedMonthlyAnalysis ? (
+              <div className="analysis-report-body">
+                <p className="table-hint">{formatGeneratedAt(selectedMonthlyAnalysis.updatedAt)}</p>
+                {expandedMonthlyAnalysisId === selectedMonthlyAnalysis.id ? (
+                  <div className="quarterly-report-body">
+                    {selectedMonthlyAnalysisSections.map((section, index) => (
+                      <section key={`${selectedMonthlyAnalysis.id}-${index}`} className="quarterly-report-section">
+                        {section.title ? <h3>{section.title}</h3> : null}
+                        {splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
+                          <p key={`${selectedMonthlyAnalysis.id}-${index}-${paragraphIndex}`}>{paragraph}</p>
+                        ))}
+                      </section>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="analysis-summary-text">{truncateText(selectedMonthlyAnalysis.result, 240)}</p>
+                )}
+              </div>
+            ) : (
+              <p className="status-message">尚未生成資產分析。</p>
+            )}
+          </section>
+
+          <section className="card quarterly-list-card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">History</p>
+                <h2>過往月度分析</h2>
+              </div>
+              <span className="chip chip-soft">
+                {monthlyAnalysisSessions.length > 0 ? `${monthlyAnalysisSessions.length} 份分析` : '尚未生成'}
+              </span>
+            </div>
+
+            {monthlyAnalysisSessions.length === 0 ? (
+              <p className="status-message">尚未生成月度分析。</p>
+            ) : (
+              <div className="quarterly-report-list">
+                {monthlyAnalysisSessions.map((session) => {
+                  const isSelected = session.id === selectedMonthlyAnalysis?.id;
+                  return (
+                    <article
+                      key={session.id}
+                      className={isSelected ? 'quarterly-report-row active' : 'quarterly-report-row'}
+                    >
+                      <button
+                        type="button"
+                        className="quarterly-report-row-main"
+                        onClick={() => {
+                          setSelectedMonthlyAnalysisId(session.id);
+                          setExpandedMonthlyAnalysisId(session.id);
+                        }}
+                      >
+                        <div>
+                          <strong>{session.title}</strong>
+                          <p>{formatGeneratedAt(session.updatedAt)}</p>
+                        </div>
+                        <span className="table-hint">{getAnalysisModelLabel(session.model)}</span>
+                      </button>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="card analysis-thread-card">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">Follow-up</p>
+                <h2>有嘢想追問？</h2>
+              </div>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => {
+                  if (!selectedMonthlyAnalysis) {
+                    return;
+                  }
+
+                  setSelectedCategory('general_question');
+                  setSelectedSessionId(null);
+                  setGeneralQuestionSeedContext(buildMonthlyAnalysisContext(selectedMonthlyAnalysis));
+                  setAnalysisQuestionByCategory((current) => ({
+                    ...current,
+                    general_question: '',
+                  }));
+                  setFollowUpQuestionByCategory((current) => ({
+                    ...current,
+                    general_question: '',
+                  }));
+                }}
+                disabled={!selectedMonthlyAnalysis}
+              >
+                跳去一般問題
+              </button>
+            </div>
+            <p className="status-message">
+              點一下會用呢份月度分析做背景，直接跳去一般問題開始追問。
+            </p>
           </section>
         </>
       ) : null}
@@ -1633,6 +1934,76 @@ export function AnalysisPage() {
                     ))}
                   </section>
                 ))}
+              </div>
+            </section>
+          ) : null}
+
+          {selectedReport ? (
+            <section className="card analysis-thread-card">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Follow-up</p>
+                  <h2>追問呢份報告</h2>
+                </div>
+                <span className="chip chip-soft">
+                  {selectedQuarterlyReportThread
+                    ? `${selectedQuarterlyThreadTurnsStatus === 'loading' ? '讀取中' : `${quarterlyActiveConversationTurns.length} 輪`}`
+                    : '新 thread'}
+                </span>
+              </div>
+
+              {quarterlyActiveConversationTurns.length > 0 ? (
+                <div className="analysis-chat-thread">
+                  {quarterlyActiveConversationTurns.map((turn, index) => (
+                    <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
+                      <div className="analysis-chat-bubble analysis-chat-bubble-user">
+                        <div className="analysis-chat-bubble-meta">
+                          <span>我</span>
+                          <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                        </div>
+                        <p>{turn.question}</p>
+                      </div>
+                      <div className="analysis-chat-bubble analysis-chat-bubble-assistant">
+                        <div className="analysis-chat-bubble-meta">
+                          <span>{getAnalysisModelLabel(turn.model)}</span>
+                          <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                        </div>
+                        <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="status-message">未有追問紀錄，可以直接喺下面輸入。</p>
+              )}
+
+              <div className="analysis-chat-composer">
+                <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+                  <span>追問</span>
+                  <textarea
+                    value={followUpQuestionByCategory.asset_report}
+                    onChange={(event) =>
+                      setFollowUpQuestionByCategory((current) => ({
+                        ...current,
+                        asset_report: event.target.value,
+                      }))
+                    }
+                    placeholder="可以直接問：今季點解現金比例升咗？邊隻持倉最值得減？"
+                    rows={4}
+                    disabled={isAnalyzing}
+                  />
+                </label>
+
+                <div className="analysis-chat-input-row">
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    onClick={() => void handleQuarterlyReportFollowUp()}
+                    disabled={!selectedReport || !followUpQuestionByCategory.asset_report.trim() || isAnalyzing}
+                  >
+                    {isAnalyzing ? '發送中...' : '發送追問'}
+                  </button>
+                </div>
               </div>
             </section>
           ) : null}

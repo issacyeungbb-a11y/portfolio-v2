@@ -288,52 +288,244 @@ async function generateGroundedSearchSummary(params) {
         error: lastError instanceof Error ? lastError.message : 'grounding_failed',
     };
 }
-function parseTimestamp(value) {
-    if (value instanceof Timestamp) {
-        return value.toDate().toISOString();
-    }
-    return typeof value === 'string' ? value : '';
-}
-function normalizeSnapshotDocument(id, value) {
+function normalizeSnapshotDocument(value) {
+    const holdings = Array.isArray(value.holdings)
+        ? value.holdings
+            .filter((item) => typeof item === 'object' && item !== null)
+            .map((item) => {
+            const holding = item;
+            return {
+                assetId: typeof holding.assetId === 'string' ? holding.assetId : '',
+                ticker: typeof holding.symbol === 'string'
+                    ? holding.symbol
+                    : typeof holding.ticker === 'string'
+                        ? holding.ticker
+                        : '',
+                name: typeof holding.name === 'string'
+                    ? holding.name
+                    : typeof holding.assetName === 'string'
+                        ? holding.assetName
+                        : '',
+                assetType: holding.assetType === 'stock' ||
+                    holding.assetType === 'etf' ||
+                    holding.assetType === 'bond' ||
+                    holding.assetType === 'crypto' ||
+                    holding.assetType === 'cash'
+                    ? holding.assetType
+                    : 'stock',
+                currency: typeof holding.currency === 'string' ? holding.currency : 'HKD',
+                quantity: typeof holding.quantity === 'number' ? holding.quantity : 0,
+                currentPrice: typeof holding.currentPrice === 'number' ? holding.currentPrice : 0,
+                marketValueHKD: typeof holding.marketValueHKD === 'number'
+                    ? holding.marketValueHKD
+                    : typeof holding.marketValue === 'number'
+                        ? holding.marketValue
+                        : 0,
+            };
+        })
+        : [];
     return {
-        id,
         date: typeof value.date === 'string' ? value.date : '',
-        capturedAt: parseTimestamp(value.capturedAt),
         totalValueHKD: typeof value.totalValueHKD === 'number' ? value.totalValueHKD : 0,
-        holdings: Array.isArray(value.holdings)
-            ? value.holdings
-                .filter((item) => typeof item === 'object' && item !== null)
-                .map((item) => item)
-            : [],
-        reason: typeof value.reason === 'string' ? value.reason : undefined,
+        holdings,
     };
 }
-async function readPreviousQuarterSnapshot() {
+function buildSnapshotFromAssets(assets, date) {
+    return {
+        date,
+        totalValueHKD: assets.reduce((sum, asset) => sum + convertToHKD(asset.quantity * asset.currentPrice, asset.currency), 0),
+        holdings: assets
+            .slice()
+            .sort((left, right) => left.id.localeCompare(right.id))
+            .map((asset) => ({
+            assetId: asset.id,
+            ticker: asset.symbol,
+            name: asset.name,
+            assetType: asset.assetType,
+            currency: asset.currency,
+            quantity: asset.quantity,
+            currentPrice: asset.currentPrice,
+            marketValueHKD: convertToHKD(asset.quantity * asset.currentPrice, asset.currency),
+        })),
+    };
+}
+async function readSnapshotBeforeOrLatest(targetDate) {
     const db = getFirebaseAdminDb();
-    const previousQuarterEndDate = getPreviousQuarterEndDate();
+    const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
+    const snapshotBefore = await portfolioRef
+        .collection('portfolioSnapshots')
+        .where('date', '<=', targetDate)
+        .orderBy('date', 'desc')
+        .limit(1)
+        .get();
+    if (!snapshotBefore.empty) {
+        return normalizeSnapshotDocument(snapshotBefore.docs[0].data());
+    }
+    const fallback = await portfolioRef
+        .collection('portfolioSnapshots')
+        .orderBy('date', 'desc')
+        .limit(1)
+        .get();
+    if (fallback.empty) {
+        return null;
+    }
+    return normalizeSnapshotDocument(fallback.docs[0].data());
+}
+async function readRecentSnapshotHistory(limitCount = 120) {
+    const db = getFirebaseAdminDb();
     const snapshot = await db
         .collection(SHARED_PORTFOLIO_COLLECTION)
         .doc(SHARED_PORTFOLIO_DOC_ID)
         .collection('portfolioSnapshots')
-        .where('date', '<=', previousQuarterEndDate)
         .orderBy('date', 'desc')
-        .limit(1)
+        .limit(limitCount)
         .get();
-    if (snapshot.empty) {
-        return null;
-    }
-    const document = snapshot.docs[0];
-    return normalizeSnapshotDocument(document.id, document.data());
+    return snapshot.docs.map((document) => normalizeSnapshotDocument(document.data()));
 }
-function buildQuarterlySnapshotContext(previousQuarterSnapshot) {
-    if (!previousQuarterSnapshot) {
-        return '上季對比快照：未找到可用的上一季快照。';
-    }
+function getPreviousMonthEndDate(date = new Date()) {
+    const current = new Date(new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Hong_Kong',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(date));
+    current.setDate(1);
+    current.setMonth(current.getMonth() - 1);
+    const previousMonthEnd = new Date(current.getFullYear(), current.getMonth() + 1, 0);
+    return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Hong_Kong',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(previousMonthEnd);
+}
+async function readPreviousMonthSnapshot() {
+    return readSnapshotBeforeOrLatest(getPreviousMonthEndDate());
+}
+async function readPreviousQuarterSnapshot() {
+    return readSnapshotBeforeOrLatest(getPreviousQuarterEndDate());
+}
+function buildMonthlyTrendSnapshots(snapshots) {
+    return selectRecentDistinctMonthlySnapshots(snapshots, 3);
+}
+function buildComparisonPromptSections(comparison, opts) {
+    const limitHoldings = opts?.limitHoldings ?? 12;
+    const holdingLines = comparison.holdingChanges
+        .filter((change) => change.status !== 'unchanged' || Math.abs(change.contributionToPortfolioChange) > 0.01)
+        .slice(0, limitHoldings)
+        .map((change) => `- ${change.ticker} ${change.name}｜${change.status}｜` +
+        `現值 ${change.currentValue.toFixed(2)} HKD｜前值 ${change.previousValue.toFixed(2)} HKD｜` +
+        `倉位變化 ${change.quantityChange.toFixed(2)}｜價格變化 ${change.priceChangePercent.toFixed(1)}%｜` +
+        `組合貢獻 ${change.contributionToPortfolioChange.toFixed(2)} HKD`);
+    const gainers = comparison.topMovers.gainers
+        .map((item) => `- ${item.ticker}：${item.changePercent.toFixed(1)}%｜貢獻 ${item.contributionHKD.toFixed(2)} HKD`)
+        .join('\n');
+    const losers = comparison.topMovers.losers
+        .map((item) => `- ${item.ticker}：${item.changePercent.toFixed(1)}%｜拖累 ${item.contributionHKD.toFixed(2)} HKD`)
+        .join('\n');
     return [
-        `上季快照日期：${previousQuarterSnapshot.date}`,
-        `上季總資產 HKD：${previousQuarterSnapshot.totalValueHKD}`,
-        '上季持倉快照：',
-        JSON.stringify(previousQuarterSnapshot.holdings, null, 2),
+        `【期間】${comparison.periodLabel}`,
+        `【總資產變化】現值 ${comparison.totalValue.current.toFixed(2)} HKD｜前值 ${comparison.totalValue.previous.toFixed(2)} HKD｜` +
+            `變化 ${comparison.totalValue.changeHKD.toFixed(2)} HKD｜${comparison.totalValue.changePercent.toFixed(1)}%`,
+        `【資產類別變化】`,
+        ...comparison.assetTypeChanges.map((entry) => `- ${entry.assetType}：${entry.previousPercent.toFixed(1)}% → ${entry.currentPercent.toFixed(1)}%（${entry.deltaPercent.toFixed(1)}pp）`),
+        `【幣別曝險變化】`,
+        ...comparison.currencyChanges.map((entry) => `- ${entry.currency}：${entry.previousPercent.toFixed(1)}% → ${entry.currentPercent.toFixed(1)}%（${entry.deltaPercent.toFixed(1)}pp）`),
+        `【持倉變動】`,
+        ...holdingLines,
+        `【最大貢獻者】`,
+        gainers || '- 無正貢獻持倉',
+        `【最大拖累者】`,
+        losers || '- 無負貢獻持倉',
+    ].join('\n');
+}
+function buildMonthlyAnalysisQuestion(comparison) {
+    return [
+        '請根據對比數據，撰寫一份「月度變化分析」。',
+        '必須按以下順序輸出，每段用【】做標題：',
+        '【本月關鍵變化】（最多 5 點，每點引用具體數字）',
+        '',
+        '總資產變化金額 + 百分比',
+        '最大貢獻者（正 / 負）',
+        '配置比例明顯變動嘅資產類別 / 幣別',
+        '',
+        '【新增風險 / 留意項】（2-4 點）',
+        '',
+        '因變化而新出現嘅集中度問題',
+        '期內大幅波動嘅持倉',
+        '配置失衡加劇嘅地方',
+        '',
+        '【正面訊號】（1-3 點）',
+        '',
+        '對沖或分散得好嘅位置',
+        '成本基礎改善嘅持倉',
+        '',
+        '【下月觀察重點】（2-3 點）',
+        '',
+        '具體應該 monitor 嘅指標或持倉',
+        '有冇事件 / 財報週期需要留意',
+        '',
+        '規則：',
+        '所有結論必須引用對比數據內嘅數字',
+        '唔可以虛構未有喺 input 出現嘅資料',
+        '每段不超過 150 字',
+        '繁體中文輸出',
+        '',
+        '對比數據：',
+        buildComparisonPromptSections(comparison, { limitHoldings: 12 }),
+    ].join('\n');
+}
+function buildQuarterlyAnalysisQuestion(currentComparison, trendComparisons) {
+    const trendSections = trendComparisons
+        .map((comparison, index) => [`【趨勢 ${index + 1}】`, buildComparisonPromptSections(comparison, { limitHoldings: 8 })].join('\n'))
+        .join('\n\n');
+    return [
+        '請根據對比數據（今季 vs 上季）同三個月趨勢數據，撰寫「季度變化回顧」。',
+        '必須按以下順序輸出：',
+        '【季度總體變化】',
+        '',
+        '總資產變化（HKD + %）',
+        '最大三個貢獻者（按對組合影響金額排）',
+        '最大三個拖累者',
+        '',
+        '【配置趨勢】',
+        '',
+        '資產類別比例變化（今季 vs 上季）',
+        '幣別曝險變化',
+        '呢啲變化反映嘅策略方向',
+        '',
+        '【持倉變動】',
+        '',
+        '本季新增持倉同原因（如可從 transaction 推斷）',
+        '本季清倉持倉',
+        '大幅加減倉嘅持倉',
+        '',
+        '【風險評估】',
+        '',
+        '集中度喺本季有冇惡化',
+        '出現咗咩新集中度',
+        '波動性最大嘅 3 個持倉',
+        '',
+        '【Rebalance 建議】',
+        '',
+        '基於變化嘅 1-3 個具體行動方向',
+        '每個建議要說明「點解」',
+        '',
+        '【下季重點觀察】',
+        '',
+        '具體指標 / 持倉 / 事件',
+        '',
+        '規則：',
+        '所有結論必須引用對比數據內嘅數字',
+        '唔可以虛構未有喺 input 出現嘅資料',
+        '每段不超過 150 字',
+        '繁體中文輸出',
+        '',
+        '今季 vs 上季對比數據：',
+        buildComparisonPromptSections(currentComparison, { limitHoldings: 12 }),
+        '',
+        '三個月趨勢數據：',
+        trendSections || '未有足夠三個月趨勢資料。',
     ].join('\n');
 }
 async function saveScheduledAnalysis(response, title) {
@@ -413,19 +605,21 @@ async function runScheduledCategoryAnalysis(params) {
 }
 export async function runMonthlyAssetAnalysis() {
     const assets = await readAdminPortfolioAssets();
+    const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
+    const previousMonthSnapshot = await readPreviousMonthSnapshot();
     const searchSummary = await generateGroundedSearchSummary({
         assets,
         mode: 'monthly',
     });
     const title = `${getHongKongYearMonthLabel()}資產分析`;
-    const question = [
-        '請根據目前投資組合與外部市場摘要，生成本月一次的資產診斷。',
-        '請集中指出最值得留意的風險、配置特徵、幣別曝險、集中度，以及未來一個月最應留意的 3 個重點。',
-        '請保持診斷語氣，不要寫成報告。',
-    ].join('\n');
+    const comparison = compareSnapshots(currentSnapshot, previousMonthSnapshot ?? currentSnapshot);
+    const question = buildMonthlyAnalysisQuestion(comparison);
     const conversationContext = [
         'Gemini Google Search 摘要：',
         searchSummary.summary,
+        '',
+        '月度對比資料：',
+        buildComparisonPromptSections(comparison, { limitHoldings: 12 }),
     ].join('\n');
     const response = await runScheduledCategoryAnalysis({
         category: 'asset_analysis',
@@ -449,24 +643,39 @@ export async function runMonthlyAssetAnalysis() {
 }
 export async function runQuarterlyAssetReport() {
     const assets = await readAdminPortfolioAssets();
+    const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
     const previousQuarterSnapshot = await readPreviousQuarterSnapshot();
+    const recentSnapshotHistory = await readRecentSnapshotHistory(120);
+    const trendSnapshots = buildMonthlyTrendSnapshots([
+        currentSnapshot,
+        ...recentSnapshotHistory,
+    ]);
+    const trendComparisons = trendSnapshots.length >= 2
+        ? trendSnapshots
+            .slice(0, trendSnapshots.length - 1)
+            .map((snapshot, index) => compareSnapshots(snapshot, trendSnapshots[index + 1]))
+        : [];
     const searchSummary = await generateGroundedSearchSummary({
         assets,
         mode: 'quarterly',
     });
     const title = `${getHongKongQuarterLabel()}資產報告`;
-    const question = [
-        '請根據目前投資組合、上季快照及外部市場摘要，撰寫季度資產報告。',
-        '請嚴格依照以下段落標題輸出：',
-        '【季度總覽】【資產配置分佈】【幣別曝險】【重點持倉分析】【季度對比摘要】【主要風險與集中度】【下季觀察重點】',
-        '每個段落都要有清晰內容，不要省略標題。',
-    ].join('\n');
+    const currentComparison = compareSnapshots(currentSnapshot, previousQuarterSnapshot ?? currentSnapshot);
+    const question = buildQuarterlyAnalysisQuestion(currentComparison, trendComparisons);
     const currentSnapshotHash = createSnapshotHashFromAssets(assets);
     const conversationContext = [
         'Gemini Google Search 摘要：',
         searchSummary.summary,
         '',
-        buildQuarterlySnapshotContext(previousQuarterSnapshot),
+        '今季 vs 上季對比資料：',
+        buildComparisonPromptSections(currentComparison, { limitHoldings: 12 }),
+        '',
+        '三個月趨勢資料：',
+        trendComparisons.length > 0
+            ? trendComparisons
+                .map((comparison, index) => [`【趨勢 ${index + 1}】`, buildComparisonPromptSections(comparison, { limitHoldings: 8 })].join('\n'))
+                .join('\n\n')
+            : '未有足夠三個月趨勢資料。',
     ].join('\n');
     const response = await runScheduledCategoryAnalysis({
         category: 'asset_report',
