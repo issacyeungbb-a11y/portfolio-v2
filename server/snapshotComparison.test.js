@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { compareSnapshots, selectRecentDistinctMonthlySnapshots } from './snapshotComparison.js';
+import {
+  compareSnapshots,
+  getMonthKey,
+  normalizeDateKey,
+  selectRecentDistinctMonthlySnapshots,
+} from './snapshotComparison.js';
 
 const previousSnapshot = {
   date: '2026-02-28',
@@ -127,4 +132,51 @@ test('selectRecentDistinctMonthlySnapshots keeps the latest snapshot for each mo
   const selected = selectRecentDistinctMonthlySnapshots(snapshots, 3);
 
   assert.deepEqual(selected.map((entry) => entry.date), ['2026-03-31', '2026-02-28', '2026-01-31']);
+});
+
+test('normalizeDateKey accepts non-YYYY-MM-DD input and rejects invalid dates', () => {
+  assert.equal(normalizeDateKey('2026-03-31T00:00:00.000Z'), '2026-03-31');
+  assert.equal(getMonthKey('2026-03-31T00:00:00.000Z'), '2026-03');
+  assert.throws(() => normalizeDateKey('not-a-real-date'), /無法解析日期/);
+});
+
+test('compareSnapshots matches holdings without assetId by ticker and currency', () => {
+  const previous = {
+    date: '2026-02-28',
+    totalValueHKD: 500,
+    holdings: [
+      {
+        assetId: '',
+        ticker: 'ETH',
+        name: 'Ethereum Old Name',
+        assetType: 'crypto',
+        currency: 'USD',
+        quantity: 1,
+        currentPrice: 100,
+        marketValueHKD: 500,
+      },
+    ],
+  };
+
+  const current = {
+    date: '2026-03-31',
+    totalValueHKD: 700,
+    holdings: [
+      {
+        assetId: '',
+        ticker: 'ETH',
+        name: 'Ethereum New Name',
+        assetType: 'crypto',
+        currency: 'USD',
+        quantity: 1,
+        currentPrice: 140,
+        marketValueHKD: 700,
+      },
+    ],
+  };
+
+  const comparison = compareSnapshots(current, previous);
+  assert.equal(comparison.holdingChanges.length, 1);
+  assert.equal(comparison.holdingChanges[0]?.status, 'unchanged');
+  assert.equal(comparison.holdingChanges[0]?.name, 'Ethereum New Name');
 });

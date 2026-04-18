@@ -149,6 +149,122 @@ function buildRecentSnapshotPayload(snapshot: Awaited<ReturnType<typeof getRecen
   } satisfies PortfolioAnalysisRecentSnapshot;
 }
 
+function buildRecentTransactionsSection(
+  recentTransactions: Awaited<ReturnType<typeof getRecentAssetTransactions>>,
+  cutoffDate: string,
+) {
+  const groupedTransactions = recentTransactions.reduce<
+    Record<string, PortfolioAnalysisRecentTransactionGroup>
+  >((groups, transaction) => {
+    const group =
+      groups[transaction.assetId] ??
+      ({
+        assetId: transaction.assetId,
+        assetName: transaction.assetName,
+        ticker: transaction.symbol,
+        transactions: [],
+      } satisfies PortfolioAnalysisRecentTransactionGroup);
+
+    group.transactions.push({
+      date: transaction.date,
+      type: transaction.transactionType,
+      quantity: transaction.quantity,
+      price: transaction.price,
+    });
+    groups[transaction.assetId] = group;
+    return groups;
+  }, {});
+
+  return Object.values(groupedTransactions)
+    .map((group) => ({
+      ...group,
+      transactions: group.transactions
+        .filter((entry) => entry.date >= cutoffDate)
+        .sort((left, right) => left.date.localeCompare(right.date)),
+    }))
+    .filter((group) => group.transactions.length > 0)
+    .sort((left, right) => left.ticker.localeCompare(right.ticker));
+}
+
+async function enrichPortfolioAnalysisRequest(params: {
+  baseRequest: PortfolioAnalysisRequest;
+  holdings: Holding[];
+}): Promise<PortfolioAnalysisRequest> {
+  const { baseRequest, holdings } = params;
+  const topHoldings = [...holdings]
+    .sort((left, right) => right.marketValue - left.marketValue)
+    .slice(0, 10);
+  const transactionsCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  try {
+    const [recentTransactionsResult, recentSnapshotsResult, priceHistoryResult] = await Promise.allSettled([
+      getRecentAssetTransactions(30),
+      getRecentPortfolioSnapshots(2),
+      Promise.allSettled(
+        topHoldings.map(async (holding) => {
+          const priceHistory = await getRecentAssetPriceHistory(holding.id, 30);
+          return buildPriceHistoryGroup(
+            holding,
+            priceHistory.map((entry) => ({
+              date: entry.asOf,
+              price: entry.price,
+            })),
+          );
+        }),
+      ),
+    ]);
+
+    const recentTransactions =
+      recentTransactionsResult.status === 'fulfilled'
+        ? buildRecentTransactionsSection(recentTransactionsResult.value, transactionsCutoff)
+        : [];
+
+    const recentSnapshots =
+      recentSnapshotsResult.status === 'fulfilled'
+        ? recentSnapshotsResult.value
+            .slice()
+            .sort((left, right) => left.date.localeCompare(right.date))
+            .map(buildRecentSnapshotPayload)
+        : [];
+
+    const priceHistory =
+      priceHistoryResult.status === 'fulfilled'
+        ? priceHistoryResult.value
+            .flatMap((entry) => (entry.status === 'fulfilled' ? [entry.value] : []))
+            .filter((group) => group.points.length > 0)
+            .sort((left, right) => right.change30dPct - left.change30dPct)
+        : [];
+
+    const priceHistoryFailures =
+      priceHistoryResult.status === 'fulfilled'
+        ? priceHistoryResult.value.filter((entry) => entry.status === 'rejected')
+        : [];
+    const failures = [
+      ...[recentTransactionsResult, recentSnapshotsResult].filter((entry) => entry.status === 'rejected'),
+      ...priceHistoryFailures,
+    ];
+
+    if (failures.length > 0) {
+      console.warn('[analysisSnapshot] enrich failed', failures[0]);
+    }
+
+    return {
+      ...baseRequest,
+      enrichmentStatus:
+        failures.length === 0 ? 'ok' : failures.length >= 3 ? 'failed' : 'partial',
+      recentTransactions,
+      priceHistory,
+      recentSnapshots,
+    };
+  } catch (error) {
+    console.warn('[analysisSnapshot] enrich failed', error);
+    return {
+      ...baseRequest,
+      enrichmentStatus: 'failed',
+    };
+  }
+}
+
 export async function buildPortfolioAnalysisRequest(
   holdings: Holding[],
   snapshotHash: string,
@@ -195,6 +311,7 @@ export async function buildPortfolioAnalysisRequest(
     snapshotHash,
     category,
     analysisModel,
+    enrichmentStatus: 'ok' as const,
     analysisQuestion: analysisQuestion.trim(),
     analysisBackground: analysisBackground.trim(),
     conversationContext: conversationContext.trim(),
@@ -218,76 +335,11 @@ export async function buildPortfolioAnalysisRequest(
       .sort((left, right) => right.totalValueHKD - left.totalValueHKD),
   };
 
-  if (category !== 'general_question' || holdings.length === 0) {
+  if (holdings.length === 0) {
     return baseRequest;
   }
 
-  try {
-    const topHoldings = [...holdings]
-      .sort((left, right) => right.marketValue - left.marketValue)
-      .slice(0, 10);
-
-    const [recentTransactions, recentSnapshots, priceHistoryGroups] = await Promise.all([
-      getRecentAssetTransactions(30),
-      getRecentPortfolioSnapshots(2),
-      Promise.all(
-        topHoldings.map(async (holding) => {
-          const priceHistory = await getRecentAssetPriceHistory(holding.id, 30);
-          return buildPriceHistoryGroup(
-            holding,
-            priceHistory.map((entry) => ({
-              date: entry.asOf,
-              price: entry.price,
-            })),
-          );
-        }),
-      ),
-    ]);
-
-    const groupedTransactions = recentTransactions.reduce<
-      Record<string, PortfolioAnalysisRecentTransactionGroup>
-    >((groups, transaction) => {
-      const group =
-        groups[transaction.assetId] ??
-        ({
-          assetId: transaction.assetId,
-          assetName: transaction.assetName,
-          ticker: transaction.symbol,
-          transactions: [],
-        } satisfies PortfolioAnalysisRecentTransactionGroup);
-
-      group.transactions.push({
-        date: transaction.date,
-        type: transaction.transactionType,
-        quantity: transaction.quantity,
-        price: transaction.price,
-      });
-      groups[transaction.assetId] = group;
-      return groups;
-    }, {});
-
-    return {
-      ...baseRequest,
-      recentTransactions: Object.values(groupedTransactions)
-        .map((group) => ({
-          ...group,
-          transactions: group.transactions
-            .filter((entry) => entry.date >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
-            .sort((left, right) => left.date.localeCompare(right.date)),
-        }))
-        .filter((group) => group.transactions.length > 0)
-        .sort((left, right) => left.ticker.localeCompare(right.ticker)),
-      priceHistory: priceHistoryGroups
-        .filter((group) => group.points.length > 0)
-        .sort((left, right) => right.change30dPct - left.change30dPct),
-      recentSnapshots: recentSnapshots
-        .slice()
-        .sort((left, right) => left.date.localeCompare(right.date))
-        .map(buildRecentSnapshotPayload),
-    };
-  } catch {
-    return baseRequest;
-  }
+  return enrichPortfolioAnalysisRequest({ baseRequest, holdings });
 }
 
 export function getPortfolioAnalysisCurrencyLabel(currency: string) {

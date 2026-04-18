@@ -887,6 +887,11 @@ export function AnalysisPage() {
     () => splitReportIntoSections(selectedMonthlyAnalysis?.result ?? ''),
     [selectedMonthlyAnalysis],
   );
+  const activeAnalysis = localAnalysis ?? cachedAnalysis;
+  const enrichmentWarning =
+    activeAnalysis?.enrichmentStatus && activeAnalysis.enrichmentStatus !== 'ok'
+      ? '部分歷史數據載入失敗，AI 答案可能唔完整'
+      : null;
   const selectedLegacyConversationSession = useMemo(() => {
     if (!selectedSessionId || !isLegacyConversationId(selectedSessionId)) {
       return null;
@@ -969,6 +974,7 @@ export function AnalysisPage() {
         category: response.category,
         provider: response.provider,
         model: response.model,
+        enrichmentStatus: response.enrichmentStatus,
         analysisQuestion: response.analysisQuestion,
         analysisBackground: response.analysisBackground,
         delivery: response.delivery ?? 'manual',
@@ -1077,6 +1083,7 @@ export function AnalysisPage() {
         category: response.category,
         provider: response.provider,
         model: response.model,
+        enrichmentStatus: response.enrichmentStatus,
         analysisQuestion: response.analysisQuestion,
         analysisBackground: response.analysisBackground,
         delivery: response.delivery ?? 'manual',
@@ -1162,6 +1169,7 @@ export function AnalysisPage() {
         category: response.category,
         provider: response.provider,
         model: response.model,
+        enrichmentStatus: response.enrichmentStatus,
         analysisQuestion: response.analysisQuestion,
         analysisBackground: response.analysisBackground,
         delivery: response.delivery ?? 'manual',
@@ -1458,6 +1466,9 @@ export function AnalysisPage() {
         ]}
         successes={[analysisSuccess, promptSettingsSuccess, reportActionMessage]}
       />
+      {enrichmentWarning ? (
+        <p className="status-message status-message-warning">{enrichmentWarning}</p>
+      ) : null}
       {hasCachedAnalysis && !analysisSuccess && !isQuarterlyCategory ? (
         <p className="status-message">最近分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}</p>
       ) : null}
@@ -1668,6 +1679,7 @@ export function AnalysisPage() {
               <div>
                 <p className="eyebrow">Monthly</p>
                 <h2>{selectedMonthlyAnalysis?.title ?? '資產分析'}</h2>
+                <p className="table-hint">最新一份月度分析會顯示喺最上方，下面可翻查舊紀錄。</p>
               </div>
               <div className="analysis-report-preview-footer">
                 {selectedMonthlyAnalysis ? (

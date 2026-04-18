@@ -112,6 +112,14 @@ function sanitizeAnalysisCategory(value: unknown): AnalysisCategory | null {
   return null;
 }
 
+function sanitizeEnrichmentStatus(value: unknown): 'ok' | 'partial' | 'failed' | null {
+  if (value === 'ok' || value === 'partial' || value === 'failed') {
+    return value;
+  }
+
+  return null;
+}
+
 function sanitizeAssetType(value: unknown): AssetType | null {
   if (typeof value !== 'string') {
     return null;
@@ -366,6 +374,7 @@ export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisReq
   const analysisQuestion = sanitizeString(value.analysisQuestion) ?? '';
   const analysisBackground = sanitizeString(value.analysisBackground) ?? '';
   const conversationContext = sanitizeString(value.conversationContext) ?? '';
+  const enrichmentStatus = sanitizeEnrichmentStatus(value.enrichmentStatus) ?? 'ok';
   const assetCount = sanitizeNumber(value.assetCount);
   const totalValueHKD = sanitizeNumber(value.totalValueHKD);
   const totalCostHKD = sanitizeNumber(value.totalCostHKD);
@@ -512,6 +521,7 @@ export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisReq
     snapshotHash,
     category,
     analysisModel,
+    enrichmentStatus,
     analysisQuestion,
     analysisBackground,
     conversationContext,
@@ -684,7 +694,7 @@ function formatRecentSnapshotsSection(request: PortfolioAnalysisRequest) {
   return ['【最近 2 個 snapshot】', ...lines].join('\n');
 }
 
-function buildGeneralQuestionContext(request: PortfolioAnalysisRequest) {
+function buildRichContextSection(request: PortfolioAnalysisRequest) {
   return [
     formatHoldingsSection(request),
     formatRecentTransactionsSection(request),
@@ -694,8 +704,7 @@ function buildGeneralQuestionContext(request: PortfolioAnalysisRequest) {
 }
 
 function buildAnalysisUserPrompt(request: PortfolioAnalysisRequest) {
-  const generalQuestionContext =
-    request.category === 'general_question' ? buildGeneralQuestionContext(request) : '';
+  const richContextSection = request.holdings.length > 0 ? buildRichContextSection(request) : '';
 
   return `
 Saved category background:
@@ -718,7 +727,7 @@ ${request.holdings
   )
   .join('\n')}
 
-${generalQuestionContext ? `${generalQuestionContext}\n` : ''}
+${richContextSection ? `${richContextSection}\n` : ''}
   `.trim();
 }
 
@@ -887,6 +896,7 @@ export async function runPortfolioAnalysisRequest(
     provider,
     model: resolvedModel,
     snapshotHash: request.snapshotHash,
+    enrichmentStatus: request.enrichmentStatus ?? 'ok',
     analysisQuestion: request.analysisQuestion ?? '',
     analysisBackground: request.analysisBackground ?? '',
     delivery: options?.delivery ?? 'manual',

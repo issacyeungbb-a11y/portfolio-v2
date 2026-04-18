@@ -1440,6 +1440,12 @@ h3 {
   color: var(--accent);
 }
 
+.status-message-warning {
+  border-color: rgba(180, 120, 20, 0.18);
+  background: rgba(180, 120, 20, 0.08);
+  color: #8b5a12;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

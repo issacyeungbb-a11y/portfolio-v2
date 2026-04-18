@@ -4,15 +4,23 @@ function toFiniteNumber(value) {
 function trimString(value) {
     return typeof value === 'string' ? value.trim() : '';
 }
-function normalizeDateKey(value) {
-    return value.slice(0, 10);
+export function normalizeDateKey(value) {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+        return trimmed.slice(0, 10);
+    }
+    const parsed = new Date(trimmed);
+    if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString().slice(0, 10);
+    }
+    throw new Error(`[snapshotComparison] 無法解析日期：${value}`);
 }
-function getMonthKey(value) {
+export function getMonthKey(value) {
     const normalized = normalizeDateKey(value);
     return normalized.slice(0, 7);
 }
 function getHoldingKey(holding) {
-    return holding.assetId || `${holding.ticker}|${holding.name}|${holding.currency}`;
+    return holding.assetId || `${holding.ticker}|${holding.currency}`;
 }
 function getHoldingValue(holding) {
     return toFiniteNumber(holding.marketValueHKD);

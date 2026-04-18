@@ -72,6 +72,12 @@ function sanitizeAnalysisCategory(value) {
     }
     return null;
 }
+function sanitizeEnrichmentStatus(value) {
+    if (value === 'ok' || value === 'partial' || value === 'failed') {
+        return value;
+    }
+    return null;
+}
 function sanitizeAssetType(value) {
     if (typeof value !== 'string') {
         return null;
@@ -256,6 +262,7 @@ export function normalizeAnalysisRequest(payload) {
     const analysisQuestion = sanitizeString(value.analysisQuestion) ?? '';
     const analysisBackground = sanitizeString(value.analysisBackground) ?? '';
     const conversationContext = sanitizeString(value.conversationContext) ?? '';
+    const enrichmentStatus = sanitizeEnrichmentStatus(value.enrichmentStatus) ?? 'ok';
     const assetCount = sanitizeNumber(value.assetCount);
     const totalValueHKD = sanitizeNumber(value.totalValueHKD);
     const totalCostHKD = sanitizeNumber(value.totalCostHKD);
@@ -372,6 +379,7 @@ export function normalizeAnalysisRequest(payload) {
         snapshotHash,
         category,
         analysisModel,
+        enrichmentStatus,
         analysisQuestion,
         analysisBackground,
         conversationContext,
@@ -512,7 +520,7 @@ function formatRecentSnapshotsSection(request) {
     });
     return ['【最近 2 個 snapshot】', ...lines].join('\n');
 }
-function buildGeneralQuestionContext(request) {
+function buildRichContextSection(request) {
     return [
         formatHoldingsSection(request),
         formatRecentTransactionsSection(request),
@@ -521,7 +529,7 @@ function buildGeneralQuestionContext(request) {
     ].join('\n\n');
 }
 function buildAnalysisUserPrompt(request) {
-    const generalQuestionContext = request.category === 'general_question' ? buildGeneralQuestionContext(request) : '';
+    const richContextSection = request.holdings.length > 0 ? buildRichContextSection(request) : '';
     return `
 Saved category background:
 ${request.analysisBackground || '未設定額外背景。'}
@@ -540,7 +548,7 @@ ${request.holdings
         `價 ${formatMoney(holding.currentPrice)} ${holding.currency}｜市值 ${formatMoney(holding.marketValue)}｜成本 ${formatMoney(holding.costValue)}`)
         .join('\n')}
 
-${generalQuestionContext ? `${generalQuestionContext}\n` : ''}
+${richContextSection ? `${richContextSection}\n` : ''}
   `.trim();
 }
 export function buildPrompt(request) {
@@ -666,6 +674,7 @@ export async function runPortfolioAnalysisRequest(request, options) {
         provider,
         model: resolvedModel,
         snapshotHash: request.snapshotHash,
+        enrichmentStatus: request.enrichmentStatus ?? 'ok',
         analysisQuestion: request.analysisQuestion ?? '',
         analysisBackground: request.analysisBackground ?? '',
         delivery: options?.delivery ?? 'manual',

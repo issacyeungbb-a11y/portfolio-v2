@@ -28,6 +28,10 @@ function normalizeCachedAnalysis(
         ? 'anthropic'
         : 'google',
     model: typeof value.model === 'string' ? value.model : '',
+    enrichmentStatus:
+      value.enrichmentStatus === 'partial' || value.enrichmentStatus === 'failed'
+        ? value.enrichmentStatus
+        : 'ok',
     analysisQuestion:
       typeof value.analysisQuestion === 'string'
         ? value.analysisQuestion

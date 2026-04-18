@@ -71,6 +71,7 @@ export interface PortfolioAnalysisRequest {
   snapshotHash: string;
   category: AnalysisCategory;
   analysisModel: PortfolioAnalysisModel;
+  enrichmentStatus?: 'ok' | 'partial' | 'failed';
   analysisQuestion?: string;
   analysisBackground?: string;
   conversationContext?: string;
@@ -106,6 +107,7 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
   provider: PortfolioAnalysisProvider;
   model: string;
   snapshotHash: string;
+  enrichmentStatus: 'ok' | 'partial' | 'failed';
   analysisQuestion: string;
   analysisBackground: string;
   delivery?: 'manual' | 'scheduled';
@@ -118,6 +120,7 @@ export interface CachedPortfolioAnalysis extends PortfolioAnalysisResult {
   category: AnalysisCategory;
   provider: PortfolioAnalysisProvider;
   model: string;
+  enrichmentStatus: 'ok' | 'partial' | 'failed';
   analysisQuestion: string;
   analysisBackground: string;
   delivery?: 'manual' | 'scheduled';
