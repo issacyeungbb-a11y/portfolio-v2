@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 import { jsPDF } from 'jspdf';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
@@ -97,7 +96,7 @@ const analysisCategoryOptions: Array<{
     label: '一般問題',
     shortLabel: '一般問題',
     helper: '同 AI 對話',
-    questionPlaceholder: '例如：我而家現金比例是否偏高？要唔要再分散幣別？',
+    questionPlaceholder: '輸入問題，或者揀上面嘅快捷問題',
   },
   {
     value: 'asset_analysis',
@@ -856,10 +855,6 @@ export function AnalysisPage() {
             ),
         ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       : [];
-  const selectedConversationArchiveItem =
-    selectedCategory === 'general_question'
-      ? conversationArchiveSessions.find((item) => item.id === selectedSessionId) ?? null
-      : null;
   const canAnalyze =
     assetsStatus === 'ready' &&
     holdings.length > 0 &&
@@ -909,7 +904,6 @@ export function AnalysisPage() {
   const selectedQuarterlyReportThreadId = selectedQuarterlyReportThread?.id ?? null;
   const {
     entries: selectedThreadTurns,
-    status: selectedThreadTurnsStatus,
   } = useAnalysisThreadTurns(selectedAnalysisThreadId);
   const {
     entries: selectedQuarterlyThreadTurns,
@@ -938,9 +932,14 @@ export function AnalysisPage() {
     [selectedQuarterlyThreadTurns],
   );
 
-  async function handleAnalyzePortfolio() {
-    if (!snapshotHash || !analysisCacheKey || holdings.length === 0 || isQuarterlyCategory) {
+  async function handleAnalyzePortfolio(quickQuestion?: string) {
+    if (!snapshotHash || holdings.length === 0 || isQuarterlyCategory) {
       setAnalysisError('目前沒有完整的資產快照可供分析。');
+      return;
+    }
+
+    const effectiveAnalysisQuestion = (quickQuestion ?? analysisQuestion).trim();
+    if (!effectiveAnalysisQuestion) {
       return;
     }
 
@@ -950,6 +949,13 @@ export function AnalysisPage() {
     setIsAnalyzing(true);
 
     try {
+      const resolvedCacheKey = await createPortfolioAnalysisCacheKey(
+        snapshotHash,
+        selectedCategory,
+        selectedModel,
+        effectiveAnalysisQuestion,
+        analysisBackground,
+      );
       const conversationContext =
         isInteractiveCategory && activeConversationTurns.length === 0
           ? generalQuestionSeedContext
@@ -959,10 +965,10 @@ export function AnalysisPage() {
       const request = await buildPortfolioAnalysisRequest(
         holdings,
         snapshotHash,
-        analysisCacheKey,
+        resolvedCacheKey,
         selectedCategory,
         selectedModel,
-        analysisQuestion,
+        effectiveAnalysisQuestion,
         analysisBackground,
         conversationContext,
       );
@@ -1046,14 +1052,17 @@ export function AnalysisPage() {
     }
   }
 
-  async function handleFollowUp() {
+  async function handleFollowUp(quickQuestion?: string) {
     if (
       !snapshotHash ||
-      !analysisCacheKey ||
       !holdings.length ||
-      !followUpQuestion.trim() ||
       !isInteractiveCategory
     ) {
+      return;
+    }
+
+    const effectiveFollowUpQuestion = (quickQuestion ?? followUpQuestion).trim();
+    if (!effectiveFollowUpQuestion) {
       return;
     }
 
@@ -1065,13 +1074,20 @@ export function AnalysisPage() {
     setIsAnalyzing(true);
 
     try {
+      const resolvedCacheKey = await createPortfolioAnalysisCacheKey(
+        snapshotHash,
+        selectedCategory,
+        selectedModel,
+        effectiveFollowUpQuestion,
+        analysisBackground,
+      );
       const request = await buildPortfolioAnalysisRequest(
         holdings,
         snapshotHash,
-        analysisCacheKey,
+        resolvedCacheKey,
         selectedCategory,
         selectedModel,
-        followUpQuestion,
+        effectiveFollowUpQuestion,
         analysisBackground,
         conversationContext,
       );
@@ -1131,8 +1147,13 @@ export function AnalysisPage() {
     }
   }
 
-  async function handleQuarterlyReportFollowUp() {
-    if (!selectedReport || !followUpQuestionByCategory.asset_report.trim()) {
+  async function handleQuarterlyReportFollowUp(quickQuestion?: string) {
+    if (!selectedReport) {
+      return;
+    }
+
+    const effectiveFollowUpQuestion = (quickQuestion ?? followUpQuestionByCategory.asset_report).trim();
+    if (!effectiveFollowUpQuestion) {
       return;
     }
 
@@ -1148,7 +1169,7 @@ export function AnalysisPage() {
         snapshotHash ?? selectedReport.currentSnapshotHash ?? '',
         'general_question',
         followUpModel,
-        followUpQuestionByCategory.asset_report,
+        effectiveFollowUpQuestion,
         savedPromptSettings.general_question,
       );
       const request = await buildPortfolioAnalysisRequest(
@@ -1157,7 +1178,7 @@ export function AnalysisPage() {
         followUpCacheKey,
         'general_question',
         followUpModel,
-        followUpQuestionByCategory.asset_report,
+        effectiveFollowUpQuestion,
         savedPromptSettings.general_question,
         conversationContext,
       );
@@ -1278,9 +1299,7 @@ export function AnalysisPage() {
       <section className="hero-panel analysis-hero-panel">
         <div className="analysis-page-header">
           <div className="analysis-page-heading">
-            <p className="eyebrow">Analysis</p>
-            <h2>分析與報告</h2>
-            <p className="table-hint">分開睇對話、資產分析，同季度報告。</p>
+            <h2>分析</h2>
           </div>
 
           <div className="analysis-page-actions">
@@ -1327,8 +1346,7 @@ export function AnalysisPage() {
                 className={isActive ? 'analysis-tab-card active' : 'analysis-tab-card'}
                 onClick={() => setSelectedCategory(option.value)}
               >
-                <strong>{option.label}</strong>
-                <span>{option.helper}</span>
+                <strong>{option.shortLabel}</strong>
               </button>
             );
           })}
@@ -1479,37 +1497,26 @@ export function AnalysisPage() {
         <section className="card analysis-thread-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Conversation</p>
-              <h2>一般問題</h2>
+              <h3>對話</h3>
             </div>
             <div className="analysis-thread-header-actions">
-              <span className="chip chip-soft">{conversationArchiveSessions.length} 條記錄</span>
+              <span className="chip chip-soft">{conversationArchiveSessions.length} 條對話</span>
               <button
                 className="button button-secondary"
                 type="button"
                 onClick={() => {
                   setSelectedSessionId(null);
-                  setAnalysisQuestionByCategory((current) => ({
-                    ...current,
-                    general_question: '',
-                  }));
-                  setFollowUpQuestionByCategory((current) => ({
-                    ...current,
-                    general_question: '',
-                  }));
+                  setAnalysisQuestionByCategory((current) => ({ ...current, general_question: '' }));
+                  setFollowUpQuestionByCategory((current) => ({ ...current, general_question: '' }));
                 }}
               >
-                新對話
+                ＋新對話
               </button>
             </div>
           </div>
 
           <div className="analysis-thread-layout">
             <aside className="analysis-thread-sidebar">
-              <div className="analysis-thread-sidebar-header">
-                <p className="table-hint">所有舊記錄同新 thread 都會集中喺呢度。</p>
-              </div>
-
               {conversationArchiveSessions.length > 0 ? (
                 <div className="analysis-archive-list">
                   {conversationArchiveSessions.slice(0, visibleCount).map((item) => {
@@ -1548,21 +1555,11 @@ export function AnalysisPage() {
                   ) : null}
                 </div>
               ) : (
-                <p className="status-message">尚未有對話紀錄。</p>
+                <p className="status-message">仲未有對話。</p>
               )}
             </aside>
 
             <div className="analysis-thread-main">
-              <div className="analysis-thread-main-header">
-                <span className="chip chip-soft">
-                  {selectedConversationArchiveItem
-                    ? selectedConversationArchiveItem.source === 'legacy'
-                      ? '舊記錄'
-                      : `${selectedThreadTurnsStatus === 'loading' ? '讀取中' : `${activeConversationTurns.length} 輪`}`
-                    : '新對話'}
-                </span>
-              </div>
-
               {!selectedSessionId && activeConversationTurns.length === 0 ? (
                 <div className="analysis-suggestion-grid">
                   {GENERAL_QUESTION_SUGGESTIONS.map((suggestion) => (
@@ -1571,24 +1568,15 @@ export function AnalysisPage() {
                       type="button"
                       className="analysis-suggestion-chip"
                       onClick={() => {
-                        setAnalysisQuestionByCategory((current) => ({
-                          ...current,
-                          general_question: suggestion,
-                        }));
-                        setFollowUpQuestionByCategory((current) => ({
-                          ...current,
-                          general_question: suggestion,
-                        }));
+                        setAnalysisQuestionByCategory((current) => ({ ...current, general_question: suggestion }));
+                        setFollowUpQuestionByCategory((current) => ({ ...current, general_question: suggestion }));
+                        void handleAnalyzePortfolio(suggestion);
                       }}
                     >
                       {suggestion}
                     </button>
                   ))}
                 </div>
-              ) : null}
-
-              {!selectedSessionId && generalQuestionSeedContext ? (
-                <p className="status-message">已套用月度分析做背景，可以直接追問。</p>
               ) : null}
 
               <div className="analysis-chat-thread">
@@ -1612,7 +1600,7 @@ export function AnalysisPage() {
                     </div>
                   ))
                 ) : (
-                  <p className="status-message">未開始對話，請揀快捷問題或者自己輸入。</p>
+                  null
                 )}
               </div>
 
@@ -1633,7 +1621,7 @@ export function AnalysisPage() {
                       }));
                     }}
                     placeholder={selectedCategoryOption.questionPlaceholder}
-                    rows={4}
+                    rows={3}
                     disabled={isAnalyzing}
                   />
                 </label>
@@ -1650,21 +1638,10 @@ export function AnalysisPage() {
 
                       void handleAnalyzePortfolio();
                     }}
-                    disabled={
-                      !analysisQuestion.trim() ||
-                      !canAnalyze ||
-                      (activeConversationTurns.length > 0 && !followUpQuestion.trim())
-                    }
+                    disabled={!analysisQuestion.trim() || !canAnalyze || isAnalyzing}
                   >
-                    {isAnalyzing
-                      ? '發送中...'
-                      : activeConversationTurns.length > 0
-                        ? '發送'
-                        : '開始對話'}
+                    {isAnalyzing ? '送出中...' : '送出'}
                   </button>
-                  <Link className="button button-secondary" to="/assets">
-                    檢查資產資料
-                  </Link>
                 </div>
               </div>
             </div>
@@ -2013,7 +1990,7 @@ export function AnalysisPage() {
                     onClick={() => void handleQuarterlyReportFollowUp()}
                     disabled={!selectedReport || !followUpQuestionByCategory.asset_report.trim() || isAnalyzing}
                   >
-                    {isAnalyzing ? '發送中...' : '發送追問'}
+                    {isAnalyzing ? '送出中...' : '送出'}
                   </button>
                 </div>
               </div>
