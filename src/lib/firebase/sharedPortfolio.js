@@ -43,6 +43,10 @@ export function getSharedAnalysisSessionsCollectionRef() {
     const db = getRequiredFirebaseDb();
     return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'analysisSessions');
 }
+export function getSharedAnalysisThreadsCollectionRef() {
+    const db = getRequiredFirebaseDb();
+    return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'analysisThreads');
+}
 export function getSharedQuarterlyReportsCollectionRef() {
     const db = getRequiredFirebaseDb();
     return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'quarterlyReports');
@@ -54,6 +58,10 @@ export function getSharedAnalysisSettingsDocRef(settingId = 'prompts') {
 export function getSharedPortfolioSnapshotsCollectionRef() {
     const db = getRequiredFirebaseDb();
     return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'portfolioSnapshots');
+}
+export function getSharedAnalysisThreadTurnsCollectionRef(threadId) {
+    const db = getRequiredFirebaseDb();
+    return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'analysisThreads', threadId, 'turns');
 }
 export function getSharedAssetPriceHistoryCollectionRef(assetId) {
     const db = getRequiredFirebaseDb();

@@ -7,9 +7,16 @@ import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import { getHoldingValueInCurrency, mockPortfolio } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
+import { useAnalysisThreadTurns, useAnalysisThreads } from '../hooks/useAnalysisThreads';
 import { useAnalysisSettings } from '../hooks/useAnalysisSettings';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { storage } from '../lib/firebase/client';
+import {
+  appendAnalysisThreadTurn,
+  createAnalysisThreadWithTurn,
+  type AnalysisThread,
+  type AnalysisThreadTurn,
+} from '../lib/firebase/analysisThreads';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
   getQuarterlyReportsErrorMessage,
@@ -39,6 +46,28 @@ type ConversationTurn = {
   generatedAt: string;
   model: string;
 };
+
+type ConversationArchiveItem = {
+  id: string;
+  title: string;
+  updatedAt: string;
+  turnCount: number;
+  source: 'thread' | 'legacy';
+};
+
+const LEGACY_THREAD_PREFIX = 'legacy:';
+
+function makeLegacyConversationId(sessionId: string) {
+  return `${LEGACY_THREAD_PREFIX}${sessionId}`;
+}
+
+function isLegacyConversationId(value: string) {
+  return value.startsWith(LEGACY_THREAD_PREFIX);
+}
+
+function getLegacyConversationSessionId(value: string) {
+  return value.slice(LEGACY_THREAD_PREFIX.length);
+}
 
 const REPORT_SECTION_TITLES = [
   '【季度總覽】',
@@ -102,6 +131,15 @@ const analysisModelOptions: Array<{
     hint: '4.7',
   },
 ];
+
+const GENERAL_QUESTION_SUGGESTIONS = [
+  '今個月組合表現點？',
+  '我有咩風險要留意？',
+  '現金比例係咪太高/太低？',
+  '幣別曝險有冇問題？',
+  '邊隻持倉跌得最多？',
+  '應唔應該 rebalance？',
+] as const;
 
 interface ReportSection {
   title?: string;
@@ -176,8 +214,12 @@ function buildConversationTurnFromSession(session: AnalysisSession): Conversatio
   };
 }
 
-function formatAnalysisArchiveTitle(session: AnalysisSession) {
-  return createAnalysisTitle(session.question);
+function formatConversationContext(turns: ConversationTurn[]) {
+  return turns
+    .map(
+      (turn, index) => `第 ${index + 1} 輪\n使用者：${turn.question}\nAI：${turn.answer}`,
+    )
+    .join('\n\n');
 }
 
 function extractBase64FontPayload(rawText: string) {
@@ -559,11 +601,6 @@ export function AnalysisPage() {
     general_question: '',
     asset_report: '',
   });
-  const [conversationThreads, setConversationThreads] = useState<Record<AnalysisCategory, ConversationTurn[]>>({
-    asset_analysis: [],
-    general_question: [],
-    asset_report: [],
-  });
   const [promptDrafts, setPromptDrafts] = useState(savedPromptSettings);
   const [reports, setReports] = useState<QuarterlyReport[]>([]);
   const [reportsStatus, setReportsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -581,7 +618,6 @@ export function AnalysisPage() {
   const analysisQuestion = analysisQuestionByCategory[selectedCategory];
   const followUpQuestion = followUpQuestionByCategory[selectedCategory];
   const analysisBackground = savedPromptSettings[selectedCategory];
-  const activeConversation = conversationThreads[selectedCategory];
   const isInteractiveCategory = selectedCategory === 'general_question';
   const isPortfolioAnalysisCategory = selectedCategory === 'asset_analysis';
   const isQuarterlyCategory = selectedCategory === 'asset_report';
@@ -731,10 +767,40 @@ export function AnalysisPage() {
     error: analysisSessionsError,
     addAnalysisSession,
   } = useAnalysisSessions();
+  const {
+    entries: analysisThreads,
+    error: analysisThreadsError,
+  } = useAnalysisThreads();
 
-  const conversationArchiveSessions =
-    selectedCategory === 'general_question' ? analysisSessions : [];
-  const categorySessions = analysisSessions.filter((session) => session.category === selectedCategory);
+  const conversationArchiveSessions: ConversationArchiveItem[] =
+    selectedCategory === 'general_question'
+      ? [
+          ...analysisThreads.map(
+            (thread): ConversationArchiveItem => ({
+              id: thread.id,
+              title: thread.title,
+              updatedAt: thread.updatedAt,
+              turnCount: thread.turnCount,
+              source: 'thread',
+            }),
+          ),
+          ...analysisSessions
+            .filter((session) => session.category === 'general_question')
+            .map(
+              (session): ConversationArchiveItem => ({
+                id: makeLegacyConversationId(session.id),
+                title: session.title || createAnalysisTitle(session.question),
+                updatedAt: session.updatedAt,
+                turnCount: 1,
+                source: 'legacy',
+              }),
+            ),
+        ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      : [];
+  const selectedConversationArchiveItem =
+    selectedCategory === 'general_question'
+      ? conversationArchiveSessions.find((item) => item.id === selectedSessionId) ?? null
+      : null;
   const canAnalyze =
     assetsStatus === 'ready' &&
     holdings.length > 0 &&
@@ -751,59 +817,36 @@ export function AnalysisPage() {
     () => splitReportIntoSections(selectedReport?.report ?? ''),
     [selectedReport],
   );
-
-  function loadAnalysisSession(
-    session: AnalysisSession,
-    targetCategory: AnalysisCategory = selectedCategory,
-  ) {
-    setSelectedSessionId(session.id);
-    setAnalysisQuestionByCategory((current) => ({
-      ...current,
-      [targetCategory]: session.question,
-    }));
-    setFollowUpQuestionByCategory((current) => ({
-      ...current,
-      [targetCategory]: '',
-    }));
-    setConversationThreads((current) => ({
-      ...current,
-      [targetCategory]: [buildConversationTurnFromSession(session)],
-    }));
-    setLocalAnalysis({
-      cacheKey: session.id,
-      snapshotHash: session.snapshotHash ?? '',
-      category: session.category,
-      provider: session.provider ?? 'google',
-      model: session.model,
-      analysisQuestion: session.question,
-      analysisBackground: savedPromptSettings[session.category],
-      delivery: session.delivery ?? 'manual',
-      generatedAt: session.updatedAt,
-      assetCount: holdings.length,
-      answer: session.result,
-    });
-  }
-
-  useEffect(() => {
-    if (
-      isQuarterlyCategory ||
-      selectedCategory === 'general_question' ||
-      selectedSessionId ||
-      categorySessions.length === 0
-    ) {
-      return;
+  const selectedLegacyConversationSession = useMemo(() => {
+    if (!selectedSessionId || !isLegacyConversationId(selectedSessionId)) {
+      return null;
     }
 
-    const latestSession = categorySessions[0];
-    loadAnalysisSession(latestSession);
-  }, [
-    categorySessions,
-    holdings.length,
-    isQuarterlyCategory,
-    savedPromptSettings,
-    selectedCategory,
-    selectedSessionId,
-  ]);
+    const sessionId = getLegacyConversationSessionId(selectedSessionId);
+    return analysisSessions.find((session) => session.id === sessionId && session.category === 'general_question') ?? null;
+  }, [analysisSessions, selectedSessionId]);
+  const selectedAnalysisThreadId =
+    selectedCategory === 'general_question' &&
+    selectedSessionId &&
+    !isLegacyConversationId(selectedSessionId)
+      ? selectedSessionId
+      : null;
+  const {
+    entries: selectedThreadTurns,
+    status: selectedThreadTurnsStatus,
+  } = useAnalysisThreadTurns(selectedAnalysisThreadId);
+  const activeConversationTurns = useMemo(() => {
+    if (selectedLegacyConversationSession) {
+      return [buildConversationTurnFromSession(selectedLegacyConversationSession)];
+    }
+
+    return selectedThreadTurns.map((turn) => ({
+      question: turn.question,
+      answer: turn.answer,
+      generatedAt: turn.generatedAt,
+      model: turn.model,
+    }));
+  }, [selectedLegacyConversationSession, selectedThreadTurns]);
 
   async function handleAnalyzePortfolio() {
     if (!snapshotHash || !analysisCacheKey || holdings.length === 0 || isQuarterlyCategory) {
@@ -817,7 +860,7 @@ export function AnalysisPage() {
     setIsAnalyzing(true);
 
     try {
-      const request = buildPortfolioAnalysisRequest(
+      const request = await buildPortfolioAnalysisRequest(
         holdings,
         snapshotHash,
         analysisCacheKey,
@@ -825,7 +868,7 @@ export function AnalysisPage() {
         selectedModel,
         analysisQuestion,
         analysisBackground,
-        '',
+        isInteractiveCategory ? formatConversationContext(activeConversationTurns) : '',
       );
       const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
 
@@ -844,19 +887,6 @@ export function AnalysisPage() {
       };
 
       setLocalAnalysis(cachedResult);
-      if (isInteractiveCategory) {
-        setConversationThreads((current) => ({
-          ...current,
-          [selectedCategory]: [
-            {
-              question: response.analysisQuestion,
-              answer: response.answer,
-              generatedAt: response.generatedAt,
-              model: response.model,
-            },
-          ],
-        }));
-      }
       setAnalysisQuestionByCategory((current) => ({
         ...current,
         [selectedCategory]: '',
@@ -866,6 +896,36 @@ export function AnalysisPage() {
         [selectedCategory]: '',
       }));
       await persistAnalysis(cachedResult);
+      if (isInteractiveCategory) {
+        if (!selectedSessionId || isLegacyConversationId(selectedSessionId)) {
+          const threadId = await createAnalysisThreadWithTurn({
+            title: createAnalysisTitle(response.analysisQuestion),
+            question: response.analysisQuestion,
+            answer: response.answer,
+            model: response.model,
+            provider: response.provider,
+            snapshotHash: response.snapshotHash,
+            generatedAt: response.generatedAt,
+          });
+          setSelectedSessionId(threadId);
+        } else {
+          await appendAnalysisThreadTurn(selectedSessionId, {
+            question: response.analysisQuestion,
+            answer: response.answer,
+            model: response.model,
+            provider: response.provider,
+            snapshotHash: response.snapshotHash,
+            generatedAt: response.generatedAt,
+          });
+        }
+        setAnalysisSuccess(
+          !selectedSessionId || isLegacyConversationId(selectedSessionId)
+            ? '已開啟新對話。'
+            : '已加入追問。',
+        );
+        return;
+      }
+
       const savedSession: Omit<AnalysisSession, 'id' | 'updatedAt' | 'createdAt'> = {
         category: response.category,
         title: createAnalysisTitle(response.analysisQuestion),
@@ -877,7 +937,7 @@ export function AnalysisPage() {
         delivery: 'manual',
       };
       await addAnalysisSession(savedSession);
-      setAnalysisSuccess(isInteractiveCategory ? '回答已更新。' : '資產分析已完成。');
+      setAnalysisSuccess('資產分析已完成。');
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '投資組合分析失敗，請稍後再試。');
     } finally {
@@ -891,14 +951,12 @@ export function AnalysisPage() {
       !analysisCacheKey ||
       !holdings.length ||
       !followUpQuestion.trim() ||
-      !(selectedCategory === 'asset_analysis' || selectedCategory === 'general_question')
+      !isInteractiveCategory
     ) {
       return;
     }
 
-    const conversationContext = activeConversation
-      .map((turn, index) => `第 ${index + 1} 輪\n使用者：${turn.question}\nAI：${turn.answer}`)
-      .join('\n\n');
+    const conversationContext = formatConversationContext(activeConversationTurns);
 
     setAnalysisError(null);
     setAnalysisSuccess(null);
@@ -906,7 +964,7 @@ export function AnalysisPage() {
     setIsAnalyzing(true);
 
     try {
-      const request = buildPortfolioAnalysisRequest(
+      const request = await buildPortfolioAnalysisRequest(
         holdings,
         snapshotHash,
         analysisCacheKey,
@@ -933,18 +991,6 @@ export function AnalysisPage() {
       };
 
       setLocalAnalysis(cachedResult);
-      setConversationThreads((current) => ({
-        ...current,
-        [selectedCategory]: [
-          ...current[selectedCategory],
-          {
-            question: response.analysisQuestion,
-            answer: response.answer,
-            generatedAt: response.generatedAt,
-            model: response.model,
-          },
-        ],
-      }));
       setAnalysisQuestionByCategory((current) => ({
         ...current,
         [selectedCategory]: '',
@@ -954,16 +1000,27 @@ export function AnalysisPage() {
         [selectedCategory]: '',
       }));
       await persistAnalysis(cachedResult);
-      await addAnalysisSession({
-        category: response.category,
-        title: createAnalysisTitle(response.analysisQuestion),
-        question: response.analysisQuestion,
-        result: response.answer,
-        model: response.model,
-        provider: response.provider,
-        snapshotHash: response.snapshotHash,
-        delivery: 'manual',
-      });
+      if (!selectedSessionId || isLegacyConversationId(selectedSessionId)) {
+        const threadId = await createAnalysisThreadWithTurn({
+          title: createAnalysisTitle(response.analysisQuestion),
+          question: response.analysisQuestion,
+          answer: response.answer,
+          model: response.model,
+          provider: response.provider,
+          snapshotHash: response.snapshotHash,
+          generatedAt: response.generatedAt,
+        });
+        setSelectedSessionId(threadId);
+      } else {
+        await appendAnalysisThreadTurn(selectedSessionId, {
+          question: response.analysisQuestion,
+          answer: response.answer,
+          model: response.model,
+          provider: response.provider,
+          snapshotHash: response.snapshotHash,
+          generatedAt: response.generatedAt,
+        });
+      }
       setAnalysisSuccess('已加入追問。');
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '追問分析失敗，請稍後再試。');
@@ -1216,6 +1273,7 @@ export function AnalysisPage() {
           snapshotHashError,
           cacheError,
           analysisSessionsError,
+          analysisThreadsError,
           analysisSettingsError,
           analysisError,
           reportsError,
@@ -1230,130 +1288,194 @@ export function AnalysisPage() {
       {isEmpty && !isQuarterlyCategory ? <p className="status-message">尚未有可分析資產</p> : null}
 
       {isInteractiveCategory ? (
-      <section className="card analysis-chat-card">
+        <section className="card analysis-thread-card">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Conversation</p>
-              <h2>同 AI 對話</h2>
+              <h2>一般問題</h2>
             </div>
-            <span className="chip chip-soft">{conversationArchiveSessions.length} 條記錄</span>
-          </div>
-
-          <div className="analysis-chat-thread">
-            {activeConversation.length > 0 ? (
-              activeConversation.map((turn, index) => (
-                <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
-                  <div className="analysis-chat-bubble analysis-chat-bubble-user">
-                    <div className="analysis-chat-bubble-meta">
-                      <span>我</span>
-                      <span>{formatAnalysisTime(turn.generatedAt)}</span>
-                    </div>
-                    <p>{turn.question}</p>
-                  </div>
-                  <div className="analysis-chat-bubble analysis-chat-bubble-assistant">
-                    <div className="analysis-chat-bubble-meta">
-                      <span>{getAnalysisModelLabel(turn.model)}</span>
-                      <span>{formatAnalysisTime(turn.generatedAt)}</span>
-                    </div>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="status-message">未有對話，先問第一句。</p>
-            )}
-          </div>
-
-          <div className="analysis-chat-composer">
-            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-              <span>訊息</span>
-              <textarea
-                value={analysisQuestion}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
+            <div className="analysis-thread-header-actions">
+              <span className="chip chip-soft">{conversationArchiveSessions.length} 條記錄</span>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => {
+                  setSelectedSessionId(null);
                   setAnalysisQuestionByCategory((current) => ({
                     ...current,
-                    general_question: nextValue,
+                    general_question: '',
                   }));
                   setFollowUpQuestionByCategory((current) => ({
                     ...current,
-                    general_question: nextValue,
+                    general_question: '',
                   }));
                 }}
-                placeholder={selectedCategoryOption.questionPlaceholder}
-                rows={4}
-                disabled={isAnalyzing}
-              />
-            </label>
-
-            <div className="analysis-chat-input-row">
-              <button
-                className="button button-primary"
-                type="button"
-                onClick={() => {
-                  if (activeConversation.length > 0) {
-                    void handleFollowUp();
-                    return;
-                  }
-
-                  void handleAnalyzePortfolio();
-                }}
-                disabled={!analysisQuestion.trim() || !canAnalyze || (activeConversation.length > 0 && !followUpQuestion.trim())}
               >
-                {isAnalyzing ? '發送中...' : activeConversation.length > 0 ? '發送' : '開始對話'}
+                新對話
               </button>
-              <Link className="button button-secondary" to="/assets">
-                檢查資產資料
-              </Link>
             </div>
           </div>
 
-          <div className="analysis-records-panel">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">History</p>
-                <h2>對話紀錄</h2>
+          <div className="analysis-thread-layout">
+            <aside className="analysis-thread-sidebar">
+              <div className="analysis-thread-sidebar-header">
+                <p className="table-hint">所有舊記錄同新 thread 都會集中喺呢度。</p>
+              </div>
+
+              {conversationArchiveSessions.length > 0 ? (
+                <div className="analysis-archive-list">
+                  {conversationArchiveSessions.slice(0, visibleCount).map((item) => {
+                    const isActive = selectedSessionId === item.id;
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={isActive ? 'analysis-archive-row active' : 'analysis-archive-row'}
+                        onClick={() => setSelectedSessionId(item.id)}
+                      >
+                        <div className="analysis-archive-main">
+                          <strong>{item.title}</strong>
+                          <p>
+                            {formatAnalysisTime(item.updatedAt)} · {item.turnCount} 輪
+                          </p>
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {visibleCount < conversationArchiveSessions.length ? (
+                    <div className="button-row">
+                      <button
+                        className="button button-secondary"
+                        type="button"
+                        onClick={() =>
+                          setVisibleCount((current) =>
+                            Math.min(current + 10, conversationArchiveSessions.length),
+                          )
+                        }
+                      >
+                        載入更多
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                <p className="status-message">尚未有對話紀錄。</p>
+              )}
+            </aside>
+
+            <div className="analysis-thread-main">
+              <div className="analysis-thread-main-header">
+                <span className="chip chip-soft">
+                  {selectedConversationArchiveItem
+                    ? selectedConversationArchiveItem.source === 'legacy'
+                      ? '舊記錄'
+                      : `${selectedThreadTurnsStatus === 'loading' ? '讀取中' : `${activeConversationTurns.length} 輪`}`
+                    : '新對話'}
+                </span>
+              </div>
+
+              {!selectedSessionId && activeConversationTurns.length === 0 ? (
+                <div className="analysis-suggestion-grid">
+                  {GENERAL_QUESTION_SUGGESTIONS.map((suggestion) => (
+                    <button
+                      key={suggestion}
+                      type="button"
+                      className="analysis-suggestion-chip"
+                      onClick={() => {
+                        setAnalysisQuestionByCategory((current) => ({
+                          ...current,
+                          general_question: suggestion,
+                        }));
+                        setFollowUpQuestionByCategory((current) => ({
+                          ...current,
+                          general_question: suggestion,
+                        }));
+                      }}
+                    >
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="analysis-chat-thread">
+                {activeConversationTurns.length > 0 ? (
+                  activeConversationTurns.map((turn, index) => (
+                    <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
+                      <div className="analysis-chat-bubble analysis-chat-bubble-user">
+                        <div className="analysis-chat-bubble-meta">
+                          <span>我</span>
+                          <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                        </div>
+                        <p>{turn.question}</p>
+                      </div>
+                      <div className="analysis-chat-bubble analysis-chat-bubble-assistant">
+                        <div className="analysis-chat-bubble-meta">
+                          <span>{getAnalysisModelLabel(turn.model)}</span>
+                          <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                        </div>
+                        <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="status-message">未開始對話，請揀快捷問題或者自己輸入。</p>
+                )}
+              </div>
+
+              <div className="analysis-chat-composer">
+                <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+                  <span>訊息</span>
+                  <textarea
+                    value={analysisQuestion}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setAnalysisQuestionByCategory((current) => ({
+                        ...current,
+                        general_question: nextValue,
+                      }));
+                      setFollowUpQuestionByCategory((current) => ({
+                        ...current,
+                        general_question: nextValue,
+                      }));
+                    }}
+                    placeholder={selectedCategoryOption.questionPlaceholder}
+                    rows={4}
+                    disabled={isAnalyzing}
+                  />
+                </label>
+
+                <div className="analysis-chat-input-row">
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    onClick={() => {
+                      if (activeConversationTurns.length > 0) {
+                        void handleFollowUp();
+                        return;
+                      }
+
+                      void handleAnalyzePortfolio();
+                    }}
+                    disabled={
+                      !analysisQuestion.trim() ||
+                      !canAnalyze ||
+                      (activeConversationTurns.length > 0 && !followUpQuestion.trim())
+                    }
+                  >
+                    {isAnalyzing
+                      ? '發送中...'
+                      : activeConversationTurns.length > 0
+                        ? '發送'
+                        : '開始對話'}
+                  </button>
+                  <Link className="button button-secondary" to="/assets">
+                    檢查資產資料
+                  </Link>
+                </div>
               </div>
             </div>
-
-            {conversationArchiveSessions.length > 0 ? (
-              <div className="analysis-archive-list">
-                {conversationArchiveSessions.slice(0, visibleCount).map((session) => {
-                  const isActive = selectedSessionId === session.id;
-
-                  return (
-                    <button
-                      key={session.id}
-                      type="button"
-                      className={isActive ? 'analysis-archive-row active' : 'analysis-archive-row'}
-                      onClick={() => loadAnalysisSession(session, 'general_question')}
-                    >
-                      <div className="analysis-archive-main">
-                        <strong>{formatAnalysisArchiveTitle(session)}</strong>
-                        <p>{formatAnalysisTime(session.updatedAt)}</p>
-                      </div>
-                    </button>
-                  );
-                })}
-                {visibleCount < conversationArchiveSessions.length ? (
-                  <div className="button-row">
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() =>
-                        setVisibleCount((current) =>
-                          Math.min(current + 10, conversationArchiveSessions.length),
-                        )
-                      }
-                    >
-                      載入更多
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <p className="status-message">尚未有對話紀錄，之後會集中顯示喺呢度。</p>
-            )}
           </div>
         </section>
       ) : null}

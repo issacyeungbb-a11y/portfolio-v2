@@ -126,6 +126,233 @@ function sanitizeAssetType(value: unknown): AssetType | null {
   return null;
 }
 
+function sanitizeTransactionType(value: unknown) {
+  if (value === 'buy' || value === 'sell') {
+    return value;
+  }
+
+  return null;
+}
+
+function normalizeRecentTransactions(value: unknown): PortfolioAnalysisRequest['recentTransactions'] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const groups = value
+    .map((item) => {
+      if (typeof item !== 'object' || item === null) {
+        return null;
+      }
+
+      const entry = item as Record<string, unknown>;
+      const assetId = sanitizeString(entry.assetId);
+      const assetName = sanitizeString(entry.assetName);
+      const ticker = sanitizeString(entry.ticker);
+      const transactions = Array.isArray(entry.transactions)
+        ? entry.transactions
+            .map((tx) => {
+              if (typeof tx !== 'object' || tx === null) {
+                return null;
+              }
+
+              const valueTx = tx as Record<string, unknown>;
+              const date = sanitizeString(valueTx.date);
+              const type = sanitizeTransactionType(valueTx.type);
+              const quantity = sanitizeNumber(valueTx.quantity);
+              const price = sanitizeNumber(valueTx.price);
+
+              if (!date || !type || quantity == null || price == null) {
+                return null;
+              }
+
+              return {
+                date,
+                type,
+                quantity,
+                price,
+              };
+            })
+            .filter(
+              (
+                entryTx,
+              ): entryTx is NonNullable<PortfolioAnalysisRequest['recentTransactions']>[number]['transactions'][number] =>
+                entryTx !== null,
+            )
+        : [];
+
+      if (!assetId || !assetName || !ticker || transactions.length === 0) {
+        return null;
+      }
+
+      return {
+        assetId,
+        assetName,
+        ticker,
+        transactions,
+      };
+    })
+    .filter(
+      (item): item is NonNullable<PortfolioAnalysisRequest['recentTransactions']>[number] =>
+        item !== null,
+    );
+
+  return groups.length > 0 ? groups : undefined;
+}
+
+function normalizePriceHistory(value: unknown): PortfolioAnalysisRequest['priceHistory'] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const groups = value
+    .map((item) => {
+      if (typeof item !== 'object' || item === null) {
+        return null;
+      }
+
+      const entry = item as Record<string, unknown>;
+      const assetId = sanitizeString(entry.assetId);
+      const assetName = sanitizeString(entry.assetName);
+      const ticker = sanitizeString(entry.ticker);
+      const currency = sanitizeString(entry.currency);
+      const currentPrice = sanitizeNumber(entry.currentPrice);
+      const change30dPct = sanitizeNumber(entry.change30dPct);
+      const points = Array.isArray(entry.points)
+        ? entry.points
+            .map((point) => {
+              if (typeof point !== 'object' || point === null) {
+                return null;
+              }
+
+              const valuePoint = point as Record<string, unknown>;
+              const date = sanitizeString(valuePoint.date);
+              const price = sanitizeNumber(valuePoint.price);
+
+              if (!date || price == null) {
+                return null;
+              }
+
+              return {
+                date,
+                price,
+              };
+            })
+            .filter(
+              (
+                point,
+              ): point is NonNullable<PortfolioAnalysisRequest['priceHistory']>[number]['points'][number] =>
+                point !== null,
+            )
+        : [];
+
+      if (
+        !assetId ||
+        !assetName ||
+        !ticker ||
+        !currency ||
+        currentPrice == null ||
+        change30dPct == null ||
+        points.length === 0
+      ) {
+        return null;
+      }
+
+      return {
+        assetId,
+        assetName,
+        ticker,
+        currency,
+        currentPrice,
+        change30dPct,
+        points,
+      };
+    })
+    .filter(
+      (item): item is NonNullable<PortfolioAnalysisRequest['priceHistory']>[number] =>
+        item !== null,
+    );
+
+  return groups.length > 0 ? groups : undefined;
+}
+
+function normalizeRecentSnapshots(value: unknown): PortfolioAnalysisRequest['recentSnapshots'] {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const snapshots = value
+    .map((item) => {
+      if (typeof item !== 'object' || item === null) {
+        return null;
+      }
+
+      const entry = item as Record<string, unknown>;
+      const date = sanitizeString(entry.date);
+      const capturedAt = sanitizeString(entry.capturedAt) ?? undefined;
+      const totalValueHKD = sanitizeNumber(entry.totalValueHKD);
+      const netExternalFlowHKD = sanitizeNumber(entry.netExternalFlowHKD);
+      const assetCount = sanitizeNumber(entry.assetCount);
+      const holdings = Array.isArray(entry.holdings)
+        ? entry.holdings
+            .map((holding) => {
+              if (typeof holding !== 'object' || holding === null) {
+                return null;
+              }
+
+              const valueHolding = holding as Record<string, unknown>;
+              const assetId = sanitizeString(valueHolding.assetId);
+              const ticker = sanitizeString(valueHolding.ticker);
+              const assetName = sanitizeString(valueHolding.assetName);
+              const currentPrice = sanitizeNumber(valueHolding.currentPrice);
+              const marketValueHKD = sanitizeNumber(valueHolding.marketValueHKD);
+              const quantity = sanitizeNumber(valueHolding.quantity);
+
+              if (
+                !assetId ||
+                !ticker ||
+                !assetName ||
+                currentPrice == null ||
+                marketValueHKD == null ||
+                quantity == null
+              ) {
+                return null;
+              }
+
+              return {
+                assetId,
+                ticker,
+                assetName,
+                currentPrice,
+                marketValueHKD,
+                quantity,
+              };
+            })
+            .filter(
+              (holding): holding is NonNullable<
+                NonNullable<PortfolioAnalysisRequest['recentSnapshots']>[number]['holdings']
+              >[number] => holding !== null,
+            )
+        : [];
+
+      if (!date || totalValueHKD == null || netExternalFlowHKD == null || assetCount == null) {
+        return null;
+      }
+
+      return {
+        date,
+        capturedAt,
+        totalValueHKD,
+        netExternalFlowHKD,
+        assetCount,
+        holdings,
+      };
+    })
+    .filter((item) => item !== null) as PortfolioAnalysisRequest['recentSnapshots'];
+
+  return snapshots.length > 0 ? snapshots : undefined;
+}
+
 export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisRequest {
   if (typeof payload !== 'object' || payload === null) {
     throw new AnalyzePortfolioError('投資組合分析請求格式不正確。', 400);
@@ -276,6 +503,10 @@ export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisReq
         )
     : [];
 
+  const recentTransactions = normalizeRecentTransactions(value.recentTransactions);
+  const priceHistory = normalizePriceHistory(value.priceHistory);
+  const recentSnapshots = normalizeRecentSnapshots(value.recentSnapshots);
+
   return {
     cacheKey,
     snapshotHash,
@@ -290,6 +521,9 @@ export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisReq
     holdings,
     allocationsByType,
     allocationsByCurrency,
+    recentTransactions,
+    priceHistory,
+    recentSnapshots,
   };
 }
 
@@ -374,7 +608,94 @@ ${getCategoryPromptPrefix(request.category)}
   `.trim();
 }
 
+function formatMoney(value: number) {
+  return Number.isFinite(value) ? value.toFixed(2) : '0.00';
+}
+
+function formatHoldingsSection(request: PortfolioAnalysisRequest) {
+  const lines = request.holdings
+    .slice()
+    .sort((left, right) => right.marketValue - left.marketValue)
+    .map(
+      (holding, index) =>
+        `${index + 1}. ${holding.ticker}｜${holding.name}｜${holding.assetType}｜` +
+        `qty ${formatMoney(holding.quantity)}｜價 ${formatMoney(holding.currentPrice)} ${holding.currency}｜` +
+        `市值 ${formatMoney(holding.marketValue)}｜成本 ${formatMoney(holding.costValue)}`,
+    );
+
+  return ['【持倉概覽】', ...lines].join('\n');
+}
+
+function formatRecentTransactionsSection(request: PortfolioAnalysisRequest) {
+  if (!request.recentTransactions || request.recentTransactions.length === 0) {
+    return '【最近交易（過去 30 日）】\n未有可用交易記錄。';
+  }
+
+  const lines = request.recentTransactions
+    .slice()
+    .sort((left, right) => left.ticker.localeCompare(right.ticker))
+    .map(
+      (group) =>
+        `- ${group.ticker} ${group.assetName}：` +
+        group.transactions
+          .map((tx) => `${tx.date} ${tx.type} ${formatMoney(tx.quantity)} @ ${formatMoney(tx.price)}`)
+          .join('； '),
+    );
+
+  return ['【最近交易（過去 30 日）】', ...lines].join('\n');
+}
+
+function formatPriceHistorySection(request: PortfolioAnalysisRequest) {
+  if (!request.priceHistory || request.priceHistory.length === 0) {
+    return '【價格走勢摘要】\n未有可用價格歷史。';
+  }
+
+  const lines = request.priceHistory
+    .slice()
+    .sort((left, right) => right.change30dPct - left.change30dPct)
+    .map((group) => {
+      const pricePoints = group.points
+        .map((point) => `${point.date} ${formatMoney(point.price)}`)
+        .join('； ');
+
+      return `- ${group.ticker} ${group.assetName}：30日 ${group.change30dPct.toFixed(1)}%（${pricePoints}）`;
+    });
+
+  return ['【價格走勢摘要（只列 top 10 市值持倉）】', ...lines].join('\n');
+}
+
+function formatRecentSnapshotsSection(request: PortfolioAnalysisRequest) {
+  if (!request.recentSnapshots || request.recentSnapshots.length === 0) {
+    return '【最近 2 個 snapshot】\n未有可用 snapshot。';
+  }
+
+  const lines = request.recentSnapshots
+    .slice()
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .map((snapshot) => {
+      const holdings = snapshot.holdings
+        .map((holding) => `${holding.ticker} ${formatMoney(holding.marketValueHKD)}`)
+        .join('； ');
+
+      return `- ${snapshot.date}｜總值 ${formatMoney(snapshot.totalValueHKD)} HKD｜淨流入 ${formatMoney(snapshot.netExternalFlowHKD)} HKD｜持倉 ${holdings}`;
+    });
+
+  return ['【最近 2 個 snapshot】', ...lines].join('\n');
+}
+
+function buildGeneralQuestionContext(request: PortfolioAnalysisRequest) {
+  return [
+    formatHoldingsSection(request),
+    formatRecentTransactionsSection(request),
+    formatPriceHistorySection(request),
+    formatRecentSnapshotsSection(request),
+  ].join('\n\n');
+}
+
 function buildAnalysisUserPrompt(request: PortfolioAnalysisRequest) {
+  const generalQuestionContext =
+    request.category === 'general_question' ? buildGeneralQuestionContext(request) : '';
+
   return `
 Saved category background:
 ${request.analysisBackground || '未設定額外背景。'}
@@ -385,8 +706,18 @@ ${request.conversationContext || '目前未有前文對話。'}
 User question / task:
 ${request.analysisQuestion || '請根據目前投資組合做一般分析。'}
 
-Portfolio snapshot:
-${JSON.stringify(request, null, 2)}
+Portfolio snapshot summary:
+${request.holdings
+  .slice()
+  .sort((left, right) => right.marketValue - left.marketValue)
+  .map(
+    (holding) =>
+      `- ${holding.ticker}｜${holding.name}｜${holding.assetType}｜qty ${formatMoney(holding.quantity)}｜` +
+      `價 ${formatMoney(holding.currentPrice)} ${holding.currency}｜市值 ${formatMoney(holding.marketValue)}｜成本 ${formatMoney(holding.costValue)}`,
+  )
+  .join('\n')}
+
+${generalQuestionContext ? `${generalQuestionContext}\n` : ''}
   `.trim();
 }
 

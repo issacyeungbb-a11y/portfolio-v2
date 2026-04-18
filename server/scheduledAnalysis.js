@@ -156,7 +156,6 @@ function createCacheKey(snapshotHash, category, analysisModel, analysisQuestion,
         analysisModel,
         analysisQuestion: analysisQuestion.trim(),
         analysisBackground: analysisBackground.trim(),
-        conversationContext: conversationContext.trim(),
     }))
         .digest('hex');
 }

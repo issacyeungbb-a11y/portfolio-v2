@@ -19,6 +19,53 @@ export interface PortfolioAnalysisRequestAsset {
   costValue: number;
 }
 
+export interface PortfolioAnalysisRecentTransaction {
+  date: string;
+  type: 'buy' | 'sell';
+  quantity: number;
+  price: number;
+}
+
+export interface PortfolioAnalysisRecentTransactionGroup {
+  assetId: string;
+  assetName: string;
+  ticker: string;
+  transactions: PortfolioAnalysisRecentTransaction[];
+}
+
+export interface PortfolioAnalysisPriceHistoryPoint {
+  date: string;
+  price: number;
+}
+
+export interface PortfolioAnalysisPriceHistoryGroup {
+  assetId: string;
+  assetName: string;
+  ticker: string;
+  currency: string;
+  currentPrice: number;
+  change30dPct: number;
+  points: PortfolioAnalysisPriceHistoryPoint[];
+}
+
+export interface PortfolioAnalysisRecentSnapshotHolding {
+  assetId: string;
+  ticker: string;
+  assetName: string;
+  currentPrice: number;
+  marketValueHKD: number;
+  quantity: number;
+}
+
+export interface PortfolioAnalysisRecentSnapshot {
+  date: string;
+  capturedAt?: string;
+  totalValueHKD: number;
+  netExternalFlowHKD: number;
+  assetCount: number;
+  holdings: PortfolioAnalysisRecentSnapshotHolding[];
+}
+
 export interface PortfolioAnalysisRequest {
   cacheKey: string;
   snapshotHash: string;
@@ -41,6 +88,9 @@ export interface PortfolioAnalysisRequest {
     percentage: number;
     totalValueHKD: number;
   }>;
+  recentTransactions?: PortfolioAnalysisRecentTransactionGroup[];
+  priceHistory?: PortfolioAnalysisPriceHistoryGroup[];
+  recentSnapshots?: PortfolioAnalysisRecentSnapshot[];
 }
 
 export interface PortfolioAnalysisResult {

@@ -3,8 +3,20 @@ import {
   getHoldingCostInCurrency,
   getHoldingValueInCurrency,
 } from '../../data/mockPortfolio';
+import {
+  getRecentAssetTransactions,
+} from '../firebase/assetTransactions';
+import {
+  getRecentAssetPriceHistory,
+} from '../firebase/priceHistory';
+import {
+  getRecentPortfolioSnapshots,
+} from '../firebase/portfolioSnapshots';
 import type { Holding } from '../../types/portfolio';
 import type {
+  PortfolioAnalysisPriceHistoryGroup,
+  PortfolioAnalysisRecentSnapshot,
+  PortfolioAnalysisRecentTransactionGroup,
   PortfolioAnalysisRequest,
   PortfolioAnalysisRequestAsset,
 } from '../../types/portfolioAnalysis';
@@ -50,7 +62,6 @@ export async function createPortfolioAnalysisCacheKey(
   analysisModel: string,
   analysisQuestion: string,
   analysisBackground: string,
-  conversationContext = '',
 ) {
   const digest = await crypto.subtle.digest(
     'SHA-256',
@@ -61,7 +72,6 @@ export async function createPortfolioAnalysisCacheKey(
         analysisModel,
         analysisQuestion: analysisQuestion.trim(),
         analysisBackground: analysisBackground.trim(),
-        conversationContext: conversationContext.trim(),
       }),
     ),
   );
@@ -85,7 +95,61 @@ function buildAnalysisRequestAsset(holding: Holding): PortfolioAnalysisRequestAs
   };
 }
 
-export function buildPortfolioAnalysisRequest(
+function formatDailyClosePoint(entry: { date: string; price: number }) {
+  return {
+    date: entry.date,
+    price: entry.price,
+  };
+}
+
+function buildPriceHistoryGroup(
+  holding: Holding,
+  points: Array<{ date: string; price: number }>,
+): PortfolioAnalysisPriceHistoryGroup {
+  const sortedPoints = [...points].sort((left, right) => left.date.localeCompare(right.date));
+  const firstPoint = sortedPoints[0] ?? null;
+  const lastPoint = sortedPoints[sortedPoints.length - 1] ?? null;
+  const change30dPct =
+    firstPoint && firstPoint.price > 0 && lastPoint
+      ? ((lastPoint.price - firstPoint.price) / firstPoint.price) * 100
+      : 0;
+
+  return {
+    assetId: holding.id,
+    assetName: holding.name,
+    ticker: holding.symbol,
+    currency: holding.currency,
+    currentPrice: holding.currentPrice,
+    change30dPct,
+    points: sortedPoints.map(formatDailyClosePoint),
+  };
+}
+
+function buildRecentSnapshotPayload(snapshot: Awaited<ReturnType<typeof getRecentPortfolioSnapshots>>[number]) {
+  const holdings = snapshot.holdings ?? [];
+
+  return {
+    date: snapshot.date,
+    capturedAt: snapshot.capturedAt,
+    totalValueHKD: snapshot.totalValue,
+    netExternalFlowHKD: snapshot.netExternalFlow,
+    assetCount: snapshot.assetCount ?? holdings.length,
+    holdings: holdings
+      .slice()
+      .sort((left, right) => right.marketValueHKD - left.marketValueHKD)
+      .slice(0, 10)
+      .map((holding) => ({
+        assetId: holding.assetId,
+        ticker: holding.symbol,
+        assetName: holding.name,
+        currentPrice: holding.currentPrice,
+        marketValueHKD: holding.marketValueHKD,
+        quantity: holding.quantity,
+      })),
+  } satisfies PortfolioAnalysisRecentSnapshot;
+}
+
+export async function buildPortfolioAnalysisRequest(
   holdings: Holding[],
   snapshotHash: string,
   cacheKey: string,
@@ -94,7 +158,7 @@ export function buildPortfolioAnalysisRequest(
   analysisQuestion: string,
   analysisBackground: string,
   conversationContext = '',
-): PortfolioAnalysisRequest {
+): Promise<PortfolioAnalysisRequest> {
   const requestAssets = [...holdings]
     .map(buildAnalysisRequestAsset)
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -126,7 +190,7 @@ export function buildPortfolioAnalysisRequest(
     currencyBuckets.set(holding.currency, nextCurrencyBucket);
   }
 
-  return {
+  const baseRequest = {
     cacheKey,
     snapshotHash,
     category,
@@ -153,6 +217,77 @@ export function buildPortfolioAnalysisRequest(
       }))
       .sort((left, right) => right.totalValueHKD - left.totalValueHKD),
   };
+
+  if (category !== 'general_question' || holdings.length === 0) {
+    return baseRequest;
+  }
+
+  try {
+    const topHoldings = [...holdings]
+      .sort((left, right) => right.marketValue - left.marketValue)
+      .slice(0, 10);
+
+    const [recentTransactions, recentSnapshots, priceHistoryGroups] = await Promise.all([
+      getRecentAssetTransactions(30),
+      getRecentPortfolioSnapshots(2),
+      Promise.all(
+        topHoldings.map(async (holding) => {
+          const priceHistory = await getRecentAssetPriceHistory(holding.id, 30);
+          return buildPriceHistoryGroup(
+            holding,
+            priceHistory.map((entry) => ({
+              date: entry.asOf,
+              price: entry.price,
+            })),
+          );
+        }),
+      ),
+    ]);
+
+    const groupedTransactions = recentTransactions.reduce<
+      Record<string, PortfolioAnalysisRecentTransactionGroup>
+    >((groups, transaction) => {
+      const group =
+        groups[transaction.assetId] ??
+        ({
+          assetId: transaction.assetId,
+          assetName: transaction.assetName,
+          ticker: transaction.symbol,
+          transactions: [],
+        } satisfies PortfolioAnalysisRecentTransactionGroup);
+
+      group.transactions.push({
+        date: transaction.date,
+        type: transaction.transactionType,
+        quantity: transaction.quantity,
+        price: transaction.price,
+      });
+      groups[transaction.assetId] = group;
+      return groups;
+    }, {});
+
+    return {
+      ...baseRequest,
+      recentTransactions: Object.values(groupedTransactions)
+        .map((group) => ({
+          ...group,
+          transactions: group.transactions
+            .filter((entry) => entry.date >= new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+            .sort((left, right) => left.date.localeCompare(right.date)),
+        }))
+        .filter((group) => group.transactions.length > 0)
+        .sort((left, right) => left.ticker.localeCompare(right.ticker)),
+      priceHistory: priceHistoryGroups
+        .filter((group) => group.points.length > 0)
+        .sort((left, right) => right.change30dPct - left.change30dPct),
+      recentSnapshots: recentSnapshots
+        .slice()
+        .sort((left, right) => left.date.localeCompare(right.date))
+        .map(buildRecentSnapshotPayload),
+    };
+  } catch {
+    return baseRequest;
+  }
 }
 
 export function getPortfolioAnalysisCurrencyLabel(currency: string) {

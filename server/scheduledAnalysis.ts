@@ -214,7 +214,6 @@ function createCacheKey(
   analysisModel: PortfolioAnalysisModel,
   analysisQuestion: string,
   analysisBackground: string,
-  conversationContext: string,
 ) {
   return createHash('sha256')
     .update(
@@ -224,7 +223,6 @@ function createCacheKey(
         analysisModel,
         analysisQuestion: analysisQuestion.trim(),
         analysisBackground: analysisBackground.trim(),
-        conversationContext: conversationContext.trim(),
       }),
     )
     .digest('hex');
@@ -255,7 +253,6 @@ function buildAnalysisRequestFromAssets(params: {
     analysisModel,
     analysisQuestion,
     analysisBackground,
-    conversationContext,
   );
   const totalValueHKD = assets.reduce(
     (sum, asset) => sum + convertToHKD(asset.quantity * asset.currentPrice, asset.currency),

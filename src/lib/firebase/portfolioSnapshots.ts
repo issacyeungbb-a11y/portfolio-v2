@@ -3,6 +3,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -278,6 +279,20 @@ export function subscribeToPortfolioSnapshots(
       onData(history);
     },
     onError,
+  );
+}
+
+export async function getRecentPortfolioSnapshots(count = 2) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const snapshot = await getDocs(
+    query(getPortfolioSnapshotsCollectionRef(), orderBy('capturedAt', 'desc'), limit(count)),
+  );
+
+  return snapshot.docs.map((entry) =>
+    normalizePortfolioSnapshot(entry.id, entry.data() as Record<string, unknown>),
   );
 }
 

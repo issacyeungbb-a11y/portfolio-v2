@@ -5,6 +5,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -428,6 +429,24 @@ export function subscribeToAssetTransactions(
     },
     onError,
   );
+}
+
+export async function getRecentAssetTransactions(days = 30, limitCount = 200) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const cutoffDate = cutoff.toISOString().slice(0, 10);
+
+  const snapshot = await getDocs(
+    query(getSharedAssetTransactionsCollectionRef(), orderBy('date', 'desc'), limit(limitCount)),
+  );
+
+  return snapshot.docs
+    .map((entry) => normalizeAssetTransaction(entry.id, entry.data() as Record<string, unknown>))
+    .filter((entry) => entry.recordType === 'trade' && entry.date >= cutoffDate);
 }
 
 export async function createAssetTransaction(entry: AssetTransactionInput) {

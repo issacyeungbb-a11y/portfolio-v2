@@ -88,6 +88,16 @@ export function getSharedAnalysisSessionsCollectionRef() {
   );
 }
 
+export function getSharedAnalysisThreadsCollectionRef() {
+  const db = getRequiredFirebaseDb();
+  return collection(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'analysisThreads',
+  );
+}
+
 export function getSharedQuarterlyReportsCollectionRef() {
   const db = getRequiredFirebaseDb();
   return collection(
@@ -116,6 +126,18 @@ export function getSharedPortfolioSnapshotsCollectionRef() {
     SHARED_PORTFOLIO_COLLECTION,
     SHARED_PORTFOLIO_DOC_ID,
     'portfolioSnapshots',
+  );
+}
+
+export function getSharedAnalysisThreadTurnsCollectionRef(threadId: string) {
+  const db = getRequiredFirebaseDb();
+  return collection(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'analysisThreads',
+    threadId,
+    'turns',
   );
 }
 
