@@ -163,28 +163,6 @@ function truncateText(value: string, maxLength: number) {
   return `${trimmed.slice(0, maxLength).trimEnd()}...`;
 }
 
-function formatAnalysisMonthTitle(value: string) {
-  if (!value) {
-    return '最新分析';
-  }
-
-  try {
-    const date = new Date(value);
-    const year = new Intl.DateTimeFormat('zh-HK', {
-      timeZone: 'Asia/Hong_Kong',
-      year: 'numeric',
-    }).format(date);
-    const month = new Intl.DateTimeFormat('zh-HK', {
-      timeZone: 'Asia/Hong_Kong',
-      month: 'numeric',
-    }).format(date);
-
-    return `${year} 年 ${month} 月資產分析`;
-  } catch {
-    return '最新分析';
-  }
-}
-
 function getAnalysisModelLabel(model: string) {
   return model || '未指定模型';
 }
@@ -772,11 +750,6 @@ export function AnalysisPage() {
   const selectedSections = useMemo(
     () => splitReportIntoSections(selectedReport?.report ?? ''),
     [selectedReport],
-  );
-  const latestAnalysisSession = categorySessions[0] ?? null;
-  const selectedAnalysisSession = useMemo(
-    () => categorySessions.find((session) => session.id === selectedSessionId) ?? null,
-    [categorySessions, selectedSessionId],
   );
 
   function loadAnalysisSession(
@@ -1387,69 +1360,17 @@ export function AnalysisPage() {
 
       {isPortfolioAnalysisCategory ? (
         <>
-          <section className="card">
+          <section className="card analysis-report-preview">
             <div className="section-heading">
               <div>
                 <p className="eyebrow">最新分析</p>
-                <h2>{formatAnalysisMonthTitle(latestAnalysisSession?.updatedAt ?? '')}</h2>
+                <h2>資產分析</h2>
               </div>
-              <span className="chip chip-soft">
-                {latestAnalysisSession
-                  ? `${getAnalysisModelLabel(latestAnalysisSession.model)} · ${
-                      latestAnalysisSession.delivery === 'scheduled' ? '自動' : '手動'
-                    }`
-                  : '尚未有分析'}
-              </span>
+              <span className="chip chip-soft">尚未生成</span>
             </div>
 
-            {latestAnalysisSession ? (
-              <div className="analysis-report-preview">
-                <p className="analysis-summary-text">{truncateText(latestAnalysisSession.result, 200)}</p>
-                <div className="analysis-report-preview-footer">
-                  <span className="table-hint">{formatGeneratedAt(latestAnalysisSession.updatedAt)}</span>
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    onClick={() => loadAnalysisSession(latestAnalysisSession)}
-                  >
-                    檢視全文
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <p className="status-message">尚未生成分析，請喺設定入面先手動生成。</p>
-            )}
+            <p className="status-message">尚未生成資產分析，這裡暫時保持空白。</p>
           </section>
-
-          <section className="card">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">History</p>
-                <h2>過往分析</h2>
-              </div>
-            </div>
-
-            <p className="status-message">
-              過往記錄已集中到「一般問題」。呢度暫時保持空白，等之後真係有分析摘要先再顯示。
-            </p>
-          </section>
-
-          {selectedAnalysisSession ? (
-            <section className="card analysis-report-preview">
-              <div className="section-heading">
-                <div>
-                  <p className="eyebrow">分析內容</p>
-                  <h2>{createAnalysisTitle(selectedAnalysisSession.question)}</h2>
-                  <p className="table-hint">{formatAnalysisTime(selectedAnalysisSession.updatedAt)}</p>
-                </div>
-                <span className="chip chip-strong">{getAnalysisModelLabel(selectedAnalysisSession.model)}</span>
-              </div>
-
-              <p className="analysis-summary-text" style={{ whiteSpace: 'pre-wrap' }}>
-                {selectedAnalysisSession.result}
-              </p>
-            </section>
-          ) : null}
         </>
       ) : null}
 
