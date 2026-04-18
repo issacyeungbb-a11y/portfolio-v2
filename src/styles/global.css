@@ -2519,7 +2519,6 @@ h3 {
 }
 
 .analysis-archive-row:focus-visible,
-.analysis-suggestion-chip:focus-visible,
 .analysis-tab-card:focus-visible {
   outline: 2px solid rgba(15, 118, 110, 0.22);
   outline-offset: 2px;
@@ -2616,29 +2615,6 @@ h3 {
   white-space: pre-wrap;
 }
 
-.analysis-suggestion-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.45rem;
-}
-
-.analysis-suggestion-chip {
-  min-height: 2.35rem;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid rgba(118, 96, 77, 0.14);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.62);
-  color: var(--text-main);
-  font-size: 0.84rem;
-  line-height: 1.2;
-  text-align: left;
-}
-
-.analysis-suggestion-chip:hover {
-  border-color: rgba(15, 118, 110, 0.18);
-  background: rgba(239, 249, 247, 0.86);
-}
-
 .analysis-chat-composer {
   display: grid;
   gap: 0.45rem;
@@ -2692,9 +2668,6 @@ h3 {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .analysis-suggestion-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 .analysis-summary-text {

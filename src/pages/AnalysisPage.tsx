@@ -96,7 +96,7 @@ const analysisCategoryOptions: Array<{
     label: '一般問題',
     shortLabel: '一般問題',
     helper: '同 AI 對話',
-    questionPlaceholder: '輸入問題，或者揀上面嘅快捷問題',
+    questionPlaceholder: '輸入問題，然後送出',
   },
   {
     value: 'asset_analysis',
@@ -130,15 +130,6 @@ const analysisModelOptions: Array<{
     hint: '4.7',
   },
 ];
-
-const GENERAL_QUESTION_SUGGESTIONS = [
-  '今個月組合表現點？',
-  '我有咩風險要留意？',
-  '現金比例係咪太高/太低？',
-  '幣別曝險有冇問題？',
-  '邊隻持倉跌得最多？',
-  '應唔應該 rebalance？',
-] as const;
 
 interface ReportSection {
   title?: string;
@@ -1560,25 +1551,6 @@ export function AnalysisPage() {
             </aside>
 
             <div className="analysis-thread-main">
-              {!selectedSessionId && activeConversationTurns.length === 0 ? (
-                <div className="analysis-suggestion-grid">
-                  {GENERAL_QUESTION_SUGGESTIONS.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      className="analysis-suggestion-chip"
-                      onClick={() => {
-                        setAnalysisQuestionByCategory((current) => ({ ...current, general_question: suggestion }));
-                        setFollowUpQuestionByCategory((current) => ({ ...current, general_question: suggestion }));
-                        void handleAnalyzePortfolio(suggestion);
-                      }}
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-
               <div className="analysis-chat-thread">
                 {activeConversationTurns.length > 0 ? (
                   activeConversationTurns.map((turn, index) => (
@@ -1599,9 +1571,7 @@ export function AnalysisPage() {
                       </div>
                     </div>
                   ))
-                ) : (
-                  null
-                )}
+                ) : null}
               </div>
 
               <div className="analysis-chat-composer">
@@ -1620,7 +1590,7 @@ export function AnalysisPage() {
                         general_question: nextValue,
                       }));
                     }}
-                    placeholder={selectedCategoryOption.questionPlaceholder}
+                    placeholder="輸入問題，然後送出"
                     rows={3}
                     disabled={isAnalyzing}
                   />
