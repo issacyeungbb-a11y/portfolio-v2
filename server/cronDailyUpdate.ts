@@ -371,9 +371,12 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
 
     // 4. Snapshot phase (skip if already done)
     // P0-1: 傳入主流程 fxRates，snapshot 優先使用相同匯率（無需再次 fetch）
+    // P2 修補：等 Firestore 寫入收斂，避免 update phase batch commit 後即刻再讀
+    //   priceUpdateReviews 時仲睇到舊嘅 pending 狀態（eventual consistency race）。
     let snapshotResult: Record<string, unknown> | null = null;
     if (!snapshotAlreadyDone) {
       snapshotHoldings ??= await readAdminPortfolioAssets();
+      await new Promise<void>((r) => setTimeout(r, 2000));
       snapshotResult = await runSnapshotPhase(dateKey, snapshotFxRates, snapshotHoldings);
     }
 
