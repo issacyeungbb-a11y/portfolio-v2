@@ -124,7 +124,7 @@ export function getAnalysisThreadsErrorMessage(error?: unknown) {
 
   if (error instanceof Error) {
     if (error.message.includes('permission-denied')) {
-      return 'Firestore 權限被拒絕，請確認 rules 已容許共享投資組合讀寫 `portfolio/app/analysisThreads`。';
+      return 'Firestore 權限被拒絕，請確認 rules 已容許共享投資組合讀寫 `portfolio/app/analysisThreads` 同其 `turns` 子集合。';
     }
 
     return error.message;
