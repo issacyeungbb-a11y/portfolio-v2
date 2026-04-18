@@ -25,7 +25,7 @@ const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 const MONTHLY_ROUTE = '/api/cron-monthly-analysis' as const;
 const QUARTERLY_ROUTE = '/api/cron-quarterly-report' as const;
-const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-6' as const;
+const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-7' as const;
 const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
 const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'] as const;
 
@@ -600,7 +600,7 @@ export async function runMonthlyAssetAnalysis() {
     title,
     question,
     conversationContext,
-    maxTokens: 3000,
+    maxTokens: 3500,
   });
 
   return {
@@ -643,7 +643,7 @@ export async function runQuarterlyAssetReport() {
     title,
     question,
     conversationContext,
-    maxTokens: 4000,
+    maxTokens: 5000,
   });
 
   await saveQuarterlyReport({

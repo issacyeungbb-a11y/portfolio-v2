@@ -11,7 +11,7 @@ import type {
 
 const ANALYZE_ROUTE = '/api/analyze' as const;
 const DEFAULT_GEMINI_ANALYZE_MODEL = 'gemini-3.1-pro-preview' as const;
-const DEFAULT_CLAUDE_ANALYZE_MODEL = 'claude-opus-4-6' as const;
+const DEFAULT_CLAUDE_ANALYZE_MODEL = 'claude-opus-4-7' as const;
 
 const SUPPORTED_ANALYSIS_MODELS: Record<
   PortfolioAnalysisModel,
@@ -21,9 +21,9 @@ const SUPPORTED_ANALYSIS_MODELS: Record<
     provider: 'google',
     label: 'Google Gemini 3.1 Pro Preview',
   },
-  'claude-opus-4-6': {
+  'claude-opus-4-7': {
     provider: 'anthropic',
-    label: 'Claude Opus 4.6',
+    label: 'Claude Opus 4.7',
   },
 };
 
@@ -45,7 +45,7 @@ function getGeminiAnalyzeModel(requestedModel: PortfolioAnalysisModel) {
 
 function getClaudeAnalyzeModel() {
   const model = process.env.CLAUDE_ANALYZE_MODEL?.trim() || DEFAULT_CLAUDE_ANALYZE_MODEL;
-  return model === 'claude-opus-4-6' ? model : DEFAULT_CLAUDE_ANALYZE_MODEL;
+  return model === 'claude-opus-4-7' ? model : DEFAULT_CLAUDE_ANALYZE_MODEL;
 }
 
 function getGeminiApiKey() {
@@ -97,7 +97,7 @@ function sanitizeNumber(value: unknown) {
 }
 
 function sanitizeAnalysisModel(value: unknown): PortfolioAnalysisModel | null {
-  if (value === 'gemini-3.1-pro-preview' || value === 'claude-opus-4-6') {
+  if (value === 'gemini-3.1-pro-preview' || value === 'claude-opus-4-7') {
     return value;
   }
 
@@ -336,6 +336,7 @@ Category: 資產報告
 - 將回答寫成可閱讀的資產報告。
 - 優先整理：整體概覽、重點持倉、主要風險、值得跟進項目。
 - 語氣保持專業、清晰、可回顧。
+- 用標題分段，每段不超過 150 字，方便日後翻查。
     `.trim();
   }
 
@@ -347,14 +348,8 @@ Category: 分析資產
   `.trim();
 }
 
-export function buildPrompt(request: PortfolioAnalysisRequest) {
+function getAnalysisRules() {
   return `
-You are a portfolio analysis assistant.
-
-Analyze ONLY the portfolio snapshot provided below.
-Return ONLY the final answer text in Traditional Chinese. Do not use markdown code fences.
-
-Rules:
 - Write all output in Traditional Chinese.
 - Base your reasoning only on the provided holdings, latest prices, asset categories, currencies, and average costs.
 - Do not invent historical returns, dividends, macro news, or external facts that are not present in the input.
@@ -363,9 +358,24 @@ Rules:
 - Prioritize the user's analysis instruction when deciding what to emphasize, but do not invent any external facts or unsupported claims.
 - Answer the user's instruction directly. Do not force your response into sections unless the user's question naturally calls for it.
 - If the user's instruction asks for a comparison, recommendation, or explanation, answer that request directly in flowing prose or a natural list.
+  `.trim();
+}
+
+function buildAnalysisSystemPrompt(request: PortfolioAnalysisRequest) {
+  return `
+You are a portfolio analysis assistant.
+Analyze ONLY the portfolio snapshot provided below.
+Return ONLY the final answer text in Traditional Chinese. Do not use markdown code fences.
+
+Rules:
+${getAnalysisRules()}
 
 ${getCategoryPromptPrefix(request.category)}
+  `.trim();
+}
 
+function buildAnalysisUserPrompt(request: PortfolioAnalysisRequest) {
+  return `
 Saved category background:
 ${request.analysisBackground || '未設定額外背景。'}
 
@@ -378,6 +388,10 @@ ${request.analysisQuestion || '請根據目前投資組合做一般分析。'}
 Portfolio snapshot:
 ${JSON.stringify(request, null, 2)}
   `.trim();
+}
+
+export function buildPrompt(request: PortfolioAnalysisRequest) {
+  return `${buildAnalysisSystemPrompt(request)}\n\n${buildAnalysisUserPrompt(request)}`;
 }
 
 function getModelProvider(model: PortfolioAnalysisModel): PortfolioAnalysisProvider {
@@ -404,9 +418,10 @@ async function analyzeWithGemini(
 }
 
 async function analyzeWithClaude(
-  prompt: string,
-  model: Extract<PortfolioAnalysisModel, 'claude-opus-4-6'>,
-  maxTokens = 1400,
+  systemPrompt: string,
+  userPrompt: string,
+  model: Extract<PortfolioAnalysisModel, 'claude-opus-4-7'>,
+  maxTokens = 1800,
 ) {
   const apiKey = getAnthropicApiKey();
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -420,10 +435,11 @@ async function analyzeWithClaude(
       model,
       max_tokens: maxTokens,
       temperature: 0.3,
+      system: systemPrompt,
       messages: [
         {
           role: 'user',
-          content: prompt,
+          content: userPrompt,
         },
       ],
     }),
@@ -460,14 +476,14 @@ async function analyzeWithClaude(
 
 function getDefaultAnalysisMaxTokens(category: AnalysisCategory) {
   if (category === 'asset_report') {
-    return 4000;
+    return 5000;
   }
 
   if (category === 'asset_analysis') {
-    return 3000;
+    return 3500;
   }
 
-  return 1400;
+  return 1800;
 }
 
 export function getAnalyzePortfolioErrorResponse(error: unknown) {
@@ -507,22 +523,24 @@ export async function runPortfolioAnalysisRequest(
   request: PortfolioAnalysisRequest,
   options?: { delivery?: 'manual' | 'scheduled'; maxTokens?: number },
 ): Promise<PortfolioAnalysisResponse> {
-  const prompt = buildPrompt(request);
+  const systemPrompt = buildAnalysisSystemPrompt(request);
+  const userPrompt = buildAnalysisUserPrompt(request);
   const provider = getModelProvider(request.analysisModel);
   const resolvedMaxTokens = options?.maxTokens ?? getDefaultAnalysisMaxTokens(request.category);
   const resolvedModel =
-    request.analysisModel === 'claude-opus-4-6'
+    request.analysisModel === 'claude-opus-4-7'
       ? getClaudeAnalyzeModel()
       : getGeminiAnalyzeModel(request.analysisModel);
   const raw =
     provider === 'anthropic'
       ? await analyzeWithClaude(
-          prompt,
-          resolvedModel as 'claude-opus-4-6',
+          systemPrompt,
+          userPrompt,
+          resolvedModel as 'claude-opus-4-7',
           resolvedMaxTokens,
         )
       : await analyzeWithGemini(
-          prompt,
+          `${systemPrompt}\n\n${userPrompt}`,
           resolvedModel as 'gemini-3.1-pro-preview',
           resolvedMaxTokens,
         );

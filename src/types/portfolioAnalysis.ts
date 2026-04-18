@@ -3,7 +3,7 @@ import type { AnalysisCategory, Holding } from './portfolio';
 export type PortfolioAnalysisProvider = 'google' | 'anthropic';
 export type PortfolioAnalysisModel =
   | 'gemini-3.1-pro-preview'
-  | 'claude-opus-4-6';
+  | 'claude-opus-4-7';
 
 export interface PortfolioAnalysisRequestAsset {
   id: string;

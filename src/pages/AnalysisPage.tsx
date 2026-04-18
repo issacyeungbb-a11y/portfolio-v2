@@ -97,9 +97,9 @@ const analysisModelOptions: Array<{
     hint: '3.1 Pro Preview',
   },
   {
-    value: 'claude-opus-4-6',
+    value: 'claude-opus-4-7',
     label: 'Claude Opus',
-    hint: '4.6',
+    hint: '4.7',
   },
 ];
 
