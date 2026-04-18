@@ -198,6 +198,10 @@ function buildConversationTurnFromSession(session: AnalysisSession): Conversatio
   };
 }
 
+function formatAnalysisArchiveTitle(session: AnalysisSession) {
+  return createAnalysisTitle(session.question);
+}
+
 function extractBase64FontPayload(rawText: string) {
   const trimmed = rawText.trim();
 
@@ -750,6 +754,8 @@ export function AnalysisPage() {
     addAnalysisSession,
   } = useAnalysisSessions();
 
+  const conversationArchiveSessions =
+    selectedCategory === 'general_question' ? analysisSessions : [];
   const categorySessions = analysisSessions.filter((session) => session.category === selectedCategory);
   const canAnalyze =
     assetsStatus === 'ready' &&
@@ -773,19 +779,22 @@ export function AnalysisPage() {
     [categorySessions, selectedSessionId],
   );
 
-  function loadAnalysisSession(session: AnalysisSession) {
+  function loadAnalysisSession(
+    session: AnalysisSession,
+    targetCategory: AnalysisCategory = selectedCategory,
+  ) {
     setSelectedSessionId(session.id);
     setAnalysisQuestionByCategory((current) => ({
       ...current,
-      [session.category]: session.question,
+      [targetCategory]: session.question,
     }));
     setFollowUpQuestionByCategory((current) => ({
       ...current,
-      [session.category]: '',
+      [targetCategory]: '',
     }));
     setConversationThreads((current) => ({
       ...current,
-      [session.category]: [buildConversationTurnFromSession(session)],
+      [targetCategory]: [buildConversationTurnFromSession(session)],
     }));
     setLocalAnalysis({
       cacheKey: session.id,
@@ -1248,13 +1257,13 @@ export function AnalysisPage() {
       {isEmpty && !isQuarterlyCategory ? <p className="status-message">尚未有可分析資產</p> : null}
 
       {isInteractiveCategory ? (
-        <section className="card analysis-chat-card">
+      <section className="card analysis-chat-card">
           <div className="section-heading">
             <div>
               <p className="eyebrow">Conversation</p>
               <h2>同 AI 對話</h2>
             </div>
-            <span className="chip chip-soft">{activeConversation.length > 0 ? '對話中' : '未開始'}</span>
+            <span className="chip chip-soft">{conversationArchiveSessions.length} 條記錄</span>
           </div>
 
           <div className="analysis-chat-thread">
@@ -1334,35 +1343,34 @@ export function AnalysisPage() {
               </div>
             </div>
 
-            {categorySessions.length > 0 ? (
-              <div className="analysis-record-list">
-                {categorySessions.slice(0, visibleCount).map((session) => {
+            {conversationArchiveSessions.length > 0 ? (
+              <div className="analysis-archive-list">
+                {conversationArchiveSessions.slice(0, visibleCount).map((session) => {
                   const isActive = selectedSessionId === session.id;
 
                   return (
                     <button
                       key={session.id}
                       type="button"
-                      className={isActive ? 'analysis-record-row active' : 'analysis-record-row'}
-                      onClick={() => loadAnalysisSession(session)}
+                      className={isActive ? 'analysis-archive-row active' : 'analysis-archive-row'}
+                      onClick={() => loadAnalysisSession(session, 'general_question')}
                     >
-                      <div className="analysis-record-main">
-                        <strong>{createAnalysisTitle(session.question)}</strong>
+                      <div className="analysis-archive-main">
+                        <strong>{formatAnalysisArchiveTitle(session)}</strong>
                         <p>{formatAnalysisTime(session.updatedAt)}</p>
-                      </div>
-                      <div className="analysis-record-meta">
-                        <span className="chip chip-soft">{session.model}</span>
                       </div>
                     </button>
                   );
                 })}
-                {visibleCount < categorySessions.length ? (
+                {visibleCount < conversationArchiveSessions.length ? (
                   <div className="button-row">
                     <button
                       className="button button-secondary"
                       type="button"
                       onClick={() =>
-                        setVisibleCount((current) => Math.min(current + 10, categorySessions.length))
+                        setVisibleCount((current) =>
+                          Math.min(current + 10, conversationArchiveSessions.length),
+                        )
                       }
                     >
                       載入更多
@@ -1371,7 +1379,7 @@ export function AnalysisPage() {
                 ) : null}
               </div>
             ) : (
-              <p className="status-message">尚未有對話紀錄</p>
+              <p className="status-message">尚未有對話紀錄，之後會集中顯示喺呢度。</p>
             )}
           </div>
         </section>
@@ -1421,48 +1429,9 @@ export function AnalysisPage() {
               </div>
             </div>
 
-            {categorySessions.length > 0 ? (
-              <div className="analysis-record-list">
-                {categorySessions.slice(0, visibleCount).map((session) => {
-                  const isActive = selectedSessionId === session.id;
-
-                  return (
-                    <button
-                      key={session.id}
-                      type="button"
-                      className={isActive ? 'analysis-record-row active' : 'analysis-record-row'}
-                      onClick={() => loadAnalysisSession(session)}
-                    >
-                      <div className="analysis-record-main">
-                        <strong>{createAnalysisTitle(session.question)}</strong>
-                        <p>{formatAnalysisTime(session.updatedAt)}</p>
-                      </div>
-                      <div className="analysis-record-meta">
-                        <span className="chip chip-soft">
-                          {getAnalysisModelLabel(session.model)}
-                          {session.delivery === 'scheduled' ? ' · 自動' : ''}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-                {visibleCount < categorySessions.length ? (
-                  <div className="button-row">
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() =>
-                        setVisibleCount((current) => Math.min(current + 10, categorySessions.length))
-                      }
-                    >
-                      載入更多
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <p className="status-message">尚未有分析紀錄</p>
-            )}
+            <p className="status-message">
+              過往記錄已集中到「一般問題」。呢度暫時保持空白，等之後真係有分析摘要先再顯示。
+            </p>
           </section>
 
           {selectedAnalysisSession ? (

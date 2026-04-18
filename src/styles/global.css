@@ -2383,6 +2383,49 @@ h3 {
   gap: 0.5rem;
 }
 
+.analysis-archive-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.analysis-archive-row {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  padding: 0.7rem 0.15rem;
+  border: 0;
+  border-bottom: 1px solid rgba(118, 96, 77, 0.1);
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.analysis-archive-row.active {
+  color: var(--accent);
+}
+
+.analysis-archive-main {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.analysis-archive-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.98rem;
+}
+
+.analysis-archive-main p {
+  color: var(--text-muted);
+  font-size: 0.84rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .analysis-record-row {
   display: flex;
   align-items: center;
@@ -2487,6 +2530,10 @@ h3 {
   .analysis-report-preview-footer {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .analysis-archive-row {
+    padding-inline: 0;
   }
 }
 
