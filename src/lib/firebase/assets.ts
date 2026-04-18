@@ -82,7 +82,7 @@ function queueCoinGeckoSync(tickers: string[]) {
     return;
   }
 
-  void callPortfolioFunction('sync-coin-ids', { tickers: cryptoTickers }).catch((error) => {
+  void callPortfolioFunction('update-prices', { syncTickers: cryptoTickers }).catch((error) => {
     console.warn('背景 CoinGecko 代號同步失敗。', error);
   });
 }

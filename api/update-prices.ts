@@ -4,6 +4,10 @@ import {
   getUpdatePricesErrorResponse,
 } from '../server/updatePrices.js';
 import {
+  getCoinGeckoCoinIdSyncErrorResponse,
+  runCoinGeckoCoinIdSync,
+} from '../server/syncCoinIds.js';
+import {
   getPortfolioAccessErrorResponse,
   isPortfolioAccessError,
   requirePortfolioAccess,
@@ -24,12 +28,30 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     await requirePortfolioAccess(request, route);
     const payload = await readJsonBody(request);
+    const payloadObject = typeof payload === 'object' && payload !== null ? payload as Record<string, unknown> : null;
+
+    if (
+      payloadObject &&
+      Array.isArray(payloadObject.syncTickers) &&
+      !Array.isArray(payloadObject.assets)
+    ) {
+      const result = await runCoinGeckoCoinIdSync({ tickers: payloadObject.syncTickers });
+      sendJson(response, 200, result);
+      return;
+    }
+
     const result = await generatePriceUpdates(payload);
     sendJson(response, 200, result);
   } catch (error) {
     if (isPortfolioAccessError(error)) {
       const authError = getPortfolioAccessErrorResponse(error, route);
       sendJson(response, authError.status, authError.body);
+      return;
+    }
+
+    if (error instanceof Error && error.message.includes('CoinGecko 代號同步')) {
+      const formatted = getCoinGeckoCoinIdSyncErrorResponse(error);
+      sendJson(response, formatted.status, formatted.body);
       return;
     }
 
