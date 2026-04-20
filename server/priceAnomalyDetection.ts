@@ -144,6 +144,10 @@ function computeStats(values: number[]) {
   };
 }
 
+function buildInsufficientHistoryReason(sampleSize: number, minSampleSize: number) {
+  return `歷史價格樣本不足（${sampleSize}/${minSampleSize}）`;
+}
+
 export async function detectHistoricalAnomaly(
   assetId: string,
   newPrice: number,
@@ -210,7 +214,7 @@ export async function detectHistoricalAnomaly(
     ) {
       return {
         isAnomaly: false,
-        reason: null,
+        reason: buildInsufficientHistoryReason(historicalAmplitudes.length, minSampleSize),
         sampleSize: historicalAmplitudes.length,
         mean: stats.mean,
         stdDev: stats.stdDev,
@@ -238,10 +242,14 @@ export async function detectHistoricalAnomaly(
       max: stats.max,
       zScore,
     };
-  } catch {
+  } catch (error) {
+    console.warn('[priceAnomalyDetection] historical anomaly lookup failed', {
+      assetId,
+      error,
+    });
     return {
       isAnomaly: false,
-      reason: null,
+      reason: '歷史價格查詢失敗',
       sampleSize: 0,
       mean: null,
       stdDev: null,

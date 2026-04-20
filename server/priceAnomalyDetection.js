@@ -70,6 +70,10 @@ function computeStats(values) {
   return { mean, stdDev: Math.sqrt(variance), min, max };
 }
 
+function buildInsufficientHistoryReason(sampleSize, minSampleSize) {
+  return `歷史價格樣本不足（${sampleSize}/${minSampleSize}）`;
+}
+
 export async function detectHistoricalAnomaly(assetId, newPrice, currentPrice, options = {}) {
   const limit = options.limit ?? 30;
   const minSampleSize = options.minSampleSize ?? 5;
@@ -101,7 +105,16 @@ export async function detectHistoricalAnomaly(assetId, newPrice, currentPrice, o
     const historicalAmplitudes = deriveHistoricalPriceAmplitudes(prices.slice().reverse());
     const stats = computeStats(historicalAmplitudes);
     if (historicalAmplitudes.length < minSampleSize || stats.mean == null || stats.min == null || stats.max == null || todayDiffPct == null) {
-      return { isAnomaly: false, reason: null, sampleSize: historicalAmplitudes.length, mean: stats.mean, stdDev: stats.stdDev, min: stats.min, max: stats.max, zScore: null };
+      return {
+        isAnomaly: false,
+        reason: buildInsufficientHistoryReason(historicalAmplitudes.length, minSampleSize),
+        sampleSize: historicalAmplitudes.length,
+        mean: stats.mean,
+        stdDev: stats.stdDev,
+        min: stats.min,
+        max: stats.max,
+        zScore: null,
+      };
     }
     const zScore = stats.stdDev && stats.stdDev > 0 ? (todayDiffPct - stats.mean) / stats.stdDev : null;
     const minGuard = todayDiffPct < stats.min * 0.1;
@@ -118,8 +131,21 @@ export async function detectHistoricalAnomaly(assetId, newPrice, currentPrice, o
       max: stats.max,
       zScore,
     };
-  } catch {
-    return { isAnomaly: false, reason: null, sampleSize: 0, mean: null, stdDev: null, min: null, max: null, zScore: null };
+  } catch (error) {
+    console.warn('[priceAnomalyDetection] historical anomaly lookup failed', {
+      assetId,
+      error,
+    });
+    return {
+      isAnomaly: false,
+      reason: '歷史價格查詢失敗',
+      sampleSize: 0,
+      mean: null,
+      stdDev: null,
+      min: null,
+      max: null,
+      zScore: null,
+    };
   }
 }
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
