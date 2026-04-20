@@ -531,10 +531,10 @@ function parseAsOf(value) {
     return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 // 報價接受時窗由 server/priceFreshness.js 集中管理，不要在此硬編碼。
-function getQuoteFreshnessWindowMs(assetType) {
+export function getQuoteFreshnessWindowMs(assetType) {
     return QUOTE_FRESHNESS_WINDOW_MS[assetType] ?? QUOTE_FRESHNESS_WINDOW_MS.stock;
 }
-function isStaleQuote(asOf, assetType) {
+export function isStaleQuote(asOf, assetType) {
     const parsed = parseAsOf(asOf);
     if (!parsed) {
         return true;

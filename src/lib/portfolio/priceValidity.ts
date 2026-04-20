@@ -1,4 +1,4 @@
-import { DISPLAY_FRESHNESS_WINDOW_MS, QUOTE_FRESHNESS_WINDOW_MS } from '../../config/priceFreshness';
+import { DISPLAY_FRESHNESS_WINDOW_MS, QUOTE_FRESHNESS_WINDOW_MS } from '../../config/priceFreshness.js';
 import type { Holding } from '../../types/portfolio';
 
 /**

@@ -741,11 +741,11 @@ function parseAsOf(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function getQuoteFreshnessWindowMs(assetType: AssetType) {
+export function getQuoteFreshnessWindowMs(assetType: AssetType) {
   return QUOTE_FRESHNESS_WINDOW_MS[assetType] ?? QUOTE_FRESHNESS_WINDOW_MS.stock;
 }
 
-function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
+export function isStaleQuote(asOf: string | null | undefined, assetType: AssetType) {
   const parsed = parseAsOf(asOf);
 
   if (!parsed) {

@@ -12,7 +12,7 @@
  * ┌──────────────────────────────────┬───────────┬────────────┐
  * │ 時窗                             │ crypto    │ 非 crypto  │
  * ├──────────────────────────────────┼───────────┼────────────┤
- * │ QUOTE_FRESHNESS  (報價接受)       │ 6h        │ 5d (120h)  │
+ * │ QUOTE_FRESHNESS  (報價接受)       │ 24h       │ 5d (120h)  │
  * │ DISPLAY_FRESHNESS (前端顯示)      │ 36h       │ 4d  (96h)  │
  * │ SNAPSHOT_FALLBACK (快照降級)      │ 12h       │ 4d  (96h)  │
  * └──────────────────────────────────┴───────────┴────────────┘
@@ -24,7 +24,7 @@
  *   SNAPSHOT_FALLBACK 介於兩者之間（非 crypto 與 DISPLAY 相同，crypto 與 QUOTE 相同）：
  *     快照降級只在確認市場資料仍算可信時才沿用舊價格。
  *     注意：SNAPSHOT_FALLBACK 與 QUOTE_FRESHNESS 並不相同（非 crypto：96h vs 120h）。
- *   crypto 時窗縮短至 6h/12h，因加密貨幣全天候交易、價格波動較大。
+ *   crypto 時窗採用 24h/12h，因加密貨幣全天候交易，但報價接受窗口保留較寬容的每日更新節奏。
  */
 
 export interface AssetFreshnessWindows {
@@ -41,7 +41,7 @@ export interface AssetFreshnessWindows {
  * 用於 server/updatePrices.ts → getQuoteFreshnessWindowMs()
  */
 export const QUOTE_FRESHNESS_WINDOW_MS: AssetFreshnessWindows = {
-  crypto: 6 * 60 * 60 * 1000,         //  6h — 加密貨幣全天候交易，價格波動大，縮短接受窗口
+  crypto: 24 * 60 * 60 * 1000,        // 24h — 加密貨幣每日更新一次，接受窗口放寬至 24 小時
   stock:  5 * 24 * 60 * 60 * 1000,    // 5d  — 覆蓋週末及假期停市
   etf:    5 * 24 * 60 * 60 * 1000,
   bond:   5 * 24 * 60 * 60 * 1000,

@@ -18,6 +18,7 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const tsPath = resolve(__dirname, '../src/config/priceFreshness.ts');
 const jsPath = resolve(__dirname, '../server/priceFreshness.js');
+const clientJsPath = resolve(__dirname, '../src/config/priceFreshness.js');
 
 const tsSource = readFileSync(tsPath, 'utf8');
 
@@ -47,4 +48,5 @@ js = js.replace(
 );
 
 writeFileSync(jsPath, js, 'utf8');
-console.log(`[gen-price-freshness] server/priceFreshness.js regenerated from src/config/priceFreshness.ts`);
+writeFileSync(clientJsPath, js, 'utf8');
+console.log(`[gen-price-freshness] server/priceFreshness.js and src/config/priceFreshness.js regenerated from src/config/priceFreshness.ts`);
