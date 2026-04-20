@@ -878,9 +878,9 @@ async function buildReviewResults(requestedAssets, marketResults) {
             !staleQuote &&
             Boolean(matched.sourceName || matched.sourceUrl) &&
             diffPct < getReviewThresholdForAsset(asset.assetType);
-        const historicalAnomaly = isValid && nextPrice != null
-            ? await detectHistoricalAnomaly(asset.assetId, nextPrice)
-            : null;
+    const historicalAnomaly = isValid && nextPrice != null
+        ? await detectHistoricalAnomaly(asset.assetId, nextPrice, asset.currentPrice)
+        : null;
         if (historicalAnomaly?.isAnomaly) {
             isValid = false;
         }

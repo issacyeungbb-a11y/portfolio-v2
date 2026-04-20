@@ -25,6 +25,18 @@ export function getWarningThreshold(assetType) {
   return WARNING_THRESHOLDS[assetType] ?? WARNING_THRESHOLDS.stock;
 }
 
+export function deriveHistoricalPriceAmplitudes(prices) {
+  const amplitudes = [];
+  for (let index = 1; index < prices.length; index += 1) {
+    const previousPrice = prices[index - 1];
+    const currentPrice = prices[index];
+    if (previousPrice > 0 && currentPrice > 0) {
+      amplitudes.push(Math.abs(currentPrice - previousPrice) / previousPrice);
+    }
+  }
+  return amplitudes;
+}
+
 export function detectPriceAnomaly(currentPrice, newPrice, assetType) {
   const threshold = getAnomalyThreshold(assetType);
   const warnThreshold = getWarningThreshold(assetType);
@@ -58,10 +70,18 @@ function computeStats(values) {
   return { mean, stdDev: Math.sqrt(variance), min, max };
 }
 
-export async function detectHistoricalAnomaly(assetId, newPrice, options = {}) {
+export async function detectHistoricalAnomaly(assetId, newPrice, currentPrice, options = {}) {
   const limit = options.limit ?? 30;
   const minSampleSize = options.minSampleSize ?? 5;
+  const todayDiffPct = currentPrice != null && Number.isFinite(currentPrice) && currentPrice > 0
+    ? Math.abs(newPrice - currentPrice) / currentPrice
+    : null;
   if (!assetId || !Number.isFinite(newPrice) || newPrice <= 0) {
+    return {
+      isAnomaly: false, reason: null, sampleSize: 0, mean: null, stdDev: null, min: null, max: null, zScore: null,
+    };
+  }
+  if (todayDiffPct != null && todayDiffPct < 0.1) {
     return {
       isAnomaly: false, reason: null, sampleSize: 0, mean: null, stdDev: null, min: null, max: null, zScore: null,
     };
@@ -78,19 +98,20 @@ export async function detectHistoricalAnomaly(assetId, newPrice, options = {}) {
     const prices = snapshot.docs
       .map((document) => document.data().price)
       .filter((value) => typeof value === 'number' && Number.isFinite(value) && value > 0);
-    const stats = computeStats(prices);
-    if (prices.length < minSampleSize || stats.mean == null || stats.min == null || stats.max == null) {
-      return { isAnomaly: false, reason: null, sampleSize: prices.length, mean: stats.mean, stdDev: stats.stdDev, min: stats.min, max: stats.max, zScore: null };
+    const historicalAmplitudes = deriveHistoricalPriceAmplitudes(prices.slice().reverse());
+    const stats = computeStats(historicalAmplitudes);
+    if (historicalAmplitudes.length < minSampleSize || stats.mean == null || stats.min == null || stats.max == null || todayDiffPct == null) {
+      return { isAnomaly: false, reason: null, sampleSize: historicalAmplitudes.length, mean: stats.mean, stdDev: stats.stdDev, min: stats.min, max: stats.max, zScore: null };
     }
-    const zScore = stats.stdDev && stats.stdDev > 0 ? (newPrice - stats.mean) / stats.stdDev : null;
-    const minGuard = newPrice < stats.min * 0.1;
-    const maxGuard = newPrice > stats.max * 10;
+    const zScore = stats.stdDev && stats.stdDev > 0 ? (todayDiffPct - stats.mean) / stats.stdDev : null;
+    const minGuard = todayDiffPct < stats.min * 0.1;
+    const maxGuard = todayDiffPct > stats.max * 10;
     const zGuard = zScore != null && Math.abs(zScore) > 3;
     const isAnomaly = minGuard || maxGuard || zGuard;
     return {
       isAnomaly,
-      reason: isAnomaly ? `歷史價格異常：${minGuard ? '低於歷史最小值 90%' : maxGuard ? '高於歷史最大值 10 倍' : 'z-score 超過 3'}` : null,
-      sampleSize: prices.length,
+      reason: isAnomaly ? `歷史價格異常：${minGuard ? '低於歷史最小波幅 90%' : maxGuard ? '高於歷史最大波幅 10 倍' : 'z-score 超過 3'}` : null,
+      sampleSize: historicalAmplitudes.length,
       mean: stats.mean,
       stdDev: stats.stdDev,
       min: stats.min,
