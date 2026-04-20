@@ -212,14 +212,17 @@ function formatConversationContext(turns: ConversationTurn[]) {
     .join('\n\n');
 }
 
-function buildMonthlyAnalysisContext(session: AnalysisSession) {
-  return [
-    `月度分析標題：${session.title}`,
-    `生成時間：${session.updatedAt}`,
-    `分析問題：${session.question}`,
-    '',
-    session.result,
-  ].join('\n');
+function getPromptSettingUsage(category: AnalysisCategory) {
+  switch (category) {
+    case 'general_question':
+      return '會用喺「一般問題」對話，同埋季度報告追問。';
+    case 'asset_analysis':
+      return '會用喺「資產分析」月度自動生成。';
+    case 'asset_report':
+      return '會用喺「季度報告」自動生成。';
+    default:
+      return '';
+  }
 }
 
 function buildQuarterlyReportContext(report: QuarterlyReport) {
@@ -1387,6 +1390,7 @@ export function AnalysisPage() {
                   ? '設定季度報告生成時使用嘅固定背景。'
                   : '設定呢個分類每次分析都會帶入嘅固定背景。'}
               </p>
+              <p className="table-hint">{getPromptSettingUsage(selectedSettingsCategory)}</p>
             </div>
 
             <div className="asset-form-grid">
@@ -1716,42 +1720,6 @@ export function AnalysisPage() {
                 })}
               </div>
             )}
-          </section>
-
-          <section className="card analysis-thread-card">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">Follow-up</p>
-                <h2>有嘢想追問？</h2>
-              </div>
-              <button
-                className="button button-primary"
-                type="button"
-                onClick={() => {
-                  if (!selectedMonthlyAnalysis) {
-                    return;
-                  }
-
-                  setSelectedCategory('general_question');
-                  setSelectedSessionId(null);
-                  setGeneralQuestionSeedContext(buildMonthlyAnalysisContext(selectedMonthlyAnalysis));
-                  setAnalysisQuestionByCategory((current) => ({
-                    ...current,
-                    general_question: '',
-                  }));
-                  setFollowUpQuestionByCategory((current) => ({
-                    ...current,
-                    general_question: '',
-                  }));
-                }}
-                disabled={!selectedMonthlyAnalysis}
-              >
-                跳去一般問題
-              </button>
-            </div>
-            <p className="status-message">
-              點一下會用呢份月度分析做背景，直接跳去一般問題開始追問。
-            </p>
           </section>
         </>
       ) : null}
