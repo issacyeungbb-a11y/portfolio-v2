@@ -1,4 +1,5 @@
 import YahooFinance from 'yahoo-finance2';
+import { getCrumbClear } from 'yahoo-finance2/lib/getCrumb';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getFirebaseAdminDb, getSharedCoinGeckoCoinIdCacheDocRef, getSharedCoinGeckoCoinIdCacheDocRefs, getSharedCoinGeckoCoinIdOverrideDocRef, getSharedCoinGeckoCoinIdOverrideDocRefs, } from './firebaseAdmin.js';
 import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
@@ -717,22 +718,67 @@ async function fetchYahooPrice(assets) {
         });
     }
     catch (error) {
-        console.warn('Yahoo Finance batch quote failed, retrying one-by-one.', error);
-        const retryResults = [];
+        console.warn('Yahoo Finance batch quote failed, clearing crumb and retrying batch.', error);
+        try {
+            await getCrumbClear(yahooFinanceClient['_opts'].cookieJar);
+        }
+        catch (crumbError) {
+            console.warn('Yahoo Finance crumb clear failed.', crumbError);
+        }
+        await sleep(2000);
+        try {
+            const retryQuotes = await yahooFinanceClient.quote(symbols, {
+                fields: [
+                    'symbol',
+                    'currency',
+                    'marketState',
+                    'regularMarketPrice',
+                    'regularMarketTime',
+                ],
+                return: 'array',
+            }, {
+                fetchOptions: { signal: AbortSignal.timeout(YAHOO_PRICE_TIMEOUT_MS) },
+            });
+            const quoteBySymbol = new Map(retryQuotes.map((quote) => [(readStringValue(quote.symbol) ?? '').toUpperCase(), quote]));
+            return symbols.map((symbol) => {
+                const asset = symbolToAsset.get(symbol);
+                const quote = quoteBySymbol.get(symbol.toUpperCase());
+                const price = readPositiveNumber(quote?.regularMarketPrice);
+                if (!quote || price == null) {
+                    return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
+                }
+                return {
+                    assetId: asset.assetId,
+                    assetName: asset.assetName,
+                    ticker: asset.ticker,
+                    assetType: asset.assetType,
+                    price,
+                    currency: (readStringValue(quote.currency) ?? asset.currency).toUpperCase(),
+                    asOf: readDateValue(quote.regularMarketTime),
+                    sourceName: YAHOO_SOURCE_NAME,
+                    sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
+                    marketState: readStringValue(quote.marketState),
+                };
+            });
+        }
+        catch (retryError) {
+            console.warn('Yahoo Finance batch retry also failed, falling back to one-by-one.', retryError);
+        }
+        const singleQuotes = [];
         for (const symbol of symbols) {
             const asset = symbolToAsset.get(symbol);
             try {
-                const retryQuotes = await yahooFinanceClient.quote([symbol], {
+                const singleQuoteResult = await yahooFinanceClient.quote([symbol], {
                     fields: ['symbol', 'currency', 'marketState', 'regularMarketPrice', 'regularMarketTime'],
                     return: 'array',
                 }, { fetchOptions: { signal: AbortSignal.timeout(YAHOO_SINGLE_PRICE_TIMEOUT_MS) } });
-                const quote = retryQuotes[0];
+                const quote = singleQuoteResult[0];
                 const price = readPositiveNumber(quote?.regularMarketPrice);
                 if (!quote || price == null) {
-                    retryResults.push(createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL));
+                    singleQuotes.push(createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL));
                     continue;
                 }
-                retryResults.push({
+                singleQuotes.push({
                     assetId: asset.assetId,
                     assetName: asset.assetName,
                     ticker: asset.ticker,
@@ -745,11 +791,11 @@ async function fetchYahooPrice(assets) {
                     marketState: readStringValue(quote.marketState),
                 });
             }
-            catch (retryError) {
-                retryResults.push(createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL));
+            catch (singleError) {
+                singleQuotes.push(createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL));
             }
         }
-        return retryResults;
+        return singleQuotes;
     }
 }
 async function fetchCoinGeckoPrice(assets) {
