@@ -173,6 +173,12 @@ async function runSnapshotPhase(
   try {
     const result = await runScheduledDailySnapshot(fxRates, holdings) as Record<string, unknown>;
     const finalStatus = result.skipped ? 'skipped' : 'completed';
+    if (finalStatus === 'skipped') {
+      await updateSnapshotStatus(dateKey, 'skipped', {
+        snapshotSkipReason: typeof result.snapshotSkipReason === 'string' ? result.snapshotSkipReason : null,
+        snapshotReadinessSummary: result.snapshotReadinessSummary ?? null,
+      });
+    }
     await updateSnapshotStatus(dateKey, finalStatus, {
       snapshotFinishedAt: FieldValue.serverTimestamp(),
     });

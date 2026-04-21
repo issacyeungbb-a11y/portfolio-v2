@@ -15,6 +15,22 @@ export interface DailyJobSummary {
   pendingReviewCount: number;
   coveragePct: number;
   snapshotStatus: 'not_started' | 'running' | 'completed' | 'failed' | 'skipped' | null;
+  snapshotSkipReason: string | null;
+  snapshotReadinessSummary: {
+    totalAssets: number;
+    nonCashAssets: number;
+    readyAssets: number;
+    staleAssetCount: number;
+    fallbackAssetCount: number;
+    missingAssetCount: number;
+    coveragePct: number;
+    pendingReviewCount: number;
+    softPendingReviewCount: number;
+    hardPendingReviewCount: number;
+    hardPendingTolerance: number;
+    isReady: boolean;
+    canUseFallback: boolean;
+  } | null;
   fxUsingFallback: boolean;
   coinGeckoSyncStatus: 'ok' | 'timeout' | 'failed' | 'skipped' | null;
   lastError: string | null;

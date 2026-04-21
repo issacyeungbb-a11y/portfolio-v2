@@ -2,6 +2,7 @@ import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { verifyCronRequest } from './cronAuth.js';
 import { SNAPSHOT_FALLBACK_WINDOW_MS } from './priceFreshness.js';
+import { updateSnapshotStatus } from './dailyJobs.js';
 const CRON_ROUTE = '/api/cron-daily-update';
 const MANUAL_ROUTE = '/api/manual-capture-snapshot';
 class CronSnapshotError extends Error {
@@ -38,6 +39,36 @@ function getHoursSinceUpdate(value) {
         return Number.POSITIVE_INFINITY;
     }
     return Math.max(0, (Date.now() - date.getTime()) / (1000 * 60 * 60));
+}
+function buildSnapshotReadinessSummary(readiness) {
+    const hardPendingTolerance = Math.max(2, Math.floor(readiness.totalAssets * 0.05));
+    return {
+        totalAssets: readiness.totalAssets,
+        nonCashAssets: readiness.totalAssets,
+        readyAssets: readiness.readyAssets,
+        staleAssetCount: readiness.staleAssets.length,
+        fallbackAssetCount: readiness.fallbackAssetCount,
+        missingAssetCount: readiness.missingAssetCount,
+        coveragePct: readiness.coveragePct,
+        pendingReviewCount: readiness.pendingReviewCount,
+        softPendingReviewCount: readiness.softPendingReviewCount,
+        hardPendingReviewCount: readiness.hardPendingReviewCount,
+        hardPendingTolerance,
+        isReady: readiness.isReady,
+        canUseFallback: readiness.canUseFallback,
+    };
+}
+function getSnapshotSkipReason(readiness, captureSkipped, existingSnapshotAlreadyDone = false) {
+    if (existingSnapshotAlreadyDone) {
+        return 'snapshot_already_done';
+    }
+    if (captureSkipped) {
+        return 'snapshot_already_exists';
+    }
+    if (!readiness.isReady) {
+        return readiness.canUseFallback ? 'readiness_not_met' : 'fallback_not_allowed';
+    }
+    return null;
 }
 function isFallbackUsable(asset, todayKey) {
     if (!asset.currentPrice || asset.currentPrice <= 0) {
@@ -200,6 +231,7 @@ export async function runManualDailySnapshot(options = {}) {
 }
 async function runDailySnapshotWorkflow(mode, fxRates, preloadedAssets, force = false) {
     const readiness = await verifyAssetsReadyForDailySnapshot(preloadedAssets);
+    const readinessSummary = buildSnapshotReadinessSummary(readiness);
     const snapshotReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot';
     const fallbackReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot_fallback';
     const route = mode === 'manual' ? MANUAL_ROUTE : CRON_ROUTE;
@@ -216,15 +248,21 @@ async function runDailySnapshotWorkflow(mode, fxRates, preloadedAssets, force = 
             force,
         });
         if (result.skipped) {
+            await updateSnapshotStatus(readiness.todayKey, 'skipped', {
+                snapshotSkipReason: 'snapshot_already_exists',
+                snapshotReadinessSummary: readinessSummary,
+            });
             return {
                 ok: true,
                 skipped: true,
                 route,
                 message: mode === 'manual'
                     ? '今日快照已存在，唔會重複補生成。'
-                    : '今日快照已存在，已略過重複寫入。',
+                : '今日快照已存在，已略過重複寫入。',
                 snapshotId,
                 reason: result.reason,
+                snapshotSkipReason: 'snapshot_already_exists',
+                snapshotReadinessSummary: readinessSummary,
                 triggeredAt: new Date().toISOString(),
             };
         }
@@ -239,6 +277,8 @@ async function runDailySnapshotWorkflow(mode, fxRates, preloadedAssets, force = 
             snapshotId,
             snapshotQuality: 'strict',
             coveragePct: 100,
+            snapshotSkipReason: null,
+            snapshotReadinessSummary: readinessSummary,
             triggeredAt: new Date().toISOString(),
         };
     }
@@ -255,6 +295,10 @@ async function runDailySnapshotWorkflow(mode, fxRates, preloadedAssets, force = 
             force,
         });
         if (result.skipped) {
+            await updateSnapshotStatus(readiness.todayKey, 'skipped', {
+                snapshotSkipReason: 'snapshot_already_exists',
+                snapshotReadinessSummary: readinessSummary,
+            });
             return {
                 ok: true,
                 skipped: true,
@@ -264,6 +308,8 @@ async function runDailySnapshotWorkflow(mode, fxRates, preloadedAssets, force = 
                     : '今日快照已存在，已略過重複寫入。',
                 snapshotId,
                 reason: result.reason,
+                snapshotSkipReason: 'snapshot_already_exists',
+                snapshotReadinessSummary: readinessSummary,
                 triggeredAt: new Date().toISOString(),
             };
         }
@@ -281,9 +327,16 @@ async function runDailySnapshotWorkflow(mode, fxRates, preloadedAssets, force = 
             fallbackAssetCount: readiness.fallbackAssetCount,
             fallbackAssetSymbols: readiness.fallbackAssets.map((asset) => asset.symbol).slice(0, 10),
             softPendingReviewCount: readiness.softPendingReviewCount,
+            snapshotSkipReason: null,
+            snapshotReadinessSummary: readinessSummary,
             triggeredAt: new Date().toISOString(),
         };
     }
+    const snapshotSkipReason = getSnapshotSkipReason(readiness, false);
+    await updateSnapshotStatus(readiness.todayKey, 'skipped', {
+        snapshotSkipReason,
+        snapshotReadinessSummary: readinessSummary,
+    });
     return {
         ok: true,
         skipped: true,
@@ -298,6 +351,8 @@ async function runDailySnapshotWorkflow(mode, fxRates, preloadedAssets, force = 
         hardPendingReviewCount: readiness.hardPendingReviewCount,
         coveragePct: readiness.coveragePct,
         staleAssetSymbols: readiness.staleAssets.map((asset) => asset.symbol).slice(0, 10),
+        snapshotSkipReason,
+        snapshotReadinessSummary: readinessSummary,
         triggeredAt: new Date().toISOString(),
     };
 }

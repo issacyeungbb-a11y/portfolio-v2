@@ -12,6 +12,22 @@ export type SnapshotStatus = 'not_started' | 'running' | 'completed' | 'failed' 
 export type DailyJobTrigger = 'scheduled' | 'rescue' | 'manual';
 export type CoinGeckoSyncStatus = 'ok' | 'timeout' | 'failed' | 'skipped';
 
+export interface SnapshotReadinessSummary {
+  totalAssets: number;
+  nonCashAssets: number;
+  readyAssets: number;
+  staleAssetCount: number;
+  fallbackAssetCount: number;
+  missingAssetCount: number;
+  coveragePct: number;
+  pendingReviewCount: number;
+  softPendingReviewCount: number;
+  hardPendingReviewCount: number;
+  hardPendingTolerance: number;
+  isReady: boolean;
+  canUseFallback: boolean;
+}
+
 export interface DailyJobDocument {
   date: string;
   status: DailyJobStatus;
@@ -30,6 +46,8 @@ export interface DailyJobDocument {
   fxUsingFallback: boolean;
   coinGeckoSyncStatus: CoinGeckoSyncStatus;
   snapshotStatus: SnapshotStatus;
+  snapshotSkipReason: string | null;
+  snapshotReadinessSummary: SnapshotReadinessSummary | null;
   snapshotStartedAt: unknown | null;
   snapshotFinishedAt: unknown | null;
   snapshotError: string | null;
@@ -87,6 +105,7 @@ export async function acquireDailyJobLock(
           appliedCount: 0, pendingReviewCount: 0, coveragePct: 0, processCoveragePct: 0,
           fxUsingFallback: false, coinGeckoSyncStatus: 'skipped',
           snapshotStatus: 'not_started', snapshotStartedAt: null,
+          snapshotSkipReason: null, snapshotReadinessSummary: null,
           snapshotFinishedAt: null, snapshotError: null, lastError: null, nextRetryAt: null,
           rescueAttemptedAt: null, previousFailedAssets: [],
         });

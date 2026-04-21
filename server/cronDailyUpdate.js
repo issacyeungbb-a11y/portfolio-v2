@@ -137,16 +137,22 @@ async function persistFxRates(fxRates) {
 }
 
 async function runSnapshotPhase(dateKey, fxRates, holdings) {
-  await updateSnapshotStatus(dateKey, 'running', {
-    snapshotStartedAt: FieldValue.serverTimestamp(),
-  });
-  try {
-    const result = await runScheduledDailySnapshot(fxRates, holdings);
-    const finalStatus = result.skipped ? 'skipped' : 'completed';
-    await updateSnapshotStatus(dateKey, finalStatus, {
-      snapshotFinishedAt: FieldValue.serverTimestamp(),
+    await updateSnapshotStatus(dateKey, 'running', {
+        snapshotStartedAt: FieldValue.serverTimestamp(),
     });
-    return result;
+    try {
+        const result = await runScheduledDailySnapshot(fxRates, holdings);
+        const finalStatus = result.skipped ? 'skipped' : 'completed';
+        if (finalStatus === 'skipped') {
+            await updateSnapshotStatus(dateKey, 'skipped', {
+                snapshotSkipReason: typeof result.snapshotSkipReason === 'string' ? result.snapshotSkipReason : null,
+                snapshotReadinessSummary: result.snapshotReadinessSummary ?? null,
+            });
+        }
+        await updateSnapshotStatus(dateKey, finalStatus, {
+            snapshotFinishedAt: FieldValue.serverTimestamp(),
+        });
+        return result;
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         await updateSnapshotStatus(dateKey, 'failed', {

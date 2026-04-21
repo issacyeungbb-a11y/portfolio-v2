@@ -110,6 +110,13 @@ function DailyJobSection({ data }: { data: unknown }) {
     skipped: '已跳過',
   };
 
+  const skipReasonLabel: Record<string, string> = {
+    snapshot_already_done: '已完成的任務重跑',
+    snapshot_already_exists: '當日快照已存在',
+    readiness_not_met: '條件未達標',
+    fallback_not_allowed: '不符合降級快照條件',
+  };
+
   const triggerLabel: Record<string, string> = {
     scheduled: '排程',
     rescue: '補救',
@@ -140,6 +147,19 @@ function DailyJobSection({ data }: { data: unknown }) {
           <span className="diagnose-run-flag">CoinGecko: {job.coinGeckoSyncStatus}</span>
         )}
       </div>
+      {job.snapshotStatus === 'skipped' && job.snapshotSkipReason && (
+        <div className="diagnose-daily-job-error">
+          快照跳過原因：{skipReasonLabel[job.snapshotSkipReason] ?? job.snapshotSkipReason}
+        </div>
+      )}
+      {job.snapshotReadinessSummary && (
+        <div className="diagnose-daily-job-body diagnose-daily-job-body-compact">
+          <span>Readiness：{job.snapshotReadinessSummary.coveragePct}%</span>
+          <span>Hard pending：{job.snapshotReadinessSummary.hardPendingReviewCount}/{job.snapshotReadinessSummary.hardPendingTolerance}</span>
+          <span>Missing：{job.snapshotReadinessSummary.missingAssetCount}</span>
+          <span>Fallback：{job.snapshotReadinessSummary.canUseFallback ? '可用' : '不可用'}</span>
+        </div>
+      )}
       {isFailed && job.lastError && (
         <div className="diagnose-daily-job-error">{job.lastError}</div>
       )}

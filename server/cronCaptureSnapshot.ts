@@ -2,8 +2,10 @@ import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { verifyCronRequest } from './cronAuth.js';
 import { SNAPSHOT_FALLBACK_WINDOW_MS } from './priceFreshness.js';
+import { updateSnapshotStatus } from './dailyJobs.js';
 import type { PendingPriceUpdateReview } from '../src/types/priceUpdates';
 import type { FxRates } from '../src/types/fxRates';
+import type { SnapshotReadinessSummary } from './dailyJobs.js';
 
 // The standalone /api/cron-capture-snapshot endpoint was removed in P2-5.
 // Scheduled snapshots are now triggered internally by /api/cron-daily-update.
@@ -130,6 +132,48 @@ function createSnapshotStepTimings() {
     readinessMs: 0,
     snapshotWriteMs: 0,
   };
+}
+
+function buildSnapshotReadinessSummary(
+  readiness: Awaited<ReturnType<typeof verifyAssetsReadyForDailySnapshot>>,
+): SnapshotReadinessSummary {
+  const hardPendingTolerance = Math.max(2, Math.floor(readiness.totalAssets * 0.05));
+
+  return {
+    totalAssets: readiness.totalAssets,
+    nonCashAssets: readiness.totalAssets,
+    readyAssets: readiness.readyAssets,
+    staleAssetCount: readiness.staleAssets.length,
+    fallbackAssetCount: readiness.fallbackAssetCount,
+    missingAssetCount: readiness.missingAssetCount,
+    coveragePct: readiness.coveragePct,
+    pendingReviewCount: readiness.pendingReviewCount,
+    softPendingReviewCount: readiness.softPendingReviewCount,
+    hardPendingReviewCount: readiness.hardPendingReviewCount,
+    hardPendingTolerance,
+    isReady: readiness.isReady,
+    canUseFallback: readiness.canUseFallback,
+  };
+}
+
+function getSnapshotSkipReason(
+  readiness: Awaited<ReturnType<typeof verifyAssetsReadyForDailySnapshot>>,
+  captureSkipped: boolean,
+  existingSnapshotAlreadyDone = false,
+) {
+  if (existingSnapshotAlreadyDone) {
+    return 'snapshot_already_done';
+  }
+
+  if (captureSkipped) {
+    return 'snapshot_already_exists';
+  }
+
+  if (!readiness.isReady) {
+    return readiness.canUseFallback ? 'readiness_not_met' : 'fallback_not_allowed';
+  }
+
+  return null;
 }
 
 function getDurationMs(startedAt: number) {
@@ -279,6 +323,7 @@ async function runDailySnapshotWorkflow(
   const stepTimings = createSnapshotStepTimings();
   const readinessStartedAt = Date.now();
   const readiness = await verifyAssetsReadyForDailySnapshot(preloadedAssets);
+  const readinessSummary = buildSnapshotReadinessSummary(readiness);
   stepTimings.readinessMs = getDurationMs(readinessStartedAt);
   const snapshotReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot';
   const fallbackReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot_fallback';
@@ -303,6 +348,10 @@ async function runDailySnapshotWorkflow(
     const durationMs = getDurationMs(startedAt);
 
     if (result.skipped) {
+      await updateSnapshotStatus(readiness.todayKey, 'skipped', {
+        snapshotSkipReason: 'snapshot_already_exists',
+        snapshotReadinessSummary: readinessSummary,
+      });
       const payload = {
         ok: true,
         skipped: true,
@@ -313,6 +362,8 @@ async function runDailySnapshotWorkflow(
             : '今日快照已存在，已略過重複寫入。',
         snapshotId,
         reason: result.reason,
+        snapshotSkipReason: 'snapshot_already_exists',
+        snapshotReadinessSummary: readinessSummary,
         triggeredAt: new Date().toISOString(),
         durationMs,
         stepTimings,
@@ -333,6 +384,8 @@ async function runDailySnapshotWorkflow(
       snapshotId,
       snapshotQuality: 'strict' as const,
       coveragePct: 100,
+      snapshotSkipReason: null,
+      snapshotReadinessSummary: readinessSummary,
       triggeredAt: new Date().toISOString(),
       durationMs,
       stepTimings,
@@ -358,6 +411,10 @@ async function runDailySnapshotWorkflow(
     const durationMs = getDurationMs(startedAt);
 
     if (result.skipped) {
+      await updateSnapshotStatus(readiness.todayKey, 'skipped', {
+        snapshotSkipReason: 'snapshot_already_exists',
+        snapshotReadinessSummary: readinessSummary,
+      });
       const payload = {
         ok: true,
         skipped: true,
@@ -368,6 +425,8 @@ async function runDailySnapshotWorkflow(
             : '今日快照已存在，已略過重複寫入。',
         snapshotId,
         reason: result.reason,
+        snapshotSkipReason: 'snapshot_already_exists',
+        snapshotReadinessSummary: readinessSummary,
         triggeredAt: new Date().toISOString(),
         durationMs,
         stepTimings,
@@ -391,6 +450,8 @@ async function runDailySnapshotWorkflow(
       fallbackAssetCount: readiness.fallbackAssetCount,
       fallbackAssetSymbols: readiness.fallbackAssets.map((asset) => asset.symbol).slice(0, 10),
       softPendingReviewCount: readiness.softPendingReviewCount,
+      snapshotSkipReason: null,
+      snapshotReadinessSummary: readinessSummary,
       triggeredAt: new Date().toISOString(),
       durationMs,
       stepTimings,
@@ -400,6 +461,7 @@ async function runDailySnapshotWorkflow(
   }
 
   const durationMs = getDurationMs(startedAt);
+  const snapshotSkipReason = getSnapshotSkipReason(readiness, false);
   const payload = {
     ok: true,
     skipped: true,
@@ -415,6 +477,8 @@ async function runDailySnapshotWorkflow(
     hardPendingReviewCount: readiness.hardPendingReviewCount,
     coveragePct: readiness.coveragePct,
     staleAssetSymbols: readiness.staleAssets.map((asset) => asset.symbol).slice(0, 10),
+    snapshotSkipReason,
+    snapshotReadinessSummary: readinessSummary,
     triggeredAt: new Date().toISOString(),
     durationMs,
     stepTimings,

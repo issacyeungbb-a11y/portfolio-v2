@@ -496,6 +496,8 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
         pendingReviewCount: job.pendingReviewCount,
         coveragePct: job.coveragePct,
         snapshotStatus: job.snapshotStatus,
+        snapshotSkipReason: job.snapshotSkipReason ?? null,
+        snapshotReadinessSummary: job.snapshotReadinessSummary ?? null,
         fxUsingFallback: job.fxUsingFallback,
         coinGeckoSyncStatus: job.coinGeckoSyncStatus,
         lastError: job.lastError,

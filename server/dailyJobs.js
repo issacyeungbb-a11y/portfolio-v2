@@ -53,6 +53,8 @@ export async function acquireDailyJobLock(dateKey, trigger) {
           fxUsingFallback: false,
           coinGeckoSyncStatus: 'skipped',
           snapshotStatus: 'not_started',
+          snapshotSkipReason: null,
+          snapshotReadinessSummary: null,
           snapshotStartedAt: null,
           snapshotFinishedAt: null,
           snapshotError: null,
