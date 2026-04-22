@@ -218,7 +218,6 @@ export async function runDailyUpdate(trigger) {
     // 3. Update phase (skip if already done)
     if (!updateAlreadyDone) {
       const allAssets = await readAdminPortfolioAssets();
-      snapshotHoldings = allAssets;
       const nonCashAssets = allAssets.filter(a => a.assetType !== 'cash');
       totalAssets = nonCashAssets.length;
       const assetsToProcess = nonCashAssets.filter(a => !processedSet.has(a.id) && !failedSet.has(a.id));
@@ -313,8 +312,8 @@ export async function runDailyUpdate(trigger) {
     //   priceUpdateReviews 時仲睇到舊嘅 pending 狀態（eventual consistency race）。
     let snapshotResult = null;
     if (!snapshotAlreadyDone) {
-      snapshotHoldings ??= await readAdminPortfolioAssets();
       await new Promise((r) => setTimeout(r, 2000));
+      snapshotHoldings = await readAdminPortfolioAssets();
       snapshotResult = await runSnapshotPhase(dateKey, snapshotFxRates, snapshotHoldings);
     }
 
