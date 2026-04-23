@@ -100,16 +100,16 @@ const analysisCategoryOptions: Array<{
   },
   {
     value: 'asset_analysis',
-    label: '資產分析',
-    shortLabel: '資產分析',
-    helper: '每月自動生成',
+    label: '每月資產分析',
+    shortLabel: '每月資產分析',
+    helper: '按月手動生成',
     questionPlaceholder: '例如：根據我目前資產，分析而家最值得留意嘅重點。',
   },
   {
     value: 'asset_report',
     label: '季度報告',
     shortLabel: '季度報告',
-    helper: '每季自動生成',
+    helper: '按季手動生成',
     questionPlaceholder: '',
   },
 ];
@@ -169,6 +169,61 @@ function formatGeneratedAt(value: string) {
   } catch {
     return value;
   }
+}
+
+function getHongKongDateParts(date = new Date()) {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const getPart = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(formatter.find((part) => part.type === type)?.value ?? '0');
+
+  return {
+    year: getPart('year'),
+    month: getPart('month'),
+    day: getPart('day'),
+    hour: getPart('hour'),
+  };
+}
+
+function getHongKongYearMonthLabel(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('zh-HK', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: 'long',
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === 'year')?.value ?? '';
+  const month = parts.find((part) => part.type === 'month')?.value ?? '';
+  return `${year}年${month}`;
+}
+
+function getCurrentQuarterNumber(date = new Date()) {
+  const { month } = getHongKongDateParts(date);
+  return Math.floor((month - 1) / 3) + 1;
+}
+
+function getHongKongQuarterLabel(date = new Date()) {
+  return `${new Intl.DateTimeFormat('zh-HK', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+  }).format(date)}年Q${getCurrentQuarterNumber(date)}`;
+}
+
+function canGenerateMonthlyAnalysisNow(date = new Date()) {
+  const { day, hour } = getHongKongDateParts(date);
+  return day > 1 || (day === 1 && hour >= 8);
+}
+
+function canGenerateQuarterlyReportNow(date = new Date()) {
+  const { month, day, hour } = getHongKongDateParts(date);
+  const quarterStartMonth = Math.floor((month - 1) / 3) * 3 + 1;
+  const isQuarterOpeningMonth = month === quarterStartMonth;
+  return !isQuarterOpeningMonth || day > 1 || (day === 1 && hour >= 9);
 }
 
 function createAnalysisTitle(question: string) {
@@ -609,8 +664,10 @@ export function AnalysisPage() {
   const [reportsError, setReportsError] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [generatingReportId, setGeneratingReportId] = useState<string | null>(null);
+  const [generatingPeriodicReport, setGeneratingPeriodicReport] = useState<'monthly' | 'quarterly' | null>(null);
   const [reportActionMessage, setReportActionMessage] = useState<string | null>(null);
   const [reportActionError, setReportActionError] = useState<string | null>(null);
+  const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -620,6 +677,7 @@ export function AnalysisPage() {
   const analysisQuestion = analysisQuestionByCategory[selectedCategory];
   const followUpQuestion = followUpQuestionByCategory[selectedCategory];
   const analysisBackground = savedPromptSettings[selectedCategory];
+  const currentTime = useMemo(() => new Date(currentTimeMs), [currentTimeMs]);
   const isInteractiveCategory = selectedCategory === 'general_question';
   const isPortfolioAnalysisCategory = selectedCategory === 'asset_analysis';
   const isQuarterlyCategory = selectedCategory === 'asset_report';
@@ -629,6 +687,11 @@ export function AnalysisPage() {
       analysisCategoryOptions[0],
     [selectedCategory],
   );
+  const currentMonthLabel = useMemo(
+    () => `${getHongKongYearMonthLabel(currentTime)}每月資產分析`,
+    [currentTime],
+  );
+  const currentQuarterLabel = useMemo(() => getHongKongQuarterLabel(currentTime), [currentTime]);
   useEffect(() => {
     setLocalAnalysis(null);
     setAnalysisError(null);
@@ -638,6 +701,14 @@ export function AnalysisPage() {
   useEffect(() => {
     setPromptDrafts(savedPromptSettings);
   }, [savedPromptSettings]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setCurrentTimeMs(Date.now());
+    }, 60 * 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     setSelectedSessionId(null);
@@ -775,9 +846,17 @@ export function AnalysisPage() {
   const monthlyAnalysisSessions = useMemo(
     () =>
       analysisSessions
-        .filter((session) => session.category === 'asset_analysis' && session.delivery === 'scheduled')
+        .filter((session) => session.category === 'asset_analysis')
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [analysisSessions],
+  );
+  const currentMonthAnalysis = useMemo(
+    () => monthlyAnalysisSessions.find((session) => session.title === currentMonthLabel) ?? null,
+    [currentMonthLabel, monthlyAnalysisSessions],
+  );
+  const canGenerateCurrentMonthAnalysis = useMemo(
+    () => canGenerateMonthlyAnalysisNow(currentTime) && currentMonthAnalysis == null,
+    [currentMonthAnalysis, currentTime],
   );
   const selectedMonthlyAnalysis =
     monthlyAnalysisSessions.find((session) => session.id === selectedMonthlyAnalysisId) ??
@@ -840,6 +919,14 @@ export function AnalysisPage() {
     [reports, selectedReportId],
   );
   const latestReport = reports[0] ?? null;
+  const currentQuarterReport = useMemo(
+    () => reports.find((report) => report.quarter === currentQuarterLabel) ?? null,
+    [currentQuarterLabel, reports],
+  );
+  const canGenerateCurrentQuarterReport = useMemo(
+    () => canGenerateQuarterlyReportNow(currentTime) && currentQuarterReport == null,
+    [currentQuarterReport, currentTime],
+  );
   const selectedQuarterlyReportThread = useMemo(
     () =>
       selectedReport
@@ -1017,7 +1104,7 @@ export function AnalysisPage() {
         delivery: 'manual',
       };
       await addAnalysisSession(savedSession);
-      setAnalysisSuccess('資產分析已完成。');
+      setAnalysisSuccess('每月資產分析已完成。');
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '投資組合分析失敗，請稍後再試。');
     } finally {
@@ -1227,6 +1314,44 @@ export function AnalysisPage() {
     }
   }
 
+  async function handleGenerateMonthlyAnalysisReport() {
+    setAnalysisError(null);
+    setAnalysisSuccess(null);
+    setReportActionError(null);
+    setReportActionMessage(null);
+    setGeneratingPeriodicReport('monthly');
+
+    try {
+      const response = (await callPortfolioFunction('manual-monthly-analysis')) as {
+        message?: string;
+      };
+      setReportActionMessage(response.message ?? '已開始生成每月資產分析。');
+    } catch (error) {
+      setReportActionError(error instanceof Error ? error.message : '生成每月資產分析失敗，請稍後再試。');
+    } finally {
+      setGeneratingPeriodicReport(null);
+    }
+  }
+
+  async function handleGenerateQuarterlyReport() {
+    setAnalysisError(null);
+    setAnalysisSuccess(null);
+    setReportActionError(null);
+    setReportActionMessage(null);
+    setGeneratingPeriodicReport('quarterly');
+
+    try {
+      const response = (await callPortfolioFunction('manual-quarterly-report')) as {
+        message?: string;
+      };
+      setReportActionMessage(response.message ?? '已開始生成季度報告。');
+    } catch (error) {
+      setReportActionError(error instanceof Error ? error.message : '生成季度報告失敗，請稍後再試。');
+    } finally {
+      setGeneratingPeriodicReport(null);
+    }
+  }
+
   async function generateAndUploadPdf(report: QuarterlyReport) {
     if (!storage) {
       throw new Error('Firebase Storage 尚未設定完成，請先補上 storageBucket。');
@@ -1352,7 +1477,7 @@ export function AnalysisPage() {
                 只可以喺網頁設定一般問題嘅背景資料。
               </p>
               <p className="table-hint">
-                資產分析同季度報告會沿用內部設定，唔會喺呢個頁面提供修改。
+                每月資產分析同季度報告會沿用內部設定，唔會喺呢個頁面提供修改。
               </p>
             </div>
 
@@ -1592,11 +1717,20 @@ export function AnalysisPage() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Monthly</p>
-                <h2>{selectedMonthlyAnalysis?.title ?? '資產分析'}</h2>
-                <p className="table-hint">最新一份月度分析會顯示喺最上方，下面可翻查舊紀錄。</p>
+                <h2>{selectedMonthlyAnalysis?.title ?? '每月資產分析'}</h2>
+                <p className="table-hint">最新一份每月分析會顯示喺最上方，下面可翻查舊紀錄。</p>
               </div>
               <div className="analysis-report-preview-footer">
-                {selectedMonthlyAnalysis ? (
+                {canGenerateCurrentMonthAnalysis ? (
+                  <button
+                    className="button button-primary"
+                    type="button"
+                    onClick={() => void handleGenerateMonthlyAnalysisReport()}
+                    disabled={generatingPeriodicReport === 'monthly'}
+                  >
+                    {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成本月分析'}
+                  </button>
+                ) : selectedMonthlyAnalysis ? (
                   <>
                     <span className="chip chip-soft">
                       {getAnalysisModelLabel(selectedMonthlyAnalysis.model)}
@@ -1638,7 +1772,11 @@ export function AnalysisPage() {
                 )}
               </div>
             ) : (
-              <p className="status-message">尚未生成資產分析。</p>
+              <p className="status-message">
+                {canGenerateMonthlyAnalysisNow(currentTime)
+                  ? '今個月尚未生成每月資產分析。'
+                  : '每月資產分析會喺每月 1 號香港時間上午 8:00 之後先可以手動生成。'}
+              </p>
             )}
           </section>
 
@@ -1646,15 +1784,19 @@ export function AnalysisPage() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">History</p>
-                <h2>過往月度分析</h2>
+                <h2>過往每月分析</h2>
               </div>
               <span className="chip chip-soft">
                 {monthlyAnalysisSessions.length > 0 ? `${monthlyAnalysisSessions.length} 份分析` : '尚未生成'}
               </span>
             </div>
 
+            <p className="status-message">
+              改為手動生成；到每月 1 號香港時間上午 8:00 後，如本月未生成，先會出現按鈕。
+            </p>
+
             {monthlyAnalysisSessions.length === 0 ? (
-              <p className="status-message">尚未生成月度分析。</p>
+              <p className="status-message">尚未生成每月分析。</p>
             ) : (
               <div className="quarterly-report-list">
                 {monthlyAnalysisSessions.map((session) => {
@@ -1695,7 +1837,16 @@ export function AnalysisPage() {
                 <p className="eyebrow">最新報告</p>
                 <h2>{latestReport?.quarter ?? '季度報告'}</h2>
               </div>
-              {latestReport ? (
+              {canGenerateCurrentQuarterReport ? (
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={() => void handleGenerateQuarterlyReport()}
+                  disabled={generatingPeriodicReport === 'quarterly'}
+                >
+                  {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成今季報告'}
+                </button>
+              ) : latestReport ? (
                 latestReport.pdfUrl ? (
                   <a
                     className="button button-secondary"
@@ -1748,7 +1899,9 @@ export function AnalysisPage() {
               </span>
             </div>
 
-            <p className="status-message">每季首日香港時間上午 9:00 自動生成一次季度報告。</p>
+            <p className="status-message">
+              改為手動生成；到季度首日香港時間上午 9:00 後，如今季未生成，先會出現按鈕。
+            </p>
 
             {reportsStatus === 'ready' && reports.length === 0 ? (
               <p className="status-message">尚未生成季度報告。</p>

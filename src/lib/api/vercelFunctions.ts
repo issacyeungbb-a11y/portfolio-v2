@@ -4,6 +4,8 @@ export type PortfolioFunctionKey =
   | 'health'
   | 'extract-assets'
   | 'extract-transactions'
+  | 'manual-monthly-analysis'
+  | 'manual-quarterly-report'
   | 'manual-capture-snapshot'
   | 'parse-assets-command'
   | 'parse-transactions-command'
@@ -17,6 +19,8 @@ export const portfolioFunctionConfig: Record<
   health: { path: '/api/health', method: 'GET' },
   'extract-assets': { path: '/api/extract-assets', method: 'POST' },
   'extract-transactions': { path: '/api/extract-transactions', method: 'POST' },
+  'manual-monthly-analysis': { path: '/api/manual-monthly-analysis', method: 'POST' },
+  'manual-quarterly-report': { path: '/api/manual-quarterly-report', method: 'POST' },
   'manual-capture-snapshot': { path: '/api/manual-capture-snapshot', method: 'POST' },
   'parse-assets-command': { path: '/api/parse-assets-command', method: 'POST' },
   'parse-transactions-command': { path: '/api/parse-transactions-command', method: 'POST' },

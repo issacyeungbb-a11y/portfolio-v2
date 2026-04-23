@@ -8,9 +8,13 @@ const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 const MONTHLY_ROUTE = '/api/cron-monthly-analysis';
 const QUARTERLY_ROUTE = '/api/cron-quarterly-report';
+const MANUAL_MONTHLY_ROUTE = '/api/manual-monthly-analysis';
+const MANUAL_QUARTERLY_ROUTE = '/api/manual-quarterly-report';
 const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-7';
 const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash';
 const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'];
+const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
+const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
 class ScheduledAnalysisError extends Error {
     status;
     constructor(message, status = 500) {
@@ -66,6 +70,57 @@ function getHongKongQuarterLabel(date = new Date()) {
         timeZone: 'Asia/Hong_Kong',
         year: 'numeric',
     }).format(date)}年Q${getCurrentQuarterNumber(date)}`;
+}
+function getHongKongDateParts(date = new Date()) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Hong_Kong',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        hour12: false,
+    }).formatToParts(date);
+    const getPart = (type) => Number(formatter.find((part) => part.type === type)?.value ?? '0');
+    return {
+        year: getPart('year'),
+        month: getPart('month'),
+        day: getPart('day'),
+        hour: getPart('hour'),
+    };
+}
+function getQuarterStartMonth(month) {
+    return Math.floor((month - 1) / 3) * 3 + 1;
+}
+function canGenerateMonthlyAnalysisNow(date = new Date()) {
+    const { day, hour } = getHongKongDateParts(date);
+    return day > 1 || (day === 1 && hour >= MONTHLY_MANUAL_RELEASE_HOUR_HKT);
+}
+function canGenerateQuarterlyReportNow(date = new Date()) {
+    const { month, day, hour } = getHongKongDateParts(date);
+    const quarterStartMonth = getQuarterStartMonth(month);
+    const isQuarterOpeningMonth = month === quarterStartMonth;
+    return !isQuarterOpeningMonth || day > 1 || (day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT);
+}
+async function hasExistingMonthlyAnalysis(title) {
+    const snapshot = await getFirebaseAdminDb()
+        .collection(SHARED_PORTFOLIO_COLLECTION)
+        .doc(SHARED_PORTFOLIO_DOC_ID)
+        .collection('analysisSessions')
+        .where('category', '==', 'asset_analysis')
+        .where('title', '==', title)
+        .limit(1)
+        .get();
+    return !snapshot.empty;
+}
+async function hasExistingQuarterlyReport(quarter) {
+    const snapshot = await getFirebaseAdminDb()
+        .collection(SHARED_PORTFOLIO_COLLECTION)
+        .doc(SHARED_PORTFOLIO_DOC_ID)
+        .collection('quarterlyReports')
+        .where('quarter', '==', quarter)
+        .limit(1)
+        .get();
+    return !snapshot.empty;
 }
 function getPreviousQuarterEndDate(date = new Date()) {
     const hkNow = new Date(new Intl.DateTimeFormat('en-CA', {
@@ -611,7 +666,7 @@ export async function runMonthlyAssetAnalysis() {
         assets,
         mode: 'monthly',
     });
-    const title = `${getHongKongYearMonthLabel()}資產分析`;
+    const title = `${getHongKongYearMonthLabel()}每月資產分析`;
     const comparison = compareSnapshots(currentSnapshot, previousMonthSnapshot ?? currentSnapshot);
     const question = buildMonthlyAnalysisQuestion(comparison);
     const conversationContext = [
@@ -639,6 +694,28 @@ export async function runMonthlyAssetAnalysis() {
         generatedAt: response.generatedAt,
         snapshotHash: response.snapshotHash,
         cacheKey: response.cacheKey,
+    };
+}
+export async function runManualMonthlyAssetAnalysis() {
+    const title = `${getHongKongYearMonthLabel()}每月資產分析`;
+    if (!canGenerateMonthlyAnalysisNow()) {
+        throw new ScheduledAnalysisError(`每月資產分析會喺每月 1 號香港時間 ${String(MONTHLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, '0')}:00 之後先可手動生成。`, 400);
+    }
+    if (await hasExistingMonthlyAnalysis(title)) {
+        return {
+            ok: true,
+            skipped: true,
+            category: 'asset_analysis',
+            title,
+            route: MANUAL_MONTHLY_ROUTE,
+            message: '今個月嘅每月資產分析已經生成，毋須重複建立。',
+        };
+    }
+    const result = await runMonthlyAssetAnalysis();
+    return {
+        ...result,
+        route: MANUAL_MONTHLY_ROUTE,
+        message: '已完成每月資產分析。',
     };
 }
 export async function runQuarterlyAssetReport() {
@@ -706,6 +783,28 @@ export async function runQuarterlyAssetReport() {
         snapshotHash: currentSnapshotHash || response.snapshotHash,
         cacheKey: response.cacheKey,
         previousQuarterSnapshotDate: previousQuarterSnapshot?.date ?? '',
+    };
+}
+export async function runManualQuarterlyAssetReport() {
+    const quarter = getHongKongQuarterLabel();
+    if (!canGenerateQuarterlyReportNow()) {
+        throw new ScheduledAnalysisError(`季度報告會喺季度首日香港時間 ${String(QUARTERLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, '0')}:00 之後先可手動生成。`, 400);
+    }
+    if (await hasExistingQuarterlyReport(quarter)) {
+        return {
+            ok: true,
+            skipped: true,
+            category: 'asset_report',
+            title: `${quarter}資產報告`,
+            route: MANUAL_QUARTERLY_ROUTE,
+            message: '今季季度報告已經生成，毋須重複建立。',
+        };
+    }
+    const result = await runQuarterlyAssetReport();
+    return {
+        ...result,
+        route: MANUAL_QUARTERLY_ROUTE,
+        message: '已完成季度報告。',
     };
 }
 export function getScheduledAnalysisErrorResponse(error, route) {

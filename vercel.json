@@ -22,14 +22,6 @@
     {
       "path": "/api/cron-daily-rescue",
       "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron-monthly-analysis",
-      "schedule": "0 0 1 * *"
-    },
-    {
-      "path": "/api/cron-quarterly-report",
-      "schedule": "0 1 1 1,4,7,10 *"
     }
   ]
 }
