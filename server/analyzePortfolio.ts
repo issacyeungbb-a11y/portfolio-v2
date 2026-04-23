@@ -12,6 +12,8 @@ import type {
 const ANALYZE_ROUTE = '/api/analyze' as const;
 const DEFAULT_GEMINI_ANALYZE_MODEL = 'gemini-3.1-pro-preview' as const;
 const DEFAULT_CLAUDE_ANALYZE_MODEL = 'claude-opus-4-7' as const;
+const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
+const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'] as const;
 
 const SUPPORTED_ANALYSIS_MODELS: Record<
   PortfolioAnalysisModel,
@@ -599,6 +601,8 @@ function getAnalysisRules() {
 - Do not invent historical returns, dividends, macro news, or external facts that are not present in the input.
 - If the data lacks price history or cash-flow history, mention that limitation briefly where relevant.
 - If structured comparison, trend, or market summary data is included in the user prompt, treat it as provided evidence and引用其中數字。
+- If a latest external search summary is included, treat it as current evidence for recent news, company updates, macro context, or other time-sensitive facts.
+- If external search is unavailable, say so briefly and fall back to the portfolio data already provided.
 - Keep the tone practical, calm, and beginner-friendly.
 - Prioritize the user's analysis instruction when deciding what to emphasize, but do not invent any external facts or unsupported claims.
 - Answer the user's instruction directly. Do not force your response into sections unless the user's question naturally calls for it.
@@ -606,7 +610,89 @@ function getAnalysisRules() {
   `.trim();
 }
 
-function buildAnalysisSystemPrompt(request: PortfolioAnalysisRequest) {
+function getSearchTargets(holdings: PortfolioAnalysisRequest['holdings']) {
+  return [...holdings]
+    .filter((holding) => holding.assetType !== 'cash')
+    .sort((left, right) => right.marketValue - left.marketValue)
+    .slice(0, 10);
+}
+
+function getSearchModelCandidates() {
+  const preferred = process.env.GROUNDED_GEMINI_MODEL?.trim() || PREFERRED_GROUNDED_SEARCH_MODEL;
+  return [preferred, ...GROUNDED_SEARCH_FALLBACK_MODELS.filter((model) => model !== preferred)];
+}
+
+function buildGeneralQuestionSearchPrompt(request: PortfolioAnalysisRequest) {
+  const searchTargets = getSearchTargets(request.holdings);
+  const tickers =
+    searchTargets.map((holding) => `${holding.ticker} (${holding.name})`).join('、') || '目前無主要持倉';
+  const question = request.analysisQuestion.trim() || '目前投資組合有咩最新外部資訊值得留意？';
+  const conversationContext = request.conversationContext.trim() || '目前未有前文對話。';
+
+  return [
+    '請使用 Google Search 幫我整理與投資組合相關的最新外部資訊，只輸出可直接提供給另一個 AI 的摘要文字，不要作投資分析或建議。',
+    '重點整理：',
+    '1. 與以下問題最相關的最新新聞、公告、政策、財報或市場背景',
+    '2. 若涉及持倉，整理與主要持倉最相關的近期外部資訊',
+    '3. 若有時間敏感資料，請盡量標明日期或時間範圍',
+    `使用者問題：${question}`,
+    `對話上下文：${conversationContext}`,
+    `主要持倉：${tickers}`,
+    '請用繁體中文，寫成簡潔、可引用的外部資料摘要。',
+  ].join('\n');
+}
+
+async function generateGeneralQuestionSearchSummary(request: PortfolioAnalysisRequest) {
+  try {
+    const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+    const prompt = buildGeneralQuestionSearchPrompt(request);
+    const candidates = getSearchModelCandidates();
+    let lastError: unknown = null;
+
+    for (const model of candidates) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            temperature: 0.2,
+            maxOutputTokens: 1500,
+            tools: [{ googleSearch: {} }],
+          },
+        });
+
+        const summary = response.text?.trim();
+        if (summary) {
+          return summary;
+        }
+
+        console.warn(
+          `[analyzePortfolio] Gemini grounding returned empty summary for model ${model}; trying fallback if available.`,
+        );
+      } catch (error) {
+        console.warn(
+          `[analyzePortfolio] Gemini grounding fallback from model ${model}: ${
+            error instanceof Error ? error.message : 'unknown_error'
+          }`,
+        );
+        lastError = error;
+      }
+    }
+
+    const fallbackMessage =
+      lastError instanceof Error ? lastError.message : 'grounding_failed';
+    return `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`;
+  } catch (error) {
+    const fallbackMessage = error instanceof Error ? error.message : 'grounding_unavailable';
+    console.warn('[analyzePortfolio] external search unavailable:', fallbackMessage);
+    return `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`;
+  }
+}
+
+function buildAnalysisSystemPrompt(
+  request: PortfolioAnalysisRequest,
+  externalSearchSummary = '',
+) {
   return `
 You are a portfolio analysis assistant.
 Analyze ONLY the portfolio snapshot provided below.
@@ -703,8 +789,18 @@ function buildRichContextSection(request: PortfolioAnalysisRequest) {
   ].join('\n\n');
 }
 
-function buildAnalysisUserPrompt(request: PortfolioAnalysisRequest) {
+function buildAnalysisUserPrompt(
+  request: PortfolioAnalysisRequest,
+  externalSearchSummary = '',
+) {
   const richContextSection = request.holdings.length > 0 ? buildRichContextSection(request) : '';
+  const externalSearchSection =
+    request.category === 'general_question' && externalSearchSummary.trim()
+      ? `
+Latest external information summary:
+${externalSearchSummary.trim()}
+      `.trim()
+      : '';
 
   return `
 Saved category background:
@@ -713,6 +809,7 @@ ${request.analysisBackground || '未設定額外背景。'}
 Conversation context:
 ${request.conversationContext || '目前未有前文對話。'}
 
+${externalSearchSection ? `${externalSearchSection}\n\n` : ''}
 User question / task:
 ${request.analysisQuestion || '請根據目前投資組合做一般分析。'}
 
@@ -731,8 +828,11 @@ ${richContextSection ? `${richContextSection}\n` : ''}
   `.trim();
 }
 
-export function buildPrompt(request: PortfolioAnalysisRequest) {
-  return `${buildAnalysisSystemPrompt(request)}\n\n${buildAnalysisUserPrompt(request)}`;
+export function buildPrompt(
+  request: PortfolioAnalysisRequest,
+  externalSearchSummary = '',
+) {
+  return `${buildAnalysisSystemPrompt(request, externalSearchSummary)}\n\n${buildAnalysisUserPrompt(request, externalSearchSummary)}`;
 }
 
 function getModelProvider(model: PortfolioAnalysisModel): PortfolioAnalysisProvider {
@@ -864,8 +964,12 @@ export async function runPortfolioAnalysisRequest(
   request: PortfolioAnalysisRequest,
   options?: { delivery?: 'manual' | 'scheduled'; maxTokens?: number },
 ): Promise<PortfolioAnalysisResponse> {
-  const systemPrompt = buildAnalysisSystemPrompt(request);
-  const userPrompt = buildAnalysisUserPrompt(request);
+  const externalSearchSummary =
+    request.category === 'general_question'
+      ? await generateGeneralQuestionSearchSummary(request)
+      : '';
+  const systemPrompt = buildAnalysisSystemPrompt(request, externalSearchSummary);
+  const userPrompt = buildAnalysisUserPrompt(request, externalSearchSummary);
   const provider = getModelProvider(request.analysisModel);
   const resolvedMaxTokens = options?.maxTokens ?? getDefaultAnalysisMaxTokens(request.category);
   const resolvedModel =

@@ -63,6 +63,11 @@ export async function createPortfolioAnalysisCacheKey(
   analysisQuestion: string,
   analysisBackground: string,
 ) {
+  const generalQuestionFreshnessBucket =
+    category === 'general_question'
+      ? Math.floor(Date.now() / (10 * 60 * 1000)).toString()
+      : '';
+
   const digest = await crypto.subtle.digest(
     'SHA-256',
     new TextEncoder().encode(
@@ -72,6 +77,7 @@ export async function createPortfolioAnalysisCacheKey(
         analysisModel,
         analysisQuestion: analysisQuestion.trim(),
         analysisBackground: analysisBackground.trim(),
+        generalQuestionFreshnessBucket,
       }),
     ),
   );
