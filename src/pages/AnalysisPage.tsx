@@ -216,14 +216,14 @@ function getHongKongQuarterLabel(date = new Date()) {
 
 function canGenerateMonthlyAnalysisNow(date = new Date()) {
   const { day, hour } = getHongKongDateParts(date);
-  return day > 1 || (day === 1 && hour >= 8);
+  return day === 1 && hour >= 8;
 }
 
 function canGenerateQuarterlyReportNow(date = new Date()) {
   const { month, day, hour } = getHongKongDateParts(date);
   const quarterStartMonth = Math.floor((month - 1) / 3) * 3 + 1;
   const isQuarterOpeningMonth = month === quarterStartMonth;
-  return !isQuarterOpeningMonth || day > 1 || (day === 1 && hour >= 9);
+  return isQuarterOpeningMonth && day === 1 && hour >= 9;
 }
 
 function createAnalysisTitle(question: string) {
@@ -919,6 +919,7 @@ export function AnalysisPage() {
     [reports, selectedReportId],
   );
   const latestReport = reports[0] ?? null;
+  const scheduledAnalysisModelLabel = getAnalysisModelLabel('claude-opus-4-7');
   const currentQuarterReport = useMemo(
     () => reports.find((report) => report.quarter === currentQuarterLabel) ?? null,
     [currentQuarterLabel, reports],
@@ -1399,35 +1400,6 @@ export function AnalysisPage() {
           <div className="analysis-page-heading">
             <h2>分析</h2>
           </div>
-
-          <div className="analysis-page-actions">
-            {!isQuarterlyCategory ? (
-              <label className="form-field analysis-inline-model">
-                <span>AI 模型</span>
-                <select
-                  value={selectedModel}
-                  onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
-                  disabled={isAnalyzing}
-                >
-                  {analysisModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label} · {option.hint}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <span className="chip chip-soft">季度自動生成</span>
-            )}
-
-            <button
-              className="analysis-settings-link text-link"
-              type="button"
-              onClick={() => setIsPromptSettingsOpen(true)}
-            >
-              設定
-            </button>
-          </div>
         </div>
 
         <div className="analysis-tab-grid" role="tablist" aria-label="分析分類">
@@ -1583,6 +1555,27 @@ export function AnalysisPage() {
               <h3>對話</h3>
             </div>
             <div className="analysis-thread-header-actions">
+              <label className="form-field analysis-inline-model">
+                <span>AI 模型</span>
+                <select
+                  value={selectedModel}
+                  onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
+                  disabled={isAnalyzing}
+                >
+                  {analysisModelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label} · {option.hint}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="analysis-settings-link text-link"
+                type="button"
+                onClick={() => setIsPromptSettingsOpen(true)}
+              >
+                設定
+              </button>
               <span className="chip chip-soft">{conversationArchiveSessions.length} 條對話</span>
               <button
                 className="button button-secondary"
@@ -1717,10 +1710,11 @@ export function AnalysisPage() {
             <div className="section-heading">
               <div>
                 <p className="eyebrow">Monthly</p>
-                <h2>{selectedMonthlyAnalysis?.title ?? '每月資產分析'}</h2>
-                <p className="table-hint">最新一份每月分析會顯示喺最上方，下面可翻查舊紀錄。</p>
+                <h2>每月資產分析</h2>
+                <p className="table-hint">只會喺每月 1 號香港時間上午 8:00 起開放手動生成。</p>
               </div>
               <div className="analysis-report-preview-footer">
+                <span className="chip chip-soft">使用模型：{scheduledAnalysisModelLabel}</span>
                 {canGenerateCurrentMonthAnalysis ? (
                   <button
                     className="button button-primary"
@@ -1730,54 +1724,19 @@ export function AnalysisPage() {
                   >
                     {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成本月分析'}
                   </button>
-                ) : selectedMonthlyAnalysis ? (
-                  <>
-                    <span className="chip chip-soft">
-                      {getAnalysisModelLabel(selectedMonthlyAnalysis.model)}
-                    </span>
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() =>
-                        setExpandedMonthlyAnalysisId((current) =>
-                          current === selectedMonthlyAnalysis.id ? null : selectedMonthlyAnalysis.id,
-                        )
-                      }
-                    >
-                      {expandedMonthlyAnalysisId === selectedMonthlyAnalysis.id ? '收合' : '展開'}
-                    </button>
-                  </>
                 ) : (
                   <span className="chip chip-soft">尚未生成</span>
                 )}
               </div>
             </div>
 
-            {selectedMonthlyAnalysis ? (
-              <div className="analysis-report-body">
-                <p className="table-hint">{formatGeneratedAt(selectedMonthlyAnalysis.updatedAt)}</p>
-                {expandedMonthlyAnalysisId === selectedMonthlyAnalysis.id ? (
-                  <div className="quarterly-report-body">
-                    {selectedMonthlyAnalysisSections.map((section, index) => (
-                      <section key={`${selectedMonthlyAnalysis.id}-${index}`} className="quarterly-report-section">
-                        {section.title ? <h3>{section.title}</h3> : null}
-                        {splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
-                          <p key={`${selectedMonthlyAnalysis.id}-${index}-${paragraphIndex}`}>{paragraph}</p>
-                        ))}
-                      </section>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="analysis-summary-text">{truncateText(selectedMonthlyAnalysis.result, 240)}</p>
-                )}
-              </div>
-            ) : (
-              <p className="status-message">
-                {canGenerateMonthlyAnalysisNow(currentTime)
-                  ? '今個月尚未生成每月資產分析。'
-                  : '每月資產分析會喺每月 1 號香港時間上午 8:00 之後先可以手動生成。'}
-              </p>
-            )}
+            <p className="status-message">
+              {canGenerateMonthlyAnalysisNow(currentTime)
+                ? currentMonthAnalysis
+                  ? '今個月嘅每月資產分析已經生成。'
+                  : '已到生成時段，可以手動生成今個月嘅每月資產分析。'
+                : '未到生成時段，按鈕唔會顯示。'}
+            </p>
           </section>
 
           <section className="card quarterly-list-card">
@@ -1800,7 +1759,8 @@ export function AnalysisPage() {
             ) : (
               <div className="quarterly-report-list">
                 {monthlyAnalysisSessions.map((session) => {
-                  const isSelected = session.id === selectedMonthlyAnalysis?.id;
+                  const isSelected = session.id === selectedMonthlyAnalysisId;
+                  const isExpanded = expandedMonthlyAnalysisId === session.id;
                   return (
                     <article
                       key={session.id}
@@ -1820,6 +1780,13 @@ export function AnalysisPage() {
                         </div>
                         <span className="table-hint">{getAnalysisModelLabel(session.model)}</span>
                       </button>
+                      {isExpanded ? (
+                        <div className="analysis-report-body">
+                          <p className="analysis-summary-text" style={{ whiteSpace: 'pre-wrap' }}>
+                            {session.result}
+                          </p>
+                        </div>
+                      ) : null}
                     </article>
                   );
                 })}
@@ -1836,6 +1803,7 @@ export function AnalysisPage() {
               <div>
                 <p className="eyebrow">最新報告</p>
                 <h2>{latestReport?.quarter ?? '季度報告'}</h2>
+                <p className="table-hint">使用模型：{scheduledAnalysisModelLabel}</p>
               </div>
               {canGenerateCurrentQuarterReport ? (
                 <button
