@@ -8,8 +8,6 @@ const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 const MONTHLY_ROUTE = '/api/cron-monthly-analysis';
 const QUARTERLY_ROUTE = '/api/cron-quarterly-report';
-const MANUAL_MONTHLY_ROUTE = '/api/manual-monthly-analysis';
-const MANUAL_QUARTERLY_ROUTE = '/api/manual-quarterly-report';
 const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-7';
 const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash';
 const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'];
@@ -707,14 +705,14 @@ export async function runManualMonthlyAssetAnalysis() {
             skipped: true,
             category: 'asset_analysis',
             title,
-            route: MANUAL_MONTHLY_ROUTE,
+            route: MONTHLY_ROUTE,
             message: '今個月嘅每月資產分析已經生成，毋須重複建立。',
         };
     }
     const result = await runMonthlyAssetAnalysis();
     return {
         ...result,
-        route: MANUAL_MONTHLY_ROUTE,
+        route: MONTHLY_ROUTE,
         message: '已完成每月資產分析。',
     };
 }
@@ -796,14 +794,14 @@ export async function runManualQuarterlyAssetReport() {
             skipped: true,
             category: 'asset_report',
             title: `${quarter}資產報告`,
-            route: MANUAL_QUARTERLY_ROUTE,
+            route: QUARTERLY_ROUTE,
             message: '今季季度報告已經生成，毋須重複建立。',
         };
     }
     const result = await runQuarterlyAssetReport();
     return {
         ...result,
-        route: MANUAL_QUARTERLY_ROUTE,
+        route: QUARTERLY_ROUTE,
         message: '已完成季度報告。',
     };
 }
