@@ -212,19 +212,6 @@ function formatConversationContext(turns: ConversationTurn[]) {
     .join('\n\n');
 }
 
-function getPromptSettingUsage(category: AnalysisCategory) {
-  switch (category) {
-    case 'general_question':
-      return '會用喺「一般問題」對話，同埋季度報告追問。';
-    case 'asset_analysis':
-      return '會用喺「資產分析」月度自動生成。';
-    case 'asset_report':
-      return '會用喺「季度報告」自動生成。';
-    default:
-      return '';
-  }
-}
-
 function buildQuarterlyReportContext(report: QuarterlyReport) {
   return [
     `季度報告：${report.quarter}`,
@@ -603,7 +590,6 @@ export function AnalysisPage() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedMonthlyAnalysisId, setSelectedMonthlyAnalysisId] = useState<string | null>(null);
   const [expandedMonthlyAnalysisId, setExpandedMonthlyAnalysisId] = useState<string | null>(null);
-  const [selectedSettingsCategory, setSelectedSettingsCategory] = useState<AnalysisCategory>('general_question');
   const [isPromptSettingsOpen, setIsPromptSettingsOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(10);
   const [generalQuestionSeedContext, setGeneralQuestionSeedContext] = useState<string>('');
@@ -643,13 +629,6 @@ export function AnalysisPage() {
       analysisCategoryOptions[0],
     [selectedCategory],
   );
-  const selectedSettingsOption = useMemo(
-    () =>
-      analysisCategoryOptions.find((option) => option.value === selectedSettingsCategory) ??
-      analysisCategoryOptions[0],
-    [selectedSettingsCategory],
-  );
-
   useEffect(() => {
     setLocalAnalysis(null);
     setAnalysisError(null);
@@ -1236,9 +1215,9 @@ export function AnalysisPage() {
 
     try {
       await persistSettings({
-        asset_analysis: promptDrafts.asset_analysis,
+        asset_analysis: savedPromptSettings.asset_analysis,
         general_question: promptDrafts.general_question,
-        asset_report: promptDrafts.asset_report,
+        asset_report: savedPromptSettings.asset_report,
       });
       setPromptSettingsSuccess('設定已儲存。');
     } catch (error) {
@@ -1319,10 +1298,7 @@ export function AnalysisPage() {
             <button
               className="analysis-settings-link text-link"
               type="button"
-              onClick={() => {
-                setSelectedSettingsCategory(selectedCategory);
-                setIsPromptSettingsOpen(true);
-              }}
+              onClick={() => setIsPromptSettingsOpen(true)}
             >
               設定
             </button>
@@ -1370,38 +1346,25 @@ export function AnalysisPage() {
               </button>
             </div>
 
-            <div className="trends-range-row" role="tablist" aria-label="設定類別">
-              {analysisCategoryOptions.map((option) => (
-                <button
-                  key={`prompt-${option.value}`}
-                  className={selectedSettingsCategory === option.value ? 'filter-chip active' : 'filter-chip'}
-                  type="button"
-                  onClick={() => setSelectedSettingsCategory(option.value)}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-
             <div className="analysis-category-intro">
-              <h2>{selectedSettingsOption.label}</h2>
+              <h2>一般問題</h2>
               <p className="status-message">
-                {selectedSettingsCategory === 'asset_report'
-                  ? '設定季度報告生成時使用嘅固定背景。'
-                  : '設定呢個分類每次分析都會帶入嘅固定背景。'}
+                只可以喺網頁設定一般問題嘅背景資料。
               </p>
-              <p className="table-hint">{getPromptSettingUsage(selectedSettingsCategory)}</p>
+              <p className="table-hint">
+                資產分析同季度報告會沿用內部設定，唔會喺呢個頁面提供修改。
+              </p>
             </div>
 
             <div className="asset-form-grid">
               <label className="form-field" style={{ gridColumn: '1 / -1' }}>
                 <span>背景內容</span>
                 <textarea
-                  value={promptDrafts[selectedSettingsCategory]}
+                  value={promptDrafts.general_question}
                   onChange={(event) =>
                     setPromptDrafts((current) => ({
                       ...current,
-                      [selectedSettingsCategory]: event.target.value,
+                      general_question: event.target.value,
                     }))
                   }
                   placeholder="輸入想固定帶入嘅分析背景。"
@@ -1411,7 +1374,7 @@ export function AnalysisPage() {
               </label>
             </div>
 
-            {selectedSettingsCategory === 'asset_analysis' && selectedCategory === 'asset_analysis' ? (
+            {selectedCategory === 'asset_analysis' ? (
               <div className="analysis-advanced-panel">
                 <div className="section-heading">
                   <div>
