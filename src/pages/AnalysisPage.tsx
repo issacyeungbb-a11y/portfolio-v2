@@ -216,14 +216,24 @@ function getHongKongQuarterLabel(date = new Date()) {
 
 function canGenerateMonthlyAnalysisNow(date = new Date()) {
   const { day, hour } = getHongKongDateParts(date);
-  return day === 1 && hour >= 8;
+  return day > 1 || (day === 1 && hour >= 8);
 }
 
 function canGenerateQuarterlyReportNow(date = new Date()) {
   const { month, day, hour } = getHongKongDateParts(date);
   const quarterStartMonth = Math.floor((month - 1) / 3) * 3 + 1;
   const isQuarterOpeningMonth = month === quarterStartMonth;
-  return isQuarterOpeningMonth && day === 1 && hour >= 9;
+  return !isQuarterOpeningMonth || day > 1 || (day === 1 && hour >= 9);
+}
+
+function isMonthlyAnalysisRecord(title: string) {
+  const normalized = title.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  return /^\d{4}年.+(每月)?資產分析$/.test(normalized);
 }
 
 function createAnalysisTitle(question: string) {
@@ -846,7 +856,10 @@ export function AnalysisPage() {
   const monthlyAnalysisSessions = useMemo(
     () =>
       analysisSessions
-        .filter((session) => session.category === 'asset_analysis')
+        .filter(
+          (session) =>
+            session.category === 'asset_analysis' && isMonthlyAnalysisRecord(session.title ?? ''),
+        )
         .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
     [analysisSessions],
   );
@@ -938,10 +951,6 @@ export function AnalysisPage() {
   const selectedSections = useMemo(
     () => splitReportIntoSections(selectedReport?.report ?? ''),
     [selectedReport],
-  );
-  const selectedMonthlyAnalysisSections = useMemo(
-    () => splitReportIntoSections(selectedMonthlyAnalysis?.result ?? ''),
-    [selectedMonthlyAnalysis],
   );
   const activeAnalysis = localAnalysis ?? cachedAnalysis;
   const enrichmentWarning =
