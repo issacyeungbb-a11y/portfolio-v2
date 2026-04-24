@@ -216,14 +216,14 @@ function getHongKongQuarterLabel(date = new Date()) {
 
 function canGenerateMonthlyAnalysisNow(date = new Date()) {
   const { day, hour } = getHongKongDateParts(date);
-  return day > 1 || (day === 1 && hour >= 8);
+  return day === 1 && hour >= 8;
 }
 
 function canGenerateQuarterlyReportNow(date = new Date()) {
   const { month, day, hour } = getHongKongDateParts(date);
   const quarterStartMonth = Math.floor((month - 1) / 3) * 3 + 1;
   const isQuarterOpeningMonth = month === quarterStartMonth;
-  return !isQuarterOpeningMonth || day > 1 || (day === 1 && hour >= 9);
+  return isQuarterOpeningMonth && day === 1 && hour >= 9;
 }
 
 function isMonthlyAnalysisRecord(title: string) {
@@ -1744,7 +1744,7 @@ export function AnalysisPage() {
                 ? currentMonthAnalysis
                   ? '今個月嘅每月資產分析已經生成。'
                   : '已到生成時段，可以手動生成今個月嘅每月資產分析。'
-                : '未到生成時段，按鈕唔會顯示。'}
+                : '未到每月 1 號香港時間上午 8:00，按鈕唔會顯示。'}
             </p>
           </section>
 
@@ -1760,7 +1760,7 @@ export function AnalysisPage() {
             </div>
 
             <p className="status-message">
-              改為手動生成；到每月 1 號香港時間上午 8:00 後，如本月未生成，先會出現按鈕。
+              改為手動生成；只會喺每月 1 號香港時間上午 8:00 後出現按鈕。
             </p>
 
             {monthlyAnalysisSessions.length === 0 ? (
@@ -1877,7 +1877,7 @@ export function AnalysisPage() {
             </div>
 
             <p className="status-message">
-              改為手動生成；到季度首日香港時間上午 9:00 後，如今季未生成，先會出現按鈕。
+              改為手動生成；只會喺 1 月 1 日、4 月 1 日、7 月 1 日、10 月 1 日香港時間上午 9:00 後出現按鈕。
             </p>
 
             {reportsStatus === 'ready' && reports.length === 0 ? (
