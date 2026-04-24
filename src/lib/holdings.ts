@@ -6,13 +6,25 @@ import type {
 } from '../types/portfolio';
 import { convertCurrency, normalizeCurrencyCode } from './currency';
 
-const bucketMeta: Record<AllocationBucketKey, { label: string; color: string }> = {
+export const allocationBucketMeta: Record<AllocationBucketKey, { label: string; color: string }> = {
   stock: { label: '股票', color: '#0f766e' },
   etf: { label: 'ETF', color: '#d97706' },
   bond: { label: '債券', color: '#2563eb' },
   crypto: { label: '加密貨幣', color: '#7c3aed' },
   cash: { label: '現金', color: '#4b5563' },
 };
+
+export const allocationBucketOrder: AllocationBucketKey[] = [
+  'stock',
+  'etf',
+  'bond',
+  'crypto',
+  'cash',
+];
+
+export function getAllocationBucketMeta(key: AllocationBucketKey) {
+  return allocationBucketMeta[key];
+}
 
 export function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
   return entry.type === 'withdrawal' ? -Math.abs(entry.amount) : entry.amount;
@@ -61,8 +73,8 @@ export function buildAllocationSlices(holdingsList: Holding[]): AllocationSlice[
 
       return {
         key,
-        label: bucketMeta[key].label,
-        color: bucketMeta[key].color,
+        label: allocationBucketMeta[key].label,
+        color: allocationBucketMeta[key].color,
         value: totalHKD === 0 ? 0 : (totalValueHKD / totalHKD) * 100,
         totalValueHKD,
         totalValueUSD,

@@ -13,6 +13,9 @@
   "include": [
     "vite.config.ts",
     "src/lib/api/mockFunctionResponses.ts",
+    "src/lib/currency.ts",
+    "src/lib/holdings.ts",
+    "src/lib/portfolio/reportAllocationSummary.ts",
     "server/**/*.ts",
     "api/**/*.ts",
     "src/types/**/*.ts"

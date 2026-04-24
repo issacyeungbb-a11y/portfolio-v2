@@ -17,6 +17,7 @@ import {
   type AnalysisThreadTurn,
 } from '../lib/firebase/analysisThreads';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
+import { ReportAllocationSummaryCard } from '../components/portfolio/ReportAllocationSummaryCard';
 import {
   getQuarterlyReportsErrorMessage,
   subscribeToQuarterlyReports,
@@ -69,6 +70,12 @@ function getLegacyConversationSessionId(value: string) {
 }
 
 const REPORT_SECTION_TITLES = [
+  '【本月一句總結】',
+  '【本月資產變化摘要】',
+  '【組合健康檢查】',
+  '【三個重點觀察】',
+  '【下月行動建議】',
+  '【管理層摘要】',
   '【季度總覽】',
   '【資產配置分佈】',
   '【幣別曝險】',
@@ -399,6 +406,134 @@ function addTextPdfFooter(pdf: jsPDF, fontFamily: string) {
   }
 }
 
+function parseHexColor(hexColor: string) {
+  const normalized = hexColor.trim().replace('#', '');
+
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return { r: 75, g: 85, b: 99 };
+  }
+
+  return {
+    r: Number.parseInt(normalized.slice(0, 2), 16),
+    g: Number.parseInt(normalized.slice(2, 4), 16),
+    b: Number.parseInt(normalized.slice(4, 6), 16),
+  };
+}
+
+function formatPdfPercentage(value: number) {
+  return `${value.toFixed(1)}%`;
+}
+
+function formatPdfDelta(value: number) {
+  if (Math.abs(value) < 0.05) {
+    return '0.0pp';
+  }
+
+  return `${value > 0 ? '+' : ''}${value.toFixed(1)}pp`;
+}
+
+function getPdfComparisonText(report: QuarterlyReport) {
+  const summary = report.allocationSummary;
+
+  if (summary?.comparisonLabel && summary.deltas?.length) {
+    return `${summary.comparisonLabel}變化`;
+  }
+
+  return '未有可比較的上期快照';
+}
+
+function renderDirectPdfAllocationSummary(params: {
+  report: QuarterlyReport;
+  pdf: jsPDF;
+  fontFamily: string;
+  cursorY: number;
+  margin: number;
+  contentWidth: number;
+  ensureSpace: (requiredHeight: number) => void;
+}) {
+  const { report, pdf, fontFamily, margin, contentWidth, ensureSpace } = params;
+  const summary = report.allocationSummary;
+  let cursorY = params.cursorY;
+
+  ensureSpace(40);
+  pdf.setFont(fontFamily, 'bold');
+  pdf.setFontSize(12);
+  pdf.setTextColor(29, 26, 23);
+  pdf.text('資產分佈總覽', margin, cursorY);
+  cursorY += 7;
+
+  pdf.setFont(fontFamily, 'normal');
+  pdf.setFontSize(9);
+  pdf.setTextColor(98, 90, 81);
+
+  if (!summary) {
+    pdf.text('此報告未保存資產分佈快照', margin, cursorY);
+    cursorY += 10;
+    return cursorY;
+  }
+
+  pdf.text(`截至 ${summary.asOfDate || '未提供日期'} · ${getPdfComparisonText(report)}`, margin, cursorY);
+  cursorY += 7;
+
+  pdf.setFillColor(244, 239, 232);
+  pdf.roundedRect(margin, cursorY, contentWidth, 7, 3.5, 3.5, 'F');
+  let barX = margin;
+
+  summary.slices
+    .filter((slice) => slice.percentage > 0)
+    .forEach((slice) => {
+      const width = Math.max(1.5, (slice.percentage / 100) * contentWidth);
+      const color = parseHexColor(slice.color);
+      pdf.setFillColor(color.r, color.g, color.b);
+      pdf.rect(barX, cursorY, Math.min(width, margin + contentWidth - barX), 7, 'F');
+      barX += width;
+    });
+  cursorY += 13;
+
+  summary.slices.forEach((slice) => {
+    ensureSpace(6);
+    const color = parseHexColor(slice.color);
+    const delta = summary.deltas?.find((item) => item.key === slice.key);
+    pdf.setFillColor(color.r, color.g, color.b);
+    pdf.rect(margin, cursorY - 3.2, 3, 3, 'F');
+    pdf.setTextColor(29, 26, 23);
+    pdf.text(
+      `${slice.label} ${formatPdfPercentage(slice.percentage)}${delta ? `（${formatPdfDelta(delta.deltaPercentagePoints)}）` : ''}`,
+      margin + 5,
+      cursorY,
+    );
+    cursorY += 5.2;
+  });
+
+  ensureSpace(18);
+  pdf.setFont(fontFamily, 'bold');
+  pdf.setFontSize(9);
+  pdf.setTextColor(15, 118, 110);
+  pdf.text(`配置：${summary.styleTag}`, margin, cursorY);
+  cursorY += 5.2;
+
+  pdf.setFont(fontFamily, 'normal');
+  pdf.setTextColor(98, 90, 81);
+  const tagLines = pdf.splitTextToSize(`提示：${summary.warningTags.join('、') || '無'}`, contentWidth);
+  tagLines.forEach((line: string) => {
+    ensureSpace(5);
+    pdf.text(line, margin, cursorY);
+    cursorY += 4.8;
+  });
+
+  if (summary.summarySentence) {
+    const sentenceLines = pdf.splitTextToSize(summary.summarySentence, contentWidth);
+    sentenceLines.forEach((line: string) => {
+      ensureSpace(5);
+      pdf.text(line, margin, cursorY);
+      cursorY += 4.8;
+    });
+  }
+
+  cursorY += 4;
+  return cursorY;
+}
+
 function renderDirectTextPdf(report: QuarterlyReport, pdf: jsPDF, fontFamily: string) {
   const pageHeight = 297;
   const margin = 20;
@@ -427,6 +562,16 @@ function renderDirectTextPdf(report: QuarterlyReport, pdf: jsPDF, fontFamily: st
   pdf.setDrawColor(210, 198, 184);
   pdf.line(margin, cursorY, margin + contentWidth, cursorY);
   cursorY += 8;
+
+  cursorY = renderDirectPdfAllocationSummary({
+    report,
+    pdf,
+    fontFamily,
+    cursorY,
+    margin,
+    contentWidth,
+    ensureSpace,
+  });
 
   const sections = splitReportIntoSections(report.report);
 
@@ -515,6 +660,83 @@ function wrapCanvasText(
   return lines;
 }
 
+function renderCanvasAllocationSummary(params: {
+  report: QuarterlyReport;
+  context: CanvasRenderingContext2D;
+  cursorY: number;
+  marginPx: number;
+  contentWidthPx: number;
+}) {
+  const { report, context, marginPx, contentWidthPx } = params;
+  const summary = report.allocationSummary;
+  let cursorY = params.cursorY;
+
+  context.fillStyle = '#1d1a17';
+  context.font = '700 30px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  context.fillText('資產分佈總覽', marginPx, cursorY);
+  cursorY += 44;
+
+  context.font = '400 22px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  context.fillStyle = '#625a51';
+
+  if (!summary) {
+    context.fillText('此報告未保存資產分佈快照', marginPx, cursorY);
+    return cursorY + 48;
+  }
+
+  context.fillText(`截至 ${summary.asOfDate || '未提供日期'} · ${getPdfComparisonText(report)}`, marginPx, cursorY);
+  cursorY += 42;
+
+  context.fillStyle = '#f4efe8';
+  context.fillRect(marginPx, cursorY, contentWidthPx, 22);
+  let barX = marginPx;
+
+  summary.slices
+    .filter((slice) => slice.percentage > 0)
+    .forEach((slice) => {
+      const width = Math.max(8, (slice.percentage / 100) * contentWidthPx);
+      context.fillStyle = slice.color;
+      context.fillRect(barX, cursorY, Math.min(width, marginPx + contentWidthPx - barX), 22);
+      barX += width;
+    });
+  cursorY += 48;
+
+  context.font = '400 22px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  summary.slices.forEach((slice) => {
+    const delta = summary.deltas?.find((item) => item.key === slice.key);
+    context.fillStyle = slice.color;
+    context.fillRect(marginPx, cursorY + 5, 14, 14);
+    context.fillStyle = '#1d1a17';
+    context.fillText(
+      `${slice.label} ${formatPdfPercentage(slice.percentage)}${delta ? `（${formatPdfDelta(delta.deltaPercentagePoints)}）` : ''}`,
+      marginPx + 24,
+      cursorY,
+    );
+    cursorY += 34;
+  });
+
+  context.fillStyle = '#0f766e';
+  context.font = '700 22px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  context.fillText(`配置：${summary.styleTag}`, marginPx, cursorY);
+  cursorY += 34;
+
+  context.fillStyle = '#625a51';
+  context.font = '400 21px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+  const infoLines = [
+    ...wrapCanvasText(context, `提示：${summary.warningTags.join('、') || '無'}`, contentWidthPx),
+    ...(summary.summarySentence
+      ? wrapCanvasText(context, summary.summarySentence, contentWidthPx)
+      : []),
+  ];
+
+  infoLines.forEach((line) => {
+    context.fillText(line, marginPx, cursorY);
+    cursorY += 31;
+  });
+
+  return cursorY + 18;
+}
+
 function renderCanvasFallbackPdf(report: QuarterlyReport) {
   const pdf = new jsPDF({
     orientation: 'portrait',
@@ -553,6 +775,14 @@ function renderCanvasFallbackPdf(report: QuarterlyReport) {
   page.context.lineTo(pageWidthPx - marginPx, cursorY);
   page.context.stroke();
   cursorY += 48;
+
+  cursorY = renderCanvasAllocationSummary({
+    report,
+    context: page.context,
+    cursorY,
+    marginPx,
+    contentWidthPx,
+  });
 
   const sections = splitReportIntoSections(report.report);
 
@@ -1791,9 +2021,20 @@ export function AnalysisPage() {
                       </button>
                       {isExpanded ? (
                         <div className="analysis-report-body">
-                          <p className="analysis-summary-text" style={{ whiteSpace: 'pre-wrap' }}>
-                            {session.result}
-                          </p>
+                          <ReportAllocationSummaryCard summary={session.allocationSummary} />
+                          <div className="quarterly-report-body">
+                            {splitReportIntoSections(session.result).map((section, sectionIndex) => (
+                              <section
+                                key={`${session.id}-${sectionIndex}`}
+                                className="quarterly-report-section"
+                              >
+                                {section.title ? <h3>{section.title}</h3> : null}
+                                {splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
+                                  <p key={`${session.id}-${sectionIndex}-${paragraphIndex}`}>{paragraph}</p>
+                                ))}
+                              </section>
+                            ))}
+                          </div>
                         </div>
                       ) : null}
                     </article>
@@ -1944,6 +2185,8 @@ export function AnalysisPage() {
                   <p className="table-hint">{formatGeneratedAt(selectedReport.generatedAt)}</p>
                 </div>
               </div>
+
+              <ReportAllocationSummaryCard summary={selectedReport.allocationSummary} />
 
               <div className="quarterly-report-body">
                 {selectedSections.map((section, index) => (

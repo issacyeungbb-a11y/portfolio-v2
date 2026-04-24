@@ -3,6 +3,8 @@ export type AccountSource = 'Futu' | 'IB' | 'Crypto' | 'Other';
 export type PerformanceRange = '7d' | '30d' | '6m' | '1y';
 export type DisplayCurrency = 'HKD' | 'USD' | 'JPY';
 export type AllocationBucketKey = AssetType;
+export type ReportAllocationBasis = 'monthly' | 'quarterly';
+export type ReportAllocationStyleTag = '平衡型' | '進攻型' | '防守型' | '高集中型';
 export type InsightTone = 'positive' | 'neutral' | 'caution';
 export type ImportStatus = 'completed' | 'processing' | 'review';
 export type AccountCashFlowType = 'deposit' | 'withdrawal' | 'adjustment';
@@ -124,6 +126,33 @@ export interface AllocationSlice {
   holdings: Holding[];
 }
 
+export interface ReportAllocationSliceSummary {
+  key: AllocationBucketKey;
+  label: string;
+  color: string;
+  percentage: number;
+  totalValueHKD: number;
+  totalValueUSD: number;
+}
+
+export interface ReportAllocationDeltaSummary {
+  key: AllocationBucketKey;
+  deltaPercentagePoints: number;
+}
+
+export interface ReportAllocationSummary {
+  asOfDate: string;
+  basis: ReportAllocationBasis;
+  comparisonLabel?: string;
+  styleTag: ReportAllocationStyleTag;
+  warningTags: string[];
+  dominantBucketKey?: AllocationBucketKey;
+  slices: ReportAllocationSliceSummary[];
+  deltas?: ReportAllocationDeltaSummary[];
+  totalValueHKD?: number;
+  summarySentence?: string;
+}
+
 export interface Insight {
   id: string;
   title: string;
@@ -150,6 +179,7 @@ export interface AnalysisSession {
   provider?: 'google' | 'anthropic';
   snapshotHash?: string;
   delivery?: 'manual' | 'scheduled';
+  allocationSummary?: ReportAllocationSummary;
   updatedAt: string;
   createdAt?: string;
 }

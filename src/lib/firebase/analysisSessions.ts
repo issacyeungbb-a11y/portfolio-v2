@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 
 import type { AnalysisSession } from '../../types/portfolio';
+import { normalizeReportAllocationSummary } from '../portfolio/reportAllocationSummary';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { getSharedAnalysisSessionsCollectionRef } from './sharedPortfolio';
 
@@ -40,6 +41,7 @@ function normalizeAnalysisSession(
     provider: value.provider === 'anthropic' ? 'anthropic' : 'google',
     snapshotHash: typeof value.snapshotHash === 'string' ? value.snapshotHash : '',
     delivery: value.delivery === 'scheduled' ? 'scheduled' : 'manual',
+    allocationSummary: normalizeReportAllocationSummary(value.allocationSummary),
     updatedAt: formatTimestamp(value.updatedAt),
     createdAt: formatTimestamp(value.createdAt),
   };
@@ -106,6 +108,7 @@ export async function createAnalysisSession(
     provider: entry.provider ?? 'google',
     snapshotHash: entry.snapshotHash ?? '',
     delivery: entry.delivery === 'scheduled' ? 'scheduled' : 'manual',
+    ...(entry.allocationSummary ? { allocationSummary: entry.allocationSummary } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });

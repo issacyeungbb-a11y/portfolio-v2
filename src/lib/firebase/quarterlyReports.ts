@@ -8,6 +8,8 @@ import {
   updateDoc,
 } from 'firebase/firestore';
 
+import type { ReportAllocationSummary } from '../../types/portfolio';
+import { normalizeReportAllocationSummary } from '../portfolio/reportAllocationSummary';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { getSharedQuarterlyReportsCollectionRef } from './sharedPortfolio';
 
@@ -21,6 +23,7 @@ export interface QuarterlyReport {
   provider: string;
   currentSnapshotHash?: string;
   previousSnapshotDate?: string;
+  allocationSummary?: ReportAllocationSummary;
   pdfUrl?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -58,6 +61,7 @@ function normalizeQuarterlyReport(
       typeof value.previousSnapshotDate === 'string' && value.previousSnapshotDate.trim()
         ? value.previousSnapshotDate
         : undefined,
+    allocationSummary: normalizeReportAllocationSummary(value.allocationSummary),
     pdfUrl: typeof value.pdfUrl === 'string' && value.pdfUrl.trim() ? value.pdfUrl : undefined,
     createdAt: formatTimestamp(value.createdAt),
     updatedAt: formatTimestamp(value.updatedAt),

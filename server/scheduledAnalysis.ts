@@ -15,10 +15,12 @@ import {
   type SnapshotComparisonSource,
 } from './snapshotComparison.js';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+import { buildReportAllocationSummaryFromHoldings } from '../src/lib/portfolio/reportAllocationSummary.js';
 import type {
   AnalysisCategory,
   AnalysisPromptSettings,
   AssetType,
+  ReportAllocationSummary,
   SnapshotHoldingPoint,
 } from '../src/types/portfolio';
 import type {
@@ -183,49 +185,46 @@ async function hasExistingQuarterlyReport(quarter: string) {
 }
 
 function getPreviousQuarterEndDate(date = new Date()) {
-  const hkNow = new Date(
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Hong_Kong',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(date),
-  );
-  const month = hkNow.getMonth() + 1;
-  const year = hkNow.getFullYear();
-  const previousQuarterEndMonth = month === 3 ? 12 : month - 3;
-  const previousQuarterYear = month === 3 ? year - 1 : year;
-  const endDay = new Date(previousQuarterYear, previousQuarterEndMonth, 0).getDate();
+  const { year, month } = getHongKongDateParts(date);
+  const quarterStartMonth = getQuarterStartMonth(month);
+  const previousQuarterEnd = new Date(year, quarterStartMonth - 1, 0);
 
-  return `${previousQuarterYear}-${String(previousQuarterEndMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
+  return [
+    previousQuarterEnd.getFullYear(),
+    String(previousQuarterEnd.getMonth() + 1).padStart(2, '0'),
+    String(previousQuarterEnd.getDate()).padStart(2, '0'),
+  ].join('-');
 }
 
 function getDefaultServerPromptSettings(): AnalysisPromptSettings {
   return {
     asset_analysis: [
-      '你是專業投資組合分析助手，請以審慎、客觀、具體的方式分析我的資產配置。',
-      '分析時請優先指出：',
-      '1. 最值得留意的集中風險',
-      '2. 資產配置是否失衡',
-      '3. 幣別曝險是否過度集中',
-      '4. 現金比例是否過高或過低',
-      '5. 哪些持倉對總體波動影響最大',
-      '請避免空泛投資常識，每個觀察盡量引用我組合內的具體持倉、比重、帳戶或金額。',
-      '輸出時請先給我最重要的 3 點判斷，再補充原因與可執行的下一步建議。',
-      '如果資料不足以支持某結論，要明確指出限制，不要猜測外部市場消息。',
+      '你是每月資產分析助手，定位是監察、告警、下月行動。',
+      '系統會在正文前顯示結構化「資產分佈總覽」圖像卡；你不要生成圖表、表格或圖表資料，也不要逐項重覆卡片上的百分比分布。',
+      '你只需要承接系統提供的分佈判讀、持倉與快照對比，寫出短而準的文字結論。',
+      '固定輸出欄目，並按順序使用以下標題：',
+      '1. 【本月一句總結】',
+      '2. 【本月資產變化摘要】',
+      '3. 【組合健康檢查】',
+      '4. 【三個重點觀察】',
+      '5. 【下月行動建議】',
+      '每段要引用可核對的持倉、變化或風險；如果資料不足，要直說，不要猜測外部市場消息。',
     ].join('\n'),
     general_question: '你是投資組合對話助手，請直接回答我當次提出的問題。',
     asset_report: [
-      '你是資產報告撰寫助手，請將我的投資組合整理成一份專業、可追蹤、方便回顧的資產報告。',
-      '報告應優先包含：',
-      '1. 組合總覽',
-      '2. 重點持倉與比重',
-      '3. 主要風險與集中度',
-      '4. 近期變化或值得跟進項目',
-      '5. 下一步觀察重點',
-      '寫作風格要整齊、穩重、像交給自己日後翻查的投資筆記。',
-      '避免純粹重覆持倉清單，要整理出重點與結論；但同時不要虛構新聞、估值或宏觀資料。',
-      '如果可行，請把內容分成短段落，令我容易直接閱讀或複製保存。',
+      '你是季度資產報告撰寫助手，定位是季度總結、歸因、正式歸檔。',
+      '系統會在正文前顯示結構化「資產分佈總覽」圖像卡；你不要生成圖表、表格或圖表資料，也不要逐項重覆卡片上的百分比分布。',
+      '你只需要承接系統提供的分佈判讀、季度對比、趨勢與外部背景，寫成可歸檔的正式文字。',
+      '固定輸出欄目，並按順序使用以下標題：',
+      '1. 【管理層摘要】',
+      '2. 【季度總覽】',
+      '3. 【資產配置分佈】',
+      '4. 【幣別曝險】',
+      '5. 【重點持倉分析】',
+      '6. 【季度對比摘要】',
+      '7. 【主要風險與集中度】',
+      '8. 【下季觀察重點】',
+      '寫作要短而準，避免空泛投資常識；如果資料不足，要直說。',
     ].join('\n'),
   };
 }
@@ -553,7 +552,7 @@ function buildSnapshotFromAssets(
   };
 }
 
-async function readSnapshotBeforeOrLatest(targetDate: string) {
+async function readSnapshotOnOrBefore(targetDate: string) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
   const snapshotBefore = await portfolioRef
@@ -567,17 +566,7 @@ async function readSnapshotBeforeOrLatest(targetDate: string) {
     return normalizeSnapshotDocument(snapshotBefore.docs[0].data() as Record<string, unknown>);
   }
 
-  const fallback = await portfolioRef
-    .collection('portfolioSnapshots')
-    .orderBy('date', 'desc')
-    .limit(1)
-    .get();
-
-  if (fallback.empty) {
-    return null;
-  }
-
-  return normalizeSnapshotDocument(fallback.docs[0].data() as Record<string, unknown>);
+  return null;
 }
 
 async function readRecentSnapshotHistory(limitCount = 120) {
@@ -601,21 +590,18 @@ function getMonthKey(value: string) {
 
 async function readPreviousQuarterSnapshot() {
   const previousQuarterEndDate = getPreviousQuarterEndDate();
-  return readSnapshotBeforeOrLatest(previousQuarterEndDate);
+  return readSnapshotOnOrBefore(previousQuarterEndDate);
 }
 
 async function readPreviousMonthSnapshot() {
-  const previousMonth = new Date();
-  previousMonth.setDate(1);
-  previousMonth.setMonth(previousMonth.getMonth() - 1);
-  const previousMonthEnd = new Date(previousMonth.getFullYear(), previousMonth.getMonth() + 1, 0);
-  const previousMonthEndDate = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Hong_Kong',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(previousMonthEnd);
-  return readSnapshotBeforeOrLatest(previousMonthEndDate);
+  const { year, month } = getHongKongDateParts();
+  const previousMonthEnd = new Date(year, month - 1, 0);
+  const previousMonthEndDate = [
+    previousMonthEnd.getFullYear(),
+    String(previousMonthEnd.getMonth() + 1).padStart(2, '0'),
+    String(previousMonthEnd.getDate()).padStart(2, '0'),
+  ].join('-');
+  return readSnapshotOnOrBefore(previousMonthEndDate);
 }
 
 function buildMonthlyTrendSnapshots(snapshots: SnapshotComparisonSource[]) {
@@ -675,47 +661,73 @@ function buildComparisonPromptSections(
   ].join('\n');
 }
 
-function buildMonthlyAnalysisQuestion(comparison: ReturnType<typeof compareSnapshots>) {
+function formatReportAllocationSummaryForPrompt(summary: ReportAllocationSummary) {
+  const sliceLines = summary.slices.map(
+    (slice) =>
+      `- ${slice.label}：${slice.percentage.toFixed(1)}%，${slice.totalValueHKD.toFixed(2)} HKD`,
+  );
+  const deltaLines = summary.deltas?.length
+    ? summary.deltas.map((delta) => {
+        const slice = summary.slices.find((item) => item.key === delta.key);
+        const label = slice?.label ?? delta.key;
+        return `- ${label}：${delta.deltaPercentagePoints >= 0 ? '+' : ''}${delta.deltaPercentagePoints.toFixed(1)}pp`;
+      })
+    : ['- 未有可比較的上期快照'];
+
   return [
-    '請根據對比數據，撰寫一份「月度變化分析」。',
+    `【系統資產分佈總覽】截至 ${summary.asOfDate}`,
+    `配置風格：${summary.styleTag}`,
+    `提示標籤：${summary.warningTags.join('、') || '無'}`,
+    `系統判讀：${summary.summarySentence ?? '未有判讀'}`,
+    '目前分佈：',
+    ...sliceLines,
+    `${summary.comparisonLabel ?? '上期'}變化：`,
+    ...deltaLines,
+    '注意：以上分佈已由系統在圖像卡顯示，正文只可做判讀，不要重覆列出每個百分比。',
+  ].join('\n');
+}
+
+function buildMonthlyAnalysisQuestion(params: {
+  comparison: ReturnType<typeof compareSnapshots> | null;
+  allocationSummary: ReportAllocationSummary;
+}) {
+  const comparisonText = params.comparison
+    ? buildComparisonPromptSections(params.comparison, { limitHoldings: 12 })
+    : '未有可比較的上月月末快照；請只根據目前持倉與系統分佈總覽做監察及下月行動建議，不要假設月度變化。';
+
+  return [
+    '請撰寫一份「每月資產分析」，定位係監察 / 告警 / 下月行動。',
+    '資產分佈總覽已由系統用真實資料計算並顯示在正文前；不要輸出圖表資料、表格，亦不要逐項重覆百分比分布。',
     '必須按以下順序輸出，每段用【】做標題：',
-    '【本月關鍵變化】（最多 5 點，每點引用具體數字）',
-    '',
-    '總資產變化金額 + 百分比',
-    '最大貢獻者（正 / 負）',
-    '配置比例明顯變動嘅資產類別 / 幣別',
-    '',
-    '【新增風險 / 留意項】（2-4 點）',
-    '',
-    '因變化而新出現嘅集中度問題',
-    '期內大幅波動嘅持倉',
-    '配置失衡加劇嘅地方',
-    '',
-    '【正面訊號】（1-3 點）',
-    '',
-    '對沖或分散得好嘅位置',
-    '成本基礎改善嘅持倉',
-    '',
-    '【下月觀察重點】（2-3 點）',
-    '',
-    '具體應該 monitor 嘅指標或持倉',
-    '有冇事件 / 財報週期需要留意',
+    '【本月一句總結】（1 句，直接講最大重點）',
+    '【本月資產變化摘要】（如無上月快照，要明確講未有可比較快照）',
+    '【組合健康檢查】（承接系統分佈總覽，只做判讀）',
+    '【三個重點觀察】（剛好 3 點，引用持倉、金額或變化）',
+    '【下月行動建議】（2-4 點，偏監察和行動）',
     '',
     '規則：',
-    '所有結論必須引用對比數據內嘅數字',
-    '唔可以虛構未有喺 input 出現嘅資料',
-    '每段不超過 150 字',
-    '繁體中文輸出',
+    '所有結論必須引用 input 內的資料；不要虛構新聞、估值或宏觀資料。',
+    '不要重覆 summary card 已顯示的百分比分布，只需做判讀。',
+    '每段短而準，繁體中文輸出。',
+    '',
+    formatReportAllocationSummaryForPrompt(params.allocationSummary),
     '',
     '對比數據：',
-    buildComparisonPromptSections(comparison, { limitHoldings: 12 }),
+    comparisonText,
   ].join('\n');
 }
 
 function buildQuarterlyAnalysisQuestion(
-  currentComparison: ReturnType<typeof compareSnapshots>,
-  trendComparisons: ReturnType<typeof compareSnapshots>[],
+  params: {
+    currentComparison: ReturnType<typeof compareSnapshots> | null;
+    trendComparisons: ReturnType<typeof compareSnapshots>[];
+    allocationSummary: ReportAllocationSummary;
+  },
 ) {
+  const { currentComparison, trendComparisons, allocationSummary } = params;
+  const currentComparisonText = currentComparison
+    ? buildComparisonPromptSections(currentComparison, { limitHoldings: 12 })
+    : '未有可比較的上季季末快照；請只根據目前持倉、系統分佈總覽與可用趨勢資料歸檔，不要假設季度變化。';
   const trendSections = trendComparisons
     .map(
       (comparison, index) =>
@@ -724,49 +736,27 @@ function buildQuarterlyAnalysisQuestion(
     .join('\n\n');
 
   return [
-    '請根據對比數據（今季 vs 上季）同三個月趨勢數據，撰寫「季度變化回顧」。',
-    '必須按以下順序輸出：',
-    '【季度總體變化】',
-    '',
-    '總資產變化（HKD + %）',
-    '最大三個貢獻者（按對組合影響金額排）',
-    '最大三個拖累者',
-    '',
-    '【配置趨勢】',
-    '',
-    '資產類別比例變化（今季 vs 上季）',
-    '幣別曝險變化',
-    '呢啲變化反映嘅策略方向',
-    '',
-    '【持倉變動】',
-    '',
-    '本季新增持倉同原因（如可從 transaction 推斷）',
-    '本季清倉持倉',
-    '大幅加減倉嘅持倉',
-    '',
-    '【風險評估】',
-    '',
-    '集中度喺本季有冇惡化',
-    '出現咗咩新集中度',
-    '波動性最大嘅 3 個持倉',
-    '',
-    '【Rebalance 建議】',
-    '',
-    '基於變化嘅 1-3 個具體行動方向',
-    '每個建議要說明「點解」',
-    '',
-    '【下季重點觀察】',
-    '',
-    '具體指標 / 持倉 / 事件',
+    '請撰寫一份「季度資產報告」，定位係總結 / 歸因 / 正式歸檔。',
+    '資產分佈總覽已由系統用真實資料計算並顯示在正文前；不要輸出圖表資料、表格，亦不要逐項重覆百分比分布。',
+    '必須按以下順序輸出，每段用【】做標題：',
+    '【管理層摘要】',
+    '【季度總覽】',
+    '【資產配置分佈】',
+    '【幣別曝險】',
+    '【重點持倉分析】',
+    '【季度對比摘要】',
+    '【主要風險與集中度】',
+    '【下季觀察重點】',
     '',
     '規則：',
-    '所有結論必須引用對比數據內嘅數字',
-    '唔可以虛構未有喺 input 出現嘅資料',
-    '每段不超過 150 字',
-    '繁體中文輸出',
+    '所有結論必須引用 input 內的資料；不要虛構新聞、估值或宏觀資料。',
+    '不要重覆 summary card 已顯示的百分比分布，只需做判讀、歸因和歸檔摘要。',
+    '短而準，繁體中文輸出；資料不足就直說。',
+    '',
+    formatReportAllocationSummaryForPrompt(allocationSummary),
     '',
     '今季 vs 上季對比數據：',
-    buildComparisonPromptSections(currentComparison, { limitHoldings: 12 }),
+    currentComparisonText,
     '',
     '三個月趨勢數據：',
     trendSections || '未有足夠三個月趨勢資料。',
@@ -776,6 +766,7 @@ function buildQuarterlyAnalysisQuestion(
 async function saveScheduledAnalysis(
   response: PortfolioAnalysisResponse & { assetCount: number },
   title: string,
+  allocationSummary?: ReportAllocationSummary,
 ) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -793,6 +784,7 @@ async function saveScheduledAnalysis(
       generatedAt: response.generatedAt,
       assetCount: response.assetCount,
       answer: response.answer,
+      ...(allocationSummary ? { allocationSummary } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true },
@@ -807,6 +799,7 @@ async function saveScheduledAnalysis(
     provider: response.provider,
     snapshotHash: response.snapshotHash,
     delivery: 'scheduled',
+    ...(allocationSummary ? { allocationSummary } : {}),
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
@@ -821,6 +814,7 @@ async function saveQuarterlyReport(params: {
   searchSummary: string;
   model: string;
   provider: string;
+  allocationSummary?: ReportAllocationSummary;
 }) {
   const db = getFirebaseAdminDb();
 
@@ -837,6 +831,7 @@ async function saveQuarterlyReport(params: {
       searchSummary: params.searchSummary,
       model: params.model,
       provider: params.provider,
+      ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
       pdfUrl: '',
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -849,8 +844,10 @@ async function runScheduledCategoryAnalysis(params: {
   question: string;
   conversationContext: string;
   maxTokens: number;
+  assets?: AdminAsset[];
+  allocationSummary?: ReportAllocationSummary;
 }) {
-  const assets = await readAdminPortfolioAssets();
+  const assets = params.assets ?? await readAdminPortfolioAssets();
 
   if (assets.length === 0) {
     throw new ScheduledAnalysisError('目前沒有可分析的資產，已跳過自動分析。', 400);
@@ -875,7 +872,7 @@ async function runScheduledCategoryAnalysis(params: {
     assetCount: request.assetCount,
   };
 
-  await saveScheduledAnalysis(payload, params.title);
+  await saveScheduledAnalysis(payload, params.title, params.allocationSummary);
 
   return payload;
 }
@@ -884,19 +881,36 @@ export async function runMonthlyAssetAnalysis() {
   const assets = await readAdminPortfolioAssets();
   const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
   const previousMonthSnapshot = await readPreviousMonthSnapshot();
+  const allocationSummary = buildReportAllocationSummaryFromHoldings({
+    holdings: currentSnapshot.holdings,
+    asOfDate: currentSnapshot.date,
+    basis: 'monthly',
+    comparisonHoldings: previousMonthSnapshot?.holdings,
+    comparisonLabel: previousMonthSnapshot ? '較上月' : undefined,
+  });
   const searchSummary = await generateGroundedSearchSummary({
     assets,
     mode: 'monthly',
   });
   const title = `${getHongKongYearMonthLabel()}每月資產分析`;
-  const comparison = compareSnapshots(currentSnapshot, previousMonthSnapshot ?? currentSnapshot);
-  const question = buildMonthlyAnalysisQuestion(comparison);
+  const comparison = previousMonthSnapshot
+    ? compareSnapshots(currentSnapshot, previousMonthSnapshot)
+    : null;
+  const comparisonText = comparison
+    ? buildComparisonPromptSections(comparison, { limitHoldings: 12 })
+    : '未有可比較的上月月末快照。';
+  const question = buildMonthlyAnalysisQuestion({
+    comparison,
+    allocationSummary,
+  });
   const conversationContext = [
     'Gemini Google Search 摘要：',
     searchSummary.summary,
     '',
+    formatReportAllocationSummaryForPrompt(allocationSummary),
+    '',
     '月度對比資料：',
-    buildComparisonPromptSections(comparison, { limitHoldings: 12 }),
+    comparisonText,
   ].join('\n');
   const response = await runScheduledCategoryAnalysis({
     category: 'asset_analysis',
@@ -904,6 +918,8 @@ export async function runMonthlyAssetAnalysis() {
     question,
     conversationContext,
     maxTokens: 3500,
+    assets,
+    allocationSummary,
   });
 
   return {
@@ -953,6 +969,13 @@ export async function runQuarterlyAssetReport() {
   const assets = await readAdminPortfolioAssets();
   const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
   const previousQuarterSnapshot = await readPreviousQuarterSnapshot();
+  const allocationSummary = buildReportAllocationSummaryFromHoldings({
+    holdings: currentSnapshot.holdings,
+    asOfDate: currentSnapshot.date,
+    basis: 'quarterly',
+    comparisonHoldings: previousQuarterSnapshot?.holdings,
+    comparisonLabel: previousQuarterSnapshot ? '較上季' : undefined,
+  });
   const recentSnapshotHistory = await readRecentSnapshotHistory(120);
   const trendSnapshots = buildMonthlyTrendSnapshots([
     currentSnapshot,
@@ -969,15 +992,26 @@ export async function runQuarterlyAssetReport() {
     mode: 'quarterly',
   });
   const title = `${getHongKongQuarterLabel()}資產報告`;
-  const currentComparison = compareSnapshots(currentSnapshot, previousQuarterSnapshot ?? currentSnapshot);
-  const question = buildQuarterlyAnalysisQuestion(currentComparison, trendComparisons);
+  const currentComparison = previousQuarterSnapshot
+    ? compareSnapshots(currentSnapshot, previousQuarterSnapshot)
+    : null;
+  const currentComparisonText = currentComparison
+    ? buildComparisonPromptSections(currentComparison, { limitHoldings: 12 })
+    : '未有可比較的上季季末快照。';
+  const question = buildQuarterlyAnalysisQuestion({
+    currentComparison,
+    trendComparisons,
+    allocationSummary,
+  });
   const currentSnapshotHash = createSnapshotHashFromAssets(assets);
   const conversationContext = [
     'Gemini Google Search 摘要：',
     searchSummary.summary,
     '',
+    formatReportAllocationSummaryForPrompt(allocationSummary),
+    '',
     '今季 vs 上季對比資料：',
-    buildComparisonPromptSections(currentComparison, { limitHoldings: 12 }),
+    currentComparisonText,
     '',
     '三個月趨勢資料：',
     trendComparisons.length > 0
@@ -994,6 +1028,8 @@ export async function runQuarterlyAssetReport() {
     question,
     conversationContext,
     maxTokens: 5000,
+    assets,
+    allocationSummary,
   });
 
   await saveQuarterlyReport({
@@ -1005,6 +1041,7 @@ export async function runQuarterlyAssetReport() {
     searchSummary: searchSummary.summary,
     model: response.model,
     provider: response.provider,
+    allocationSummary,
   });
 
   return {

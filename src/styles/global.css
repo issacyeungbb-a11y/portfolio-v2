@@ -1172,6 +1172,109 @@ h3 {
   padding-bottom: 0;
 }
 
+.report-allocation-summary-card {
+  display: grid;
+  gap: 0.78rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(118, 96, 77, 0.12);
+  border-radius: 1.2rem;
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.06), transparent 42%),
+    rgba(255, 255, 255, 0.62);
+}
+
+.report-allocation-summary-card-muted {
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.report-allocation-summary-heading {
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+
+.report-allocation-total {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.report-allocation-stacked-bar {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: 1.15rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(118, 96, 77, 0.1);
+}
+
+.report-allocation-segment {
+  min-width: 4px;
+  height: 100%;
+}
+
+.report-allocation-segment + .report-allocation-segment {
+  border-left: 1px solid rgba(255, 255, 255, 0.72);
+}
+
+.report-allocation-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 0.5rem;
+}
+
+.report-allocation-legend-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+  padding: 0.48rem 0.58rem;
+  border: 1px solid rgba(118, 96, 77, 0.09);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.report-allocation-legend-row span:nth-child(2) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-allocation-legend-row strong,
+.report-allocation-legend-row small {
+  white-space: nowrap;
+}
+
+.report-allocation-legend-row small {
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.report-allocation-delta-list,
+.report-allocation-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+  align-items: center;
+}
+
+.report-allocation-delta-list {
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.report-allocation-sentence {
+  padding: 0.72rem 0.8rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  background: rgba(255, 255, 255, 0.5);
+  line-height: 1.65;
+  color: var(--text-main);
+}
+
 .holding-card {
   padding: 1rem;
   background:
