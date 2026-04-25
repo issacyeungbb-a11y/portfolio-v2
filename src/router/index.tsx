@@ -84,3 +84,14 @@ export const router = createBrowserRouter([
     ],
   },
 ]);
+
+export const previewRouter = createBrowserRouter([
+  {
+    path: '/report-preview',
+    element: <ReportPreviewPage />,
+  },
+  {
+    path: '*',
+    element: <Navigate to="/report-preview" replace />,
+  },
+]);

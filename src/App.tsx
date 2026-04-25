@@ -2,11 +2,17 @@ import { useState } from 'react';
 import { RouterProvider } from 'react-router-dom';
 
 import { usePortfolioAccess } from './hooks/usePortfolioAccess';
-import { router } from './router';
+import { previewRouter, router } from './router';
 
 function App() {
+  const isLocalReportPreviewRoute =
+    typeof window !== 'undefined' && window.location.pathname.startsWith('/report-preview');
   const { status, error, unlock, hasConfiguredPortfolioAccessCode } = usePortfolioAccess();
   const [accessCodeInput, setAccessCodeInput] = useState('');
+
+  if (isLocalReportPreviewRoute) {
+    return <RouterProvider router={previewRouter} />;
+  }
 
   if (status === 'error' || !hasConfiguredPortfolioAccessCode) {
     return (
