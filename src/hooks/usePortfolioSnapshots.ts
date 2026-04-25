@@ -16,7 +16,7 @@ interface PortfolioSnapshotsState {
   error: string | null;
 }
 
-export function usePortfolioSnapshots() {
+export function usePortfolioSnapshots(options: { limitCount?: number } = {}) {
   const [state, setState] = useState<PortfolioSnapshotsState>({
     status: 'loading',
     history: [],
@@ -45,10 +45,11 @@ export function usePortfolioSnapshots() {
           error: getPortfolioSnapshotsErrorMessage(error),
         });
       },
+      options,
     );
 
     return unsubscribe;
-  }, []);
+  }, [options.limitCount]);
 
   return {
     ...state,

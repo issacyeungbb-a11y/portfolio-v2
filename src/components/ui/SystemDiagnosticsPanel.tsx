@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useFirestoreUsageEstimate } from '../../hooks/useFirestoreUsageEstimate';
 import { useSystemDiagnose } from '../../hooks/useSystemDiagnose';
 import type { DiagnoseStepResult, SystemRunEntry, SystemRunsSummary, DailyJobSummary } from '../../hooks/useSystemDiagnose';
 
@@ -167,6 +168,90 @@ function DailyJobSection({ data }: { data: unknown }) {
   );
 }
 
+function formatQuotaPct(value: number) {
+  return `${value.toFixed(1)}%`;
+}
+
+function FirestoreUsageEstimatorSection({ enabled }: { enabled: boolean }) {
+  const { result, status, error, refresh } = useFirestoreUsageEstimate(enabled);
+
+  return (
+    <div className="diagnose-runs">
+      <div className="diagnose-runs-header">
+        <span className="diagnose-runs-title">Firestore 用量估算</span>
+        <span className="diagnose-runs-meta">按目前預設查詢上限計算</span>
+        <button
+          className="button button-ghost button-sm"
+          type="button"
+          onClick={() => void refresh()}
+          disabled={status === 'loading' || !enabled}
+        >
+          {status === 'loading' ? '更新中...' : '更新估算'}
+        </button>
+      </div>
+
+      {!enabled ? (
+        <div className="diagnose-runs-empty">展開面板後會自動計算。</div>
+      ) : error ? (
+        <div className="diagnose-error">{error}</div>
+      ) : result ? (
+        <>
+          <div className="summary-grid summary-grid-primary">
+            <article className="summary-card">
+              <p className="summary-label">文件總數</p>
+              <strong className="summary-value">{result.totalDocuments}</strong>
+              <p className="summary-hint">五個集合合計</p>
+            </article>
+            <article className="summary-card">
+              <p className="summary-label">預估 reads</p>
+              <strong className="summary-value">{result.estimatedReads}</strong>
+              <p className="summary-hint">單次完整打開</p>
+            </article>
+            <article className="summary-card">
+              <p className="summary-label">reads 配額</p>
+              <strong className="summary-value">{formatQuotaPct(result.readQuotaPct)}</strong>
+              <p className="summary-hint">以 50,000 / 日計</p>
+            </article>
+          </div>
+
+          <div className="summary-grid summary-grid-secondary">
+            <article className="summary-card">
+              <p className="summary-label">預估 writes</p>
+              <strong className="summary-value">{result.estimatedWrites}</strong>
+              <p className="summary-hint">單次完整打開通常為 0</p>
+            </article>
+            <article className="summary-card">
+              <p className="summary-label">writes 配額</p>
+              <strong className="summary-value">{formatQuotaPct(result.writeQuotaPct)}</strong>
+              <p className="summary-hint">以 20,000 / 日計</p>
+            </article>
+          </div>
+
+          <div className="settings-list">
+            {result.rows.map((row) => (
+              <div key={row.label} className="setting-row setting-row-wide">
+                <div>
+                  <strong>{row.label}</strong>
+                  <p>{row.note}</p>
+                </div>
+                <span className="chip chip-soft">
+                  {row.documentCount} docs · {row.estimatedReadCount} reads
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <p className="status-message">
+            priceUpdateReviews 已改為只讀取 pending 文件；其餘集合按現有預設上限估算。
+          </p>
+        </>
+      ) : (
+        <div className="diagnose-runs-empty">按「更新估算」開始讀取文件數。</div>
+      )}
+    </div>
+  );
+}
+
 /**
  * P1-2 / P4: 系統診斷面板。
  * 需要手動觸發，避免每次載入都消耗 API 配額。
@@ -267,8 +352,11 @@ export function SystemDiagnosticsPanel() {
                 {((result.steps.environment.data as Record<string, unknown>).missing as string[]).join('、')}
               </div>
             )}
+
         </div>
       )}
+
+      <FirestoreUsageEstimatorSection enabled={expanded} />
 
       {!result && !loading && !error && (
         <div className="diagnose-empty">點擊「執行診斷」開始檢查系統狀態。</div>

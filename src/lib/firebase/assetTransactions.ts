@@ -9,6 +9,7 @@ import {
   onSnapshot,
   orderBy,
   query,
+  startAfter,
   serverTimestamp,
   Timestamp,
   updateDoc,
@@ -410,13 +411,17 @@ export function getAssetTransactionsErrorMessage(error?: unknown) {
 export function subscribeToAssetTransactions(
   onData: (entries: AssetTransactionEntry[]) => void,
   onError: (error: unknown) => void,
+  options: {
+    limitCount?: number;
+  } = {},
 ) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
   const collectionRef = getSharedAssetTransactionsCollectionRef();
-  const transactionsQuery = query(collectionRef, orderBy('date', 'desc'));
+  const limitCount = options.limitCount ?? 300;
+  const transactionsQuery = query(collectionRef, orderBy('date', 'desc'), limit(limitCount));
 
   return onSnapshot(
     transactionsQuery,
@@ -431,7 +436,31 @@ export function subscribeToAssetTransactions(
   );
 }
 
-export async function getRecentAssetTransactions(days = 30, limitCount = 200) {
+export async function loadMoreTransactions(
+  cursor: {
+    date: string;
+  },
+  limitCount = 300,
+) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const snapshot = await getDocs(
+    query(
+      getSharedAssetTransactionsCollectionRef(),
+      orderBy('date', 'desc'),
+      startAfter(cursor.date),
+      limit(limitCount),
+    ),
+  );
+
+  return snapshot.docs.map((entry) =>
+    normalizeAssetTransaction(entry.id, entry.data() as Record<string, unknown>),
+  );
+}
+
+export async function getRecentAssetTransactions(days = 30, limitCount = 300) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }

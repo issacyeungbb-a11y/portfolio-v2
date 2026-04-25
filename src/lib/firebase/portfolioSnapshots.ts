@@ -261,20 +261,26 @@ export async function getTodaySnapshotStatus(): Promise<TodaySnapshotStatus> {
 export function subscribeToPortfolioSnapshots(
   onData: (history: PortfolioPerformancePoint[]) => void,
   onError: (error: unknown) => void,
+  options: {
+    limitCount?: number;
+  } = {},
 ) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
 
   const snapshotsRef = getPortfolioSnapshotsCollectionRef();
-  const snapshotsQuery = query(snapshotsRef, orderBy('capturedAt', 'asc'));
+  const limitCount = options.limitCount ?? 365;
+  const snapshotsQuery = query(snapshotsRef, orderBy('capturedAt', 'desc'), limit(limitCount));
 
   return onSnapshot(
     snapshotsQuery,
     (snapshot) => {
-      const history = snapshot.docs.map((entry) =>
-        normalizePortfolioSnapshot(entry.id, entry.data() as Record<string, unknown>),
-      );
+      const history = snapshot.docs
+        .map((entry) =>
+          normalizePortfolioSnapshot(entry.id, entry.data() as Record<string, unknown>),
+        )
+        .sort((left, right) => left.date.localeCompare(right.date));
 
       onData(history);
     },

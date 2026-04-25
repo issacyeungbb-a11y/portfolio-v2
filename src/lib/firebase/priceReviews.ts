@@ -3,7 +3,9 @@ import {
   getDoc,
   onSnapshot,
   serverTimestamp,
+  query,
   updateDoc,
+  where,
   writeBatch,
 } from 'firebase/firestore';
 
@@ -116,9 +118,10 @@ export function subscribeToPriceUpdateReviews(
 
   getRequiredFirebaseDb();
   const reviewsRef = getSharedPriceReviewsCollectionRef();
+  const pendingReviewsQuery = query(reviewsRef, where('status', '==', 'pending'));
 
   return onSnapshot(
-    reviewsRef,
+    pendingReviewsQuery,
     (snapshot) => {
       const reviews = snapshot.docs
         .map((document) =>

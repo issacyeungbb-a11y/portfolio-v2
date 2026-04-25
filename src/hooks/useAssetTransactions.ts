@@ -5,6 +5,7 @@ import {
   createAssetTransaction,
   deleteAssetTransaction,
   getAssetTransactionsErrorMessage,
+  loadMoreTransactions as loadMoreAssetTransactions,
   subscribeToAssetTransactions,
   updateAssetTransaction,
 } from '../lib/firebase/assetTransactions';
@@ -95,10 +96,24 @@ export function useAssetTransactions() {
     }
   }
 
+  async function loadMoreTransactions(cursor: { date: string }) {
+    try {
+      return await loadMoreAssetTransactions(cursor);
+    } catch (error) {
+      const message = getAssetTransactionsErrorMessage(error);
+      setState((current) => ({
+        ...current,
+        error: message,
+      }));
+      throw new Error(message);
+    }
+  }
+
   return {
     ...state,
     addTransaction,
     editTransaction,
+    loadMoreTransactions,
     removeTransaction,
   };
 }
