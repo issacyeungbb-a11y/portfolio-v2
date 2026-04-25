@@ -122,7 +122,7 @@ export function HoldingsTable({
 
     if (hasPendingPrice) {
       return (
-        <div className="table-metric table-metric-pending">
+        <div className="table-metric table-metric-pending table-metric-right">
           <strong className="table-metric-primary">待更新</strong>
           <span className="table-metric-secondary table-metric-reason">
             {pendingReason || '價格過舊'}
@@ -132,7 +132,7 @@ export function HoldingsTable({
     }
 
     return (
-      <div className="table-metric">
+      <div className="table-metric table-metric-right">
         <strong className="table-metric-primary" data-tone={pnlTone}>
           {formatCurrencyRounded(unrealizedPnl, displayCurrency)}
         </strong>
@@ -147,49 +147,49 @@ export function HoldingsTable({
         <table className="holdings-table">
           <thead>
             <tr>
-              <th>
+              <th className="table-column-label">
                 <button className="table-sort-button" type="button" onClick={() => handleSort('name')}>
                   資產
                   <span className="table-sort-indicator">{getSortIndicator('name')}</span>
                 </button>
               </th>
-              <th>
-                <button className="table-sort-button" type="button" onClick={() => handleSort('marketValue')}>
+              <th className="table-column-numeric">
+                <button className="table-sort-button table-sort-button-right" type="button" onClick={() => handleSort('marketValue')}>
                   市值 / 數量
                   <span className="table-sort-indicator">{getSortIndicator('marketValue')}</span>
                 </button>
               </th>
-              <th>
-                <button className="table-sort-button" type="button" onClick={() => handleSort('currentPrice')}>
+              <th className="table-column-numeric">
+                <button className="table-sort-button table-sort-button-right" type="button" onClick={() => handleSort('currentPrice')}>
                   現價 / 成本
                   <span className="table-sort-indicator">{getSortIndicator('currentPrice')}</span>
                 </button>
               </th>
-              <th>
-                <button className="table-sort-button" type="button" onClick={() => handleSort('unrealizedPnl')}>
+              <th className="table-column-numeric">
+                <button className="table-sort-button table-sort-button-right" type="button" onClick={() => handleSort('unrealizedPnl')}>
                   損益
                   <span className="table-sort-indicator">{getSortIndicator('unrealizedPnl')}</span>
                 </button>
               </th>
-              <th>
-                <button className="table-sort-button" type="button" onClick={() => handleSort('allocation')}>
+              <th className="table-column-numeric">
+                <button className="table-sort-button table-sort-button-right" type="button" onClick={() => handleSort('allocation')}>
                   比重
                   <span className="table-sort-indicator">{getSortIndicator('allocation')}</span>
                 </button>
               </th>
-              <th>
+              <th className="table-column-label">
                 <button className="table-sort-button" type="button" onClick={() => handleSort('assetType')}>
                   類型
                   <span className="table-sort-indicator">{getSortIndicator('assetType')}</span>
                 </button>
               </th>
-              <th>
+              <th className="table-column-label">
                 <button className="table-sort-button" type="button" onClick={() => handleSort('accountSource')}>
                   帳戶
                   <span className="table-sort-indicator">{getSortIndicator('accountSource')}</span>
                 </button>
               </th>
-              <th>操作</th>
+              <th className="table-column-actions">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -222,14 +222,14 @@ export function HoldingsTable({
 
               return (
                 <tr key={holding.id}>
-                  <td className="asset-cell asset-cell-sticky">
+                  <td className="asset-cell asset-cell-sticky table-column-label">
                     <div className="asset-primary">
                       <strong>{holding.name}</strong>
                       <span>{holding.symbol}</span>
                     </div>
                   </td>
-                  <td>
-                    <div className={hasPendingPrice ? 'table-metric table-metric-pending' : 'table-metric'}>
+                  <td className="table-column-numeric">
+                    <div className={hasPendingPrice ? 'table-metric table-metric-pending table-metric-right' : 'table-metric table-metric-right'}>
                       <strong className="table-metric-primary">
                         {hasPendingPrice ? '待更新' : formatCurrencyRounded(marketValue, displayCurrency)}
                       </strong>
@@ -242,8 +242,8 @@ export function HoldingsTable({
                       </span>
                     </div>
                   </td>
-                  <td>
-                    <div className={hasPendingPrice ? 'table-metric table-metric-pending' : 'table-metric'}>
+                  <td className="table-column-numeric">
+                    <div className={hasPendingPrice ? 'table-metric table-metric-pending table-metric-right' : 'table-metric table-metric-right'}>
                       <strong className="table-metric-primary">
                         {hasPendingPrice ? '待更新' : formatCurrency(currentPrice, displayCurrency)}
                       </strong>
@@ -259,9 +259,9 @@ export function HoldingsTable({
                       )}
                     </div>
                   </td>
-                  <td>
+                  <td className="table-column-numeric">
                     {isCashHolding ? (
-                      <div className="table-metric">
+                      <div className="table-metric table-metric-right">
                         <strong className="table-metric-primary">--</strong>
                         <span className="table-metric-secondary">現金不計損益</span>
                       </div>
@@ -269,16 +269,16 @@ export function HoldingsTable({
                       renderPnlMetric(marketValue, costValue, hasPendingPrice, pendingReason)
                     )}
                   </td>
-                  <td>{holding.allocation.toFixed(1)}%</td>
-                  <td>
+                  <td className="table-column-numeric">{holding.allocation.toFixed(1)}%</td>
+                  <td className="table-column-label">
                     <span className="table-chip">{getAssetTypeLabel(holding.assetType)}</span>
                   </td>
-                  <td>
+                  <td className="table-column-label">
                     <span className="table-chip table-chip-strong">
                       {getAccountSourceLabel(holding.accountSource)}
                     </span>
                   </td>
-                  <td>
+                  <td className="table-column-actions">
                     <div className="table-action-stack">
                       <button
                         className="button button-secondary table-action-button"

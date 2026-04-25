@@ -1,16 +1,20 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { AssetInputForm } from '../components/assets/AssetInputForm';
 import { AssetTransactionForm } from '../components/assets/AssetTransactionForm';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
+import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { StatusMessages } from '../components/ui/StatusMessages';
 import { SystemDiagnosticsPanel } from '../components/ui/SystemDiagnosticsPanel';
+import { StatusBadge } from '../components/ui/StatusBadge';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
+import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import { callPortfolioFunction, triggerManualSnapshot } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
@@ -151,6 +155,7 @@ export function AssetsPage() {
     status,
     error,
     isEmpty,
+    addAsset,
     editAsset,
     removeAsset,
   } = usePortfolioAssets();
@@ -175,10 +180,14 @@ export function AssetsPage() {
   } = usePriceUpdateReviews();
   const [assetFilter, setAssetFilter] = useState<AssetType | 'all'>('all');
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
-  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('USD');
+  const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [tradingHolding, setTradingHolding] = useState<Holding | null>(null);
+  const [isAddAssetOpen, setIsAddAssetOpen] = useState(false);
+  const [isCreatingAsset, setIsCreatingAsset] = useState(false);
+  const [createAssetError, setCreateAssetError] = useState<string | null>(null);
+  const [createAssetSuccess, setCreateAssetSuccess] = useState<string | null>(null);
   const [isEditingAsset, setIsEditingAsset] = useState(false);
   const [isSavingTransaction, setIsSavingTransaction] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
@@ -288,19 +297,81 @@ export function AssetsPage() {
   const coverageLabel =
     nonCashHoldings.length === 0 ? '未有可更新資產' : `${syncedCoveragePct}% 今日已同步`;
   const activeFilterLabel = `${getAssetTypeLabel(assetFilter)} · ${getAccountSourceLabel(accountFilter)}`;
+  const todaySnapshotLabel = !todaySnapshot.exists
+    ? todaySnapshotStatus === 'loading'
+      ? '今日快照 同步中'
+      : '今日快照 待補'
+    : todaySnapshot.quality === 'fallback'
+      ? '今日快照 部分完成'
+      : '今日快照 完整';
+  const todaySnapshotTone = !todaySnapshot.exists
+    ? todaySnapshotStatus === 'loading'
+      ? 'warning'
+      : 'warning'
+    : todaySnapshot.quality === 'fallback'
+      ? 'warning'
+      : 'success';
   const snapshotStatusLabel =
     nonCashHoldings.length === 0
       ? '未有非現金資產，毋須快照檢查'
-      : todaySnapshot.exists
-        ? todaySnapshot.quality === 'fallback'
-          ? `今日快照已完成（部分資產沿用昨日價格）${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
-          : `今日快照已完成 · 正式快照${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
-        : '今日快照將於 07:00 自動生成';
+      : todaySnapshotStatus === 'loading'
+        ? '今日快照 同步中'
+        : todaySnapshot.exists
+          ? `${todaySnapshotLabel}${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
+          : '今日快照將於 07:00 自動生成';
   const shouldShowMissingSnapshotNotice =
     todaySnapshotStatus === 'ready' &&
     nonCashHoldings.length > 0 &&
     !todaySnapshot.exists &&
     hasPassedHongKongSnapshotDeadline();
+  const topBarConfig = useMemo<TopBarConfig>(
+    () => ({
+      title: '資產管理',
+      subtitle: '集中管理持倉、價格更新、覆核與今日快照。',
+      metaItems: [
+        { label: '基準貨幣', value: 'HKD' },
+        { label: '顯示貨幣', value: displayCurrency },
+        { label: '資產數', value: `${filteredHoldings.length} 項` },
+        { label: '最近更新', value: latestUpdateLabel },
+      ],
+      statusItems: [
+        {
+          label: status === 'error' ? '連接失敗' : status === 'loading' ? '同步中' : '已連接',
+          tone: status === 'error' ? 'danger' : status === 'loading' ? 'warning' : 'success',
+        },
+        {
+          label: `價格覆蓋率 ${syncedCoveragePct}%`,
+          tone: pendingPriceCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: `待更新 ${pendingPriceCount}`,
+          tone: pendingPriceCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: `待覆核 ${reviews.length}`,
+          tone: reviews.length > 0 ? 'warning' : 'success',
+        },
+        {
+          label: todaySnapshotLabel,
+          tone: todaySnapshotTone,
+        },
+      ],
+    }),
+    [
+      displayCurrency,
+      filteredHoldings.length,
+      latestUpdateLabel,
+      pendingPriceCount,
+      reviews.length,
+      status,
+      syncedCoveragePct,
+      todaySnapshotLabel,
+      todaySnapshotTone,
+      todaySnapshotStatus,
+    ],
+  );
+
+  useTopBar(topBarConfig);
 
   async function handleTriggerManualSnapshot() {
     setManualSnapshotError(null);
@@ -343,6 +414,26 @@ export function AssetsPage() {
       setSaveError(message);
     } finally {
       setIsEditingAsset(false);
+    }
+  }
+
+  async function handleCreateAsset(payload: PortfolioAssetInput) {
+    setIsCreatingAsset(true);
+    setCreateAssetError(null);
+    setCreateAssetSuccess(null);
+
+    try {
+      await addAsset(payload);
+      setCreateAssetSuccess(`${payload.symbol} 已新增至資產列表。`);
+      setIsAddAssetOpen(false);
+    } catch (submissionError) {
+      const message =
+        submissionError instanceof Error
+          ? submissionError.message
+          : '新增資產失敗，請稍後再試。';
+      setCreateAssetError(message);
+    } finally {
+      setIsCreatingAsset(false);
     }
   }
 
@@ -561,44 +652,40 @@ export function AssetsPage() {
   return (
     <div className="page-stack">
       <section className="hero-panel assets-toolbar assets-toolbar-hero">
-        <div className="assets-toolbar-top">
+        <div className="assets-toolbar-heading">
+          <div>
+            <p className="eyebrow">資產管理</p>
+            <h2>持倉與價格控制台</h2>
+            <p className="table-hint">先睇狀態，再做操作。價格更新、快照與覆核都集中喺呢度。</p>
+          </div>
           <span className="assets-toolbar-subtle">
             {filteredHoldings.length} 項 · {activeFilterLabel}
           </span>
         </div>
-        <div className="assets-price-status" aria-label="價格更新狀態">
-          <span className="assets-price-status-label">更新價格</span>
-          <span className="assets-price-status-item">最近 {latestUpdateLabel}</span>
-          <span className="assets-price-status-item">{coverageLabel}</span>
-          <span className="assets-price-status-item">待更新 {pendingPriceCount}</span>
-          {hasPendingReviews ? (
-            <span className="assets-price-status-item">待處理 {reviews.length}</span>
-          ) : null}
+        <div className="assets-toolbar-status-grid" aria-label="價格更新狀態">
+          <StatusBadge
+            label={`最近更新 ${latestUpdateLabel}`}
+            tone={latestValidPriceUpdate ? 'success' : 'neutral'}
+          />
+          <StatusBadge
+            label={`價格覆蓋率 ${syncedCoveragePct}%`}
+            tone={pendingPriceCount > 0 ? 'warning' : 'success'}
+          />
+          <StatusBadge
+            label={`待更新 ${pendingPriceCount}`}
+            tone={pendingPriceCount > 0 ? 'warning' : 'success'}
+          />
+          <StatusBadge
+            label={`待人工覆核 ${reviews.length}`}
+            tone={reviews.length > 0 ? 'warning' : 'success'}
+          />
+          <StatusBadge
+            label={todaySnapshotLabel}
+            tone={todaySnapshotTone}
+          />
         </div>
         <div className="assets-toolbar-actions">
-          <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
-            <button
-              className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('HKD')}
-            >
-              HKD
-            </button>
-            <button
-              className={displayCurrency === 'USD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('USD')}
-            >
-              USD
-            </button>
-            <button
-              className={displayCurrency === 'JPY' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('JPY')}
-            >
-              JPY
-            </button>
-          </div>
+          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
           <button
             className="button button-primary"
             type="button"
@@ -606,6 +693,25 @@ export function AssetsPage() {
             disabled={isUpdatingAllPrices || nonCashHoldings.length === 0}
           >
             {isUpdatingAllPrices ? '更新全部資產中...' : '更新全部資產'}
+          </button>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={handleTriggerManualSnapshot}
+            disabled={isGeneratingManualSnapshot}
+          >
+            {isGeneratingManualSnapshot ? '後補中...' : '後補快照'}
+          </button>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => {
+              setCreateAssetError(null);
+              setCreateAssetSuccess(null);
+              setIsAddAssetOpen(true);
+            }}
+            >
+            新增資產
           </button>
         </div>
         <div className="assets-toolbar-footnote" aria-label="更新提示">
@@ -646,6 +752,27 @@ export function AssetsPage() {
                 取消
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isAddAssetOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card modal-card-wide" role="dialog" aria-modal="true">
+            <AssetInputForm
+              title="新增資產"
+              submitLabel="新增資產"
+              cancelLabel="取消"
+              deleteLabel="刪除資產"
+              onSubmit={handleCreateAsset}
+              onCancel={() => {
+                setIsAddAssetOpen(false);
+                setCreateAssetError(null);
+                setCreateAssetSuccess(null);
+              }}
+              isSubmitting={isCreatingAsset}
+              error={createAssetError}
+            />
           </div>
         </div>
       ) : null}
@@ -745,7 +872,7 @@ export function AssetsPage() {
               </div>
             </div>
             <p className="status-message status-message-error">
-              會刪除 {editingHolding.name} ({editingHolding.symbol})。
+              刪除 {editingHolding.name} ({editingHolding.symbol}) 後，會影響資產估值、配置比例、損益統計同歷史分析記錄。呢個動作唔會自動回復。
             </p>
             <div className="button-row">
               <button
@@ -754,7 +881,7 @@ export function AssetsPage() {
                 onClick={handleDeleteHolding}
                 disabled={isDeletingAsset}
               >
-                {isDeletingAsset ? '刪除中...' : '確認刪除'}
+                {isDeletingAsset ? '刪除中...' : '永久刪除資產'}
               </button>
               <button
                 className="button button-secondary"
@@ -778,8 +905,9 @@ export function AssetsPage() {
           todaySnapshotError,
           transactionsError && !transactionError ? transactionsError : null,
           manualSnapshotError,
+          createAssetError,
         ]}
-        successes={[priceUpdateSuccess, transactionSuccess, manualSnapshotSuccess]}
+        successes={[priceUpdateSuccess, transactionSuccess, manualSnapshotSuccess, createAssetSuccess]}
       />
       {shouldShowMissingSnapshotNotice ? (
         <div className="status-message status-message-error">

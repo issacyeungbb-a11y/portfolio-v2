@@ -1,9 +1,11 @@
 import { NavLink } from 'react-router-dom';
 
+import { NavIcon } from './NavIcon';
+
 interface NavItem {
   to: string;
   label: string;
-  icon: string;
+  icon: 'dashboard' | 'assets' | 'trends' | 'transactions' | 'funds' | 'analysis';
 }
 
 interface BottomNavProps {
@@ -27,7 +29,7 @@ export function BottomNav({ items }: BottomNavProps) {
           }
         >
           <span className="nav-icon" aria-hidden="true">
-            {item.icon}
+            <NavIcon name={item.icon} />
           </span>
           <span>{item.label}</span>
         </NavLink>

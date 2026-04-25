@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { AllocationCard } from '../components/portfolio/AllocationCard';
 import { HoldingCard } from '../components/portfolio/HoldingCard';
 import { InsightCard } from '../components/portfolio/InsightCard';
+import { CurrencyToggle } from '../components/ui/CurrencyToggle';
+import { EmptyState } from '../components/ui/EmptyState';
+import { StatusBadge } from '../components/ui/StatusBadge';
 import { StatusMessages } from '../components/ui/StatusMessages';
 import {
   buildAllocationSlices,
@@ -14,8 +17,11 @@ import {
   formatPercent,
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots, useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
+import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
+import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
   buildDashboardInsights,
@@ -24,6 +30,7 @@ import {
   calculateAssetChangeSummary,
   createCurrentPortfolioPoint,
 } from '../lib/portfolio/assetChange';
+import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
 import type {
   AllocationBucketKey,
   DisplayCurrency,
@@ -34,13 +41,18 @@ export function DashboardPage() {
   const { holdings: firestoreHoldings, status, error, isEmpty } = usePortfolioAssets();
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
   const { history: portfolioHistory, error: snapshotsError } = usePortfolioSnapshots();
-  const { todaySnapshot, error: todaySnapshotError } = useTodaySnapshotStatus();
-  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
+  const { todaySnapshot, status: todaySnapshotStatus, error: todaySnapshotError } = useTodaySnapshotStatus();
+  const { reviews } = usePriceUpdateReviews();
+  const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
   const [selectedAllocationKey, setSelectedAllocationKey] = useState<AllocationBucketKey>('stock');
   const syncedHoldings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
     (holding) => getHoldingValueInCurrency(holding, 'HKD'),
   );
+  const pendingPriceCount = syncedHoldings.filter(
+    (holding) => holding.assetType !== 'cash' && !hasValidHoldingPrice(holding),
+  ).length;
+  const pendingReviewCount = reviews.length;
   const allocations = buildAllocationSlices(syncedHoldings);
   const totalValue = getPortfolioTotalValue(syncedHoldings, displayCurrency);
   const topHoldings = [...syncedHoldings]
@@ -63,6 +75,76 @@ export function DashboardPage() {
   const todayChangeAmount = todaySummary
     ? convertCurrency(todaySummary.totalChange, 'HKD', displayCurrency)
     : 0;
+  const todaySnapshotLabel = !todaySnapshot.exists
+    ? todaySnapshotError
+      ? '今日快照 風險'
+      : '今日快照 待補'
+    : todaySnapshot.quality === 'fallback'
+      ? '今日快照 部分完成'
+      : '今日快照 完整';
+  const todaySnapshotTone = !todaySnapshot.exists
+    ? todaySnapshotError
+      ? 'danger'
+      : 'warning'
+    : todaySnapshot.quality === 'fallback'
+      ? 'warning'
+      : 'success';
+  const latestPriceUpdate =
+    [...syncedHoldings]
+      .map((holding) => holding.lastPriceUpdatedAt || '')
+      .filter(Boolean)
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+  const latestPriceUpdateLabel = latestPriceUpdate
+    ? new Intl.DateTimeFormat('zh-HK', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(new Date(latestPriceUpdate))
+    : '未更新';
+  const topBarConfig = useMemo<TopBarConfig>(
+    () => ({
+      title: '總覽',
+      subtitle: '追蹤組合價值、今日收益與需要優先處理的事項。',
+      metaItems: [
+        { label: '基準貨幣', value: 'HKD' },
+        { label: '顯示貨幣', value: displayCurrency },
+        { label: '總資產', value: formatCurrencyRounded(totalValue, displayCurrency) },
+        { label: '最近更新', value: latestPriceUpdateLabel },
+      ],
+      statusItems: [
+        {
+          label: status === 'error' ? '連接失敗' : status === 'loading' ? '同步中' : '已連接',
+          tone: status === 'error' ? 'danger' : status === 'loading' ? 'warning' : 'success',
+        },
+        {
+          label: todaySnapshotLabel,
+          tone: todaySnapshotTone,
+        },
+        {
+          label: `待更新 ${pendingPriceCount}`,
+          tone: pendingPriceCount > 0 ? 'warning' : 'success',
+        },
+        {
+          label: `待覆核 ${pendingReviewCount}`,
+          tone: pendingReviewCount > 0 ? 'warning' : 'success',
+        },
+      ],
+      actions: <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />,
+    }),
+    [
+      displayCurrency,
+      latestPriceUpdateLabel,
+      pendingPriceCount,
+      pendingReviewCount,
+      setDisplayCurrency,
+      status,
+      todaySnapshotLabel,
+      todaySnapshotTone,
+      todaySnapshotError,
+      totalValue,
+    ],
+  );
+
+  useTopBar(topBarConfig);
 
   useEffect(() => {
     if (allocations.length === 0) {
@@ -75,28 +157,56 @@ export function DashboardPage() {
     }
   }, [allocations, selectedAllocationKey]);
 
+  const dashboardTasks = [
+    pendingPriceCount > 0
+      ? {
+          title: '價格待更新',
+          reason: `共有 ${pendingPriceCount} 項非現金資產需要重新整理價格。`,
+          tone: 'warning' as const,
+          action: (
+            <Link className="button button-secondary" to="/assets">
+              前往資產頁
+            </Link>
+          ),
+        }
+      : null,
+    !todaySnapshot.exists
+      ? {
+          title: '今日快照未完成',
+          reason:
+            todaySnapshotStatus === 'loading'
+              ? '今日快照狀態仍在讀取中。'
+              : '今日快照尚未生成，建議前往資產頁後補。',
+          tone: 'warning' as const,
+          action: (
+            <Link className="button button-secondary" to="/assets">
+              查看快照
+            </Link>
+          ),
+        }
+      : null,
+    pendingReviewCount > 0
+      ? {
+          title: '待人工覆核',
+          reason: `共有 ${pendingReviewCount} 項價格結果仍然需要確認。`,
+          tone: 'warning' as const,
+          action: (
+            <Link className="button button-secondary" to="/assets">
+              查看覆核
+            </Link>
+          ),
+        }
+      : null,
+  ].filter(Boolean) as Array<{
+    title: string;
+    reason: string;
+    tone: 'warning';
+    action: JSX.Element;
+  }>;
+
   return (
     <div className="page-stack">
       <section className="hero-panel dashboard-hero-panel">
-        <div className="dashboard-hero-actions">
-          <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
-            <button
-              className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('HKD')}
-            >
-              HKD
-            </button>
-            <button
-              className={displayCurrency === 'USD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('USD')}
-            >
-              USD
-            </button>
-          </div>
-        </div>
-
         <div className="dashboard-overview-hero">
           <span className="dashboard-overview-label">總資產估值</span>
           <strong>{formatCurrencyRounded(totalValue, displayCurrency)}</strong>
@@ -120,10 +230,51 @@ export function DashboardPage() {
         errors={[error, snapshotsError, accountCashFlowsError, todaySnapshotError]}
       />
       {isEmpty ? (
-        <p className="status-message">
-          尚未加入資產。前往<Link className="text-link" to="/assets">資產頁面</Link>新增你嘅第一筆持倉。
-        </p>
+        <EmptyState
+          title="尚未加入資產"
+          reason="請先前往資產頁新增第一筆持倉，之後先會顯示總覽與今日收益。"
+          primaryAction={
+            <Link className="button button-primary" to="/assets">
+              前往資產頁
+            </Link>
+          }
+        />
       ) : null}
+
+      <section className="card dashboard-task-card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">今日處理</p>
+            <h2>今日要處理事項</h2>
+            <p className="table-hint">先處理價格、快照同覆核，再睇組合表現會更穩陣。</p>
+          </div>
+        </div>
+
+        {dashboardTasks.length > 0 ? (
+          <div className="dashboard-task-list">
+            {dashboardTasks.map((task) => (
+              <article key={task.title} className="dashboard-task-item">
+                <div className="dashboard-task-copy">
+                  <StatusBadge label="注意" tone={task.tone} />
+                  <strong>{task.title}</strong>
+                  <p>{task.reason}</p>
+                </div>
+                {task.action}
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            title="目前沒有需要處理的資料異常"
+            reason="價格更新、今日快照同人工覆核都已經回到正常狀態。"
+            primaryAction={
+              <Link className="button button-secondary" to="/assets">
+                查看資產
+              </Link>
+            }
+          />
+        )}
+      </section>
 
       <section className="content-grid">
         {status === 'loading' ? (

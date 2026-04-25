@@ -1,14 +1,16 @@
-import { formatCurrencyRounded } from '../../lib/currency';
+import { convertCurrency, formatCurrencyRounded } from '../../lib/currency';
 import { getAllocationBucketMeta } from '../../lib/holdings';
 import type {
   ReportAllocationDeltaSummary,
   ReportAllocationSummary,
+  DisplayCurrency,
 } from '../../types/portfolio';
 
 interface ReportAllocationSummaryCardProps {
   summary?: ReportAllocationSummary;
   emptyMessage?: string;
   className?: string;
+  displayCurrency?: DisplayCurrency;
 }
 
 const DEFAULT_EMPTY_MESSAGE = '此舊報告生成時未保存資產分佈快照，因此未能顯示圖像總覽。';
@@ -76,6 +78,7 @@ export function ReportAllocationSummaryCard({
   summary,
   emptyMessage = DEFAULT_EMPTY_MESSAGE,
   className = '',
+  displayCurrency = 'HKD',
 }: ReportAllocationSummaryCardProps) {
   const cardClassName = ['report-allocation-summary-card', className]
     .filter(Boolean)
@@ -110,6 +113,10 @@ export function ReportAllocationSummaryCard({
     };
   });
 
+  const totalValue = summary.totalValueHKD != null
+    ? convertCurrency(summary.totalValueHKD, 'HKD', displayCurrency)
+    : null;
+
   return (
     <article className={cardClassName}>
       <div className="section-heading report-allocation-summary-heading">
@@ -123,9 +130,9 @@ export function ReportAllocationSummaryCard({
         <span className="chip chip-strong">{summary.styleTag}</span>
       </div>
 
-      {summary.totalValueHKD ? (
+      {totalValue != null ? (
         <p className="report-allocation-total">
-          總值 {formatCurrencyRounded(summary.totalValueHKD, 'HKD')}
+          總值 {formatCurrencyRounded(totalValue, displayCurrency)}
         </p>
       ) : null}
 
@@ -173,7 +180,14 @@ export function ReportAllocationSummaryCard({
                 />
                 <div>
                   <strong>{slice.label}</strong>
-                  <p>{formatPercentage(slice.percentage)}</p>
+                  <p>
+                    {formatCurrencyRounded(
+                      displayCurrency === 'HKD'
+                        ? slice.totalValueHKD
+                        : convertCurrency(slice.totalValueHKD, 'HKD', displayCurrency),
+                      displayCurrency,
+                    )} · {formatPercentage(slice.percentage)}
+                  </p>
                 </div>
               </div>
             ))}
@@ -194,7 +208,14 @@ export function ReportAllocationSummaryCard({
                 aria-hidden="true"
               />
               <span>{slice.label}</span>
-              <strong>{formatPercentage(slice.percentage)}</strong>
+              <strong>
+                {formatCurrencyRounded(
+                  displayCurrency === 'HKD'
+                    ? slice.totalValueHKD
+                    : convertCurrency(slice.totalValueHKD, 'HKD', displayCurrency),
+                  displayCurrency,
+                )}
+              </strong>
               {typeof delta === 'number' ? (
                 <small className={delta >= 0 ? 'positive-text' : 'caution-text'}>
                   {formatDelta(delta)}

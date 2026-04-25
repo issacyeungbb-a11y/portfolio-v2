@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
+import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import {
   convertCurrency,
   formatCurrencyRounded,
@@ -8,8 +9,10 @@ import {
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePortfolioSnapshots, useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
+import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
   calculateAssetChangeSummary,
@@ -17,7 +20,6 @@ import {
 } from '../lib/portfolio/assetChange';
 import type {
   AccountCashFlowEntry,
-  DisplayCurrency,
   PortfolioPerformancePoint,
 } from '../types/portfolio';
 
@@ -205,7 +207,7 @@ export function AssetTrendsPage() {
   const { todaySnapshot, error: todaySnapshotError } = useTodaySnapshotStatus();
   const { entries: cashFlows, error: cashFlowsError } = useAccountCashFlows();
   const { entries: principals, error: principalsError } = useAccountPrincipals();
-  const [displayCurrency, setDisplayCurrency] = useState<DisplayCurrency>('HKD');
+  const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
   const [selectedRange, setSelectedRange] = useState<TrendRange | null>('7d');
 
   const holdings = recalculateHoldingAllocations(
@@ -272,6 +274,62 @@ export function AssetTrendsPage() {
     .sort((left, right) => (left.capturedAt ?? '').localeCompare(right.capturedAt ?? ''))
     .slice(-1)[0];
   const latestSnapshotLabel = formatSnapshotHint(latestSnapshot?.capturedAt);
+  const todaySnapshotLabel = !todaySnapshot.exists
+    ? todaySnapshotError
+      ? '今日快照 風險'
+      : '今日快照 待補'
+    : todaySnapshot.quality === 'fallback'
+      ? '今日快照 部分完成'
+      : '今日快照 完整';
+  const todaySnapshotTone = !todaySnapshot.exists
+    ? todaySnapshotError
+      ? 'danger'
+      : 'warning'
+    : todaySnapshot.quality === 'fallback'
+      ? 'warning'
+      : 'success';
+  const topBarConfig = useMemo<TopBarConfig>(
+    () => ({
+      title: '走勢',
+      subtitle: '查看資產總值、收益走勢與月曆變化。',
+      metaItems: [
+        { label: '基準貨幣', value: 'HKD' },
+        { label: '顯示貨幣', value: displayCurrency },
+        { label: '最新快照', value: latestSnapshotLabel },
+        { label: '總資產', value: formatCurrencyRounded(totalValue, displayCurrency) },
+      ],
+      statusItems: [
+        {
+          label: status === 'error' ? '同步失敗' : status === 'loading' ? '同步中' : '已同步',
+          tone: status === 'error' ? 'danger' : status === 'loading' ? 'warning' : 'success',
+        },
+        {
+          label: todaySnapshotLabel,
+          tone: todaySnapshotTone,
+        },
+        {
+          label: `本月收益 ${formatPercent(monthlyReturnPct)}`,
+          tone: monthlyReturnHKD >= 0 ? 'success' : 'warning',
+          title: '按顯示幣別計算',
+        },
+      ],
+      actions: <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />,
+    }),
+    [
+      displayCurrency,
+      latestSnapshotLabel,
+      monthlyReturnHKD,
+      monthlyReturnPct,
+      setDisplayCurrency,
+      status,
+      todaySnapshotLabel,
+      todaySnapshotTone,
+      todaySnapshotError,
+      totalValue,
+    ],
+  );
+
+  useTopBar(topBarConfig);
 
   return (
     <div className="page-stack">
@@ -286,29 +344,7 @@ export function AssetTrendsPage() {
           <div>
             <p className="eyebrow">資產走勢</p>
             <h2>資產總覽</h2>
-          </div>
-          <div className="currency-toggle" role="group" aria-label="選擇顯示貨幣">
-            <button
-              className={displayCurrency === 'HKD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('HKD')}
-            >
-              HKD
-            </button>
-            <button
-              className={displayCurrency === 'USD' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('USD')}
-            >
-              USD
-            </button>
-            <button
-              className={displayCurrency === 'JPY' ? 'currency-toggle-button active' : 'currency-toggle-button'}
-              type="button"
-              onClick={() => setDisplayCurrency('JPY')}
-            >
-              JPY
-            </button>
+            <p className="table-hint">以同一個顯示幣別查看總值、收益與月曆變化。</p>
           </div>
         </div>
 

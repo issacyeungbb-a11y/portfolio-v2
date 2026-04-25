@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 
 import { AssetTransactionForm } from '../components/assets/AssetTransactionForm';
 import { TransactionInputPanel } from '../components/transactions/TransactionInputPanel';
+import { CurrencyToggle } from '../components/ui/CurrencyToggle';
+import { EmptyState } from '../components/ui/EmptyState';
 import {
   convertCurrency,
   formatCurrency,
@@ -10,7 +12,9 @@ import {
   getAssetTypeLabel,
 } from '../data/mockPortfolio';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
+import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import type { AssetTransactionEntry, Holding } from '../types/portfolio';
 
 function formatTradeDate(value: string) {
@@ -56,18 +60,69 @@ export function TransactionsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isTransactionInputOpen, setIsTransactionInputOpen] = useState(false);
+  const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
 
   const visibleEntries = entries.filter(
     (entry) => !(entry.recordType === 'seed' && entry.note === '歷史持倉基線'),
   );
-  const totalTradeAmountHKD = visibleEntries.reduce(
-    (sum, entry) => sum + convertCurrency(entry.quantity * entry.price, entry.currency, 'HKD'),
+  const totalTradeAmountDisplay = visibleEntries.reduce(
+    (sum, entry) => sum + convertCurrency(entry.quantity * entry.price, entry.currency, displayCurrency),
     0,
   );
   const holdingsById = useMemo(
     () => new Map(holdings.map((holding) => [holding.id, holding])),
     [holdings],
   );
+  const latestTradeDate =
+    [...visibleEntries]
+      .map((entry) => entry.date)
+      .filter(Boolean)
+      .sort((left, right) => right.localeCompare(left))[0] ?? null;
+  const latestTradeLabel = latestTradeDate ? formatTradeDate(latestTradeDate) : '未有記錄';
+  const topBarConfig = useMemo<TopBarConfig>(
+    () => ({
+      title: '交易',
+      subtitle: '查看、編輯同輸入持倉交易記錄。',
+      metaItems: [
+        { label: '基準貨幣', value: 'HKD' },
+        { label: '顯示貨幣', value: displayCurrency },
+        { label: '交易筆數', value: `${visibleEntries.length} 筆` },
+        { label: '最近交易', value: latestTradeLabel },
+      ],
+      statusItems: [
+        {
+          label: status === 'error' ? '同步失敗' : status === 'loading' ? '同步中' : '已同步',
+          tone: status === 'error' ? 'danger' : status === 'loading' ? 'warning' : 'success',
+        },
+        {
+          label: visibleEntries.length > 0 ? '交易紀錄完整' : '暫無資料',
+          tone: visibleEntries.length > 0 ? 'success' : 'neutral',
+        },
+      ],
+      actions: (
+        <div className="top-bar-inline-actions">
+          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={() => setIsTransactionInputOpen((current) => !current)}
+          >
+            {isTransactionInputOpen ? '收起輸入交易' : '輸入交易'}
+          </button>
+        </div>
+      ),
+    }),
+    [
+      displayCurrency,
+      isTransactionInputOpen,
+      latestTradeLabel,
+      setDisplayCurrency,
+      status,
+      visibleEntries.length,
+    ],
+  );
+
+  useTopBar(topBarConfig);
 
   async function handleEditTransaction(
     payload: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt' | 'realizedPnlHKD'>,
@@ -119,21 +174,11 @@ export function TransactionsPage() {
 
   return (
     <div className="page-stack">
-      <section className="hero-panel assets-toolbar assets-toolbar-hero">
-        <div className="assets-toolbar-top">
-          <span className="assets-toolbar-subtle">{visibleEntries.length} 筆 · 交易記錄</span>
-        </div>
-        <div className="assets-toolbar-actions">
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={() => setIsTransactionInputOpen((current) => !current)}
-          >
-            {isTransactionInputOpen ? '收起輸入交易' : '輸入交易'}
-          </button>
-        </div>
-        <div className="assets-toolbar-footnote" aria-label="交易輸入提示">
-          <span>撳「輸入交易」可用 AI 文字或手動新增記錄</span>
+      <section className="hero-panel transactions-hero-panel">
+        <div className="dashboard-overview-hero">
+          <span className="dashboard-overview-label">交易管理</span>
+          <strong>{visibleEntries.length} 筆交易記錄</strong>
+          <p className="table-hint">記錄建倉、買入同賣出，所有金額會按你揀選嘅顯示幣別統一顯示。</p>
         </div>
       </section>
 
@@ -153,15 +198,21 @@ export function TransactionsPage() {
         </article>
         <article className="summary-card">
           <p className="summary-label">累計交易金額</p>
-          <strong className="summary-value">{formatCurrencyRounded(totalTradeAmountHKD, 'HKD')}</strong>
-          <p className="summary-hint">按各筆成交價 x 數量換算 HKD 累計</p>
+          <strong className="summary-value">
+            {formatCurrencyRounded(totalTradeAmountDisplay, displayCurrency)}
+          </strong>
+          <p className="summary-hint">按各筆成交價 x 數量換算至顯示幣別</p>
         </article>
         <article className="summary-card">
           <p className="summary-label">已實現盈虧</p>
           <strong className="summary-value">
             {formatCurrencyRounded(
-              visibleEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
-              'HKD',
+              convertCurrency(
+                visibleEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
+                'HKD',
+                displayCurrency,
+              ),
+              displayCurrency,
             )}
           </strong>
           <p className="summary-hint">賣出交易扣除手續費後累計</p>
@@ -183,6 +234,14 @@ export function TransactionsPage() {
           {visibleEntries.length > 0 ? (
             visibleEntries.map((entry) => {
               const grossAmount = entry.quantity * entry.price;
+              const grossAmountDisplay = convertCurrency(grossAmount, entry.currency, displayCurrency);
+              const feesDisplay = convertCurrency(entry.fees, entry.currency, displayCurrency);
+              const realizedPnlDisplay = convertCurrency(entry.realizedPnlHKD, 'HKD', displayCurrency);
+              const averageCostDisplay = convertCurrency(
+                entry.averageCostAfter ?? 0,
+                entry.currency,
+                displayCurrency,
+              );
               const backingHolding = holdingsById.get(entry.assetId) ?? buildHoldingFallback(entry);
               const typeLabel =
                 entry.recordType === 'asset_created'
@@ -208,18 +267,18 @@ export function TransactionsPage() {
                     <p className="table-hint">
                       結算 {getAccountSourceLabel(entry.settlementAccountSource ?? entry.accountSource)} ·
                       {' '}
-                      持倉 {entry.quantityAfter ?? 0} · 均成本 {formatCurrency(entry.averageCostAfter ?? 0, entry.currency)}
+                      持倉 {entry.quantityAfter ?? 0} · 均成本 {formatCurrency(averageCostDisplay, displayCurrency)}
                     </p>
                   </div>
                   <div className="table-metric">
                     <strong className="table-metric-primary">
-                      {entry.quantity} @ {formatCurrency(entry.price, entry.currency)}
+                      {entry.quantity} @ {formatCurrency(convertCurrency(entry.price, entry.currency, displayCurrency), displayCurrency)}
                     </strong>
                     <span className="table-metric-secondary">
-                      總額 {formatCurrency(grossAmount, entry.currency)} · 手續費 {formatCurrency(entry.fees, entry.currency)}
+                      總額 {formatCurrency(grossAmountDisplay, displayCurrency)} · 手續費 {formatCurrency(feesDisplay, displayCurrency)}
                     </span>
                     <span className="table-metric-secondary">
-                      已實現 {formatCurrency(entry.realizedPnlHKD, 'HKD')}
+                      已實現 {formatCurrency(realizedPnlDisplay, displayCurrency)}
                     </span>
                     <div className="table-action-stack">
                       <button
@@ -259,9 +318,19 @@ export function TransactionsPage() {
               );
             })
           ) : (
-            <p className="status-message">
-              尚未有交易記錄，撳上方「輸入交易」開始新增
-            </p>
+            <EmptyState
+              title="尚未有交易記錄"
+              reason="你可以用頂欄「輸入交易」開始新增第一筆記錄，或者用 AI 文字快速整理多筆交易。"
+              primaryAction={
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => setIsTransactionInputOpen(true)}
+                >
+                  輸入交易
+                </button>
+              }
+            />
           )}
         </div>
       </section>

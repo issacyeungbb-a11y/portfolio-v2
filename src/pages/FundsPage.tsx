@@ -3,12 +3,17 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   convertCurrency,
   formatCurrency,
+  formatCurrencyRounded,
   getAccountSourceLabel,
   getCashFlowSignedAmount,
 } from '../data/mockPortfolio';
+import { CurrencyToggle } from '../components/ui/CurrencyToggle';
+import { EmptyState } from '../components/ui/EmptyState';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { usePortfolioAccess } from '../hooks/usePortfolioAccess';
+import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import type {
   AccountCashFlowEntry,
   AccountCashFlowType,
@@ -38,12 +43,14 @@ export function FundsPage() {
   const {
     entries: cashFlows,
     error: cashFlowsError,
+    status: cashFlowStatus,
     addCashFlow,
   } = useAccountCashFlows();
   const [accountSource, setAccountSource] = useState<AccountSource>('Futu');
   const [type, setType] = useState<AccountCashFlowType>('deposit');
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('HKD');
+  const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [note, setNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -108,6 +115,70 @@ export function FundsPage() {
     });
   }, [accountPrincipals, cashFlows]);
   const totalPrincipalHKD = accountSummaries.reduce((sum, summary) => sum + summary.totalPrincipalHKD, 0);
+  const totalPrincipalDisplay = convertCurrency(totalPrincipalHKD, 'HKD', displayCurrency);
+  const latestUpdateLabel = useMemo(() => {
+    const latestTimestamp = [
+      ...accountPrincipals.map((entry) => entry.updatedAt || ''),
+      ...cashFlows.map((entry) => entry.updatedAt || entry.createdAt || ''),
+    ]
+      .filter(Boolean)
+      .sort((left, right) => right.localeCompare(left))[0];
+
+    if (!latestTimestamp) {
+      return '未更新';
+    }
+
+    try {
+      return new Intl.DateTimeFormat('zh-HK', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      }).format(new Date(latestTimestamp));
+    } catch {
+      return latestTimestamp;
+    }
+  }, [accountPrincipals, cashFlows]);
+  const topBarConfig = useMemo<TopBarConfig>(
+    () => ({
+      title: '資金',
+      subtitle: '管理帳戶本金、入金、提款與現金流記錄。',
+      metaItems: [
+        { label: '基準貨幣', value: 'HKD' },
+        { label: '顯示貨幣', value: displayCurrency },
+        { label: '帳戶數', value: `${accountSourceOptions.length} 個` },
+        { label: '總本金', value: formatCurrencyRounded(totalPrincipalDisplay, displayCurrency) },
+      ],
+      statusItems: [
+        {
+          label: accessStatus === 'unlocked' ? '已解鎖' : accessStatus === 'locked' ? '已鎖定' : '錯誤',
+          tone: accessStatus === 'unlocked' ? 'success' : accessStatus === 'locked' ? 'warning' : 'danger',
+        },
+        {
+          label: accountPrincipalStatus === 'error' ? '本金失敗' : accountPrincipalStatus === 'loading' ? '本金同步中' : '本金已同步',
+          tone: accountPrincipalStatus === 'error' ? 'danger' : accountPrincipalStatus === 'loading' ? 'warning' : 'success',
+        },
+        {
+          label: cashFlowStatus === 'error' ? '流水失敗' : cashFlowStatus === 'loading' ? '流水同步中' : '流水已同步',
+          tone: cashFlowStatus === 'error' ? 'danger' : cashFlowStatus === 'loading' ? 'warning' : 'success',
+        },
+        {
+          label: `最近更新 ${latestUpdateLabel}`,
+          tone: 'neutral',
+        },
+      ],
+      actions: <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />,
+    }),
+    [
+      accessStatus,
+      accountPrincipalStatus,
+      cashFlowStatus,
+      displayCurrency,
+      latestUpdateLabel,
+      setDisplayCurrency,
+      totalPrincipalDisplay,
+    ],
+  );
+
+  useTopBar(topBarConfig);
 
   async function handleSavePrincipal(entry: AccountPrincipalEntry) {
     setSavingAccountSource(entry.accountSource);
@@ -170,22 +241,34 @@ export function FundsPage() {
       <section className="summary-grid">
         <article className="summary-card">
           <p className="summary-label">全部本金總數</p>
-          <strong className="summary-value">{formatCurrency(totalPrincipalHKD, 'HKD')}</strong>
+          <strong className="summary-value">{formatCurrency(totalPrincipalDisplay, displayCurrency)}</strong>
           <p className="summary-hint">包括初始本金及後續入金/提款</p>
         </article>
         {accountSummaries.map((summary) => (
           <article key={summary.accountSource} className="summary-card">
             <p className="summary-label">{getAccountSourceLabel(summary.accountSource)}</p>
-            <strong className="summary-value">{formatCurrency(summary.totalPrincipalHKD, 'HKD')}</strong>
+            <strong className="summary-value">
+              {formatCurrency(
+                convertCurrency(summary.totalPrincipalHKD, 'HKD', displayCurrency),
+                displayCurrency,
+              )}
+            </strong>
             <p className="summary-hint">
-              基線 {formatCurrency(summary.baseline.principalAmount, summary.baseline.currency)} ·
+              基線 {formatCurrency(
+                convertCurrency(
+                  summary.baseline.principalAmount,
+                  summary.baseline.currency,
+                  displayCurrency,
+                ),
+                displayCurrency,
+              )} ·
               流水 {summary.recentCount} 筆
             </p>
           </article>
         ))}
       </section>
 
-      <section className="card">
+      <section className="card" id="funds-form">
         <div className="section-heading">
           <div>
             <p className="eyebrow">帳戶本金</p>
@@ -334,13 +417,24 @@ export function FundsPage() {
                   </div>
                   <span className={signedAmount >= 0 ? 'chip chip-strong' : 'chip chip-soft'}>
                     {signedAmount >= 0 ? '+' : '-'}
-                    {formatCurrency(Math.abs(signedAmount), entry.currency)}
+                    {formatCurrency(
+                      Math.abs(convertCurrency(signedAmount, entry.currency, displayCurrency)),
+                      displayCurrency,
+                    )}
                   </span>
                 </div>
               );
             })
           ) : (
-            <p className="status-message">尚未有資金流水，可以喺上方新增你嘅第一筆記錄</p>
+            <EmptyState
+              title="尚未有資金流水"
+              reason="可以先喺上方新增你嘅第一筆記錄，再開始追蹤入金、提款同調整。"
+              primaryAction={
+                <a className="button button-secondary" href="#funds-form">
+                  前往輸入區
+                </a>
+              }
+            />
           )}
           {cashFlows.length > visibleFlowCount ? (
             <div className="button-row" style={{ justifyContent: 'center', padding: '0.5rem 0' }}>

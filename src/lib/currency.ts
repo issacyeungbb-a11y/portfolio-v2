@@ -49,36 +49,23 @@ export function convertCurrency(
 
 export function formatCurrency(value: number, currency: string) {
   const normalizedCurrency = normalizeCurrencyCode(currency);
+  const fractionDigits = normalizedCurrency === 'JPY' ? 0 : 2;
+  const amount = new Intl.NumberFormat('zh-HK', {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(value);
 
-  try {
-    return new Intl.NumberFormat('zh-HK', {
-      style: 'currency',
-      currency: normalizedCurrency,
-      maximumFractionDigits: normalizedCurrency === 'JPY' ? 0 : 2,
-    }).format(value);
-  } catch {
-    return `${new Intl.NumberFormat('zh-HK', {
-      maximumFractionDigits: 2,
-    }).format(value)} ${normalizedCurrency}`.trim();
-  }
+  return `${normalizedCurrency} ${amount}`;
 }
 
 export function formatCurrencyRounded(value: number, currency: string) {
   const normalizedCurrency = normalizeCurrencyCode(currency);
+  const amount = new Intl.NumberFormat('zh-HK', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
 
-  try {
-    return new Intl.NumberFormat('zh-HK', {
-      style: 'currency',
-      currency: normalizedCurrency,
-      maximumFractionDigits: 0,
-      minimumFractionDigits: 0,
-    }).format(value);
-  } catch {
-    return `${new Intl.NumberFormat('zh-HK', {
-      maximumFractionDigits: 0,
-      minimumFractionDigits: 0,
-    }).format(value)} ${normalizedCurrency}`.trim();
-  }
+  return `${normalizedCurrency} ${amount}`;
 }
 
 export function formatPercent(value: number) {

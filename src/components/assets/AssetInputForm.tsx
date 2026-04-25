@@ -39,7 +39,7 @@ const initialFormState: AssetFormState = {
   symbol: '',
   assetType: 'stock',
   accountSource: 'Futu',
-  currency: 'USD',
+  currency: 'HKD',
   quantity: '',
   averageCost: '',
   currentPrice: '',

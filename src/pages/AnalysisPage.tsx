@@ -3,12 +3,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
-import { getHoldingValueInCurrency, mockPortfolio } from '../data/mockPortfolio';
+import { CurrencyToggle } from '../components/ui/CurrencyToggle';
+import { EmptyState } from '../components/ui/EmptyState';
+import { formatCurrencyRounded, getHoldingValueInCurrency, mockPortfolio, convertCurrency } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
 import { useAnalysisThreadTurns, useAnalysisThreads } from '../hooks/useAnalysisThreads';
 import { useAnalysisSettings } from '../hooks/useAnalysisSettings';
+import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
+import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import { storage } from '../lib/firebase/client';
 import {
   appendAnalysisThreadTurn,
@@ -31,6 +35,7 @@ import {
   createPortfolioSnapshotHash,
   createPortfolioSnapshotSignature,
 } from '../lib/portfolio/analysisSnapshot';
+import { buildReportAllocationSummaryFromHoldings } from '../lib/portfolio/reportAllocationSummary';
 import { StatusMessages } from '../components/ui/StatusMessages';
 import type { AnalysisCategory, AnalysisSession, Holding } from '../types/portfolio';
 import type {
@@ -178,6 +183,22 @@ function formatGeneratedAt(value: string) {
   }
 }
 
+function formatDateLabel(value: string) {
+  if (!value) {
+    return '尚未提供';
+  }
+
+  try {
+    return new Intl.DateTimeFormat('zh-HK', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }).format(new Date(`${value}T00:00:00`));
+  } catch {
+    return value;
+  }
+}
+
 function getHongKongDateParts(date = new Date()) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Hong_Kong',
@@ -196,6 +217,15 @@ function getHongKongDateParts(date = new Date()) {
     day: getPart('day'),
     hour: getPart('hour'),
   };
+}
+
+function getHongKongDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
 }
 
 function getHongKongYearMonthLabel(date = new Date()) {
@@ -908,6 +938,7 @@ export function AnalysisPage() {
   const [reportActionMessage, setReportActionMessage] = useState<string | null>(null);
   const [reportActionError, setReportActionError] = useState<string | null>(null);
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
+  const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -932,6 +963,15 @@ export function AnalysisPage() {
     [currentTime],
   );
   const currentQuarterLabel = useMemo(() => getHongKongQuarterLabel(currentTime), [currentTime]);
+  const currentAllocationSummary = useMemo(
+    () =>
+      buildReportAllocationSummaryFromHoldings({
+        holdings,
+        asOfDate: getHongKongDateKey(currentTime),
+        basis: 'quarterly',
+      }),
+    [currentTime, holdings],
+  );
   useEffect(() => {
     setLocalAnalysis(null);
     setAnalysisError(null);
@@ -1231,6 +1271,83 @@ export function AnalysisPage() {
       })),
     [selectedQuarterlyThreadTurns],
   );
+  const topBarConfig = useMemo<TopBarConfig>(
+    () => ({
+      title: '分析中心',
+      subtitle: '整合即時對話、每月分析與季度報告，先看當前資產分佈，再進入各分析入口。',
+      metaItems: [
+        { label: '基準貨幣', value: 'HKD' },
+        { label: '顯示貨幣', value: displayCurrency },
+        {
+          label: '當前總值',
+          value: formatCurrencyRounded(
+            convertCurrency(currentAllocationSummary.totalValueHKD ?? 0, 'HKD', displayCurrency),
+            displayCurrency,
+          ),
+        },
+        { label: '總結日期', value: formatDateLabel(currentAllocationSummary.asOfDate) },
+        { label: '最新報告', value: latestReport?.quarter ?? '尚未生成' },
+      ],
+      statusItems: [
+        {
+          label: assetsStatus === 'error' ? '資產失敗' : assetsStatus === 'loading' ? '資產同步中' : '資產已同步',
+          tone: assetsStatus === 'error' ? 'danger' : assetsStatus === 'loading' ? 'warning' : 'success',
+        },
+        {
+          label:
+            snapshotHashStatus === 'ready'
+              ? '分析快照 已就緒'
+              : snapshotHashStatus === 'error'
+                ? '分析快照 風險'
+                : snapshotHashStatus === 'loading'
+                  ? '分析快照 生成中'
+                  : '分析快照 待建立',
+          tone:
+            snapshotHashStatus === 'ready'
+              ? 'success'
+              : snapshotHashStatus === 'error'
+                ? 'danger'
+                : 'warning',
+        },
+        {
+          label: currentMonthAnalysis ? '本月分析 已生成' : canGenerateCurrentMonthAnalysis ? '本月分析 可生成' : '本月分析 待時段',
+          tone: currentMonthAnalysis ? 'success' : canGenerateCurrentMonthAnalysis ? 'warning' : 'neutral',
+        },
+        {
+          label: currentQuarterReport ? '季度報告 已生成' : canGenerateCurrentQuarterReport ? '季度報告 可生成' : reportsStatus === 'loading' ? '季度報告 同步中' : '季度報告 待生成',
+          tone: currentQuarterReport ? 'success' : canGenerateCurrentQuarterReport ? 'warning' : reportsStatus === 'loading' ? 'warning' : 'neutral',
+        },
+      ],
+      actions: (
+        <div className="top-bar-inline-actions">
+          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => setIsPromptSettingsOpen(true)}
+          >
+            分析設定
+          </button>
+        </div>
+      ),
+    }),
+    [
+      assetsStatus,
+      canGenerateCurrentMonthAnalysis,
+      canGenerateCurrentQuarterReport,
+      currentAllocationSummary.asOfDate,
+      currentAllocationSummary.totalValueHKD,
+      currentMonthAnalysis,
+      currentQuarterReport,
+      displayCurrency,
+      latestReport?.quarter,
+      reportsStatus,
+      snapshotHashStatus,
+      setDisplayCurrency,
+      setIsPromptSettingsOpen,
+    ],
+  );
+  useTopBar(topBarConfig);
 
   async function handleAnalyzePortfolio(quickQuestion?: string) {
     if (!snapshotHash || holdings.length === 0 || isQuarterlyCategory) {
@@ -1637,7 +1754,11 @@ export function AnalysisPage() {
       <section className="hero-panel analysis-hero-panel">
         <div className="analysis-page-header">
           <div className="analysis-page-heading">
-            <h2>分析</h2>
+            <p className="eyebrow">分析入口</p>
+            <h2>{selectedCategoryOption.label}</h2>
+            <p className="table-hint">
+              {selectedCategoryOption.helper} · 每個報告入口都先顯示當前資產分佈總結。
+            </p>
           </div>
         </div>
 
@@ -1657,6 +1778,22 @@ export function AnalysisPage() {
             );
           })}
         </div>
+      </section>
+
+      <section className="card analysis-summary-panel">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Allocation</p>
+            <h2>當前資產分佈總結</h2>
+            <p className="table-hint">每月分析與季度報告都會先從呢份即時總結開始。</p>
+          </div>
+          <span className="chip chip-strong">{currentAllocationSummary.styleTag}</span>
+        </div>
+        <ReportAllocationSummaryCard
+          summary={currentAllocationSummary}
+          displayCurrency={displayCurrency}
+          className="analysis-entry-summary"
+        />
       </section>
 
       {isPromptSettingsOpen ? (
@@ -1969,6 +2106,12 @@ export function AnalysisPage() {
               </div>
             </div>
 
+            <ReportAllocationSummaryCard
+              summary={currentAllocationSummary}
+              displayCurrency={displayCurrency}
+              className="analysis-entry-summary"
+            />
+
             <p className="status-message">
               {canGenerateMonthlyAnalysisNow(currentTime)
                 ? currentMonthAnalysis
@@ -1994,7 +2137,43 @@ export function AnalysisPage() {
             </p>
 
             {monthlyAnalysisSessions.length === 0 ? (
-              <p className="status-message">尚未生成每月分析。</p>
+              <EmptyState
+                title="尚未生成每月分析"
+                reason={
+                  canGenerateCurrentMonthAnalysis
+                    ? '可以立即生成第一份每月資產分析。'
+                    : '未到每月生成時段，暫時未有可用的月報。'
+                }
+                primaryAction={
+                  canGenerateCurrentMonthAnalysis ? (
+                    <button
+                      className="button button-primary"
+                      type="button"
+                      onClick={() => void handleGenerateMonthlyAnalysisReport()}
+                      disabled={generatingPeriodicReport === 'monthly'}
+                    >
+                      {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成本月分析'}
+                    </button>
+                  ) : (
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() => setIsPromptSettingsOpen(true)}
+                    >
+                      檢視分析設定
+                    </button>
+                  )
+                }
+                secondaryAction={
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => setSelectedCategory('general_question')}
+                  >
+                    切換至一般問題
+                  </button>
+                }
+              />
             ) : (
               <div className="quarterly-report-list">
                 {monthlyAnalysisSessions.map((session) => {
@@ -2021,7 +2200,10 @@ export function AnalysisPage() {
                       </button>
                       {isExpanded ? (
                         <div className="analysis-report-body">
-                          <ReportAllocationSummaryCard summary={session.allocationSummary} />
+                          <ReportAllocationSummaryCard
+                            summary={session.allocationSummary}
+                            displayCurrency={displayCurrency}
+                          />
                           <div className="quarterly-report-body">
                             {splitReportIntoSections(session.result).map((section, sectionIndex) => (
                               <section
@@ -2091,6 +2273,12 @@ export function AnalysisPage() {
               )}
             </div>
 
+            <ReportAllocationSummaryCard
+              summary={currentAllocationSummary}
+              displayCurrency={displayCurrency}
+              className="analysis-entry-summary"
+            />
+
             {latestReport ? (
               <div className="analysis-report-preview">
                 <p className="analysis-summary-text">{truncateText(latestReport.report, 200)}</p>
@@ -2102,7 +2290,39 @@ export function AnalysisPage() {
                 </div>
               </div>
             ) : (
-              <p className="status-message">尚未生成季度報告。</p>
+              <EmptyState
+                title="尚未生成季度報告"
+                reason="生成第一份季度報告後，這裡會顯示全文、PDF 同追問入口。"
+                primaryAction={
+                  canGenerateCurrentQuarterReport ? (
+                    <button
+                      className="button button-primary"
+                      type="button"
+                      onClick={() => void handleGenerateQuarterlyReport()}
+                      disabled={generatingPeriodicReport === 'quarterly'}
+                    >
+                      {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成今季報告'}
+                    </button>
+                  ) : (
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() => setIsPromptSettingsOpen(true)}
+                    >
+                      檢視分析設定
+                    </button>
+                  )
+                }
+                secondaryAction={
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => setSelectedCategory('asset_analysis')}
+                  >
+                    切換至每月分析
+                  </button>
+                }
+              />
             )}
           </section>
 
@@ -2122,7 +2342,39 @@ export function AnalysisPage() {
             </p>
 
             {reportsStatus === 'ready' && reports.length === 0 ? (
-              <p className="status-message">尚未生成季度報告。</p>
+              <EmptyState
+                title="尚未生成季度報告"
+                reason="生成第一份季度報告後，這裡會列出歷史版本同 PDF 下載入口。"
+                primaryAction={
+                  canGenerateCurrentQuarterReport ? (
+                    <button
+                      className="button button-primary"
+                      type="button"
+                      onClick={() => void handleGenerateQuarterlyReport()}
+                      disabled={generatingPeriodicReport === 'quarterly'}
+                    >
+                      {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成今季報告'}
+                    </button>
+                  ) : (
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      onClick={() => setIsPromptSettingsOpen(true)}
+                    >
+                      檢視分析設定
+                    </button>
+                  )
+                }
+                secondaryAction={
+                  <button
+                    className="button button-secondary"
+                    type="button"
+                    onClick={() => setSelectedCategory('asset_analysis')}
+                  >
+                    切換至每月分析
+                  </button>
+                }
+              />
             ) : null}
 
             <div className="quarterly-report-list">
@@ -2186,7 +2438,10 @@ export function AnalysisPage() {
                 </div>
               </div>
 
-              <ReportAllocationSummaryCard summary={selectedReport.allocationSummary} />
+              <ReportAllocationSummaryCard
+                summary={selectedReport.allocationSummary}
+                displayCurrency={displayCurrency}
+              />
 
               <div className="quarterly-report-body">
                 {selectedSections.map((section, index) => (
