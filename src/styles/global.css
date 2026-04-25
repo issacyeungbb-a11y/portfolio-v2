@@ -2959,6 +2959,22 @@ h3 {
   color: var(--text-main);
 }
 
+.report-preview-page {
+  gap: 1rem;
+}
+
+.report-preview-hero {
+  display: grid;
+  gap: 1rem;
+}
+
+.report-preview-warning-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
 .bottom-nav {
   position: fixed;
   left: 0;
@@ -3173,6 +3189,11 @@ h3 {
 
   .quarterly-report-actions {
     justify-content: flex-end;
+  }
+
+  .report-preview-hero {
+    grid-template-columns: minmax(0, 1.3fr) minmax(16rem, 1fr);
+    align-items: start;
   }
 
   .allocation-visual-layout {

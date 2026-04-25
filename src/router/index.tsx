@@ -6,6 +6,7 @@ import { AssetsPage } from '../pages/AssetsPage';
 import { DashboardPage } from '../pages/DashboardPage';
 import { FundsPage } from '../pages/FundsPage';
 import { AssetTrendsPage } from '../pages/AssetTrendsPage';
+import { ReportPreviewPage } from '../pages/ReportPreviewPage';
 import { TransactionsPage } from '../pages/TransactionsPage';
 
 export const router = createBrowserRouter([
@@ -46,6 +47,13 @@ export const router = createBrowserRouter([
         element: <AnalysisPage />,
         handle: {
           title: '分析與報告',
+        },
+      },
+      {
+        path: 'report-preview',
+        element: <ReportPreviewPage />,
+        handle: {
+          title: '報告預覽 Sandbox',
         },
       },
       {
