@@ -1198,24 +1198,92 @@ h3 {
   font-weight: 700;
 }
 
-.report-allocation-stacked-bar {
-  display: flex;
+.report-allocation-chart-shell {
+  display: grid;
+  gap: 0.9rem;
+  justify-items: center;
+}
+
+.report-allocation-donut {
+  position: relative;
+  width: min(100%, 16rem);
+  aspect-ratio: 1;
+}
+
+.report-allocation-donut svg {
   width: 100%;
-  min-width: 0;
-  height: 1.15rem;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: inset 0 0 0 1px rgba(118, 96, 77, 0.1);
-}
-
-.report-allocation-segment {
-  min-width: 4px;
   height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 14px 24px rgba(15, 23, 42, 0.08));
 }
 
-.report-allocation-segment + .report-allocation-segment {
-  border-left: 1px solid rgba(255, 255, 255, 0.72);
+.report-allocation-donut-track {
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.18);
+  stroke-width: 24;
+}
+
+.report-allocation-donut-arc {
+  fill: none;
+  stroke-width: 24;
+  stroke-linecap: butt;
+}
+
+.report-allocation-donut-center {
+  position: absolute;
+  inset: 50%;
+  width: 52%;
+  height: 52%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-content: center;
+  gap: 0.18rem;
+  padding: 0.8rem;
+  text-align: center;
+  border-radius: 999px;
+  background: rgba(255, 252, 248, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(118, 96, 77, 0.08);
+}
+
+.report-allocation-donut-center span,
+.report-allocation-donut-center small {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.report-allocation-donut-center strong {
+  font-size: 0.98rem;
+  line-height: 1.2;
+}
+
+.report-allocation-chart-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.report-allocation-chart-metric {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.58rem 0.7rem;
+  border: 1px solid rgba(118, 96, 77, 0.09);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.report-allocation-chart-metric strong {
+  display: block;
+  font-size: 0.86rem;
+}
+
+.report-allocation-chart-metric p {
+  margin: 0.08rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
 .report-allocation-legend {
@@ -3173,6 +3241,11 @@ h3 {
 
   .quarterly-report-actions {
     justify-content: flex-end;
+  }
+
+  .report-allocation-chart-shell {
+    grid-template-columns: minmax(13rem, 15rem) minmax(0, 1fr);
+    align-items: center;
   }
 
   .allocation-visual-layout {

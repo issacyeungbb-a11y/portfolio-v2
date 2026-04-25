@@ -41,6 +41,22 @@ function formatDelta(value: number) {
   return `${value > 0 ? '+' : ''}${value.toFixed(1)}pp`;
 }
 
+function polarToCartesian(cx: number, cy: number, radius: number, angleInDegrees: number) {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180;
+  return {
+    x: cx + radius * Math.cos(angleInRadians),
+    y: cy + radius * Math.sin(angleInRadians),
+  };
+}
+
+function describeArc(cx: number, cy: number, radius: number, startAngle: number, endAngle: number) {
+  const start = polarToCartesian(cx, cy, radius, endAngle);
+  const end = polarToCartesian(cx, cy, radius, startAngle);
+  const largeArcFlag = endAngle - startAngle > 180 ? 1 : 0;
+
+  return ['M', start.x, start.y, 'A', radius, radius, 0, largeArcFlag, 0, end.x, end.y].join(' ');
+}
+
 function getDeltaForKey(
   deltas: ReportAllocationDeltaSummary[] | undefined,
   key: ReportAllocationDeltaSummary['key'],
@@ -80,6 +96,19 @@ export function ReportAllocationSummaryCard({
   }
 
   const slices = summary.slices.filter((slice) => slice.percentage > 0);
+  const chartSize = 220;
+  const chartRadius = 88;
+  let currentAngle = 0;
+  const chartArcs = slices.map((slice) => {
+    const startAngle = currentAngle;
+    const sliceAngle = (slice.percentage / 100) * 360;
+    currentAngle += sliceAngle;
+
+    return {
+      ...slice,
+      arcPath: describeArc(chartSize / 2, chartSize / 2, chartRadius, startAngle, currentAngle),
+    };
+  });
 
   return (
     <article className={cardClassName}>
@@ -101,24 +130,54 @@ export function ReportAllocationSummaryCard({
       ) : null}
 
       {slices.length > 0 ? (
-        <div
-          className="report-allocation-stacked-bar"
-          role="img"
-          aria-label={`資產分佈：${slices
-            .map((slice) => `${slice.label} ${formatPercentage(slice.percentage)}`)
-            .join('，')}`}
-        >
-          {slices.map((slice) => (
-            <span
-              key={slice.key}
-              className="report-allocation-segment"
-              style={{
-                backgroundColor: slice.color,
-                flexBasis: `${slice.percentage}%`,
-              }}
-              title={`${slice.label} ${formatPercentage(slice.percentage)}`}
-            />
-          ))}
+        <div className="report-allocation-chart-shell">
+          <div
+            className="report-allocation-donut"
+            role="img"
+            aria-label={`資產分佈：${slices
+              .map((slice) => `${slice.label} ${formatPercentage(slice.percentage)}`)
+              .join('，')}`}
+          >
+            <svg viewBox={`0 0 ${chartSize} ${chartSize}`} aria-hidden="true">
+              <circle
+                className="report-allocation-donut-track"
+                cx={chartSize / 2}
+                cy={chartSize / 2}
+                r={chartRadius}
+              />
+              {chartArcs.map((slice) => (
+                <path
+                  key={slice.key}
+                  d={slice.arcPath}
+                  className="report-allocation-donut-arc"
+                  style={{ stroke: slice.color }}
+                >
+                  <title>{`${slice.label} ${formatPercentage(slice.percentage)}`}</title>
+                </path>
+              ))}
+            </svg>
+            <div className="report-allocation-donut-center">
+              <span>最大配置</span>
+              <strong>{slices[0]?.label ?? '未提供'}</strong>
+              <small>{formatPercentage(slices[0]?.percentage ?? 0)}</small>
+            </div>
+          </div>
+
+          <div className="report-allocation-chart-metrics" aria-label="資產分佈重點">
+            {chartArcs.slice(0, 3).map((slice) => (
+              <div key={slice.key} className="report-allocation-chart-metric">
+                <span
+                  className="allocation-dot"
+                  style={{ backgroundColor: slice.color }}
+                  aria-hidden="true"
+                />
+                <div>
+                  <strong>{slice.label}</strong>
+                  <p>{formatPercentage(slice.percentage)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
         <p className="status-message">未有有效資產分佈資料。</p>
