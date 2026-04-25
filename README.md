@@ -2,6 +2,10 @@
 
 個人投資組合追蹤系統，支持多帳戶、多幣種資產管理，配備 AI 分析引擎。
 
+## 其他子專案
+
+- [email/](./email/README.md): Kenji 每日文章電郵自動分析與回寄系統。這是一個獨立的 Python 專案，適合長期排程執行，包含 Graph 讀寫、摘要生成、SQLite 狀態保存同部署文件。
+
 ## 技術棧
 
 - 前端：React 18 + Vite + TypeScript
@@ -50,3 +54,16 @@ Push 到 main branch，Vercel 自動部署。
 ## Cron 任務
 
 詳見 [docs/cron-schedule.md](./docs/cron-schedule.md)
+
+## Email 子專案
+
+如果你要跑 `email/` 內嘅 Kenji 電郵系統：
+
+```bash
+cd email
+cp .env.example .env
+python3 -m app.cli check-config --show
+python3 -m app.cli run
+```
+
+部署同認證準備請見 [email/README.md](./email/README.md)、[email/docs/deployment.md](./email/docs/deployment.md) 同 [email/docs/graph_auth_setup.md](./email/docs/graph_auth_setup.md)。
