@@ -249,7 +249,7 @@ function buildSummarySentence(
     const meta = getAllocationBucketMeta(notableDelta.key);
     const direction = notableDelta.deltaPercentagePoints > 0 ? '上升' : '下降';
 
-    return `${leadingPhrase}，${warningPhrase}，整體屬${getStylePhrase(styleTag)}；較上期${meta.label}${direction}${Math.abs(notableDelta.deltaPercentagePoints).toFixed(1)}pp。`;
+    return `${leadingPhrase}，${warningPhrase}，整體屬${getStylePhrase(styleTag)}；較上期${meta.label}${direction}${Math.round(Math.abs(notableDelta.deltaPercentagePoints))}pp。`;
   }
 
   return `${leadingPhrase}，${warningPhrase}，整體屬${getStylePhrase(styleTag)}。`;

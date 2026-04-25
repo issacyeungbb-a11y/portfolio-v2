@@ -28,7 +28,7 @@ function buildConcentrationInsight(holdings: Holding[]): Insight | null {
     return {
       id: 'insight-concentration',
       title: `${dominantHolding.symbol} 佔比偏高`,
-      summary: `${dominantHolding.symbol} 目前約佔組合 ${dominantHolding.allocation.toFixed(1)}%。如果你想降低單一標的波動，下一步應優先補其他資產類型，而唔係再加同一方向部位。`,
+      summary: `${dominantHolding.symbol} 目前約佔組合 ${Math.round(dominantHolding.allocation)}%。如果你想降低單一標的波動，下一步應優先補其他資產類型，而唔係再加同一方向部位。`,
       tone: 'caution',
     };
   }
@@ -36,7 +36,7 @@ function buildConcentrationInsight(holdings: Holding[]): Insight | null {
   return {
     id: 'insight-concentration',
     title: '單一持倉集中度尚可',
-    summary: `目前最大持倉 ${dominantHolding.symbol} 約佔組合 ${dominantHolding.allocation.toFixed(1)}%，未見過度集中到需要即時處理，可以先把重點放喺價格歷史與定期更新。`,
+    summary: `目前最大持倉 ${dominantHolding.symbol} 約佔組合 ${Math.round(dominantHolding.allocation)}%，未見過度集中到需要即時處理，可以先把重點放喺價格歷史與定期更新。`,
     tone: 'positive',
   };
 }
@@ -70,7 +70,7 @@ function buildCurrencyInsight(holdings: Holding[]): Insight | null {
     return {
       id: 'insight-currency',
       title: `${dominantCurrency} 幣別曝險較重`,
-      summary: `${dominantCurrency} 資產約佔組合 ${percentage.toFixed(1)}%。如果你的日常支出主要唔係呢個幣別，可以考慮慢慢補回本地現金或對應 ETF，減少匯率對總覽數字嘅影響。`,
+      summary: `${dominantCurrency} 資產約佔組合 ${Math.round(percentage)}%。如果你的日常支出主要唔係呢個幣別，可以考慮慢慢補回本地現金或對應 ETF，減少匯率對總覽數字嘅影響。`,
       tone: 'caution',
     };
   }
@@ -78,7 +78,7 @@ function buildCurrencyInsight(holdings: Holding[]): Insight | null {
   return {
     id: 'insight-currency',
     title: '幣別分佈算係平均',
-    summary: `目前最大幣別為 ${dominantCurrency}，約佔組合 ${percentage.toFixed(1)}%。整體未見單一幣別過重，之後可優先改善價格更新頻率，令分析結果更可信。`,
+    summary: `目前最大幣別為 ${dominantCurrency}，約佔組合 ${Math.round(percentage)}%。整體未見單一幣別過重，之後可優先改善價格更新頻率，令分析結果更可信。`,
     tone: 'neutral',
   };
 }
@@ -103,7 +103,7 @@ function buildCashInsight(holdings: Holding[]): Insight | null {
     return {
       id: 'insight-cash',
       title: '有保留現金緩衝',
-      summary: `現金部位約佔 ${cashPercentage.toFixed(1)}%，短期內有一定調整空間。之後即使補 ETF 或再平衡，操作上都會靈活啲。`,
+      summary: `現金部位約佔 ${Math.round(cashPercentage)}%，短期內有一定調整空間。之後即使補 ETF 或再平衡，操作上都會靈活啲。`,
       tone: 'positive',
     };
   }
@@ -111,7 +111,7 @@ function buildCashInsight(holdings: Holding[]): Insight | null {
   return {
     id: 'insight-cash',
     title: '現金比例偏薄',
-    summary: `現金部位約佔 ${cashPercentage.toFixed(1)}%。如果你打算繼續加入新標的，之後可以考慮先補多少少現金緩衝，避免每次調整都要賣出現有持倉。`,
+    summary: `現金部位約佔 ${Math.round(cashPercentage)}%。如果你打算繼續加入新標的，之後可以考慮先補多少少現金緩衝，避免每次調整都要賣出現有持倉。`,
     tone: 'neutral',
   };
 }

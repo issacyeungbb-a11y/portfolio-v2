@@ -33,15 +33,15 @@ function formatDateLabel(value: string) {
 }
 
 function formatPercentage(value: number) {
-  return `${value.toFixed(1)}%`;
+  return `${Math.round(value)}%`;
 }
 
 function formatDelta(value: number) {
   if (Math.abs(value) < 0.05) {
-    return '0.0pp';
+    return '0pp';
   }
 
-  return `${value > 0 ? '+' : ''}${value.toFixed(1)}pp`;
+  return `${value > 0 ? '+' : ''}${Math.round(value)}pp`;
 }
 
 function polarToCartesian(cx: number, cy: number, radius: number, angleInDegrees: number) {

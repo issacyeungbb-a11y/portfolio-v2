@@ -143,8 +143,8 @@ export function FundsPage() {
       title: '資金流水',
       subtitle: '管理帳戶本金、入金、提款與現金流記錄。',
       metaItems: [
-        { label: '基準貨幣', value: 'HKD' },
-        { label: '顯示貨幣', value: displayCurrency },
+        { label: '基準貨幣', value: 'HKD', compact: true },
+        { label: '顯示貨幣', value: displayCurrency, compact: true },
         { label: '帳戶數', value: `${accountSourceOptions.length} 個` },
         { label: '總本金', value: formatCurrencyRounded(totalPrincipalDisplay, displayCurrency) },
       ],

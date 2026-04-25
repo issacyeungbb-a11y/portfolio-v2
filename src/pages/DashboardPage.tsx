@@ -106,8 +106,8 @@ export function DashboardPage() {
       title: '投資總覽',
       subtitle: '追蹤組合價值、今日收益與需要優先處理的事項。',
       metaItems: [
-        { label: '基準貨幣', value: 'HKD' },
-        { label: '顯示貨幣', value: displayCurrency },
+        { label: '基準貨幣', value: 'HKD', compact: true },
+        { label: '顯示貨幣', value: displayCurrency, compact: true },
         { label: '總資產', value: formatCurrencyRounded(totalValue, displayCurrency) },
         { label: '最近更新', value: latestPriceUpdateLabel },
       ],

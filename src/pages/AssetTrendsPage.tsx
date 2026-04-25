@@ -163,10 +163,7 @@ function formatCalendarChange(value: number) {
   const absolute = Math.abs(value);
 
   if (absolute >= 10000) {
-    const inTenThousands = absolute / 10000;
-    const rounded =
-      inTenThousands >= 100 ? Math.round(inTenThousands).toString() : inTenThousands.toFixed(1).replace(/\.0$/, '');
-    return `${sign}${rounded}萬`;
+    return `${sign}${Math.round(absolute / 10000)}萬`;
   }
 
   return `${sign}${Math.round(absolute).toLocaleString('en-US')}`;
@@ -293,8 +290,8 @@ export function AssetTrendsPage() {
       title: '資產走勢',
       subtitle: '查看資產總值、收益走勢與月曆變化。',
       metaItems: [
-        { label: '基準貨幣', value: 'HKD' },
-        { label: '顯示貨幣', value: displayCurrency },
+        { label: '基準貨幣', value: 'HKD', compact: true },
+        { label: '顯示貨幣', value: displayCurrency, compact: true },
         { label: '最新快照', value: latestSnapshotLabel },
         { label: '總資產', value: formatCurrencyRounded(totalValue, displayCurrency) },
       ],
@@ -343,7 +340,6 @@ export function AssetTrendsPage() {
         <div className="trends-toolbar">
           <div>
             <p className="eyebrow">資產走勢</p>
-            <h2>資產總覽</h2>
             <p className="table-hint">以同一個顯示幣別查看總值、收益與月曆變化。</p>
           </div>
         </div>

@@ -59,7 +59,7 @@ export function AllocationCard({
           >
             <div className="allocation-donut-center">
               <strong>{selectedSlice.label}</strong>
-              <small>{selectedSlice.value.toFixed(1)}%</small>
+              <small>{Math.round(selectedSlice.value)}%</small>
             </div>
           </div>
         </div>
@@ -87,7 +87,7 @@ export function AllocationCard({
                     displayCurrency,
                   )}
                 </strong>
-                <span>{slice.value.toFixed(1)}%</span>
+                <span>{Math.round(slice.value)}%</span>
               </div>
             </button>
           ))}
@@ -125,7 +125,7 @@ export function AllocationCard({
                     displayCurrency,
                   )}
                 </strong>
-                <span>{holding.allocation.toFixed(1)}%</span>
+                <span>{Math.round(holding.allocation)}%</span>
               </div>
             </div>
           ))}

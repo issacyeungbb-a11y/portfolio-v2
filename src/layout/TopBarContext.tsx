@@ -5,6 +5,7 @@ import type { StatusBadgeTone } from '../components/ui/StatusBadge';
 export interface TopBarMetaItem {
   label: string;
   value: string;
+  compact?: boolean;
 }
 
 export interface TopBarStatusItem {

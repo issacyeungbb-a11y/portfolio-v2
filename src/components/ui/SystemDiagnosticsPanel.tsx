@@ -169,7 +169,7 @@ function DailyJobSection({ data }: { data: unknown }) {
 }
 
 function formatQuotaPct(value: number) {
-  return `${value.toFixed(1)}%`;
+  return `${Math.round(value)}%`;
 }
 
 function FirestoreUsageEstimatorSection({ enabled }: { enabled: boolean }) {

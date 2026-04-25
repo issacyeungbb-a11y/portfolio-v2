@@ -451,15 +451,15 @@ function parseHexColor(hexColor: string) {
 }
 
 function formatPdfPercentage(value: number) {
-  return `${value.toFixed(1)}%`;
+  return `${Math.round(value)}%`;
 }
 
 function formatPdfDelta(value: number) {
   if (Math.abs(value) < 0.05) {
-    return '0.0pp';
+    return '0pp';
   }
 
-  return `${value > 0 ? '+' : ''}${value.toFixed(1)}pp`;
+  return `${value > 0 ? '+' : ''}${Math.round(value)}pp`;
 }
 
 function getPdfComparisonText(report: QuarterlyReport) {
@@ -1276,8 +1276,8 @@ export function AnalysisPage() {
       title: '分析與報告',
       subtitle: '整合即時對話、每月分析與季度報告，先看當前資產分佈，再進入各分析入口。',
       metaItems: [
-        { label: '基準貨幣', value: 'HKD' },
-        { label: '顯示貨幣', value: displayCurrency },
+        { label: '基準貨幣', value: 'HKD', compact: true },
+        { label: '顯示貨幣', value: displayCurrency, compact: true },
         {
           label: '當前總值',
           value: formatCurrencyRounded(

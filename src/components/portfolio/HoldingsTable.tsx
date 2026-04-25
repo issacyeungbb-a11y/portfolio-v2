@@ -269,7 +269,7 @@ export function HoldingsTable({
                       renderPnlMetric(marketValue, costValue, hasPendingPrice, pendingReason)
                     )}
                   </td>
-                  <td className="table-column-numeric">{holding.allocation.toFixed(1)}%</td>
+                  <td className="table-column-numeric">{Math.round(holding.allocation)}%</td>
                   <td className="table-column-label">
                     <span className="table-chip">{getAssetTypeLabel(holding.assetType)}</span>
                   </td>

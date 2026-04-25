@@ -11,7 +11,7 @@ function joinClassNames(...values: Array<string | undefined | false | null>) {
 
 function formatCurrencyValue(value: number, currency: string, showSign = false) {
   const normalizedCurrency = normalizeCurrencyCode(currency);
-  const fractionDigits = normalizedCurrency === 'JPY' ? 0 : 2;
+  const fractionDigits = 0;
   const absoluteValue = Math.abs(value);
   const formatted = new Intl.NumberFormat('zh-HK', {
     minimumFractionDigits: fractionDigits,
@@ -25,8 +25,8 @@ function formatCurrencyValue(value: number, currency: string, showSign = false) 
 function formatPercentValue(value: number, showSign = true) {
   const absoluteValue = Math.abs(value);
   const formatted = new Intl.NumberFormat('zh-HK', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   }).format(absoluteValue);
   const prefix = value < 0 ? '-' : showSign && value > 0 ? '+' : '';
 
@@ -119,7 +119,7 @@ export interface QuantityValueProps extends HTMLAttributes<HTMLSpanElement> {
 export function QuantityValue({
   value,
   fallback = '—',
-  precision = 4,
+  precision = 0,
   className,
   ...props
 }: QuantityValueProps) {

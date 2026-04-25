@@ -330,8 +330,8 @@ export function AssetsPage() {
       title: '資產管理',
       subtitle: '集中管理持倉、價格更新、覆核與今日快照。',
       metaItems: [
-        { label: '基準貨幣', value: 'HKD' },
-        { label: '顯示貨幣', value: displayCurrency },
+        { label: '基準貨幣', value: 'HKD', compact: true },
+        { label: '顯示貨幣', value: displayCurrency, compact: true },
         { label: '資產數', value: `${filteredHoldings.length} 項` },
         { label: '最近更新', value: latestUpdateLabel },
       ],

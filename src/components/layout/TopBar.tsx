@@ -29,7 +29,7 @@ export function TopBar({
           <dl className="top-bar-meta-list">
             {metaItems.map((item) => (
               <div key={`${item.label}-${item.value}`} className="top-bar-meta-item">
-                <dt>{item.label}</dt>
+                <dt className={item.compact ? 'visually-hidden' : undefined}>{item.label}</dt>
                 <dd>{item.value}</dd>
               </div>
             ))}

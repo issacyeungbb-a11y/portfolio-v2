@@ -85,8 +85,8 @@ export function TransactionsPage() {
       title: '交易記錄',
       subtitle: '查看、編輯同輸入持倉交易記錄。',
       metaItems: [
-        { label: '基準貨幣', value: 'HKD' },
-        { label: '顯示貨幣', value: displayCurrency },
+        { label: '基準貨幣', value: 'HKD', compact: true },
+        { label: '顯示貨幣', value: displayCurrency, compact: true },
         { label: '交易筆數', value: `${visibleEntries.length} 筆` },
         { label: '最近交易', value: latestTradeLabel },
       ],

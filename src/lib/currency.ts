@@ -49,7 +49,7 @@ export function convertCurrency(
 
 export function formatCurrency(value: number, currency: string) {
   const normalizedCurrency = normalizeCurrencyCode(currency);
-  const fractionDigits = normalizedCurrency === 'JPY' ? 0 : 2;
+  const fractionDigits = 0;
   const amount = new Intl.NumberFormat('zh-HK', {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
@@ -61,8 +61,8 @@ export function formatCurrency(value: number, currency: string) {
 export function formatCurrencyRounded(value: number, currency: string) {
   const normalizedCurrency = normalizeCurrencyCode(currency);
   const amount = new Intl.NumberFormat('zh-HK', {
-    minimumFractionDigits: normalizedCurrency === 'JPY' ? 0 : 2,
-    maximumFractionDigits: normalizedCurrency === 'JPY' ? 0 : 2,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
   }).format(value);
 
   return `${normalizedCurrency} ${amount}`;
@@ -70,5 +70,5 @@ export function formatCurrencyRounded(value: number, currency: string) {
 
 export function formatPercent(value: number) {
   const sign = value > 0 ? '+' : '';
-  return `${sign}${value.toFixed(2)}%`;
+  return `${sign}${Math.round(value)}%`;
 }
