@@ -4,6 +4,7 @@ import { AssetTransactionForm } from '../components/assets/AssetTransactionForm'
 import { TransactionInputPanel } from '../components/transactions/TransactionInputPanel';
 import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { EmptyState } from '../components/ui/EmptyState';
+import { PageSection } from '../components/ui/DesignSystem';
 import {
   convertCurrency,
   formatCurrency,
@@ -81,7 +82,7 @@ export function TransactionsPage() {
   const latestTradeLabel = latestTradeDate ? formatTradeDate(latestTradeDate) : '未有記錄';
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
-      title: '交易',
+      title: '交易記錄',
       subtitle: '查看、編輯同輸入持倉交易記錄。',
       metaItems: [
         { label: '基準貨幣', value: 'HKD' },
@@ -176,9 +177,9 @@ export function TransactionsPage() {
     <div className="page-stack">
       <section className="hero-panel transactions-hero-panel">
         <div className="dashboard-overview-hero">
-          <span className="dashboard-overview-label">交易管理</span>
+          <span className="dashboard-overview-label">交易記錄中心</span>
           <strong>{visibleEntries.length} 筆交易記錄</strong>
-          <p className="table-hint">記錄建倉、買入同賣出，所有金額會按你揀選嘅顯示幣別統一顯示。</p>
+          <p className="table-hint">集中管理建倉、買入、賣出與匯入結果，所有金額會按你揀選的顯示幣別統一顯示。</p>
         </div>
       </section>
 
@@ -190,34 +191,40 @@ export function TransactionsPage() {
       {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}
       {actionSuccess ? <p className="status-message status-message-success">{actionSuccess}</p> : null}
 
-      <section className="summary-grid">
-        <article className="summary-card">
-          <p className="summary-label">記錄總數</p>
-          <strong className="summary-value">{visibleEntries.length}</strong>
-          <p className="summary-hint">包括建倉記錄與買入 / 賣出交易</p>
-        </article>
-        <article className="summary-card">
-          <p className="summary-label">累計交易金額</p>
-          <strong className="summary-value">
-            {formatCurrencyRounded(totalTradeAmountDisplay, displayCurrency)}
-          </strong>
-          <p className="summary-hint">按各筆成交價 x 數量換算至顯示幣別</p>
-        </article>
-        <article className="summary-card">
-          <p className="summary-label">已實現盈虧</p>
-          <strong className="summary-value">
-            {formatCurrencyRounded(
-              convertCurrency(
-                visibleEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
-                'HKD',
+      <PageSection
+        eyebrow="交易概覽"
+        title="交易摘要"
+        subtitle="交易、手續費、已實現盈虧都會按同一顯示幣別列示。"
+      >
+        <div className="summary-grid">
+          <article className="summary-card">
+            <p className="summary-label">記錄總數</p>
+            <strong className="summary-value">{visibleEntries.length}</strong>
+            <p className="summary-hint">包括建倉記錄與買入 / 賣出交易</p>
+          </article>
+          <article className="summary-card">
+            <p className="summary-label">累計交易金額</p>
+            <strong className="summary-value">
+              {formatCurrencyRounded(totalTradeAmountDisplay, displayCurrency)}
+            </strong>
+            <p className="summary-hint">按各筆成交價 x 數量換算至顯示幣別</p>
+          </article>
+          <article className="summary-card">
+            <p className="summary-label">已實現盈虧</p>
+            <strong className="summary-value">
+              {formatCurrencyRounded(
+                convertCurrency(
+                  visibleEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
+                  'HKD',
+                  displayCurrency,
+                ),
                 displayCurrency,
-              ),
-              displayCurrency,
-            )}
-          </strong>
-          <p className="summary-hint">賣出交易扣除手續費後累計</p>
-        </article>
-      </section>
+              )}
+            </strong>
+            <p className="summary-hint">賣出交易扣除手續費後累計</p>
+          </article>
+        </div>
+      </PageSection>
 
       <section className="card">
         <div className="section-heading">

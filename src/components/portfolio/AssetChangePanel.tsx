@@ -176,7 +176,7 @@ export function AssetChangePanel({
               <p className="status-message">未有足夠快照資料</p>
             )
           ) : (
-            <p className="asset-change-collapsed-note">撳入去先睇市場變動同資金流影響。</p>
+            <p className="asset-change-collapsed-note">點擊展開即可查看市場變動與資金流影響。</p>
           )}
         </section>
 
@@ -242,7 +242,7 @@ export function AssetChangePanel({
               </div>
             )
           ) : (
-            <p className="asset-change-collapsed-note">撳入去先睇邊啲資產升跌最多。</p>
+            <p className="asset-change-collapsed-note">點擊展開即可查看升跌幅度最大的資產。</p>
           )}
         </section>
       </div>

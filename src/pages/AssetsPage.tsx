@@ -20,6 +20,7 @@ import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
 import { HoldingsTable } from '../components/portfolio/HoldingsTable';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
+import { WarningPanel } from '../components/ui/DesignSystem';
 import {
   convertCurrency,
   formatCurrency,
@@ -577,7 +578,7 @@ export function AssetsPage() {
       } else if (invalidResults.length > 0) {
         setPriceUpdateSuccess(`現有 ${invalidResults.length} 項需要人工確認。`);
       } else {
-        setPriceUpdateSuccess('今次沒有可套用的價格更新。');
+        setPriceUpdateSuccess('本次沒有可套用的價格更新。');
       }
     } catch (error) {
       setPriceUpdateError(
@@ -656,7 +657,7 @@ export function AssetsPage() {
           <div>
             <p className="eyebrow">資產管理</p>
             <h2>持倉與價格控制台</h2>
-            <p className="table-hint">先睇狀態，再做操作。價格更新、快照與覆核都集中喺呢度。</p>
+            <p className="table-hint">先查看狀態，再進行操作。價格更新、快照與覆核都集中於此。</p>
           </div>
           <span className="assets-toolbar-subtle">
             {filteredHoldings.length} 項 · {activeFilterLabel}
@@ -734,7 +735,7 @@ export function AssetsPage() {
               </div>
             </div>
             <p className="status-message">
-              會為目前全部 {nonCashHoldings.length} 項非現金資產檢查最新價格；有效結果會直接寫入，未能確認嘅項目先會保留畀你再檢查。
+              會為目前全部 {nonCashHoldings.length} 項非現金資產檢查最新價格；有效結果會直接寫入，未能確認的項目會先保留供你再檢查。
             </p>
             <div className="button-row">
               <button
@@ -859,24 +860,18 @@ export function AssetsPage() {
 
       {isDeleteConfirmOpen && editingHolding ? (
         <div className="modal-backdrop" role="presentation">
-          <div
+          <WarningPanel
             className="modal-card"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="delete-asset-title"
+            aria-label="永久刪除資產確認"
+            eyebrow="警告"
+            title="永久刪除資產"
+            description={`刪除 ${editingHolding.name} (${editingHolding.symbol}) 後，會影響資產估值、配置比例、損益統計及歷史分析記錄。此動作無法自動回復。`}
           >
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">警告</p>
-                <h2 id="delete-asset-title">是否刪除資產？</h2>
-              </div>
-            </div>
-            <p className="status-message status-message-error">
-              刪除 {editingHolding.name} ({editingHolding.symbol}) 後，會影響資產估值、配置比例、損益統計同歷史分析記錄。呢個動作唔會自動回復。
-            </p>
             <div className="button-row">
               <button
-                className="button button-secondary button-danger-text"
+                className="button button-danger"
                 type="button"
                 onClick={handleDeleteHolding}
                 disabled={isDeletingAsset}
@@ -888,11 +883,11 @@ export function AssetsPage() {
                 type="button"
                 onClick={() => setIsDeleteConfirmOpen(false)}
                 disabled={isDeletingAsset}
-              >
-                取消
-              </button>
+                >
+                  取消
+                </button>
             </div>
-          </div>
+          </WarningPanel>
         </div>
       ) : null}
 
@@ -910,8 +905,12 @@ export function AssetsPage() {
         successes={[priceUpdateSuccess, transactionSuccess, manualSnapshotSuccess, createAssetSuccess]}
       />
       {shouldShowMissingSnapshotNotice ? (
-        <div className="status-message status-message-error">
-          <p>今日快照未能自動生成，建議手動後補以確保走勢數據完整。</p>
+        <WarningPanel
+          eyebrow="快照"
+          title="今日快照未生成"
+          description="今日快照未能自動生成，建議手動後補以確保走勢數據完整。"
+          tone="caution"
+        >
           <div className="button-row">
             <button
               className="button button-secondary"
@@ -922,7 +921,7 @@ export function AssetsPage() {
               {isGeneratingManualSnapshot ? '生成中...' : '後補快照'}
             </button>
           </div>
-        </div>
+        </WarningPanel>
       ) : null}
       <PriceUpdateReviewPanel
         reviews={reviews}

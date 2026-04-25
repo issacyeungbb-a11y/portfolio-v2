@@ -359,7 +359,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
     }
 
     if (item.type === 'cash') {
-      throw new Error('唔可以新增現金資產，請改用既有 IB、富途或穩定幣現金資產。');
+      throw new Error('不可新增現金資產，請改用既有 IB、富途或穩定幣現金資產。');
     }
 
     const assetPayload: PortfolioAssetInput = {

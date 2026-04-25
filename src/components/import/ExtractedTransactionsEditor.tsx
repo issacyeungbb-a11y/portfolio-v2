@@ -71,7 +71,7 @@ export function ExtractedTransactionsEditor({
           <p className="eyebrow">Review</p>
           <h2>交易記錄預覽</h2>
           <p className="table-hint">
-            檢查 AI 分類成原有資產交易嘅內容，確認後會寫入交易記錄，並用已鎖定嘅現金帳戶更新現金餘額。
+            檢查 AI 分類為原有資產交易的內容，確認後會寫入交易記錄，並使用已鎖定的現金帳戶更新現金餘額。
           </p>
         </div>
         <span className={hasMissingFields ? 'chip chip-strong' : 'chip chip-soft'}>
@@ -92,7 +92,7 @@ export function ExtractedTransactionsEditor({
         {transactions.length === 0 ? (
           <div className="extract-empty-state">
             <strong>未有可匯入交易</strong>
-            <p>如果今次辨識到的交易都唔啱，可以重新上傳截圖或改寫文字再試。</p>
+            <p>如果本次辨識到的交易均不合適，可以重新上傳截圖或改寫文字後再試。</p>
           </div>
         ) : null}
 

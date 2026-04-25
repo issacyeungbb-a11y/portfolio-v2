@@ -61,8 +61,8 @@ export function formatCurrency(value: number, currency: string) {
 export function formatCurrencyRounded(value: number, currency: string) {
   const normalizedCurrency = normalizeCurrencyCode(currency);
   const amount = new Intl.NumberFormat('zh-HK', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: normalizedCurrency === 'JPY' ? 0 : 2,
+    maximumFractionDigits: normalizedCurrency === 'JPY' ? 0 : 2,
   }).format(value);
 
   return `${normalizedCurrency} ${amount}`;

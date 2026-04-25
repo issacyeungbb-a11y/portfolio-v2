@@ -290,7 +290,7 @@ export function AssetTrendsPage() {
       : 'success';
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
-      title: '走勢',
+      title: '資產走勢',
       subtitle: '查看資產總值、收益走勢與月曆變化。',
       metaItems: [
         { label: '基準貨幣', value: 'HKD' },

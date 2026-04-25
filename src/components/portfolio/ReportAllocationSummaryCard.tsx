@@ -1,5 +1,6 @@
-import { convertCurrency, formatCurrencyRounded } from '../../lib/currency';
+import { convertCurrency } from '../../lib/currency';
 import { getAllocationBucketMeta } from '../../lib/holdings';
+import { MoneyValue, PercentValue } from '../ui/FinanceValue';
 import type {
   ReportAllocationDeltaSummary,
   ReportAllocationSummary,
@@ -132,7 +133,7 @@ export function ReportAllocationSummaryCard({
 
       {totalValue != null ? (
         <p className="report-allocation-total">
-          總值 {formatCurrencyRounded(totalValue, displayCurrency)}
+          總值 <MoneyValue value={totalValue} currency={displayCurrency} />
         </p>
       ) : null}
 
@@ -181,12 +182,15 @@ export function ReportAllocationSummaryCard({
                 <div>
                   <strong>{slice.label}</strong>
                   <p>
-                    {formatCurrencyRounded(
-                      displayCurrency === 'HKD'
-                        ? slice.totalValueHKD
-                        : convertCurrency(slice.totalValueHKD, 'HKD', displayCurrency),
-                      displayCurrency,
-                    )} · {formatPercentage(slice.percentage)}
+                    <MoneyValue
+                      value={
+                        displayCurrency === 'HKD'
+                          ? slice.totalValueHKD
+                          : convertCurrency(slice.totalValueHKD, 'HKD', displayCurrency)
+                      }
+                      currency={displayCurrency}
+                    />{' '}
+                    · <PercentValue value={slice.percentage} showSign={false} />
                   </p>
                 </div>
               </div>
@@ -209,12 +213,14 @@ export function ReportAllocationSummaryCard({
               />
               <span>{slice.label}</span>
               <strong>
-                {formatCurrencyRounded(
-                  displayCurrency === 'HKD'
-                    ? slice.totalValueHKD
-                    : convertCurrency(slice.totalValueHKD, 'HKD', displayCurrency),
-                  displayCurrency,
-                )}
+                <MoneyValue
+                  value={
+                    displayCurrency === 'HKD'
+                      ? slice.totalValueHKD
+                      : convertCurrency(slice.totalValueHKD, 'HKD', displayCurrency)
+                  }
+                  currency={displayCurrency}
+                />
               </strong>
               {typeof delta === 'number' ? (
                 <small className={delta >= 0 ? 'positive-text' : 'caution-text'}>

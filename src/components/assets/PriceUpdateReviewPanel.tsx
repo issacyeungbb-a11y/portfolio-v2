@@ -85,9 +85,7 @@ export function PriceUpdateReviewPanel({
         <div>
           <p className="eyebrow">價格審查</p>
           <h2>需要人工確認</h2>
-          <p className="table-hint">
-            有效價格會即時寫入資產。下面係仍然需要你手動處理嘅項目。
-          </p>
+          <p className="table-hint">有效價格會即時寫入資產。以下為仍需人工處理的項目。</p>
         </div>
         <span className="chip chip-strong">{reviews.length} 項待處理</span>
       </div>

@@ -8,6 +8,7 @@ import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { EmptyState } from '../components/ui/EmptyState';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { StatusMessages } from '../components/ui/StatusMessages';
+import { ActionPanel } from '../components/ui/DesignSystem';
 import {
   buildAllocationSlices,
   convertCurrency,
@@ -102,7 +103,7 @@ export function DashboardPage() {
     : '未更新';
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
-      title: '總覽',
+      title: '投資總覽',
       subtitle: '追蹤組合價值、今日收益與需要優先處理的事項。',
       metaItems: [
         { label: '基準貨幣', value: 'HKD' },
@@ -232,7 +233,7 @@ export function DashboardPage() {
       {isEmpty ? (
         <EmptyState
           title="尚未加入資產"
-          reason="請先前往資產頁新增第一筆持倉，之後先會顯示總覽與今日收益。"
+          reason="請先前往資產頁新增第一筆持倉，之後才會顯示總覽與今日收益。"
           primaryAction={
             <Link className="button button-primary" to="/assets">
               前往資產頁
@@ -241,15 +242,12 @@ export function DashboardPage() {
         />
       ) : null}
 
-      <section className="card dashboard-task-card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">今日處理</p>
-            <h2>今日要處理事項</h2>
-            <p className="table-hint">先處理價格、快照同覆核，再睇組合表現會更穩陣。</p>
-          </div>
-        </div>
-
+      <ActionPanel
+        className="dashboard-task-card"
+        eyebrow="今日處理"
+        title="今日要處理事項"
+        description="先處理價格、快照與覆核，再查看組合表現會更穩妥。"
+      >
         {dashboardTasks.length > 0 ? (
           <div className="dashboard-task-list">
             {dashboardTasks.map((task) => (
@@ -274,7 +272,7 @@ export function DashboardPage() {
             }
           />
         )}
-      </section>
+      </ActionPanel>
 
       <section className="content-grid">
         {status === 'loading' ? (

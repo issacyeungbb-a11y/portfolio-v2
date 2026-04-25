@@ -1,7 +1,11 @@
+import type { ReactNode } from 'react';
+
+import { MetricCard } from '../ui/DesignSystem';
+
 interface SummaryCardProps {
   label: string;
-  value: string;
-  hint: string;
+  value: ReactNode;
+  hint: ReactNode;
   tone?: 'default' | 'positive' | 'caution';
 }
 
@@ -11,11 +15,5 @@ export function SummaryCard({
   hint,
   tone = 'default',
 }: SummaryCardProps) {
-  return (
-    <article className="summary-card" data-tone={tone}>
-      <p className="summary-label">{label}</p>
-      <strong className="summary-value">{value}</strong>
-      <p className="summary-hint">{hint}</p>
-    </article>
-  );
+  return <MetricCard label={label} value={value} hint={hint} tone={tone} />;
 }

@@ -9,6 +9,7 @@ import {
 } from '../data/mockPortfolio';
 import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { EmptyState } from '../components/ui/EmptyState';
+import { PageSection } from '../components/ui/DesignSystem';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
@@ -139,7 +140,7 @@ export function FundsPage() {
   }, [accountPrincipals, cashFlows]);
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
-      title: '資金',
+      title: '資金流水',
       subtitle: '管理帳戶本金、入金、提款與現金流記錄。',
       metaItems: [
         { label: '基準貨幣', value: 'HKD' },
@@ -238,35 +239,41 @@ export function FundsPage() {
         <p className="status-message status-message-error">{cashFlowsError}</p>
       ) : null}
 
-      <section className="summary-grid">
-        <article className="summary-card">
-          <p className="summary-label">全部本金總數</p>
-          <strong className="summary-value">{formatCurrency(totalPrincipalDisplay, displayCurrency)}</strong>
-          <p className="summary-hint">包括初始本金及後續入金/提款</p>
-        </article>
-        {accountSummaries.map((summary) => (
-          <article key={summary.accountSource} className="summary-card">
-            <p className="summary-label">{getAccountSourceLabel(summary.accountSource)}</p>
-            <strong className="summary-value">
-              {formatCurrency(
-                convertCurrency(summary.totalPrincipalHKD, 'HKD', displayCurrency),
-                displayCurrency,
-              )}
-            </strong>
-            <p className="summary-hint">
-              基線 {formatCurrency(
-                convertCurrency(
-                  summary.baseline.principalAmount,
-                  summary.baseline.currency,
-                  displayCurrency,
-                ),
-                displayCurrency,
-              )} ·
-              流水 {summary.recentCount} 筆
-            </p>
+      <PageSection
+        eyebrow="資金概覽"
+        title="本金總覽"
+        subtitle="用同一個基準貨幣管理帳戶本金、入金、提款與調整。"
+      >
+        <div className="summary-grid">
+          <article className="summary-card">
+            <p className="summary-label">全部本金總數</p>
+            <strong className="summary-value">{formatCurrency(totalPrincipalDisplay, displayCurrency)}</strong>
+            <p className="summary-hint">包括初始本金及後續入金/提款</p>
           </article>
-        ))}
-      </section>
+          {accountSummaries.map((summary) => (
+            <article key={summary.accountSource} className="summary-card">
+              <p className="summary-label">{getAccountSourceLabel(summary.accountSource)}</p>
+              <strong className="summary-value">
+                {formatCurrency(
+                  convertCurrency(summary.totalPrincipalHKD, 'HKD', displayCurrency),
+                  displayCurrency,
+                )}
+              </strong>
+              <p className="summary-hint">
+                基線 {formatCurrency(
+                  convertCurrency(
+                    summary.baseline.principalAmount,
+                    summary.baseline.currency,
+                    displayCurrency,
+                  ),
+                  displayCurrency,
+                )} ·
+                流水 {summary.recentCount} 筆
+              </p>
+            </article>
+          ))}
+        </div>
+      </PageSection>
 
       <section className="card" id="funds-form">
         <div className="section-heading">
@@ -299,7 +306,7 @@ export function FundsPage() {
           <div>
             <p className="eyebrow">新增</p>
             <h2>新增資金流水</h2>
-            <p className="table-hint">用來記錄每個帳戶之後嘅入金、提款或手動調整。</p>
+            <p className="table-hint">用以記錄各帳戶後續的入金、提款或手動調整。</p>
           </div>
         </div>
 
@@ -428,7 +435,7 @@ export function FundsPage() {
           ) : (
             <EmptyState
               title="尚未有資金流水"
-              reason="可以先喺上方新增你嘅第一筆記錄，再開始追蹤入金、提款同調整。"
+              reason="可先在上方新增第一筆記錄，再開始追蹤入金、提款與調整。"
               primaryAction={
                 <a className="button button-secondary" href="#funds-form">
                   前往輸入區

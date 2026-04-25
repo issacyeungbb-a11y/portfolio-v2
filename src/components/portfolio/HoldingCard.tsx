@@ -1,12 +1,10 @@
 import {
   convertCurrency,
-  formatCurrency,
-  formatCurrencyRounded,
-  formatPercent,
   getAccountSourceLabel,
   getAssetTypeLabel,
   getHoldingValueInCurrency,
 } from '../../data/mockPortfolio';
+import { MoneyValue, PercentValue, QuantityValue } from '../ui/FinanceValue';
 import type { DisplayCurrency, Holding } from '../../types/portfolio';
 
 interface HoldingCardProps {
@@ -39,24 +37,31 @@ export function HoldingCard({ holding, displayCurrency }: HoldingCardProps) {
       <div className="holding-grid">
         <div>
           <p className="muted-label">市值</p>
-          <strong>{formatCurrencyRounded(marketValue, activeCurrency)}</strong>
+          <strong>
+            <MoneyValue value={marketValue} currency={activeCurrency} />
+          </strong>
         </div>
         <div>
           <p className="muted-label">持倉</p>
           <strong>
-            {holding.quantity} @ {formatCurrency(currentPrice, activeCurrency)}
+            <QuantityValue value={holding.quantity} /> @{' '}
+            <MoneyValue value={currentPrice} currency={activeCurrency} />
           </strong>
         </div>
         <div>
           <p className="muted-label">未實現損益</p>
           <strong data-tone={pnlTone}>
-            {formatCurrencyRounded(unrealizedPnl, activeCurrency)} ({formatPercent(holding.unrealizedPct)})
+            <MoneyValue value={unrealizedPnl} currency={activeCurrency} tone={pnlTone} /> (
+            <PercentValue value={holding.unrealizedPct} tone={pnlTone} />
+            )
           </strong>
         </div>
       </div>
 
       <div className="holding-footer">
-        <span>平均成本 {formatCurrency(averageCost, activeCurrency)}</span>
+        <span>
+          平均成本 <MoneyValue value={averageCost} currency={activeCurrency} />
+        </span>
       </div>
     </article>
   );

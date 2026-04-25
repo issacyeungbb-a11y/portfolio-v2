@@ -67,7 +67,7 @@ export function ExtractedAssetsEditor({
           <p className="eyebrow">Review</p>
           <h2>解析預覽</h2>
           <p className="table-hint">
-            檢查 AI 分類成新增資產嘅內容。呢度只會建立非現金資產，現金流會交由交易記錄扣減或增加既有現金帳戶。
+            檢查 AI 分類為新增資產的內容。此處只會建立非現金資產，現金流會交由交易記錄扣減或增加既有現金帳戶。
           </p>
         </div>
         <span className={hasMissingFields ? 'chip chip-strong' : 'chip chip-soft'}>
@@ -103,7 +103,7 @@ export function ExtractedAssetsEditor({
         {assets.length === 0 ? (
           <div className="extract-empty-state">
             <strong>已清空解析結果</strong>
-            <p>如果呢次辨識到的資產都唔需要，可以重新上傳截圖再試。</p>
+            <p>如果本次辨識到的資產均不需要，可以重新上傳截圖再試。</p>
           </div>
         ) : null}
 

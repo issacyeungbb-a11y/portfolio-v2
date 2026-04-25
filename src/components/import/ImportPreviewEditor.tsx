@@ -104,7 +104,7 @@ export function ImportPreviewEditor({
           <p className="eyebrow">Preview</p>
           <h2>逐筆交易預覽</h2>
           <p className="table-hint">
-            每筆資料都可以改做新增資產或者原有資產交易，儲存時會按你揀嘅現金帳戶更新對應現金資產。
+            每筆資料都可以改為新增資產或原有資產交易，儲存時會按你選擇的現金帳戶更新對應現金資產。
           </p>
         </div>
         <span className={hasMissingFields ? 'chip chip-strong' : 'chip chip-soft'}>

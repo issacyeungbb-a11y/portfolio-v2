@@ -106,21 +106,21 @@ const analysisCategoryOptions: Array<{
   {
     value: 'general_question',
     label: '一般問題',
-    shortLabel: '一般問題',
-    helper: '同 AI 對話',
-    questionPlaceholder: '輸入問題，然後送出',
+    shortLabel: '對話',
+    helper: '即時對話',
+    questionPlaceholder: '輸入問題後送出',
   },
   {
     value: 'asset_analysis',
     label: '每月資產分析',
-    shortLabel: '每月資產分析',
+    shortLabel: '月報',
     helper: '按月手動生成',
-    questionPlaceholder: '例如：根據我目前資產，分析而家最值得留意嘅重點。',
+    questionPlaceholder: '例如：根據目前資產配置，請分析當前最值得留意的重點。',
   },
   {
     value: 'asset_report',
-    label: '季度報告',
-    shortLabel: '季度報告',
+    label: '季度投資報告',
+    shortLabel: '季報',
     helper: '按季手動生成',
     questionPlaceholder: '',
   },
@@ -1225,7 +1225,7 @@ export function AnalysisPage() {
   const activeAnalysis = localAnalysis ?? cachedAnalysis;
   const enrichmentWarning =
     activeAnalysis?.enrichmentStatus && activeAnalysis.enrichmentStatus !== 'ok'
-      ? '部分歷史數據載入失敗，AI 答案可能唔完整'
+      ? '部分歷史數據載入失敗，AI 內容可能不完整'
       : null;
   const selectedLegacyConversationSession = useMemo(() => {
     if (!selectedSessionId || !isLegacyConversationId(selectedSessionId)) {
@@ -1273,7 +1273,7 @@ export function AnalysisPage() {
   );
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
-      title: '分析中心',
+      title: '分析與報告',
       subtitle: '整合即時對話、每月分析與季度報告，先看當前資產分佈，再進入各分析入口。',
       metaItems: [
         { label: '基準貨幣', value: 'HKD' },
@@ -1754,10 +1754,10 @@ export function AnalysisPage() {
       <section className="hero-panel analysis-hero-panel">
         <div className="analysis-page-header">
           <div className="analysis-page-heading">
-            <p className="eyebrow">分析入口</p>
+            <p className="eyebrow">報告中心</p>
             <h2>{selectedCategoryOption.label}</h2>
             <p className="table-hint">
-              {selectedCategoryOption.helper} · 每個報告入口都先顯示當前資產分佈總結。
+              {selectedCategoryOption.helper} · 即時分析、每月報告、季度投資報告同追問入口已分開。
             </p>
           </div>
         </div>
@@ -1785,7 +1785,7 @@ export function AnalysisPage() {
           <div>
             <p className="eyebrow">Allocation</p>
             <h2>當前資產分佈總結</h2>
-            <p className="table-hint">每月分析與季度報告都會先從呢份即時總結開始。</p>
+            <p className="table-hint">每月分析與季度報告都會先從這份即時總結開始。</p>
           </div>
           <span className="chip chip-strong">{currentAllocationSummary.styleTag}</span>
         </div>
@@ -1822,10 +1822,10 @@ export function AnalysisPage() {
             <div className="analysis-category-intro">
               <h2>一般問題</h2>
               <p className="status-message">
-                只可以喺網頁設定一般問題嘅背景資料。
+                只可在網頁中設定一般問題的背景資料。
               </p>
               <p className="table-hint">
-                每月資產分析同季度報告會沿用內部設定，唔會喺呢個頁面提供修改。
+                每月資產分析與季度報告會沿用內部設定，無法在此頁面修改。
               </p>
             </div>
 
@@ -1840,7 +1840,7 @@ export function AnalysisPage() {
                       general_question: event.target.value,
                     }))
                   }
-                  placeholder="輸入想固定帶入嘅分析背景。"
+                  placeholder="輸入希望固定帶入的分析背景。"
                   rows={5}
                   disabled={isSavingPromptSettings}
                 />
@@ -2007,7 +2007,7 @@ export function AnalysisPage() {
                   ) : null}
                 </div>
               ) : (
-                <p className="status-message">仲未有對話。</p>
+                <p className="status-message">尚未有對話。</p>
               )}
             </aside>
 
@@ -2051,7 +2051,7 @@ export function AnalysisPage() {
                         general_question: nextValue,
                       }));
                     }}
-                    placeholder="輸入問題，然後送出"
+                    placeholder="輸入問題後送出"
                     rows={3}
                     disabled={isAnalyzing}
                   />
@@ -2085,7 +2085,7 @@ export function AnalysisPage() {
           <section className="card analysis-report-preview">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">Monthly</p>
+                <p className="eyebrow">月報</p>
                 <h2>每月資產分析</h2>
                 <p className="table-hint">每月 1 號香港時間上午 8:00 後，直到本月生成前都可手動生成。</p>
               </div>
@@ -2115,16 +2115,16 @@ export function AnalysisPage() {
             <p className="status-message">
               {canGenerateMonthlyAnalysisNow(currentTime)
                 ? currentMonthAnalysis
-                  ? '今個月嘅每月資產分析已經生成。'
-                  : '已到本月可生成時段，可以手動生成今個月嘅每月資產分析。'
-                : '未到每月 1 號香港時間上午 8:00，按鈕暫時唔會顯示。'}
+                  ? '本月每月資產分析已經生成。'
+                  : '已進入本月可生成時段，可以手動生成本月每月資產分析。'
+                : '未到每月 1 號香港時間上午 8:00，按鈕暫時不會顯示。'}
             </p>
           </section>
 
           <section className="card quarterly-list-card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">History</p>
+                <p className="eyebrow">歷史</p>
                 <h2>過往每月分析</h2>
               </div>
               <span className="chip chip-soft">
@@ -2233,7 +2233,7 @@ export function AnalysisPage() {
           <section className="card analysis-report-preview">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">最新報告</p>
+                <p className="eyebrow">季報</p>
                 <h2>{latestReport?.quarter ?? '季度報告'}</h2>
                 <p className="table-hint">使用模型：{scheduledAnalysisModelLabel}</p>
               </div>
@@ -2329,7 +2329,7 @@ export function AnalysisPage() {
           <section className="card quarterly-list-card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">History</p>
+                <p className="eyebrow">歷史</p>
                 <h2>過往報告</h2>
               </div>
               <span className="chip chip-soft">
@@ -2432,7 +2432,7 @@ export function AnalysisPage() {
             <section className="card quarterly-viewer-card">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Report Body</p>
+                  <p className="eyebrow">報告全文</p>
                   <h2>{selectedReport.quarter}</h2>
                   <p className="table-hint">{formatGeneratedAt(selectedReport.generatedAt)}</p>
                 </div>
@@ -2460,8 +2460,8 @@ export function AnalysisPage() {
             <section className="card analysis-thread-card">
               <div className="section-heading">
                 <div>
-                  <p className="eyebrow">Follow-up</p>
-                  <h2>追問呢份報告</h2>
+                  <p className="eyebrow">追問</p>
+                  <h2>追問此報告</h2>
                 </div>
                 <span className="chip chip-soft">
                   {selectedQuarterlyReportThread
@@ -2492,7 +2492,7 @@ export function AnalysisPage() {
                   ))}
                 </div>
               ) : (
-                <p className="status-message">未有追問紀錄，可以直接喺下面輸入。</p>
+                <p className="status-message">尚未有追問紀錄，可直接在下方輸入。</p>
               )}
 
               <div className="analysis-chat-composer">
@@ -2506,7 +2506,7 @@ export function AnalysisPage() {
                         asset_report: event.target.value,
                       }))
                     }
-                    placeholder="可以直接問：今季點解現金比例升咗？邊隻持倉最值得減？"
+                    placeholder="例如：本季為何現金比例上升？哪一項持倉最值得減持？"
                     rows={4}
                     disabled={isAnalyzing}
                   />
