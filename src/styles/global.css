@@ -3116,25 +3116,64 @@ h3 {
 
 .analysis-thread-layout {
   display: grid;
-  grid-template-columns: minmax(0, 280px) minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: start;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  border-radius: 0.75rem;
+  overflow: hidden;
 }
 
-.analysis-thread-sidebar,
+.analysis-thread-sidebar {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.85rem 0.75rem;
+  border-right: 1px solid rgba(118, 96, 77, 0.1);
+  background: rgba(250, 244, 236, 0.5);
+  overflow-y: auto;
+  max-height: 560px;
+}
+
+.analysis-thread-sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(118, 96, 77, 0.08);
+}
+
+.analysis-thread-sidebar-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .analysis-thread-main {
   min-width: 0;
-}
-
-.analysis-thread-main {
-  display: grid;
-  gap: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .analysis-chat-thread {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.7rem;
+  overflow-y: auto;
+  max-height: 420px;
+  padding: 0.85rem 0.9rem;
+}
+
+.analysis-thread-main .analysis-chat-composer {
+  border-top: 1px solid rgba(118, 96, 77, 0.1);
+  padding: 0.75rem 0.9rem;
+  background: rgba(255, 255, 255, 0.6);
 }
 
 .analysis-chat-bubble {
@@ -3370,6 +3409,17 @@ h3 {
 
   .analysis-thread-layout {
     grid-template-columns: minmax(0, 1fr);
+    border-radius: 0.5rem;
+  }
+
+  .analysis-thread-sidebar {
+    max-height: 220px;
+    border-right: none;
+    border-bottom: 1px solid rgba(118, 96, 77, 0.1);
+  }
+
+  .analysis-chat-thread {
+    max-height: 320px;
   }
 
 }

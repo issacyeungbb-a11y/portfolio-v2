@@ -640,6 +640,45 @@ export function AssetsPage() {
         </div>
       </section>
 
+      <section className="card assets-toolbar assets-status-strip">
+        <p className="table-hint" style={{ margin: 0 }}>
+          {nonCashHoldings.length === 0 ? '未有可更新資產' : `價格覆蓋率 ${syncedCoveragePct}%`}
+          {' · '}待處理 {pendingPriceCount + reviews.length} 項
+          {' · '}{todaySnapshotLabel}
+        </p>
+        <div className="assets-toolbar-actions">
+          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => setIsBulkUpdateConfirmOpen(true)}
+            disabled={isUpdatingAllPrices || nonCashHoldings.length === 0}
+          >
+            {isUpdatingAllPrices ? '更新全部資產中...' : '更新全部資產'}
+          </button>
+          <details className="assets-secondary-actions">
+            <summary>更多操作</summary>
+            <div className="button-row">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleTriggerManualSnapshot}
+                disabled={isGeneratingManualSnapshot}
+              >
+                {isGeneratingManualSnapshot ? '後補中...' : '後補快照'}
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setIsFilterPanelOpen((current) => !current)}
+              >
+                {isFilterPanelOpen ? '收起篩選' : '篩選持倉'}
+              </button>
+            </div>
+          </details>
+        </div>
+      </section>
+
       <section className="card">
         <div className="section-heading">
           <div>
@@ -717,45 +756,6 @@ export function AssetsPage() {
           updatingAssetIds={updatingAssetIds}
           pendingPriceUpdateReasons={pendingPriceUpdateReasons}
         />
-      </section>
-
-      <section className="card assets-toolbar assets-status-strip">
-        <p className="table-hint" style={{ margin: 0 }}>
-          {nonCashHoldings.length === 0 ? '未有可更新資產' : `價格覆蓋率 ${syncedCoveragePct}%`}
-          {' · '}待處理 {pendingPriceCount + reviews.length} 項
-          {' · '}{todaySnapshotLabel}
-        </p>
-        <div className="assets-toolbar-actions">
-          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => setIsBulkUpdateConfirmOpen(true)}
-            disabled={isUpdatingAllPrices || nonCashHoldings.length === 0}
-          >
-            {isUpdatingAllPrices ? '更新全部資產中...' : '更新全部資產'}
-          </button>
-          <details className="assets-secondary-actions">
-            <summary>更多操作</summary>
-            <div className="button-row">
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={handleTriggerManualSnapshot}
-                disabled={isGeneratingManualSnapshot}
-              >
-                {isGeneratingManualSnapshot ? '後補中...' : '後補快照'}
-              </button>
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={() => setIsFilterPanelOpen((current) => !current)}
-              >
-                {isFilterPanelOpen ? '收起篩選' : '篩選持倉'}
-              </button>
-            </div>
-          </details>
-        </div>
       </section>
 
       {isBulkUpdateConfirmOpen ? (
