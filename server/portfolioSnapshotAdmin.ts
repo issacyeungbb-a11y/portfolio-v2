@@ -93,7 +93,7 @@ function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsse
  * 讀取已持久化到 Firestore 的匯率（由 cron 主流程寫入）。
  * 優先讓 snapshot 使用與主流程相同的匯率，避免兩者不一致。
  */
-async function readPersistedFxRates(maxAgeMs = 24 * 60 * 60 * 1000): Promise<FxRates | null> {
+export async function readPersistedFxRates(maxAgeMs = 24 * 60 * 60 * 1000): Promise<FxRates | null> {
   try {
     const db = getFirebaseAdminDb();
     const docSnap = await db

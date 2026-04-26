@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runLedgerRebuild, validateLedgerEntry } from '../src/lib/portfolio/transactionRebuild.ts';
-import type { LedgerEntryForRebuild } from '../src/lib/portfolio/transactionRebuild.ts';
+import { runLedgerRebuild, validateLedgerEntry, computeValueWeightedRisk } from '../src/lib/portfolio/transactionRebuild.ts';
+import type { LedgerEntryForRebuild, AssetValueWeight } from '../src/lib/portfolio/transactionRebuild.ts';
 
 function buyEntry(overrides: Partial<LedgerEntryForRebuild> = {}): LedgerEntryForRebuild {
   return {
@@ -149,4 +149,64 @@ test('full sell: quantity and avgCost reset to 0', () => {
   ]);
   assert.equal(result.finalQuantity, 0);
   assert.equal(result.finalAverageCost, 0);
+});
+
+// --- computeValueWeightedRisk tests ---
+
+const FX = { USD: 7.8, JPY: 0.052 };
+
+function asset(symbol: string, quantity: number, currentPrice: number, currency = 'HKD'): AssetValueWeight {
+  return { symbol, quantity, currentPrice, currency };
+}
+
+test('computeValueWeightedRisk: no assets → no risk', () => {
+  const result = computeValueWeightedRisk([], [], FX);
+  assert.equal(result.valueWeightedHighRisk, false);
+  assert.equal(result.staleValuePct, 0);
+});
+
+test('computeValueWeightedRisk: single stale asset >15% → highRisk', () => {
+  const all = [asset('AAPL', 100, 200), asset('MSFT', 10, 100)];
+  // AAPL = 20000 HKD, MSFT = 1000 HKD, total = 21000
+  // AAPL stale pct = 20000/21000 ≈ 95% → >15% → highRisk
+  const result = computeValueWeightedRisk([asset('AAPL', 100, 200)], all, FX);
+  assert.equal(result.valueWeightedHighRisk, true);
+  assert.equal(result.largestStaleAssetSymbol, 'AAPL');
+});
+
+test('computeValueWeightedRisk: combined stale >20% → highRisk', () => {
+  const all = [asset('A', 10, 100), asset('B', 10, 100), asset('C', 100, 100)];
+  // A=1000, B=1000, C=10000 total=12000; stale A+B=2000 (16.7%) — but each <15%
+  // combined staleValuePct = 17 → <20 won't trigger combined; need >20
+  // Use A=10, B=10, C=4 (each price 100), total=2400, stale A+B=2000 → 83% → >20
+  const allBig = [asset('A', 10, 100), asset('B', 10, 100), asset('C', 4, 100)];
+  const result = computeValueWeightedRisk([asset('A', 10, 100), asset('B', 10, 100)], allBig, FX);
+  assert.equal(result.valueWeightedHighRisk, true);
+  assert.ok(result.staleValuePct > 20);
+});
+
+test('computeValueWeightedRisk: small stale → no risk', () => {
+  const all = [asset('A', 1, 10), asset('B', 100, 100)];
+  // A=10, B=10000, total=10010; stale A pct ≈ 0.1% → no risk
+  const result = computeValueWeightedRisk([asset('A', 1, 10)], all, FX);
+  assert.equal(result.valueWeightedHighRisk, false);
+  assert.equal(result.staleValuePct < 15, true);
+});
+
+test('computeValueWeightedRisk: USD assets converted to HKD', () => {
+  const all = [asset('AAPL', 1, 200, 'USD'), asset('LOCAL', 100, 100, 'HKD')];
+  // AAPL = 200 * 7.8 = 1560 HKD, LOCAL = 10000 HKD, total = 11560
+  // AAPL stale pct = 1560/11560 ≈ 13.5% → <15% → no single-asset risk
+  const result = computeValueWeightedRisk([asset('AAPL', 1, 200, 'USD')], all, FX);
+  assert.ok(result.largestStaleAssetSymbol === 'AAPL');
+  assert.equal(result.valueWeightedHighRisk, false);
+});
+
+test('computeValueWeightedRisk: largestStaleAssetPct computed correctly', () => {
+  const all = [asset('A', 10, 50), asset('B', 10, 50)];
+  // A=500, B=500, total=1000, stale=[A] → 50%
+  const result = computeValueWeightedRisk([asset('A', 10, 50)], all, FX);
+  assert.equal(result.largestStaleAssetSymbol, 'A');
+  assert.equal(result.largestStaleAssetPct, 50);
+  assert.equal(result.valueWeightedHighRisk, true); // 50% > 15%
 });

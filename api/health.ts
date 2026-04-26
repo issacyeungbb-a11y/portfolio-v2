@@ -35,10 +35,12 @@ type DiagnoseStepResult = {
 };
 
 type AiProbeResult = {
+  modelId: string;
+  provider: 'google' | 'anthropic';
   ok: boolean;
   durationMs: number;
   detail: string;
-  modelId?: string;
+  httpStatus?: number;
 };
 
 type DiagnoseResponse = {
@@ -64,8 +66,7 @@ type DiagnoseResponse = {
     dailyJob: DiagnoseStepResult;
   };
   ai?: {
-    gemini: AiProbeResult;
-    claude: AiProbeResult;
+    probes: AiProbeResult[];
   };
 };
 
@@ -239,50 +240,40 @@ function getHongKongDateKey(date = new Date()) {
   }).format(date);
 }
 
-async function probeGemini(): Promise<AiProbeResult> {
+async function probeGeminiModel(modelId: string, apiKey: string): Promise<AiProbeResult> {
   const startedAt = Date.now();
-  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
-
-  if (!apiKey) {
-    return { ok: false, durationMs: 0, detail: '未設定 GEMINI_API_KEY / GOOGLE_API_KEY。' };
-  }
-
   try {
-    const modelId = 'gemini-2.0-flash-lite';
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ contents: [{ parts: [{ text: 'hi' }] }], generationConfig: { maxOutputTokens: 1 } }),
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(15_000),
       },
     );
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return { ok: true, durationMs: Date.now() - startedAt, detail: 'Gemini API 可用。', modelId };
+    return {
+      modelId,
+      provider: 'google',
+      ok: response.ok,
+      durationMs: Date.now() - startedAt,
+      detail: response.ok ? `${modelId} 可用。` : `HTTP ${response.status}`,
+      httpStatus: response.status,
+    };
   } catch (error) {
     return {
+      modelId,
+      provider: 'google',
       ok: false,
       durationMs: Date.now() - startedAt,
-      detail: error instanceof Error ? error.message : 'Gemini probe 失敗。',
+      detail: error instanceof Error ? error.message : `${modelId} probe 失敗。`,
     };
   }
 }
 
-async function probeClaude(): Promise<AiProbeResult> {
+async function probeAnthropicModel(modelId: string, apiKey: string): Promise<AiProbeResult> {
   const startedAt = Date.now();
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-
-  if (!apiKey) {
-    return { ok: false, durationMs: 0, detail: '未設定 ANTHROPIC_API_KEY。' };
-  }
-
   try {
-    const modelId = 'claude-haiku-4-5-20251001';
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -291,21 +282,59 @@ async function probeClaude(): Promise<AiProbeResult> {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({ model: modelId, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(15_000),
     });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return { ok: true, durationMs: Date.now() - startedAt, detail: 'Claude API 可用。', modelId };
+    return {
+      modelId,
+      provider: 'anthropic',
+      ok: response.ok,
+      durationMs: Date.now() - startedAt,
+      detail: response.ok ? `${modelId} 可用。` : `HTTP ${response.status}`,
+      httpStatus: response.status,
+    };
   } catch (error) {
     return {
+      modelId,
+      provider: 'anthropic',
       ok: false,
       durationMs: Date.now() - startedAt,
-      detail: error instanceof Error ? error.message : 'Claude probe 失敗。',
+      detail: error instanceof Error ? error.message : `${modelId} probe 失敗。`,
     };
   }
+}
+
+async function probeAllAiModels(): Promise<AiProbeResult[]> {
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim();
+
+  const geminiModels = ['gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-pro-preview'];
+  const anthropicModels = ['claude-haiku-4-5-20251001', 'claude-opus-4-7'];
+
+  const geminiProbes = geminiModels.map((modelId) =>
+    geminiApiKey
+      ? probeGeminiModel(modelId, geminiApiKey)
+      : Promise.resolve<AiProbeResult>({
+          modelId,
+          provider: 'google',
+          ok: false,
+          durationMs: 0,
+          detail: '未設定 GEMINI_API_KEY / GOOGLE_API_KEY。',
+        }),
+  );
+
+  const anthropicProbes = anthropicModels.map((modelId) =>
+    anthropicApiKey
+      ? probeAnthropicModel(modelId, anthropicApiKey)
+      : Promise.resolve<AiProbeResult>({
+          modelId,
+          provider: 'anthropic',
+          ok: false,
+          durationMs: 0,
+          detail: '未設定 ANTHROPIC_API_KEY。',
+        }),
+  );
+
+  return Promise.all([...geminiProbes, ...anthropicProbes]);
 }
 
 async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
@@ -629,8 +658,8 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
 
   let ai: DiagnoseResponse['ai'];
   if (includeAi) {
-    const [gemini, claude] = await Promise.all([probeGemini(), probeClaude()]);
-    ai = { gemini, claude };
+    const probes = await probeAllAiModels();
+    ai = { probes };
   }
 
   return {

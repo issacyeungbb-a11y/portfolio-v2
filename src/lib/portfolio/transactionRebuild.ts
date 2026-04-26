@@ -52,6 +52,64 @@ export function validateLedgerEntry(entry: LedgerEntryForRebuild, quantityBefore
   }
 }
 
+export interface AssetValueWeight {
+  symbol: string;
+  quantity: number;
+  currentPrice: number;
+  currency: string;
+}
+
+export interface ValueWeightedRiskResult {
+  valueWeightedHighRisk: boolean;
+  staleValuePct: number;
+  largestStaleAssetSymbol?: string;
+  largestStaleAssetPct?: number;
+}
+
+export function computeValueWeightedRisk(
+  staleAssets: AssetValueWeight[],
+  allNonCashAssets: AssetValueWeight[],
+  fxRates: { USD: number; JPY: number; HKD?: number },
+): ValueWeightedRiskResult {
+  if (allNonCashAssets.length === 0) {
+    return { valueWeightedHighRisk: false, staleValuePct: 0 };
+  }
+
+  const toHKD = (amount: number, currency: string) => {
+    const cur = currency.trim().toUpperCase();
+    if (cur === 'USD') return amount * fxRates.USD;
+    if (cur === 'JPY') return amount * fxRates.JPY;
+    return amount;
+  };
+
+  const totalHKD = allNonCashAssets.reduce((sum, a) => sum + toHKD(a.quantity * a.currentPrice, a.currency), 0);
+
+  if (totalHKD <= 0) {
+    return { valueWeightedHighRisk: false, staleValuePct: 0 };
+  }
+
+  const staleHKD = staleAssets.reduce((sum, a) => sum + toHKD(a.quantity * a.currentPrice, a.currency), 0);
+  const staleValuePct = Math.round((staleHKD / totalHKD) * 100);
+  let valueWeightedHighRisk = staleValuePct > 20;
+  let largestStaleAssetSymbol: string | undefined;
+  let largestStaleAssetPct: number | undefined;
+  let largestAssetHKD = 0;
+
+  for (const asset of staleAssets) {
+    const assetHKD = toHKD(asset.quantity * asset.currentPrice, asset.currency);
+    if (assetHKD > largestAssetHKD) {
+      largestAssetHKD = assetHKD;
+      largestStaleAssetSymbol = asset.symbol;
+      largestStaleAssetPct = Math.round((assetHKD / totalHKD) * 100);
+    }
+    if (assetHKD / totalHKD > 0.15) {
+      valueWeightedHighRisk = true;
+    }
+  }
+
+  return { valueWeightedHighRisk, staleValuePct, largestStaleAssetSymbol, largestStaleAssetPct };
+}
+
 export function runLedgerRebuild(transactions: LedgerEntryForRebuild[]): LedgerRebuildResult {
   let quantity = 0;
   let averageCost = 0;

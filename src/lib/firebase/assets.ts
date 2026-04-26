@@ -188,14 +188,20 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
 
   const normalized = normalizePortfolioAssetInput(payload);
   const createdHolding = buildHoldingFromInput('pending', normalized);
-  const createdDoc = await addDoc(getSharedAssetsCollectionRef(), {
+  const assetsCollection = getSharedAssetsCollectionRef();
+  const assetRef = doc(assetsCollection);
+  const txRef = doc(getSharedAssetTransactionsCollectionRef());
+  const batch = writeBatch(assetsCollection.firestore);
+
+  batch.set(assetRef, {
     ...normalized,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+
   if (createdHolding.quantity > 0) {
-    await addDoc(getSharedAssetTransactionsCollectionRef(), {
-      assetId: createdDoc.id,
+    batch.set(txRef, {
+      assetId: assetRef.id,
       assetName: normalized.name,
       symbol: normalized.symbol,
       assetType: normalized.assetType,
@@ -215,8 +221,8 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
       updatedAt: serverTimestamp(),
     });
   } else {
-    await addDoc(getSharedAssetTransactionsCollectionRef(), {
-      assetId: createdDoc.id,
+    batch.set(txRef, {
+      assetId: assetRef.id,
       assetName: normalized.name,
       symbol: normalized.symbol,
       assetType: normalized.assetType,
@@ -237,11 +243,13 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
     });
   }
 
+  await batch.commit();
+
   if (normalized.assetType === 'crypto') {
     queueCoinGeckoSync([normalized.symbol]);
   }
 
-  return createdDoc.id;
+  return assetRef.id;
 }
 
 export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {

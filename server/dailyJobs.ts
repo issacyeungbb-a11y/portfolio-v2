@@ -26,6 +26,11 @@ export interface SnapshotReadinessSummary {
   hardPendingTolerance: number;
   isReady: boolean;
   canUseFallback: boolean;
+  valueWeightedHighRisk: boolean;
+  staleValuePct: number;
+  largestStaleAssetSymbol?: string;
+  largestStaleAssetPct?: number;
+  valueWeightedGuardUnavailable?: boolean;
 }
 
 export interface DailyJobDocument {

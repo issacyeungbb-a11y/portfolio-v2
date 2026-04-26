@@ -8,6 +8,7 @@
     "prebuild": "node scripts/gen-price-freshness.mjs",
     "build": "tsc -b && vite build",
     "test": "node --experimental-strip-types --test",
+    "ci": "npm test && npm run build",
     "preview": "vite preview",
     "diagnose:coingecko": "node scripts/checkCoinGeckoCrypto.mjs",
     "gen-freshness": "node scripts/gen-price-freshness.mjs"

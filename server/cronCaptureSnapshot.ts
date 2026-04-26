@@ -1,5 +1,6 @@
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
-import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
+import { captureAdminPortfolioSnapshot, readAdminPortfolioAssets, readPersistedFxRates } from './portfolioSnapshotAdmin.js';
+import { fetchLiveFxRates } from './updatePrices.js';
 import { verifyCronRequest } from './cronAuth.js';
 import { SNAPSHOT_FALLBACK_WINDOW_MS } from './priceFreshness.js';
 import { updateSnapshotStatus } from './dailyJobs.js';
@@ -153,6 +154,11 @@ function buildSnapshotReadinessSummary(
     hardPendingTolerance,
     isReady: readiness.isReady,
     canUseFallback: readiness.canUseFallback,
+    valueWeightedHighRisk: readiness.valueWeightedHighRisk,
+    staleValuePct: readiness.staleValuePct,
+    largestStaleAssetSymbol: readiness.largestStaleAssetSymbol,
+    largestStaleAssetPct: readiness.largestStaleAssetPct,
+    valueWeightedGuardUnavailable: readiness.valueWeightedGuardUnavailable,
   };
 }
 
@@ -233,16 +239,32 @@ async function verifyAssetsReadyForDailySnapshot(
   // Fallback snapshot 會標記 quality='fallback'，UI 知道有資產沿用舊價。
   const hardPendingTolerance = Math.max(2, Math.floor(nonCashAssets.length * 0.05));
 
+  // Resolve fxRates if not provided (manual snapshot path), try persisted then live
+  let resolvedFxRates = fxRates;
+  let valueWeightedGuardUnavailable = false;
+  if (!resolvedFxRates) {
+    resolvedFxRates = (await readPersistedFxRates()) ?? undefined;
+    if (!resolvedFxRates) {
+      try {
+        resolvedFxRates = await fetchLiveFxRates();
+      } catch {
+        valueWeightedGuardUnavailable = true;
+      }
+    }
+  }
+
   // P1-2: Value-weighted guard — if any single stale asset >15% of total HKD value,
   // or combined stale+missing >20%, block silent fallback regardless of coverage pct.
   let valueWeightedHighRisk = false;
   let staleValuePct = 0;
-  if (fxRates && nonCashAssets.length > 0) {
+  let largestStaleAssetSymbol: string | undefined;
+  let largestStaleAssetPct: number | undefined;
+  if (resolvedFxRates && nonCashAssets.length > 0) {
     const toHKD = (amount: number, currency: string) => {
       const cur = currency.trim().toUpperCase();
       if (cur === 'HKD') return amount;
-      if (cur === 'USD') return amount * fxRates.USD;
-      if (cur === 'JPY') return amount * fxRates.JPY;
+      if (cur === 'USD') return amount * resolvedFxRates!.USD;
+      if (cur === 'JPY') return amount * resolvedFxRates!.JPY;
       return amount;
     };
     const totalHKD = nonCashAssets.reduce(
@@ -257,13 +279,17 @@ async function verifyAssetsReadyForDailySnapshot(
       staleValuePct = Math.round((staleHKD / totalHKD) * 100);
       if (staleValuePct > 20) {
         valueWeightedHighRisk = true;
-      } else {
-        for (const asset of staleAssets) {
-          const assetHKD = toHKD(asset.quantity * asset.currentPrice, asset.currency);
-          if (totalHKD > 0 && assetHKD / totalHKD > 0.15) {
-            valueWeightedHighRisk = true;
-            break;
-          }
+      }
+      let largestAssetHKD = 0;
+      for (const asset of staleAssets) {
+        const assetHKD = toHKD(asset.quantity * asset.currentPrice, asset.currency);
+        if (assetHKD > largestAssetHKD) {
+          largestAssetHKD = assetHKD;
+          largestStaleAssetSymbol = asset.symbol;
+          largestStaleAssetPct = Math.round((assetHKD / totalHKD) * 100);
+        }
+        if (assetHKD / totalHKD > 0.15) {
+          valueWeightedHighRisk = true;
         }
       }
     }
@@ -293,6 +319,9 @@ async function verifyAssetsReadyForDailySnapshot(
     canUseFallback,
     valueWeightedHighRisk,
     staleValuePct,
+    largestStaleAssetSymbol,
+    largestStaleAssetPct,
+    valueWeightedGuardUnavailable,
   };
 }
 
