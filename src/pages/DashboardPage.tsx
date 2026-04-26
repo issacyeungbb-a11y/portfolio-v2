@@ -76,72 +76,22 @@ export function DashboardPage() {
   const todayChangeAmount = todaySummary
     ? convertCurrency(todaySummary.totalChange, 'HKD', displayCurrency)
     : 0;
-  const todaySnapshotLabel = !todaySnapshot.exists
-    ? todaySnapshotError
-      ? '今日快照 風險'
-      : '今日快照 待補'
-    : todaySnapshot.quality === 'fallback'
-      ? '今日快照 部分完成'
-      : '今日快照 完整';
-  const todaySnapshotTone = !todaySnapshot.exists
-    ? todaySnapshotError
-      ? 'danger'
-      : 'warning'
-    : todaySnapshot.quality === 'fallback'
-      ? 'warning'
-      : 'success';
-  const latestPriceUpdate =
-    [...syncedHoldings]
-      .map((holding) => holding.lastPriceUpdatedAt || '')
-      .filter(Boolean)
-      .sort((left, right) => right.localeCompare(left))[0] ?? null;
-  const latestPriceUpdateLabel = latestPriceUpdate
-    ? new Intl.DateTimeFormat('zh-HK', {
-        dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(new Date(latestPriceUpdate))
-    : '未更新';
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '投資總覽',
-      subtitle: '追蹤組合價值、今日收益與需要優先處理的事項。',
-      metaItems: [
-        { label: '基準貨幣', value: 'HKD', compact: true },
-        { label: '顯示貨幣', value: displayCurrency, compact: true },
-        { label: '總資產', value: formatCurrencyRounded(totalValue, displayCurrency) },
-        { label: '最近更新', value: latestPriceUpdateLabel },
-      ],
-      statusItems: [
-        {
-          label: status === 'error' ? '連接失敗' : status === 'loading' ? '同步中' : '已連接',
-          tone: status === 'error' ? 'danger' : status === 'loading' ? 'warning' : 'success',
-        },
-        {
-          label: todaySnapshotLabel,
-          tone: todaySnapshotTone,
-        },
-        {
-          label: `待更新 ${pendingPriceCount}`,
-          tone: pendingPriceCount > 0 ? 'warning' : 'success',
-        },
-        {
-          label: `待覆核 ${pendingReviewCount}`,
-          tone: pendingReviewCount > 0 ? 'warning' : 'success',
-        },
-      ],
-      actions: <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />,
+      subtitle: '查看整體資產、今日變化與需要處理事項。',
+      primaryStatus: {
+        label:
+          pendingPriceCount + pendingReviewCount + (!todaySnapshot.exists ? 1 : 0) > 0
+            ? `待處理 ${pendingPriceCount + pendingReviewCount + (!todaySnapshot.exists ? 1 : 0)} 項`
+            : '資料正常',
+        tone: pendingPriceCount + pendingReviewCount + (!todaySnapshot.exists ? 1 : 0) > 0 ? 'warning' : 'success',
+      },
     }),
     [
-      displayCurrency,
-      latestPriceUpdateLabel,
       pendingPriceCount,
       pendingReviewCount,
-      setDisplayCurrency,
-      status,
-      todaySnapshotLabel,
-      todaySnapshotTone,
-      todaySnapshotError,
-      totalValue,
+      todaySnapshot.exists,
     ],
   );
 
@@ -208,6 +158,9 @@ export function DashboardPage() {
   return (
     <div className="page-stack">
       <section className="hero-panel dashboard-hero-panel">
+        <div className="dashboard-hero-actions">
+          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
+        </div>
         <div className="dashboard-overview-hero">
           <span className="dashboard-overview-label">總資產估值</span>
           <strong>{formatCurrencyRounded(totalValue, displayCurrency)}</strong>

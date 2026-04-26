@@ -25,11 +25,11 @@
   --danger-soft: rgba(166, 64, 36, 0.12);
   --neutral: #6b7280;
   --neutral-soft: rgba(107, 114, 128, 0.12);
-  --shadow-card: 0 10px 24px rgba(80, 55, 32, 0.06);
-  --shadow-panel: 0 18px 36px rgba(80, 55, 32, 0.08);
+  --shadow-card: 0 4px 12px rgba(80, 55, 32, 0.04);
+  --shadow-panel: 0 8px 18px rgba(80, 55, 32, 0.05);
   --shadow: var(--shadow-panel);
-  --radius-card: 1.25rem;
-  --radius-panel: 1.55rem;
+  --radius-card: 1rem;
+  --radius-panel: 1.15rem;
   --radius-pill: 999px;
   --spacing-xs: 0.25rem;
   --spacing-sm: 0.5rem;
@@ -37,8 +37,6 @@
   --spacing-lg: 1.15rem;
   --spacing-xl: 1.6rem;
   --page-background:
-    radial-gradient(circle at top left, rgba(212, 151, 93, 0.08), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(15, 118, 110, 0.05), transparent 26%),
     linear-gradient(180deg, #f6f0e8 0%, #f8f5f0 55%, #f1eadf 100%);
   font-family: var(--font-sans);
   color: var(--text-main);
@@ -188,14 +186,18 @@ h3 {
 .top-bar {
   display: flex;
   flex-direction: column;
-  gap: 0.7rem;
-  padding: 0.82rem 0.9rem;
-  margin-bottom: 0.7rem;
+  gap: 0.45rem;
+  padding: 0.58rem 0.72rem;
+  margin-bottom: 0.56rem;
   border: 1px solid var(--border);
-  border-radius: 1.35rem;
+  border-radius: 1rem;
   background: var(--surface-overlay);
   box-shadow: var(--shadow-panel);
   backdrop-filter: blur(12px);
+}
+
+.top-bar-compact {
+  padding-block: 0.48rem;
 }
 
 .top-bar-heading {
@@ -215,8 +217,8 @@ h3 {
 }
 
 .top-bar h1 {
-  font-size: clamp(1.12rem, 4.8vw, 2rem);
-  line-height: 1.02;
+  font-size: clamp(1.08rem, 3.4vw, 1.55rem);
+  line-height: 1.08;
 }
 
 .top-bar-copy {
@@ -232,34 +234,35 @@ h3 {
 }
 
 .top-bar-subtitle {
-  margin-top: 0.1rem;
   color: var(--text-muted);
   max-width: 44rem;
-  line-height: 1.55;
+  line-height: 1.4;
+  font-size: 0.9rem;
 }
 
 .top-bar-aside {
   display: flex;
-  flex-direction: column;
-  gap: 0.55rem;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.42rem;
+  align-items: center;
 }
 
 .top-bar-meta-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   margin: 0;
   padding: 0;
-  gap: 0.45rem;
-  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.35rem 0.65rem;
 }
 
 .top-bar-meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.12rem;
-  padding: 0.64rem 0.72rem;
-  border: 1px solid rgba(118, 96, 77, 0.12);
-  border-radius: 1rem;
-  background: var(--surface-overlay);
+  display: inline-flex;
+  gap: 0.28rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .top-bar-meta-item dt {
@@ -346,20 +349,11 @@ h3 {
   gap: 0.55rem;
   overflow: hidden;
   position: relative;
-  background:
-    linear-gradient(135deg, rgba(15, 118, 110, 0.06), transparent 42%),
-    linear-gradient(160deg, rgba(217, 119, 6, 0.06), transparent 65%),
-    var(--surface-strong);
+  background: var(--surface-strong);
 }
 
 .hero-panel::after {
-  content: "";
-  position: absolute;
-  inset: auto -2.2rem -3rem auto;
-  width: 6.75rem;
-  height: 6.75rem;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(15, 118, 110, 0.12), transparent 68%);
+  content: none;
 }
 
 .hero-panel h2 {
@@ -484,6 +478,7 @@ h3 {
   flex-wrap: wrap;
   gap: 0.55rem;
   align-items: center;
+  justify-content: flex-end;
   width: 100%;
 }
 
@@ -553,12 +548,44 @@ h3 {
 .assets-toolbar-status-grid {
   display: grid;
   gap: 0.45rem;
-  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+}
+
+.assets-status-item {
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.72rem 0.82rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  border-radius: 0.85rem;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.assets-status-item span,
+.assets-status-item small {
+  color: var(--text-muted);
+}
+
+.assets-status-item span {
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.assets-status-item strong {
+  font-size: 1.05rem;
+}
+
+.assets-status-item small {
+  line-height: 1.45;
 }
 
 .analysis-summary-panel {
   display: grid;
   gap: 0.78rem;
+}
+
+.analysis-current-response {
+  display: grid;
+  gap: 0.75rem;
 }
 
 .analysis-entry-summary {

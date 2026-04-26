@@ -271,58 +271,18 @@ export function AssetTrendsPage() {
     .sort((left, right) => (left.capturedAt ?? '').localeCompare(right.capturedAt ?? ''))
     .slice(-1)[0];
   const latestSnapshotLabel = formatSnapshotHint(latestSnapshot?.capturedAt);
-  const todaySnapshotLabel = !todaySnapshot.exists
-    ? todaySnapshotError
-      ? '今日快照 風險'
-      : '今日快照 待補'
-    : todaySnapshot.quality === 'fallback'
-      ? '今日快照 部分完成'
-      : '今日快照 完整';
-  const todaySnapshotTone = !todaySnapshot.exists
-    ? todaySnapshotError
-      ? 'danger'
-      : 'warning'
-    : todaySnapshot.quality === 'fallback'
-      ? 'warning'
-      : 'success';
+  const todaySnapshotComplete = todaySnapshot.exists && todaySnapshot.quality !== 'fallback';
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '資產走勢',
-      subtitle: '查看資產總值、收益走勢與月曆變化。',
-      metaItems: [
-        { label: '基準貨幣', value: 'HKD', compact: true },
-        { label: '顯示貨幣', value: displayCurrency, compact: true },
-        { label: '最新快照', value: latestSnapshotLabel },
-        { label: '總資產', value: formatCurrencyRounded(totalValue, displayCurrency) },
-      ],
-      statusItems: [
-        {
-          label: status === 'error' ? '同步失敗' : status === 'loading' ? '同步中' : '已同步',
-          tone: status === 'error' ? 'danger' : status === 'loading' ? 'warning' : 'success',
-        },
-        {
-          label: todaySnapshotLabel,
-          tone: todaySnapshotTone,
-        },
-        {
-          label: `本月收益 ${formatPercent(monthlyReturnPct)}`,
-          tone: monthlyReturnHKD >= 0 ? 'success' : 'warning',
-          title: '按顯示幣別計算',
-        },
-      ],
-      actions: <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />,
+      subtitle: '查看每日快照與資產變化。',
+      primaryStatus: {
+        label: todaySnapshotComplete ? '今日快照完整' : '今日快照未完成',
+        tone: todaySnapshotComplete ? 'success' : 'warning',
+      },
     }),
     [
-      displayCurrency,
-      latestSnapshotLabel,
-      monthlyReturnHKD,
-      monthlyReturnPct,
-      setDisplayCurrency,
-      status,
-      todaySnapshotLabel,
-      todaySnapshotTone,
-      todaySnapshotError,
-      totalValue,
+      todaySnapshotComplete,
     ],
   );
 
@@ -339,9 +299,9 @@ export function AssetTrendsPage() {
       <section className="card trends-overview-card">
         <div className="trends-toolbar">
           <div>
-            <p className="eyebrow">資產走勢</p>
             <p className="table-hint">以同一個顯示幣別查看總值、收益與月曆變化。</p>
           </div>
+          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
         </div>
 
         <div className="trends-hero-stat">

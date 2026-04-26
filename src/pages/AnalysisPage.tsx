@@ -3,9 +3,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { jsPDF } from 'jspdf';
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
-import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { EmptyState } from '../components/ui/EmptyState';
-import { formatCurrencyRounded, getHoldingValueInCurrency, mockPortfolio, convertCurrency } from '../data/mockPortfolio';
+import { getHoldingValueInCurrency, mockPortfolio } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
 import { useAnalysisThreadTurns, useAnalysisThreads } from '../hooks/useAnalysisThreads';
@@ -35,7 +34,6 @@ import {
   createPortfolioSnapshotHash,
   createPortfolioSnapshotSignature,
 } from '../lib/portfolio/analysisSnapshot';
-import { buildReportAllocationSummaryFromHoldings } from '../lib/portfolio/reportAllocationSummary';
 import { StatusMessages } from '../components/ui/StatusMessages';
 import type { AnalysisCategory, AnalysisSession, Holding } from '../types/portfolio';
 import type {
@@ -183,22 +181,6 @@ function formatGeneratedAt(value: string) {
   }
 }
 
-function formatDateLabel(value: string) {
-  if (!value) {
-    return '尚未提供';
-  }
-
-  try {
-    return new Intl.DateTimeFormat('zh-HK', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    }).format(new Date(`${value}T00:00:00`));
-  } catch {
-    return value;
-  }
-}
-
 function getHongKongDateParts(date = new Date()) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Hong_Kong',
@@ -217,15 +199,6 @@ function getHongKongDateParts(date = new Date()) {
     day: getPart('day'),
     hour: getPart('hour'),
   };
-}
-
-function getHongKongDateKey(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Hong_Kong',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
 }
 
 function getHongKongYearMonthLabel(date = new Date()) {
@@ -938,7 +911,7 @@ export function AnalysisPage() {
   const [reportActionMessage, setReportActionMessage] = useState<string | null>(null);
   const [reportActionError, setReportActionError] = useState<string | null>(null);
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
-  const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
+  const [displayCurrency] = useDisplayCurrency();
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -963,15 +936,6 @@ export function AnalysisPage() {
     [currentTime],
   );
   const currentQuarterLabel = useMemo(() => getHongKongQuarterLabel(currentTime), [currentTime]);
-  const currentAllocationSummary = useMemo(
-    () =>
-      buildReportAllocationSummaryFromHoldings({
-        holdings,
-        asOfDate: getHongKongDateKey(currentTime),
-        basis: 'quarterly',
-      }),
-    [currentTime, holdings],
-  );
   useEffect(() => {
     setLocalAnalysis(null);
     setAnalysisError(null);
@@ -1202,7 +1166,6 @@ export function AnalysisPage() {
     [reports, selectedReportId],
   );
   const latestReport = reports[0] ?? null;
-  const scheduledAnalysisModelLabel = getAnalysisModelLabel('claude-opus-4-7');
   const currentQuarterReport = useMemo(
     () => reports.find((report) => report.quarter === currentQuarterLabel) ?? null,
     [currentQuarterLabel, reports],
@@ -1274,76 +1237,41 @@ export function AnalysisPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '分析與報告',
-      subtitle: '整合即時對話、每月分析與季度報告，先看當前資產分佈，再進入各分析入口。',
-      metaItems: [
-        { label: '基準貨幣', value: 'HKD', compact: true },
-        { label: '顯示貨幣', value: displayCurrency, compact: true },
-        {
-          label: '當前總值',
-          value: formatCurrencyRounded(
-            convertCurrency(currentAllocationSummary.totalValueHKD ?? 0, 'HKD', displayCurrency),
-            displayCurrency,
-          ),
-        },
-        { label: '總結日期', value: formatDateLabel(currentAllocationSummary.asOfDate) },
-        { label: '最新報告', value: latestReport?.quarter ?? '尚未生成' },
-      ],
-      statusItems: [
-        {
-          label: assetsStatus === 'error' ? '資產失敗' : assetsStatus === 'loading' ? '資產同步中' : '資產已同步',
-          tone: assetsStatus === 'error' ? 'danger' : assetsStatus === 'loading' ? 'warning' : 'success',
-        },
-        {
-          label:
-            snapshotHashStatus === 'ready'
-              ? '分析快照 已就緒'
-              : snapshotHashStatus === 'error'
-                ? '分析快照 風險'
-                : snapshotHashStatus === 'loading'
-                  ? '分析快照 生成中'
-                  : '分析快照 待建立',
-          tone:
-            snapshotHashStatus === 'ready'
-              ? 'success'
-              : snapshotHashStatus === 'error'
-                ? 'danger'
-                : 'warning',
-        },
-        {
-          label: currentMonthAnalysis ? '本月分析 已生成' : canGenerateCurrentMonthAnalysis ? '本月分析 可生成' : '本月分析 待時段',
-          tone: currentMonthAnalysis ? 'success' : canGenerateCurrentMonthAnalysis ? 'warning' : 'neutral',
-        },
-        {
-          label: currentQuarterReport ? '季度報告 已生成' : canGenerateCurrentQuarterReport ? '季度報告 可生成' : reportsStatus === 'loading' ? '季度報告 同步中' : '季度報告 待生成',
-          tone: currentQuarterReport ? 'success' : canGenerateCurrentQuarterReport ? 'warning' : reportsStatus === 'loading' ? 'warning' : 'neutral',
-        },
-      ],
+      subtitle: '向 AI 提問、生成月報或查看季度報告。',
+      primaryStatus: {
+        label:
+          isAnalyzing || generatingPeriodicReport
+            ? '生成中'
+            : analysisError || reportActionError || snapshotHashStatus === 'error'
+              ? '生成失敗'
+              : canGenerateCurrentMonthAnalysis || canGenerateCurrentQuarterReport
+                ? '可生成'
+                : '可提問',
+        tone:
+          analysisError || reportActionError || snapshotHashStatus === 'error'
+            ? 'danger'
+            : isAnalyzing || generatingPeriodicReport || canGenerateCurrentMonthAnalysis || canGenerateCurrentQuarterReport
+              ? 'warning'
+              : 'success',
+      },
       actions: (
-        <div className="top-bar-inline-actions">
-          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => setIsPromptSettingsOpen(true)}
-          >
-            分析設定
-          </button>
-        </div>
+        <button
+          className="button button-secondary"
+          type="button"
+          onClick={() => setIsPromptSettingsOpen(true)}
+        >
+          分析設定
+        </button>
       ),
     }),
     [
-      assetsStatus,
+      analysisError,
       canGenerateCurrentMonthAnalysis,
       canGenerateCurrentQuarterReport,
-      currentAllocationSummary.asOfDate,
-      currentAllocationSummary.totalValueHKD,
-      currentMonthAnalysis,
-      currentQuarterReport,
-      displayCurrency,
-      latestReport?.quarter,
-      reportsStatus,
+      generatingPeriodicReport,
+      isAnalyzing,
+      reportActionError,
       snapshotHashStatus,
-      setDisplayCurrency,
       setIsPromptSettingsOpen,
     ],
   );
@@ -1749,16 +1677,43 @@ export function AnalysisPage() {
     }
   }
 
+  const latestConversationTurn = activeConversationTurns[activeConversationTurns.length - 1] ?? null;
+  const latestMonthlyAnalysis = currentMonthAnalysis ?? monthlyAnalysisSessions[0] ?? null;
+  const currentResponse =
+    isInteractiveCategory
+      ? latestConversationTurn
+      : isPortfolioAnalysisCategory && latestMonthlyAnalysis
+        ? {
+            question: latestMonthlyAnalysis.title || '每月資產分析',
+            answer: latestMonthlyAnalysis.result,
+            generatedAt: latestMonthlyAnalysis.updatedAt,
+            model: latestMonthlyAnalysis.model,
+          }
+        : isQuarterlyCategory && latestReport
+          ? {
+              question: latestReport.quarter,
+              answer: latestReport.report,
+              generatedAt: latestReport.generatedAt,
+              model: latestReport.model,
+            }
+          : null;
+
+  function handleCopyCurrentResponse() {
+    if (!currentResponse?.answer) {
+      return;
+    }
+
+    void navigator.clipboard.writeText(currentResponse.answer);
+    setAnalysisSuccess('已複製目前回覆。');
+  }
+
   return (
     <div className="page-stack analysis-page">
-      <section className="hero-panel analysis-hero-panel">
+      <section className="card analysis-action-panel">
         <div className="analysis-page-header">
           <div className="analysis-page-heading">
-            <p className="eyebrow">報告中心</p>
-            <h2>{selectedCategoryOption.label}</h2>
-            <p className="table-hint">
-              {selectedCategoryOption.helper} · 即時分析、每月報告、季度投資報告同追問入口已分開。
-            </p>
+            <h2>問問題或生成報告</h2>
+            <p className="table-hint">{selectedCategoryOption.helper}</p>
           </div>
         </div>
 
@@ -1778,22 +1733,117 @@ export function AnalysisPage() {
             );
           })}
         </div>
-      </section>
 
-      <section className="card analysis-summary-panel">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Allocation</p>
-            <h2>當前資產分佈總結</h2>
-            <p className="table-hint">每月分析與季度報告都會先從這份即時總結開始。</p>
-          </div>
-          <span className="chip chip-strong">{currentAllocationSummary.styleTag}</span>
+        <div className="analysis-category-row">
+          <label className="form-field analysis-inline-model">
+            <span>模型</span>
+            <select
+              value={isQuarterlyCategory || isPortfolioAnalysisCategory ? 'claude-opus-4-7' : selectedModel}
+              onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
+              disabled={isAnalyzing || !isInteractiveCategory}
+            >
+              {analysisModelOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} · {option.hint}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-        <ReportAllocationSummaryCard
-          summary={currentAllocationSummary}
-          displayCurrency={displayCurrency}
-          className="analysis-entry-summary"
-        />
+
+        {isInteractiveCategory ? (
+          <div className="analysis-chat-composer">
+            <label className="form-field" style={{ gridColumn: '1 / -1' }}>
+              <span>問題</span>
+              <textarea
+                value={analysisQuestion}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  setAnalysisQuestionByCategory((current) => ({
+                    ...current,
+                    general_question: nextValue,
+                  }));
+                  setFollowUpQuestionByCategory((current) => ({
+                    ...current,
+                    general_question: nextValue,
+                  }));
+                }}
+                placeholder="輸入問題後送出"
+                rows={3}
+                disabled={isAnalyzing}
+              />
+            </label>
+
+            <div className="analysis-chat-input-row">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => {
+                  setSelectedSessionId(null);
+                  setAnalysisQuestionByCategory((current) => ({ ...current, general_question: '' }));
+                  setFollowUpQuestionByCategory((current) => ({ ...current, general_question: '' }));
+                }}
+              >
+                新對話
+              </button>
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => {
+                  if (activeConversationTurns.length > 0) {
+                    void handleFollowUp();
+                    return;
+                  }
+
+                  void handleAnalyzePortfolio();
+                }}
+                disabled={!analysisQuestion.trim() || !canAnalyze || isAnalyzing}
+              >
+                {isAnalyzing ? '送出中...' : '送出問題'}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {isPortfolioAnalysisCategory ? (
+          <div className="analysis-scheduled-actions">
+            <p className="status-message">
+              {canGenerateMonthlyAnalysisNow(currentTime)
+                ? currentMonthAnalysis
+                  ? '本月每月資產分析已經生成。'
+                  : '已進入本月可生成時段。'
+                : '未到每月 1 號香港時間上午 8:00。'}
+            </p>
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={() => void handleGenerateMonthlyAnalysisReport()}
+              disabled={!canGenerateCurrentMonthAnalysis || generatingPeriodicReport === 'monthly'}
+            >
+              {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成月報'}
+            </button>
+          </div>
+        ) : null}
+
+        {isQuarterlyCategory ? (
+          <div className="analysis-scheduled-actions">
+            <p className="status-message">
+              {canGenerateQuarterlyReportNow(currentTime)
+                ? currentQuarterReport
+                  ? '本季季度報告已經生成。'
+                  : '已進入本季可生成時段。'
+                : '未到季度報告可生成時段。'}
+            </p>
+            <button
+              className="button button-primary"
+              type="button"
+              onClick={() => void handleGenerateQuarterlyReport()}
+              disabled={!canGenerateCurrentQuarterReport || generatingPeriodicReport === 'quarterly'}
+            >
+              {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成季報'}
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {isPromptSettingsOpen ? (
@@ -1924,46 +1974,62 @@ export function AnalysisPage() {
       {assetsStatus === 'loading' && !isQuarterlyCategory ? <p className="status-message">同步中</p> : null}
       {isEmpty && !isQuarterlyCategory ? <p className="status-message">尚未有可分析資產</p> : null}
 
+      <section className="card analysis-current-response">
+        <div className="section-heading">
+          <div>
+            <h2>目前回覆</h2>
+            {currentResponse ? (
+              <p className="table-hint">
+                {getAnalysisModelLabel(currentResponse.model)} · {formatAnalysisTime(currentResponse.generatedAt)}
+              </p>
+            ) : (
+              <p className="table-hint">送出問題或生成報告後會顯示在這裡。</p>
+            )}
+          </div>
+          {currentResponse ? (
+            <div className="analysis-report-preview-footer">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleCopyCurrentResponse}
+              >
+                複製
+              </button>
+              {isQuarterlyCategory && latestReport?.pdfUrl ? (
+                <a
+                  className="button button-secondary"
+                  href={latestReport.pdfUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  下載 PDF
+                </a>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {currentResponse ? (
+          <div className="analysis-report-preview">
+            <p className="analysis-summary-text">{truncateText(currentResponse.answer, 700)}</p>
+          </div>
+        ) : (
+          <EmptyState
+            title="尚未有回覆"
+            reason="此頁只保留分析輸入、目前回覆與歷史記錄；資產分佈已移回總覽及報告詳情。"
+          />
+        )}
+      </section>
+
       {isInteractiveCategory ? (
         <section className="card analysis-thread-card">
           <div className="section-heading">
             <div>
-              <h3>對話</h3>
+              <h2>歷史記錄</h2>
+              <p className="table-hint">對話記錄</p>
             </div>
             <div className="analysis-thread-header-actions">
-              <label className="form-field analysis-inline-model">
-                <span>AI 模型</span>
-                <select
-                  value={selectedModel}
-                  onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
-                  disabled={isAnalyzing}
-                >
-                  {analysisModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label} · {option.hint}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className="analysis-settings-link text-link"
-                type="button"
-                onClick={() => setIsPromptSettingsOpen(true)}
-              >
-                設定
-              </button>
               <span className="chip chip-soft">{conversationArchiveSessions.length} 條對話</span>
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={() => {
-                  setSelectedSessionId(null);
-                  setAnalysisQuestionByCategory((current) => ({ ...current, general_question: '' }));
-                  setFollowUpQuestionByCategory((current) => ({ ...current, general_question: '' }));
-                }}
-              >
-                ＋新對話
-              </button>
             </div>
           </div>
 
@@ -2035,46 +2101,6 @@ export function AnalysisPage() {
                 ) : null}
               </div>
 
-              <div className="analysis-chat-composer">
-                <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-                  <span>訊息</span>
-                  <textarea
-                    value={analysisQuestion}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      setAnalysisQuestionByCategory((current) => ({
-                        ...current,
-                        general_question: nextValue,
-                      }));
-                      setFollowUpQuestionByCategory((current) => ({
-                        ...current,
-                        general_question: nextValue,
-                      }));
-                    }}
-                    placeholder="輸入問題後送出"
-                    rows={3}
-                    disabled={isAnalyzing}
-                  />
-                </label>
-
-                <div className="analysis-chat-input-row">
-                  <button
-                    className="button button-primary"
-                    type="button"
-                    onClick={() => {
-                      if (activeConversationTurns.length > 0) {
-                        void handleFollowUp();
-                        return;
-                      }
-
-                      void handleAnalyzePortfolio();
-                    }}
-                    disabled={!analysisQuestion.trim() || !canAnalyze || isAnalyzing}
-                  >
-                    {isAnalyzing ? '送出中...' : '送出'}
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         </section>
@@ -2082,59 +2108,16 @@ export function AnalysisPage() {
 
       {isPortfolioAnalysisCategory ? (
         <>
-          <section className="card analysis-report-preview">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">月報</p>
-                <h2>每月資產分析</h2>
-                <p className="table-hint">每月 1 號香港時間上午 8:00 後，直到本月生成前都可手動生成。</p>
-              </div>
-              <div className="analysis-report-preview-footer">
-                <span className="chip chip-soft">使用模型：{scheduledAnalysisModelLabel}</span>
-                {canGenerateCurrentMonthAnalysis ? (
-                  <button
-                    className="button button-primary"
-                    type="button"
-                    onClick={() => void handleGenerateMonthlyAnalysisReport()}
-                    disabled={generatingPeriodicReport === 'monthly'}
-                  >
-                    {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成本月分析'}
-                  </button>
-                ) : (
-                  <span className="chip chip-soft">尚未生成</span>
-                )}
-              </div>
-            </div>
-
-            <ReportAllocationSummaryCard
-              summary={currentAllocationSummary}
-              displayCurrency={displayCurrency}
-              className="analysis-entry-summary"
-            />
-
-            <p className="status-message">
-              {canGenerateMonthlyAnalysisNow(currentTime)
-                ? currentMonthAnalysis
-                  ? '本月每月資產分析已經生成。'
-                  : '已進入本月可生成時段，可以手動生成本月每月資產分析。'
-                : '未到每月 1 號香港時間上午 8:00，按鈕暫時不會顯示。'}
-            </p>
-          </section>
-
           <section className="card quarterly-list-card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">歷史</p>
-                <h2>過往每月分析</h2>
+                <h2>歷史記錄</h2>
+                <p className="table-hint">每月資產分析</p>
               </div>
               <span className="chip chip-soft">
                 {monthlyAnalysisSessions.length > 0 ? `${monthlyAnalysisSessions.length} 份分析` : '尚未生成'}
               </span>
             </div>
-
-            <p className="status-message">
-              改為手動生成；每月 1 號香港時間上午 8:00 後，直到本月生成前都會顯示按鈕。
-            </p>
 
             {monthlyAnalysisSessions.length === 0 ? (
               <EmptyState
@@ -2230,116 +2213,16 @@ export function AnalysisPage() {
 
       {isQuarterlyCategory ? (
         <>
-          <section className="card analysis-report-preview">
-            <div className="section-heading">
-              <div>
-                <p className="eyebrow">季報</p>
-                <h2>{latestReport?.quarter ?? '季度報告'}</h2>
-                <p className="table-hint">使用模型：{scheduledAnalysisModelLabel}</p>
-              </div>
-              {canGenerateCurrentQuarterReport ? (
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={() => void handleGenerateQuarterlyReport()}
-                  disabled={generatingPeriodicReport === 'quarterly'}
-                >
-                  {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成今季報告'}
-                </button>
-              ) : latestReport ? (
-                latestReport.pdfUrl ? (
-                  <a
-                    className="button button-secondary"
-                    href={latestReport.pdfUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    下載 PDF
-                  </a>
-                ) : (
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    onClick={() => void handleGeneratePdf(latestReport)}
-                    disabled={generatingReportId === latestReport.id}
-                  >
-                    {generatingReportId === latestReport.id ? '生成中...' : '生成 PDF'}
-                  </button>
-                )
-              ) : (
-                <span className="chip chip-soft">
-                  {reportsStatus === 'loading' ? '同步中' : `${reports.length} 份報告`}
-                </span>
-              )}
-            </div>
-
-            <ReportAllocationSummaryCard
-              summary={currentAllocationSummary}
-              displayCurrency={displayCurrency}
-              className="analysis-entry-summary"
-            />
-
-            {latestReport ? (
-              <div className="analysis-report-preview">
-                <p className="analysis-summary-text">{truncateText(latestReport.report, 200)}</p>
-                <div className="analysis-report-preview-footer">
-                  <span className="table-hint">{formatGeneratedAt(latestReport.generatedAt)}</span>
-                  <span className="chip chip-soft">
-                    {latestReport.provider ? `${latestReport.provider} · ${latestReport.model}` : latestReport.model}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <EmptyState
-                title="尚未生成季度報告"
-                reason="生成第一份季度報告後，這裡會顯示全文、PDF 同追問入口。"
-                primaryAction={
-                  canGenerateCurrentQuarterReport ? (
-                    <button
-                      className="button button-primary"
-                      type="button"
-                      onClick={() => void handleGenerateQuarterlyReport()}
-                      disabled={generatingPeriodicReport === 'quarterly'}
-                    >
-                      {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成今季報告'}
-                    </button>
-                  ) : (
-                    <button
-                      className="button button-secondary"
-                      type="button"
-                      onClick={() => setIsPromptSettingsOpen(true)}
-                    >
-                      檢視分析設定
-                    </button>
-                  )
-                }
-                secondaryAction={
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    onClick={() => setSelectedCategory('asset_analysis')}
-                  >
-                    切換至每月分析
-                  </button>
-                }
-              />
-            )}
-          </section>
-
           <section className="card quarterly-list-card">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">歷史</p>
-                <h2>過往報告</h2>
+                <h2>歷史記錄</h2>
+                <p className="table-hint">季度投資報告</p>
               </div>
               <span className="chip chip-soft">
                 {reportsStatus === 'loading' ? '同步中' : `${reports.length} 份報告`}
               </span>
             </div>
-
-            <p className="status-message">
-              改為手動生成；季度首月 1 號香港時間上午 9:00 後，直到本季生成前都會顯示按鈕。
-            </p>
 
             {reportsStatus === 'ready' && reports.length === 0 ? (
               <EmptyState

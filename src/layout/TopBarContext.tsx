@@ -17,8 +17,11 @@ export interface TopBarStatusItem {
 export interface TopBarConfig {
   title: string;
   subtitle: string;
+  primaryStatus?: TopBarStatusItem;
   metaItems?: TopBarMetaItem[];
   statusItems?: TopBarStatusItem[];
+  showMeta?: boolean;
+  compact?: boolean;
   actions?: ReactNode;
 }
 

@@ -117,65 +117,36 @@ export function FundsPage() {
   }, [accountPrincipals, cashFlows]);
   const totalPrincipalHKD = accountSummaries.reduce((sum, summary) => sum + summary.totalPrincipalHKD, 0);
   const totalPrincipalDisplay = convertCurrency(totalPrincipalHKD, 'HKD', displayCurrency);
-  const latestUpdateLabel = useMemo(() => {
-    const latestTimestamp = [
-      ...accountPrincipals.map((entry) => entry.updatedAt || ''),
-      ...cashFlows.map((entry) => entry.updatedAt || entry.createdAt || ''),
-    ]
+  const latestCashFlowDateLabel = useMemo(() => {
+    const latestDate = [...cashFlows]
+      .map((entry) => entry.date)
       .filter(Boolean)
       .sort((left, right) => right.localeCompare(left))[0];
 
-    if (!latestTimestamp) {
-      return '未更新';
+    if (!latestDate) {
+      return '暫無流水';
     }
 
     try {
-      return new Intl.DateTimeFormat('zh-HK', {
+      return `最近流水 ${new Intl.DateTimeFormat('zh-HK', {
         dateStyle: 'medium',
-        timeStyle: 'short',
-      }).format(new Date(latestTimestamp));
+      }).format(new Date(`${latestDate}T00:00:00`))}`;
     } catch {
-      return latestTimestamp;
+      return `最近流水 ${latestDate}`;
     }
-  }, [accountPrincipals, cashFlows]);
+  }, [cashFlows]);
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '資金流水',
-      subtitle: '管理帳戶本金、入金、提款與現金流記錄。',
-      metaItems: [
-        { label: '基準貨幣', value: 'HKD', compact: true },
-        { label: '顯示貨幣', value: displayCurrency, compact: true },
-        { label: '帳戶數', value: `${accountSourceOptions.length} 個` },
-        { label: '總本金', value: formatCurrencyRounded(totalPrincipalDisplay, displayCurrency) },
-      ],
-      statusItems: [
-        {
-          label: accessStatus === 'unlocked' ? '已解鎖' : accessStatus === 'locked' ? '已鎖定' : '錯誤',
-          tone: accessStatus === 'unlocked' ? 'success' : accessStatus === 'locked' ? 'warning' : 'danger',
-        },
-        {
-          label: accountPrincipalStatus === 'error' ? '本金失敗' : accountPrincipalStatus === 'loading' ? '本金同步中' : '本金已同步',
-          tone: accountPrincipalStatus === 'error' ? 'danger' : accountPrincipalStatus === 'loading' ? 'warning' : 'success',
-        },
-        {
-          label: cashFlowStatus === 'error' ? '流水失敗' : cashFlowStatus === 'loading' ? '流水同步中' : '流水已同步',
-          tone: cashFlowStatus === 'error' ? 'danger' : cashFlowStatus === 'loading' ? 'warning' : 'success',
-        },
-        {
-          label: `最近更新 ${latestUpdateLabel}`,
-          tone: 'neutral',
-        },
-      ],
-      actions: <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />,
+      subtitle: '追蹤入金、出金與帳戶現金變化。',
+      primaryStatus: {
+        label: latestCashFlowDateLabel,
+        tone: cashFlows.length > 0 ? 'success' : 'neutral',
+      },
     }),
     [
-      accessStatus,
-      accountPrincipalStatus,
-      cashFlowStatus,
-      displayCurrency,
-      latestUpdateLabel,
-      setDisplayCurrency,
-      totalPrincipalDisplay,
+      cashFlows.length,
+      latestCashFlowDateLabel,
     ],
   );
 
@@ -240,9 +211,9 @@ export function FundsPage() {
       ) : null}
 
       <PageSection
-        eyebrow="資金概覽"
         title="本金總覽"
         subtitle="用同一個基準貨幣管理帳戶本金、入金、提款與調整。"
+        actions={<CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />}
       >
         <div className="summary-grid">
           <article className="summary-card">

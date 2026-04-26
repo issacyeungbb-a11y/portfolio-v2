@@ -6,7 +6,6 @@ import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPa
 import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { StatusMessages } from '../components/ui/StatusMessages';
 import { SystemDiagnosticsPanel } from '../components/ui/SystemDiagnosticsPanel';
-import { StatusBadge } from '../components/ui/StatusBadge';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
@@ -305,13 +304,6 @@ export function AssetsPage() {
     : todaySnapshot.quality === 'fallback'
       ? '今日快照 部分完成'
       : '今日快照 完整';
-  const todaySnapshotTone = !todaySnapshot.exists
-    ? todaySnapshotStatus === 'loading'
-      ? 'warning'
-      : 'warning'
-    : todaySnapshot.quality === 'fallback'
-      ? 'warning'
-      : 'success';
   const snapshotStatusLabel =
     nonCashHoldings.length === 0
       ? '未有非現金資產，毋須快照檢查'
@@ -328,47 +320,27 @@ export function AssetsPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '資產管理',
-      subtitle: '集中管理持倉、價格更新、覆核與今日快照。',
-      metaItems: [
-        { label: '基準貨幣', value: 'HKD', compact: true },
-        { label: '顯示貨幣', value: displayCurrency, compact: true },
-        { label: '資產數', value: `${filteredHoldings.length} 項` },
-        { label: '最近更新', value: latestUpdateLabel },
-      ],
-      statusItems: [
-        {
-          label: status === 'error' ? '連接失敗' : status === 'loading' ? '同步中' : '已連接',
-          tone: status === 'error' ? 'danger' : status === 'loading' ? 'warning' : 'success',
-        },
-        {
-          label: `價格覆蓋率 ${syncedCoveragePct}%`,
-          tone: pendingPriceCount > 0 ? 'warning' : 'success',
-        },
-        {
-          label: `待更新 ${pendingPriceCount}`,
-          tone: pendingPriceCount > 0 ? 'warning' : 'success',
-        },
-        {
-          label: `待覆核 ${reviews.length}`,
-          tone: reviews.length > 0 ? 'warning' : 'success',
-        },
-        {
-          label: todaySnapshotLabel,
-          tone: todaySnapshotTone,
-        },
-      ],
+      subtitle: '管理持倉、價格更新與資料覆核。',
+      primaryStatus: {
+        label: pendingPriceCount > 0 ? `價格待更新 ${pendingPriceCount} 項` : '全部價格已更新',
+        tone: pendingPriceCount > 0 ? 'warning' : 'success',
+      },
+      actions: (
+        <button
+          className="button button-primary"
+          type="button"
+          onClick={() => {
+            setCreateAssetError(null);
+            setCreateAssetSuccess(null);
+            setIsAddAssetOpen(true);
+          }}
+        >
+          新增資產
+        </button>
+      ),
     }),
     [
-      displayCurrency,
-      filteredHoldings.length,
-      latestUpdateLabel,
       pendingPriceCount,
-      reviews.length,
-      status,
-      syncedCoveragePct,
-      todaySnapshotLabel,
-      todaySnapshotTone,
-      todaySnapshotStatus,
     ],
   );
 
@@ -652,43 +624,37 @@ export function AssetsPage() {
 
   return (
     <div className="page-stack">
-      <section className="hero-panel assets-toolbar assets-toolbar-hero">
+      <section className="card assets-toolbar assets-toolbar-hero">
         <div className="assets-toolbar-heading">
           <div>
-            <p className="eyebrow">資產管理</p>
-            <h2>持倉與價格控制台</h2>
-            <p className="table-hint">先查看狀態，再進行操作。價格更新、快照與覆核都集中於此。</p>
+            <h2>資料狀態</h2>
+            <p className="table-hint">價格覆蓋率、覆核與快照狀態集中在這裡處理。</p>
           </div>
           <span className="assets-toolbar-subtle">
             {filteredHoldings.length} 項 · {activeFilterLabel}
           </span>
         </div>
-        <div className="assets-toolbar-status-grid" aria-label="價格更新狀態">
-          <StatusBadge
-            label={`最近更新 ${latestUpdateLabel}`}
-            tone={latestValidPriceUpdate ? 'success' : 'neutral'}
-          />
-          <StatusBadge
-            label={`價格覆蓋率 ${syncedCoveragePct}%`}
-            tone={pendingPriceCount > 0 ? 'warning' : 'success'}
-          />
-          <StatusBadge
-            label={`待更新 ${pendingPriceCount}`}
-            tone={pendingPriceCount > 0 ? 'warning' : 'success'}
-          />
-          <StatusBadge
-            label={`待人工覆核 ${reviews.length}`}
-            tone={reviews.length > 0 ? 'warning' : 'success'}
-          />
-          <StatusBadge
-            label={todaySnapshotLabel}
-            tone={todaySnapshotTone}
-          />
+        <div className="assets-toolbar-status-grid" aria-label="資料狀態">
+          <div className="assets-status-item">
+            <span>價格覆蓋率</span>
+            <strong>{syncedCoveragePct}%</strong>
+            <small>最近更新 {latestUpdateLabel}</small>
+          </div>
+          <div className="assets-status-item">
+            <span>待處理</span>
+            <strong>{pendingPriceCount + reviews.length} 項</strong>
+            <small>價格 {pendingPriceCount} · 覆核 {reviews.length}</small>
+          </div>
+          <div className="assets-status-item">
+            <span>今日快照</span>
+            <strong>{todaySnapshotLabel.replace('今日快照 ', '')}</strong>
+            <small>{snapshotStatusLabel}</small>
+          </div>
         </div>
         <div className="assets-toolbar-actions">
           <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
           <button
-            className="button button-primary"
+            className="button button-secondary"
             type="button"
             onClick={() => setIsBulkUpdateConfirmOpen(true)}
             disabled={isUpdatingAllPrices || nonCashHoldings.length === 0}
@@ -706,13 +672,9 @@ export function AssetsPage() {
           <button
             className="button button-secondary"
             type="button"
-            onClick={() => {
-              setCreateAssetError(null);
-              setCreateAssetSuccess(null);
-              setIsAddAssetOpen(true);
-            }}
-            >
-            新增資產
+            onClick={() => setIsFilterPanelOpen((current) => !current)}
+          >
+            {isFilterPanelOpen ? '收起篩選' : '篩選持倉'}
           </button>
         </div>
         <div className="assets-toolbar-footnote" aria-label="更新提示">

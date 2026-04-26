@@ -83,42 +83,24 @@ export function TransactionsPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '交易記錄',
-      subtitle: '查看、編輯同輸入持倉交易記錄。',
-      metaItems: [
-        { label: '基準貨幣', value: 'HKD', compact: true },
-        { label: '顯示貨幣', value: displayCurrency, compact: true },
-        { label: '交易筆數', value: `${visibleEntries.length} 筆` },
-        { label: '最近交易', value: latestTradeLabel },
-      ],
-      statusItems: [
-        {
-          label: status === 'error' ? '同步失敗' : status === 'loading' ? '同步中' : '已同步',
-          tone: status === 'error' ? 'danger' : status === 'loading' ? 'warning' : 'success',
-        },
-        {
-          label: visibleEntries.length > 0 ? '交易紀錄完整' : '暫無資料',
-          tone: visibleEntries.length > 0 ? 'success' : 'neutral',
-        },
-      ],
+      subtitle: '檢視買賣、轉帳與截圖匯入紀錄。',
+      primaryStatus: {
+        label: visibleEntries.length > 0 ? `最近交易 ${latestTradeLabel}` : '尚未有交易',
+        tone: visibleEntries.length > 0 ? 'success' : 'neutral',
+      },
       actions: (
-        <div className="top-bar-inline-actions">
-          <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
-          <button
-            className="button button-primary"
-            type="button"
-            onClick={() => setIsTransactionInputOpen((current) => !current)}
-          >
-            {isTransactionInputOpen ? '收起輸入交易' : '輸入交易'}
-          </button>
-        </div>
+        <button
+          className="button button-primary"
+          type="button"
+          onClick={() => setIsTransactionInputOpen((current) => !current)}
+        >
+          {isTransactionInputOpen ? '收起輸入' : '新增交易'}
+        </button>
       ),
     }),
     [
-      displayCurrency,
       isTransactionInputOpen,
       latestTradeLabel,
-      setDisplayCurrency,
-      status,
       visibleEntries.length,
     ],
   );
@@ -192,9 +174,9 @@ export function TransactionsPage() {
       {actionSuccess ? <p className="status-message status-message-success">{actionSuccess}</p> : null}
 
       <PageSection
-        eyebrow="交易概覽"
         title="交易摘要"
         subtitle="交易、手續費、已實現盈虧都會按同一顯示幣別列示。"
+        actions={<CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />}
       >
         <div className="summary-grid">
           <article className="summary-card">
