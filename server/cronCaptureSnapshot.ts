@@ -295,8 +295,11 @@ async function verifyAssetsReadyForDailySnapshot(
     }
   }
 
+  // Block fallback when value-weighted guard couldn't run AND there are stale assets
+  // (canUseFallback only allowed when guard either ran clean OR there are no stale assets to check)
   const canUseFallback =
     !valueWeightedHighRisk &&
+    !(valueWeightedGuardUnavailable && staleAssets.length > 0) &&
     nonCashAssets.length > 0 &&
     coveragePct >= 80 &&
     hardPendingReviews.length <= hardPendingTolerance &&
