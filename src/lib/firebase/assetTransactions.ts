@@ -1,6 +1,4 @@
 import {
-  addDoc,
-  deleteDoc,
   deleteField,
   doc,
   getDoc,
@@ -24,13 +22,13 @@ import type {
   AssetType,
   Holding,
 } from '../../types/portfolio';
-import { convertCurrency } from '../../data/mockPortfolio';
 import { buildHoldingFromInput } from './assets';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import {
   getSharedAssetTransactionsCollectionRef,
   getSharedAssetsCollectionRef,
 } from './sharedPortfolio';
+import { runLedgerRebuild } from '../portfolio/transactionRebuild';
 
 type AssetTransactionInput = Omit<
   AssetTransactionEntry,
@@ -165,20 +163,6 @@ function sortLedgerTransactions(entries: LedgerTransaction[]) {
   });
 }
 
-function validateLedgerTransaction(entry: LedgerTransaction, quantityBefore: number) {
-  if (entry.recordType === 'asset_created') {
-    return;
-  }
-
-  if (entry.quantity <= 0 || entry.price <= 0) {
-    throw new Error('交易數量同成交價都必須大過 0。');
-  }
-
-  if (entry.recordType !== 'seed' && entry.transactionType === 'sell' && entry.quantity > quantityBefore) {
-    throw new Error(`${entry.symbol} 的賣出數量不可大過當時持倉。`);
-  }
-}
-
 function buildSeedPayload(holding: Holding): LedgerTransaction | null {
   if (holding.quantity <= 0) {
     return null;
@@ -235,49 +219,6 @@ async function findCashHoldingForAccount(accountSource: AccountSource, currency:
   return null;
 }
 
-async function adjustCashHoldingBalance(
-  accountSource: AccountSource,
-  currency: string,
-  deltaAmount: number,
-) {
-  if (Math.abs(deltaAmount) < 1e-9) {
-    return;
-  }
-
-  const normalizedCurrency = currency.trim().toUpperCase() || 'HKD';
-  const existingCashHolding = await findCashHoldingForAccount(accountSource, normalizedCurrency);
-
-  if (!existingCashHolding) {
-    throw new Error(
-      `${accountSource} ${normalizedCurrency} 現金帳戶未設定，請先喺資產頁建立對應現金資產，再寫入交易。`,
-    );
-  }
-
-  const nextAmount = existingCashHolding.currentPrice + deltaAmount;
-
-  await updateDoc(doc(getSharedAssetsCollectionRef(), existingCashHolding.id), {
-    quantity: 1,
-    averageCost: nextAmount,
-    currentPrice: nextAmount,
-    lastPriceUpdatedAt: serverTimestamp(),
-    archivedAt: deleteField(),
-    updatedAt: serverTimestamp(),
-  });
-}
-
-async function applyCashSettlementDelta(entry: LedgerTransaction, multiplier: 1 | -1) {
-  const deltaAmount = calculateCashDelta(entry) * multiplier;
-  if (Math.abs(deltaAmount) < 1e-9) {
-    return;
-  }
-
-  await adjustCashHoldingBalance(
-    getTransactionSettlementAccountSource(entry),
-    entry.currency,
-    deltaAmount,
-  );
-}
-
 async function listTransactionsForAsset(assetId: string) {
   const snapshot = await getDocs(query(getSharedAssetTransactionsCollectionRef(), orderBy('date', 'asc')));
   return sortLedgerTransactions(
@@ -288,108 +229,60 @@ async function listTransactionsForAsset(assetId: string) {
   );
 }
 
-async function ensureSeedTransactionForHolding(holding: Holding) {
-  const existing = await listTransactionsForAsset(holding.id);
-  if (existing.length > 0) {
-    return existing;
-  }
+function applyRebuildToBatch(
+  batch: ReturnType<typeof writeBatch>,
+  assetRef: ReturnType<typeof doc>,
+  rebuild: ReturnType<typeof runLedgerRebuild>,
+  remainingTxCount: number,
+  skipIds: Set<string>,
+) {
+  const txCollection = getSharedAssetTransactionsCollectionRef();
 
-  const seedPayload = buildSeedPayload(holding);
-  if (!seedPayload) {
-    return existing;
-  }
-
-  await addDoc(getSharedAssetTransactionsCollectionRef(), {
-    ...seedPayload,
-    realizedPnlHKD: 0,
-    quantityAfter: holding.quantity,
-    averageCostAfter: holding.averageCost,
-    note: seedPayload.note,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-  return listTransactionsForAsset(holding.id);
-}
-
-async function rebuildAssetFromTransactions(assetId: string) {
-  const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
-  const assetSnapshot = await getDoc(assetRef);
-
-  if (!assetSnapshot.exists()) {
-    throw new Error('找不到對應資產，請先確認該資產仍然存在。');
-  }
-
-  const transactions = await listTransactionsForAsset(assetId);
-
-  if (transactions.length === 0) {
-    await updateDoc(assetRef, {
-      quantity: 0,
-      averageCost: 0,
-      archivedAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-    return;
-  }
-
-  const batch = writeBatch(getSharedAssetsCollectionRef().firestore);
-  let quantity = 0;
-  let averageCost = 0;
-  let latestTradePrice = 0;
-
-  for (const transaction of transactions) {
-    validateLedgerTransaction(transaction, quantity);
-
-    let nextQuantity = quantity;
-    let nextAverageCost = averageCost;
-    let realizedPnl = 0;
-
-    if (transaction.recordType === 'asset_created') {
-      nextQuantity = quantity;
-      nextAverageCost = averageCost;
-    } else if (transaction.recordType === 'seed') {
-      nextQuantity = transaction.quantity;
-      nextAverageCost =
-        transaction.quantity === 0
-          ? 0
-          : ((transaction.quantity * transaction.price) + transaction.fees) / transaction.quantity;
-    } else if (transaction.transactionType === 'buy') {
-      nextQuantity = quantity + transaction.quantity;
-      nextAverageCost =
-        nextQuantity === 0
-          ? 0
-          : ((quantity * averageCost) + (transaction.quantity * transaction.price) + transaction.fees) /
-            nextQuantity;
-    } else {
-      nextQuantity = Math.max(0, quantity - transaction.quantity);
-      realizedPnl = (transaction.price - averageCost) * transaction.quantity - transaction.fees;
-      nextAverageCost = nextQuantity === 0 ? 0 : averageCost;
-    }
-
-    latestTradePrice = transaction.price;
-    quantity = nextQuantity;
-    averageCost = nextAverageCost;
-
-    if (transaction.id) {
-      batch.update(doc(getSharedAssetTransactionsCollectionRef(), transaction.id), {
-        realizedPnlHKD: convertCurrency(realizedPnl, transaction.currency, 'HKD'),
-        quantityAfter: nextQuantity,
-        averageCostAfter: nextAverageCost,
+  for (const result of rebuild.txResults) {
+    if (result.id && !skipIds.has(result.id)) {
+      batch.update(doc(txCollection, result.id), {
+        realizedPnlHKD: result.realizedPnlHKD,
+        quantityAfter: result.quantityAfter,
+        averageCostAfter: result.averageCostAfter,
         updatedAt: serverTimestamp(),
       });
     }
   }
 
-  batch.update(assetRef, {
-    quantity,
-    averageCost,
-    currentPrice: latestTradePrice,
+  if (remainingTxCount === 0) {
+    batch.update(assetRef, {
+      quantity: 0,
+      averageCost: 0,
+      archivedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    batch.update(assetRef, {
+      quantity: rebuild.finalQuantity,
+      averageCost: rebuild.finalAverageCost,
+      currentPrice: rebuild.finalLatestTradePrice,
+      lastPriceUpdatedAt: serverTimestamp(),
+      archivedAt: rebuild.finalQuantity === 0 ? serverTimestamp() : deleteField(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+function applyCashToBatch(
+  batch: ReturnType<typeof writeBatch>,
+  cashHolding: Holding,
+  deltaAmount: number,
+) {
+  const cashRef = doc(getSharedAssetsCollectionRef(), cashHolding.id);
+  const nextAmount = cashHolding.currentPrice + deltaAmount;
+  batch.update(cashRef, {
+    quantity: 1,
+    averageCost: nextAmount,
+    currentPrice: nextAmount,
     lastPriceUpdatedAt: serverTimestamp(),
-    archivedAt: quantity === 0 ? serverTimestamp() : deleteField(),
+    archivedAt: deleteField(),
     updatedAt: serverTimestamp(),
   });
-
-  await batch.commit();
 }
 
 export function getAssetTransactionsErrorMessage(error?: unknown) {
@@ -495,39 +388,117 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
     assetSnapshot.data() as unknown as Holding,
   );
 
-  await ensureSeedTransactionForHolding(currentHolding);
+  // Preflight: check cash holding exists before any writes
+  const settlementSource = entry.settlementAccountSource ?? entry.accountSource;
+  const normalizedCurrency = entry.currency.trim().toUpperCase() || 'HKD';
+  const cashDelta = calculateCashDelta({
+    recordType: 'trade',
+    transactionType: entry.transactionType,
+    quantity: Number(entry.quantity) || 0,
+    price: Number(entry.price) || 0,
+    fees: Number(entry.fees) || 0,
+  });
 
-  await addDoc(getSharedAssetTransactionsCollectionRef(), {
+  let cashHolding: Holding | null = null;
+  if (Math.abs(cashDelta) >= 1e-9) {
+    cashHolding = await findCashHoldingForAccount(settlementSource, normalizedCurrency);
+    if (!cashHolding) {
+      throw new Error(
+        `${settlementSource} ${normalizedCurrency} 現金帳戶未設定，請先喺資產頁建立對應現金資產，再寫入交易。`,
+      );
+    }
+  }
+
+  const existingTxs = await listTransactionsForAsset(entry.assetId);
+  const txCollection = getSharedAssetTransactionsCollectionRef();
+  const db = txCollection.firestore;
+  const batch = writeBatch(db);
+
+  // Build full in-memory list, creating seed if there are no existing transactions
+  let allTransactions: LedgerTransaction[] = [...existingTxs];
+  let seedRef: ReturnType<typeof doc> | null = null;
+
+  if (existingTxs.length === 0) {
+    const seedPayload = buildSeedPayload(currentHolding);
+    if (seedPayload) {
+      seedRef = doc(txCollection);
+      allTransactions = [{ ...seedPayload, id: seedRef.id }];
+    }
+  }
+
+  // Pre-generate new tx ref
+  const newTxRef = doc(txCollection);
+  const normalizedEntry: LedgerTransaction = {
     assetId: entry.assetId,
     assetName: entry.assetName.trim(),
     symbol: entry.symbol.trim().toUpperCase(),
     assetType: entry.assetType,
     accountSource: entry.accountSource,
-    settlementAccountSource: entry.settlementAccountSource ?? entry.accountSource,
+    settlementAccountSource: settlementSource,
     transactionType: entry.transactionType,
     recordType: 'trade',
     quantity: Number(entry.quantity) || 0,
     price: Number(entry.price) || 0,
     fees: Number(entry.fees) || 0,
-    currency: entry.currency.trim().toUpperCase() || 'HKD',
+    currency: normalizedCurrency,
     date: entry.date,
-    realizedPnlHKD: 0,
-    quantityAfter: 0,
-    averageCostAfter: 0,
-    note: entry.note?.trim() || '',
+    note: entry.note?.trim(),
+    id: newTxRef.id,
+  };
+
+  allTransactions = sortLedgerTransactions([...allTransactions, normalizedEntry]);
+
+  // Run rebuild with the full in-memory list (may throw on invalid sell quantities)
+  const rebuild = runLedgerRebuild(allTransactions);
+
+  // Batch.set seed with actual computed fields
+  if (seedRef) {
+    const seedPayload = buildSeedPayload(currentHolding)!;
+    const seedResult = rebuild.txResults.find((r) => r.id === seedRef!.id);
+    batch.set(seedRef, {
+      ...seedPayload,
+      realizedPnlHKD: seedResult?.realizedPnlHKD ?? 0,
+      quantityAfter: seedResult?.quantityAfter ?? 0,
+      averageCostAfter: seedResult?.averageCostAfter ?? 0,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  // Batch.set new tx with computed fields
+  const newTxResult = rebuild.txResults.find((r) => r.id === newTxRef.id);
+  batch.set(newTxRef, {
+    assetId: normalizedEntry.assetId,
+    assetName: normalizedEntry.assetName,
+    symbol: normalizedEntry.symbol,
+    assetType: normalizedEntry.assetType,
+    accountSource: normalizedEntry.accountSource,
+    settlementAccountSource: normalizedEntry.settlementAccountSource,
+    transactionType: normalizedEntry.transactionType,
+    recordType: normalizedEntry.recordType,
+    quantity: normalizedEntry.quantity,
+    price: normalizedEntry.price,
+    fees: normalizedEntry.fees,
+    currency: normalizedEntry.currency,
+    date: normalizedEntry.date,
+    note: normalizedEntry.note || '',
+    realizedPnlHKD: newTxResult?.realizedPnlHKD ?? 0,
+    quantityAfter: newTxResult?.quantityAfter ?? 0,
+    averageCostAfter: newTxResult?.averageCostAfter ?? 0,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
-  await rebuildAssetFromTransactions(entry.assetId);
-  await applyCashSettlementDelta(
-    {
-      ...entry,
-      settlementAccountSource: entry.settlementAccountSource ?? entry.accountSource,
-      recordType: 'trade',
-    },
-    1,
-  );
+  // Update existing txs (only those fetched from Firestore, not newly batch.set ones)
+  const batchSetIds = new Set([newTxRef.id, ...(seedRef ? [seedRef.id] : [])]);
+  applyRebuildToBatch(batch, assetRef, rebuild, allTransactions.length, batchSetIds);
+
+  // Update cash holding
+  if (cashHolding && Math.abs(cashDelta) >= 1e-9) {
+    applyCashToBatch(batch, cashHolding, cashDelta);
+  }
+
+  await batch.commit();
 }
 
 export async function updateAssetTransaction(
@@ -538,41 +509,121 @@ export async function updateAssetTransaction(
     throw createMissingConfigError();
   }
 
-  const transactionRef = doc(getSharedAssetTransactionsCollectionRef(), entryId);
-  const transactionSnapshot = await getDoc(transactionRef);
+  const txRef = doc(getSharedAssetTransactionsCollectionRef(), entryId);
+  const txSnapshot = await getDoc(txRef);
 
-  if (!transactionSnapshot.exists()) {
+  if (!txSnapshot.exists()) {
     throw new Error('找不到對應交易記錄。');
   }
 
   const existing = normalizeAssetTransaction(
-    transactionSnapshot.id,
-    transactionSnapshot.data() as Record<string, unknown>,
+    txSnapshot.id,
+    txSnapshot.data() as Record<string, unknown>,
   );
 
-  const previousLedgerEntry = toLedgerTransaction(existing);
+  const previousEntry = toLedgerTransaction(existing);
+  const existingRecordType = existing.recordType ?? 'trade';
 
-  await updateDoc(transactionRef, {
+  const assetRef = doc(getSharedAssetsCollectionRef(), existing.assetId);
+  const assetSnapshot = await getDoc(assetRef);
+
+  if (!assetSnapshot.exists()) {
+    throw new Error('找不到對應資產，請先確認該資產仍然存在。');
+  }
+
+  // Compute old reversal and new cash delta, merge by account+currency
+  const oldSettlement = getTransactionSettlementAccountSource(previousEntry);
+  const newSettlement = entry.settlementAccountSource ?? entry.accountSource;
+  const newCurrency = entry.currency.trim().toUpperCase() || 'HKD';
+  const oldCashReversal = calculateCashDelta(previousEntry) * -1;
+  const newCashDelta = calculateCashDelta({
+    recordType: existingRecordType,
     transactionType: entry.transactionType,
-    settlementAccountSource: entry.settlementAccountSource ?? entry.accountSource,
     quantity: Number(entry.quantity) || 0,
     price: Number(entry.price) || 0,
     fees: Number(entry.fees) || 0,
+  });
+
+  const cashUpdateMap = new Map<string, { accountSource: AccountSource; currency: string; delta: number }>();
+  const mergeCashUpdate = (accountSource: AccountSource, currency: string, delta: number) => {
+    if (Math.abs(delta) < 1e-9) return;
+    const key = `${accountSource}:${currency}`;
+    const prev = cashUpdateMap.get(key);
+    if (prev) {
+      prev.delta += delta;
+    } else {
+      cashUpdateMap.set(key, { accountSource, currency, delta });
+    }
+  };
+  mergeCashUpdate(oldSettlement, previousEntry.currency, oldCashReversal);
+  mergeCashUpdate(newSettlement, newCurrency, newCashDelta);
+
+  // Preflight all required cash holdings
+  const cashHoldings = new Map<string, Holding>();
+  for (const [key, update] of cashUpdateMap) {
+    if (Math.abs(update.delta) < 1e-9) continue;
+    const holding = await findCashHoldingForAccount(update.accountSource, update.currency);
+    if (!holding) {
+      throw new Error(
+        `${update.accountSource} ${update.currency} 現金帳戶未設定，請先喺資產頁建立對應現金資產，再寫入交易。`,
+      );
+    }
+    cashHoldings.set(key, holding);
+  }
+
+  // Build updated tx in-memory, replacing the old entry
+  const updatedEntry: LedgerTransaction = {
+    ...previousEntry,
+    transactionType: entry.transactionType,
+    settlementAccountSource: newSettlement,
+    quantity: Number(entry.quantity) || 0,
+    price: Number(entry.price) || 0,
+    fees: Number(entry.fees) || 0,
+    currency: newCurrency,
     date: entry.date,
-    note: entry.note?.trim() || '',
+    note: entry.note?.trim(),
+    id: entryId,
+  };
+
+  const existingTxs = await listTransactionsForAsset(existing.assetId);
+  const allTransactions = sortLedgerTransactions(
+    existingTxs.map((tx) => (tx.id === entryId ? updatedEntry : tx)),
+  );
+
+  const rebuild = runLedgerRebuild(allTransactions);
+
+  const txCollection = getSharedAssetTransactionsCollectionRef();
+  const db = txCollection.firestore;
+  const batch = writeBatch(db);
+
+  // Update edited tx: merge user-input fields + computed fields in one call
+  const editedResult = rebuild.txResults.find((r) => r.id === entryId);
+  batch.update(txRef, {
+    transactionType: updatedEntry.transactionType,
+    settlementAccountSource: updatedEntry.settlementAccountSource,
+    quantity: updatedEntry.quantity,
+    price: updatedEntry.price,
+    fees: updatedEntry.fees,
+    currency: updatedEntry.currency,
+    date: updatedEntry.date,
+    note: updatedEntry.note || '',
+    realizedPnlHKD: editedResult?.realizedPnlHKD ?? 0,
+    quantityAfter: editedResult?.quantityAfter ?? 0,
+    averageCostAfter: editedResult?.averageCostAfter ?? 0,
     updatedAt: serverTimestamp(),
   });
 
-  await rebuildAssetFromTransactions(existing.assetId);
-  await applyCashSettlementDelta(previousLedgerEntry, -1);
-  await applyCashSettlementDelta(
-    {
-      ...entry,
-      settlementAccountSource: entry.settlementAccountSource ?? entry.accountSource,
-      recordType: existing.recordType ?? 'trade',
-    },
-    1,
-  );
+  // Update other txs and asset
+  applyRebuildToBatch(batch, assetRef, rebuild, allTransactions.length, new Set([entryId]));
+
+  // Update cash holdings
+  for (const [key, update] of cashUpdateMap) {
+    if (Math.abs(update.delta) < 1e-9) continue;
+    const holding = cashHoldings.get(key)!;
+    applyCashToBatch(batch, holding, update.delta);
+  }
+
+  await batch.commit();
 }
 
 export async function deleteAssetTransaction(entryId: string) {
@@ -580,21 +631,54 @@ export async function deleteAssetTransaction(entryId: string) {
     throw createMissingConfigError();
   }
 
-  const transactionRef = doc(getSharedAssetTransactionsCollectionRef(), entryId);
-  const transactionSnapshot = await getDoc(transactionRef);
+  const txRef = doc(getSharedAssetTransactionsCollectionRef(), entryId);
+  const txSnapshot = await getDoc(txRef);
 
-  if (!transactionSnapshot.exists()) {
+  if (!txSnapshot.exists()) {
     throw new Error('找不到對應交易記錄。');
   }
 
   const existing = normalizeAssetTransaction(
-    transactionSnapshot.id,
-    transactionSnapshot.data() as Record<string, unknown>,
+    txSnapshot.id,
+    txSnapshot.data() as Record<string, unknown>,
   );
 
-  const previousLedgerEntry = toLedgerTransaction(existing);
+  const previousEntry = toLedgerTransaction(existing);
 
-  await deleteDoc(transactionRef);
-  await rebuildAssetFromTransactions(existing.assetId);
-  await applyCashSettlementDelta(previousLedgerEntry, -1);
+  const assetRef = doc(getSharedAssetsCollectionRef(), existing.assetId);
+  const assetSnapshot = await getDoc(assetRef);
+
+  if (!assetSnapshot.exists()) {
+    throw new Error('找不到對應資產，請先確認該資產仍然存在。');
+  }
+
+  // Preflight cash check before any writes
+  const cashDeltaToReverse = calculateCashDelta(previousEntry) * -1;
+  let cashHolding: Holding | null = null;
+  if (Math.abs(cashDeltaToReverse) >= 1e-9) {
+    const settlement = getTransactionSettlementAccountSource(previousEntry);
+    cashHolding = await findCashHoldingForAccount(settlement, previousEntry.currency);
+    if (!cashHolding) {
+      throw new Error(
+        `${settlement} ${previousEntry.currency} 現金帳戶未設定，無法還原現金變動。`,
+      );
+    }
+  }
+
+  const existingTxs = await listTransactionsForAsset(existing.assetId);
+  const remainingTxs = existingTxs.filter((tx) => tx.id !== entryId);
+  const rebuild = runLedgerRebuild(remainingTxs);
+
+  const txCollection = getSharedAssetTransactionsCollectionRef();
+  const db = txCollection.firestore;
+  const batch = writeBatch(db);
+
+  batch.delete(txRef);
+  applyRebuildToBatch(batch, assetRef, rebuild, remainingTxs.length, new Set([entryId]));
+
+  if (cashHolding && Math.abs(cashDeltaToReverse) >= 1e-9) {
+    applyCashToBatch(batch, cashHolding, cashDeltaToReverse);
+  }
+
+  await batch.commit();
 }

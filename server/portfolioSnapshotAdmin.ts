@@ -162,6 +162,7 @@ export async function captureAdminPortfolioSnapshot(params: {
   snapshotQuality?: 'strict' | 'fallback';
   coveragePct?: number;
   fallbackAssetCount?: number;
+  missingAssetCount?: number;
   force?: boolean;
   fxRates?: FxRates;  // P0-1: pre-fetched rates from cron pipeline
   holdings?: Array<AdminPortfolioAsset & { id: string }>;
@@ -242,6 +243,7 @@ export async function captureAdminPortfolioSnapshot(params: {
     snapshotQuality: params.snapshotQuality ?? 'strict',
     coveragePct: typeof params.coveragePct === 'number' ? params.coveragePct : 100,
     fallbackAssetCount: typeof params.fallbackAssetCount === 'number' ? params.fallbackAssetCount : 0,
+    missingAssetCount: typeof params.missingAssetCount === 'number' ? params.missingAssetCount : 0,
     // P0-2: 記錄當次 snapshot 使用的匯率，提升可追溯性
     fxRatesUsed: {
       USD: fxRates.USD,

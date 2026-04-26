@@ -1,6 +1,11 @@
 import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
 import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
 import { readDailyJob } from '../server/dailyJobs.js';
+import {
+  requirePortfolioAccess,
+  isPortfolioAccessError,
+  getPortfolioAccessErrorResponse,
+} from '../server/requirePortfolioAccess.js';
 
 function readMode(request: ApiRequest) {
   const requestUrl = request.url ?? '/api/health';
@@ -12,11 +17,28 @@ function readMode(request: ApiRequest) {
   }
 }
 
+function readIncludeAi(request: ApiRequest) {
+  const requestUrl = request.url ?? '/api/health';
+
+  try {
+    return new URL(requestUrl, 'http://localhost').searchParams.get('includeAi') === 'true';
+  } catch {
+    return false;
+  }
+}
+
 type DiagnoseStepResult = {
   ok: boolean;
   durationMs: number;
   detail: string;
   data?: unknown;
+};
+
+type AiProbeResult = {
+  ok: boolean;
+  durationMs: number;
+  detail: string;
+  modelId?: string;
 };
 
 type DiagnoseResponse = {
@@ -40,6 +62,10 @@ type DiagnoseResponse = {
     snapshotQualityTrend: DiagnoseStepResult;
     systemRuns: DiagnoseStepResult;
     dailyJob: DiagnoseStepResult;
+  };
+  ai?: {
+    gemini: AiProbeResult;
+    claude: AiProbeResult;
   };
 };
 
@@ -213,7 +239,76 @@ function getHongKongDateKey(date = new Date()) {
   }).format(date);
 }
 
-async function runDiagnostics(): Promise<DiagnoseResponse> {
+async function probeGemini(): Promise<AiProbeResult> {
+  const startedAt = Date.now();
+  const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
+
+  if (!apiKey) {
+    return { ok: false, durationMs: 0, detail: '未設定 GEMINI_API_KEY / GOOGLE_API_KEY。' };
+  }
+
+  try {
+    const modelId = 'gemini-2.0-flash-lite';
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'hi' }] }], generationConfig: { maxOutputTokens: 1 } }),
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    return { ok: true, durationMs: Date.now() - startedAt, detail: 'Gemini API 可用。', modelId };
+  } catch (error) {
+    return {
+      ok: false,
+      durationMs: Date.now() - startedAt,
+      detail: error instanceof Error ? error.message : 'Gemini probe 失敗。',
+    };
+  }
+}
+
+async function probeClaude(): Promise<AiProbeResult> {
+  const startedAt = Date.now();
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+
+  if (!apiKey) {
+    return { ok: false, durationMs: 0, detail: '未設定 ANTHROPIC_API_KEY。' };
+  }
+
+  try {
+    const modelId = 'claude-haiku-4-5-20251001';
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({ model: modelId, max_tokens: 1, messages: [{ role: 'user', content: 'hi' }] }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    return { ok: true, durationMs: Date.now() - startedAt, detail: 'Claude API 可用。', modelId };
+  } catch (error) {
+    return {
+      ok: false,
+      durationMs: Date.now() - startedAt,
+      detail: error instanceof Error ? error.message : 'Claude probe 失敗。',
+    };
+  }
+}
+
+async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
   const startedAt = Date.now();
   const [firebaseAdminModule, portfolioSnapshotModule, yahooFinanceModule, systemRunsModule] = await Promise.all([
     import('../server/firebaseAdmin.js'),
@@ -532,6 +627,12 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     jobData?.status ? { status: jobData.status, snapshotStatus: jobData.snapshotStatus ?? null } : null,
   );
 
+  let ai: DiagnoseResponse['ai'];
+  if (includeAi) {
+    const [gemini, claude] = await Promise.all([probeGemini(), probeClaude()]);
+    ai = { gemini, claude };
+  }
+
   return {
     ok: failedSteps === 0,
     route: '/api/health',
@@ -543,6 +644,7 @@ async function runDiagnostics(): Promise<DiagnoseResponse> {
     },
     cronLagAlert,
     steps,
+    ...(ai ? { ai } : {}),
   };
 }
 
@@ -560,13 +662,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
 
   if (mode === 'diagnose') {
     try {
-      const result = await runDiagnostics();
+      await requirePortfolioAccess(request, '/api/health');
+      const includeAi = readIncludeAi(request);
+      const result = await runDiagnostics(includeAi);
       sendJson(response, 200, {
         ...result,
         route: '/api/health',
         mode: 'diagnose',
       });
     } catch (error) {
+      if (isPortfolioAccessError(error)) {
+        const errResponse = getPortfolioAccessErrorResponse(error, '/api/health');
+        sendJson(response, errResponse.status, { ...errResponse.body, mode: 'diagnose' });
+        return;
+      }
       sendJson(response, 500, {
         ok: false,
         route: '/api/health',

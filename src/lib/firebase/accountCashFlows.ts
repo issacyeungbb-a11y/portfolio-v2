@@ -114,12 +114,22 @@ export async function createAccountCashFlow(
   }
 
   const normalizedCurrency = entry.currency.trim().toUpperCase() || 'HKD';
-  const normalizedAmount = Number(entry.amount) || 0;
+  const parsedAmount = typeof entry.amount === 'number' ? entry.amount : Number(entry.amount);
+  if (!Number.isFinite(parsedAmount)) {
+    throw new Error('金額必須為有效數字。');
+  }
+  if (entry.type === 'deposit' || entry.type === 'withdrawal') {
+    if (parsedAmount <= 0) {
+      throw new Error('存款／提款金額必須大過零。');
+    }
+  } else if (entry.type === 'adjustment' && parsedAmount === 0) {
+    throw new Error('調整金額不能為零。');
+  }
 
   await addDoc(getSharedAccountCashFlowsCollectionRef(), {
     accountSource: entry.accountSource,
     type: entry.type,
-    amount: normalizedAmount,
+    amount: parsedAmount,
     currency: normalizedCurrency,
     date: entry.date,
     note: entry.note?.trim() || '',

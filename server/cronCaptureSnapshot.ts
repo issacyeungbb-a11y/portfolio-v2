@@ -180,7 +180,10 @@ function getDurationMs(startedAt: number) {
   return Date.now() - startedAt;
 }
 
-async function verifyAssetsReadyForDailySnapshot(preloadedAssets?: Awaited<ReturnType<typeof readAdminPortfolioAssets>>) {
+async function verifyAssetsReadyForDailySnapshot(
+  preloadedAssets?: Awaited<ReturnType<typeof readAdminPortfolioAssets>>,
+  fxRates?: FxRates,
+) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection('portfolio').doc('app');
   const assets = preloadedAssets ?? await readAdminPortfolioAssets();
@@ -229,7 +232,45 @@ async function verifyAssetsReadyForDailySnapshot(preloadedAssets?: Awaited<Retur
   // 容許少量 hard pending（max(2, 5% of assets)），前提係 coverage >= 80%。
   // Fallback snapshot 會標記 quality='fallback'，UI 知道有資產沿用舊價。
   const hardPendingTolerance = Math.max(2, Math.floor(nonCashAssets.length * 0.05));
+
+  // P1-2: Value-weighted guard — if any single stale asset >15% of total HKD value,
+  // or combined stale+missing >20%, block silent fallback regardless of coverage pct.
+  let valueWeightedHighRisk = false;
+  let staleValuePct = 0;
+  if (fxRates && nonCashAssets.length > 0) {
+    const toHKD = (amount: number, currency: string) => {
+      const cur = currency.trim().toUpperCase();
+      if (cur === 'HKD') return amount;
+      if (cur === 'USD') return amount * fxRates.USD;
+      if (cur === 'JPY') return amount * fxRates.JPY;
+      return amount;
+    };
+    const totalHKD = nonCashAssets.reduce(
+      (sum, a) => sum + toHKD(a.quantity * a.currentPrice, a.currency),
+      0,
+    );
+    if (totalHKD > 0) {
+      const staleHKD = staleAssets.reduce(
+        (sum, a) => sum + toHKD(a.quantity * a.currentPrice, a.currency),
+        0,
+      );
+      staleValuePct = Math.round((staleHKD / totalHKD) * 100);
+      if (staleValuePct > 20) {
+        valueWeightedHighRisk = true;
+      } else {
+        for (const asset of staleAssets) {
+          const assetHKD = toHKD(asset.quantity * asset.currentPrice, asset.currency);
+          if (totalHKD > 0 && assetHKD / totalHKD > 0.15) {
+            valueWeightedHighRisk = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
   const canUseFallback =
+    !valueWeightedHighRisk &&
     nonCashAssets.length > 0 &&
     coveragePct >= 80 &&
     hardPendingReviews.length <= hardPendingTolerance &&
@@ -250,6 +291,8 @@ async function verifyAssetsReadyForDailySnapshot(preloadedAssets?: Awaited<Retur
     staleAssets,
     isReady: staleAssets.length === 0 && reviewSnapshot.empty,
     canUseFallback,
+    valueWeightedHighRisk,
+    staleValuePct,
   };
 }
 
@@ -322,7 +365,7 @@ async function runDailySnapshotWorkflow(
   const startedAt = Date.now();
   const stepTimings = createSnapshotStepTimings();
   const readinessStartedAt = Date.now();
-  const readiness = await verifyAssetsReadyForDailySnapshot(preloadedAssets);
+  const readiness = await verifyAssetsReadyForDailySnapshot(preloadedAssets, fxRates);
   const readinessSummary = buildSnapshotReadinessSummary(readiness);
   stepTimings.readinessMs = getDurationMs(readinessStartedAt);
   const snapshotReason = mode === 'manual' ? 'snapshot' : 'daily_snapshot';
@@ -340,7 +383,8 @@ async function runDailySnapshotWorkflow(
       snapshotQuality: 'strict',
       coveragePct: 100,
       fallbackAssetCount: 0,
-      fxRates,  // P0-1: pass through pre-fetched rates
+      missingAssetCount: 0,
+      fxRates,
       holdings: preloadedAssets,
       force,
     });
@@ -402,8 +446,9 @@ async function runDailySnapshotWorkflow(
       reason: fallbackReason,
       snapshotQuality: 'fallback',
       coveragePct: readiness.coveragePct,
-      fallbackAssetCount: readiness.missingAssetCount,
-      fxRates,  // P0-1: pass through pre-fetched rates
+      fallbackAssetCount: readiness.fallbackAssetCount,
+      missingAssetCount: readiness.missingAssetCount,
+      fxRates,
       holdings: preloadedAssets,
       force,
     });

@@ -1,6 +1,5 @@
 import {
   addDoc,
-  deleteDoc,
   doc,
   onSnapshot,
   orderBy,
@@ -343,6 +342,8 @@ export async function deletePortfolioAsset(assetId: string) {
   }
 
   const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
-  await deleteDoc(assetRef);
-
+  await updateDoc(assetRef, {
+    archivedAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
 }

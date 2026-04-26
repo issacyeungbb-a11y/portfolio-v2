@@ -119,12 +119,20 @@ export async function saveAccountPrincipal(entry: AccountPrincipalEntry) {
     throw createMissingConfigError();
   }
 
+  const parsedPrincipalAmount =
+    typeof entry.principalAmount === 'number'
+      ? entry.principalAmount
+      : Number(entry.principalAmount);
+  if (!Number.isFinite(parsedPrincipalAmount) || parsedPrincipalAmount < 0) {
+    throw new Error('本金金額必須為零或以上的有效數字。');
+  }
+
   const collectionRef = getSharedAccountPrincipalsCollectionRef();
   await setDoc(
     doc(collectionRef, entry.accountSource),
     {
       accountSource: entry.accountSource,
-      principalAmount: Number(entry.principalAmount) || 0,
+      principalAmount: parsedPrincipalAmount,
       currency: entry.currency.trim().toUpperCase() || 'HKD',
       updatedAt: serverTimestamp(),
     },
