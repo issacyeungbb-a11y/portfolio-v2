@@ -123,8 +123,8 @@ export function MonthlyReportPanel({
                         </section>
                       ))}
                     </div>
-                    <details>
-                      <summary className="table-hint">查看報告基準資產分佈</summary>
+                    <details className="report-disclosure">
+                      <summary>查看報告基準資產分佈</summary>
                       <ReportAllocationSummaryCard
                         summary={session.allocationSummary}
                         displayCurrency={displayCurrency}

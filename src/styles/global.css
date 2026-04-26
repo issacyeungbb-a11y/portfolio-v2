@@ -3610,6 +3610,27 @@ h3 {
   color: var(--text-main);
 }
 
+.report-disclosure {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid rgba(118, 96, 77, 0.15);
+  border-radius: 0.5rem;
+  background: rgba(250, 244, 236, 0.55);
+}
+
+.report-disclosure summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  list-style: disclosure-closed;
+}
+
+.report-disclosure[open] summary {
+  margin-bottom: 0.75rem;
+  color: var(--text-main);
+}
+
 .bottom-nav {
   position: fixed;
   left: 0;

@@ -185,8 +185,8 @@ export function QuarterlyReportPanel({
               </section>
             ))}
           </div>
-          <details>
-            <summary className="table-hint">查看報告基準資產分佈</summary>
+          <details className="report-disclosure">
+            <summary>查看報告基準資產分佈</summary>
             <ReportAllocationSummaryCard
               summary={selectedReport.allocationSummary}
               displayCurrency={displayCurrency}
