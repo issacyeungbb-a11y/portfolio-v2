@@ -239,11 +239,6 @@ export function AssetsPage() {
     accumulator[review.assetId] = getPendingPriceUpdateReason(review);
     return accumulator;
   }, {});
-  const latestValidPriceUpdate =
-    holdings
-      .map((holding) => holding.lastPriceUpdatedAt || '')
-      .filter(Boolean)
-      .sort((left, right) => right.localeCompare(left))[0] ?? null;
   const filteredValue = filteredHoldings.reduce(
     (sum, holding) => sum + getHoldingValueInCurrency(holding, displayCurrency),
     0,
@@ -289,7 +284,6 @@ export function AssetsPage() {
       0,
     );
   const filteredPnl = filteredValue - filteredPrincipal;
-  const latestUpdateLabel = formatLatestPriceUpdate(latestValidPriceUpdate);
   const syncedCoveragePct =
     nonCashHoldings.length === 0
       ? 0
@@ -304,14 +298,6 @@ export function AssetsPage() {
     : todaySnapshot.quality === 'fallback'
       ? '今日快照 部分完成'
       : '今日快照 完整';
-  const snapshotStatusLabel =
-    nonCashHoldings.length === 0
-      ? '未有非現金資產，毋須快照檢查'
-      : todaySnapshotStatus === 'loading'
-        ? '今日快照 同步中'
-        : todaySnapshot.exists
-          ? `${todaySnapshotLabel}${todaySnapshot.capturedAt ? ` · ${formatSnapshotCapturedAt(todaySnapshot.capturedAt)}` : ''}`
-          : '今日快照將於 07:00 自動生成';
   const shouldShowMissingSnapshotNotice =
     todaySnapshotStatus === 'ready' &&
     nonCashHoldings.length > 0 &&
@@ -734,31 +720,11 @@ export function AssetsPage() {
       </section>
 
       <section className="card assets-toolbar assets-status-strip">
-        <div className="assets-toolbar-heading">
-          <div>
-            <h2>資料狀態</h2>
-          </div>
-          <span className="assets-toolbar-subtle">
-            {filteredHoldings.length} 項 · {activeFilterLabel}
-          </span>
-        </div>
-        <div className="assets-toolbar-status-grid" aria-label="資料狀態">
-          <div className="assets-status-item">
-            <span>價格覆蓋率</span>
-            <strong>{syncedCoveragePct}%</strong>
-            <small>最近更新 {latestUpdateLabel}</small>
-          </div>
-          <div className="assets-status-item">
-            <span>待處理</span>
-            <strong>{pendingPriceCount + reviews.length} 項</strong>
-            <small>價格 {pendingPriceCount} · 覆核 {reviews.length}</small>
-          </div>
-          <div className="assets-status-item">
-            <span>今日快照</span>
-            <strong>{todaySnapshotLabel.replace('今日快照 ', '')}</strong>
-            <small>{snapshotStatusLabel}</small>
-          </div>
-        </div>
+        <p className="table-hint" style={{ margin: 0 }}>
+          {nonCashHoldings.length === 0 ? '未有可更新資產' : `價格覆蓋率 ${syncedCoveragePct}%`}
+          {' · '}待處理 {pendingPriceCount + reviews.length} 項
+          {' · '}{todaySnapshotLabel}
+        </p>
         <div className="assets-toolbar-actions">
           <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
           <button

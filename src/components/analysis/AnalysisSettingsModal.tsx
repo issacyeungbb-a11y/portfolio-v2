@@ -1,34 +1,20 @@
 import type { Dispatch, SetStateAction } from 'react';
 
-import type { AnalysisCategory, AnalysisPromptSettings } from '../../types/portfolio';
+import type { AnalysisPromptSettings } from '../../types/portfolio';
 
 interface AnalysisSettingsModalProps {
-  selectedCategory: AnalysisCategory;
   promptDrafts: AnalysisPromptSettings;
-  analysisQuestion: string;
-  monthlyQuestionPlaceholder: string;
   isSavingPromptSettings: boolean;
-  isAnalyzing: boolean;
-  canAnalyze: boolean;
   onClose: () => void;
   onPromptDraftsChange: Dispatch<SetStateAction<AnalysisPromptSettings>>;
-  onMonthlyQuestionChange: Dispatch<SetStateAction<Record<AnalysisCategory, string>>>;
-  onAnalyze: () => void;
   onSave: () => void;
 }
 
 export function AnalysisSettingsModal({
-  selectedCategory,
   promptDrafts,
-  analysisQuestion,
-  monthlyQuestionPlaceholder,
   isSavingPromptSettings,
-  isAnalyzing,
-  canAnalyze,
   onClose,
   onPromptDraftsChange,
-  onMonthlyQuestionChange,
-  onAnalyze,
   onSave,
 }: AnalysisSettingsModalProps) {
   return (
@@ -36,13 +22,13 @@ export function AnalysisSettingsModal({
       className="modal-backdrop analysis-settings-modal"
       role="dialog"
       aria-modal="true"
-      aria-label="分析設定"
+      aria-label="分析背景設定"
       onClick={onClose}
     >
       <section className="modal-card modal-card-wide analysis-settings-card" onClick={(event) => event.stopPropagation()}>
         <div className="section-heading">
           <div>
-            <h2>分析設定</h2>
+            <h2>分析背景設定</h2>
           </div>
           <button
             className="button button-secondary"
@@ -80,45 +66,6 @@ export function AnalysisSettingsModal({
             />
           </label>
         </div>
-
-        {selectedCategory === 'asset_analysis' ? (
-          <div className="analysis-advanced-panel">
-            <div className="section-heading">
-              <div>
-                <h2>手動生成</h2>
-              </div>
-            </div>
-
-            <div className="asset-form-grid">
-              <label className="form-field" style={{ gridColumn: '1 / -1' }}>
-                <span>分析重點</span>
-                <textarea
-                  value={analysisQuestion}
-                  onChange={(event) =>
-                    onMonthlyQuestionChange((current) => ({
-                      ...current,
-                      asset_analysis: event.target.value,
-                    }))
-                  }
-                  placeholder={monthlyQuestionPlaceholder}
-                  rows={4}
-                  disabled={isAnalyzing}
-                />
-              </label>
-            </div>
-
-            <div className="button-row">
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={onAnalyze}
-                disabled={!canAnalyze}
-              >
-                {isAnalyzing ? '生成中...' : '立即生成'}
-              </button>
-            </div>
-          </div>
-        ) : null}
 
         <div className="button-row">
           <button

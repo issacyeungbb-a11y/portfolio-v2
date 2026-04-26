@@ -110,10 +110,6 @@ export function MonthlyReportPanel({
                 </button>
                 {isExpanded ? (
                   <div className="analysis-report-body">
-                    <ReportAllocationSummaryCard
-                      summary={session.allocationSummary}
-                      displayCurrency={displayCurrency}
-                    />
                     <div className="quarterly-report-body">
                       {splitReportIntoSections(session.result).map((section, sectionIndex) => (
                         <section
@@ -127,6 +123,13 @@ export function MonthlyReportPanel({
                         </section>
                       ))}
                     </div>
+                    <details>
+                      <summary className="table-hint">查看報告基準資產分佈</summary>
+                      <ReportAllocationSummaryCard
+                        summary={session.allocationSummary}
+                        displayCurrency={displayCurrency}
+                      />
+                    </details>
                   </div>
                 ) : null}
               </article>

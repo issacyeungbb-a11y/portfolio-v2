@@ -1208,17 +1208,10 @@ export function AnalysisPage() {
 
       {isPromptSettingsOpen ? (
         <AnalysisSettingsModal
-          selectedCategory={selectedCategory}
           promptDrafts={promptDrafts}
-          analysisQuestion={analysisQuestionByCategory.asset_analysis}
-          monthlyQuestionPlaceholder={analysisCategoryOptions[1].questionPlaceholder}
           isSavingPromptSettings={isSavingPromptSettings}
-          isAnalyzing={isAnalyzing}
-          canAnalyze={canAnalyze}
           onClose={() => setIsPromptSettingsOpen(false)}
           onPromptDraftsChange={setPromptDrafts}
-          onMonthlyQuestionChange={setAnalysisQuestionByCategory}
-          onAnalyze={() => void handleAnalyzePortfolio()}
           onSave={handleSavePromptSettings}
         />
       ) : null}

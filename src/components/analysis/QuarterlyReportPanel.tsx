@@ -175,11 +175,6 @@ export function QuarterlyReportPanel({
             </div>
           </div>
 
-          <ReportAllocationSummaryCard
-            summary={selectedReport.allocationSummary}
-            displayCurrency={displayCurrency}
-          />
-
           <div className="quarterly-report-body">
             {selectedSections.map((section, index) => (
               <section key={`${selectedReport.id}-${index}`} className="quarterly-report-section">
@@ -190,6 +185,13 @@ export function QuarterlyReportPanel({
               </section>
             ))}
           </div>
+          <details>
+            <summary className="table-hint">查看報告基準資產分佈</summary>
+            <ReportAllocationSummaryCard
+              summary={selectedReport.allocationSummary}
+              displayCurrency={displayCurrency}
+            />
+          </details>
         </section>
       ) : null}
 
