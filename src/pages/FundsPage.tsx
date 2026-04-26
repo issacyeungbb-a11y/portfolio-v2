@@ -428,31 +428,20 @@ export function FundsPage() {
         </div>
       </section>
 
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">存取</p>
-            <h2>資料與存取</h2>
-          </div>
-        </div>
-
+      <details className="compact-settings-row">
+        <summary>進階</summary>
         <div className="settings-list">
-          <div className="setting-row">
+          <div className="setting-row compact-settings-content">
             <div>
               <strong>目前模式</strong>
+              <p>{accessStatus === 'unlocked' ? '已解鎖' : accessStatus === 'locked' ? '已鎖定' : '錯誤'}</p>
             </div>
-            <span className="chip chip-soft">
-              {accessStatus === 'unlocked' ? '已解鎖' : accessStatus === 'locked' ? '已鎖定' : '錯誤'}
-            </span>
+            <button className="button button-secondary" type="button" onClick={lock}>
+              重新鎖定此裝置
+            </button>
           </div>
         </div>
-
-        <div className="button-row">
-          <button className="button button-secondary" type="button" onClick={lock}>
-            重新鎖定此裝置
-          </button>
-        </div>
-      </section>
+      </details>
     </div>
   );
 }

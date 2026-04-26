@@ -157,18 +157,6 @@ export function TransactionsPage() {
 
   return (
     <div className="page-stack">
-      <section className="hero-panel transactions-hero-panel">
-        <div className="dashboard-overview-hero">
-          <span className="dashboard-overview-label">交易記錄中心</span>
-          <strong>{visibleEntries.length} 筆交易記錄</strong>
-          <p className="table-hint">集中管理建倉、買入、賣出與匯入結果，所有金額會按你揀選的顯示幣別統一顯示。</p>
-        </div>
-      </section>
-
-      {isTransactionInputOpen ? (
-        <TransactionInputPanel onClose={() => setIsTransactionInputOpen(false)} />
-      ) : null}
-
       {error ? <p className="status-message status-message-error">{error}</p> : null}
       {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}
       {actionSuccess ? <p className="status-message status-message-success">{actionSuccess}</p> : null}
@@ -208,10 +196,13 @@ export function TransactionsPage() {
         </div>
       </PageSection>
 
+      {isTransactionInputOpen ? (
+        <TransactionInputPanel onClose={() => setIsTransactionInputOpen(false)} />
+      ) : null}
+
       <section className="card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">交易</p>
             <h2>交易記錄</h2>
           </div>
           <span className={status === 'loading' ? 'chip chip-soft' : 'chip chip-strong'}>
@@ -309,7 +300,7 @@ export function TransactionsPage() {
           ) : (
             <EmptyState
               title="尚未有交易記錄"
-              reason="你可以用頂欄「輸入交易」開始新增第一筆記錄，或者用 AI 文字快速整理多筆交易。"
+              reason="可以新增第一筆交易，或者用 AI 文字快速整理多筆交易。"
               primaryAction={
                 <button
                   className="button button-secondary"

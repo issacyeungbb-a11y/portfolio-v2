@@ -624,11 +624,119 @@ export function AssetsPage() {
 
   return (
     <div className="page-stack">
-      <section className="card assets-toolbar assets-toolbar-hero">
+      <section className="summary-cluster">
+        <div className="summary-grid summary-grid-primary">
+          <SummaryCard
+            label={`總資產 ${displayCurrency}`}
+            value={formatCurrencyRounded(filteredValue, displayCurrency)}
+            hint={`${filteredHoldings.length} 項 · ${activeFilterLabel}`}
+          />
+          <SummaryCard
+            label={`本金損益 ${displayCurrency}`}
+            value={formatCurrencyRounded(filteredPnl, displayCurrency)}
+            hint={`本金 ${formatCurrency(filteredPrincipal, displayCurrency)}`}
+            tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
+          />
+        </div>
+        <div className="summary-grid summary-grid-secondary">
+          <SummaryCard
+            label="更新狀態"
+            value={coverageLabel}
+            hint={
+              hasPendingReviews
+                ? `待處理 ${reviews.length} 項`
+                : pendingPriceCount > 0
+                  ? `待更新 ${pendingPriceCount} 項`
+                  : `成本 ${formatCurrency(filteredCost, displayCurrency)}`
+            }
+            tone={pendingPriceCount > 0 || hasPendingReviews ? 'caution' : 'positive'}
+          />
+        </div>
+      </section>
+
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <h2>全部持倉</h2>
+          </div>
+          <span className={status === 'error' ? 'chip chip-strong' : 'chip chip-soft'}>
+            {status === 'loading'
+              ? '資料同步中'
+              : status === 'error'
+                ? '連接失敗'
+                : '已連接'}
+          </span>
+        </div>
+
+        {error ? <p className="status-message status-message-error">{error}</p> : null}
+        {isEmpty ? (
+          <p className="status-message">尚未有資產</p>
+        ) : null}
+
+        {isFilterPanelOpen ? (
+          <div className="assets-filter-panel">
+            <div className="assets-filter-block">
+              <span className="assets-filter-label">資產類別</span>
+              <div className="filter-row">
+                {assetFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className={assetFilter === option.value ? 'filter-chip active' : 'filter-chip'}
+                    type="button"
+                    onClick={() => setAssetFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="filter-total">
+                {getAssetTypeLabel(assetFilter)} · {formatCurrencyRounded(assetTypeValue, displayCurrency)}
+              </p>
+            </div>
+
+            <div className="assets-filter-block">
+              <span className="assets-filter-label">帳戶來源</span>
+              <div className="filter-row">
+                {accountFilterOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    className={accountFilter === option.value ? 'filter-chip active' : 'filter-chip'}
+                    type="button"
+                    onClick={() => setAccountFilter(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <p className="filter-total">
+                {getAccountSourceLabel(accountFilter)} · {formatCurrencyRounded(accountValue, displayCurrency)}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <HoldingsTable
+          holdings={filteredHoldings}
+          displayCurrency={displayCurrency}
+          onEdit={(holding) => {
+            setSaveError(null);
+            setEditingHolding(holding);
+          }}
+          onTrade={(holding) => {
+            setTransactionSuccess(null);
+            setTransactionError(null);
+            setTradingHolding(holding);
+          }}
+          onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
+          updatingAssetIds={updatingAssetIds}
+          pendingPriceUpdateReasons={pendingPriceUpdateReasons}
+        />
+      </section>
+
+      <section className="card assets-toolbar assets-status-strip">
         <div className="assets-toolbar-heading">
           <div>
             <h2>資料狀態</h2>
-            <p className="table-hint">價格覆蓋率、覆核與快照狀態集中在這裡處理。</p>
           </div>
           <span className="assets-toolbar-subtle">
             {filteredHoldings.length} 項 · {activeFilterLabel}
@@ -661,24 +769,26 @@ export function AssetsPage() {
           >
             {isUpdatingAllPrices ? '更新全部資產中...' : '更新全部資產'}
           </button>
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={handleTriggerManualSnapshot}
-            disabled={isGeneratingManualSnapshot}
-          >
-            {isGeneratingManualSnapshot ? '後補中...' : '後補快照'}
-          </button>
-          <button
-            className="button button-secondary"
-            type="button"
-            onClick={() => setIsFilterPanelOpen((current) => !current)}
-          >
-            {isFilterPanelOpen ? '收起篩選' : '篩選持倉'}
-          </button>
-        </div>
-        <div className="assets-toolbar-footnote" aria-label="更新提示">
-          <span>{snapshotStatusLabel}</span>
+          <details className="assets-secondary-actions">
+            <summary>更多操作</summary>
+            <div className="button-row">
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={handleTriggerManualSnapshot}
+                disabled={isGeneratingManualSnapshot}
+              >
+                {isGeneratingManualSnapshot ? '後補中...' : '後補快照'}
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setIsFilterPanelOpen((current) => !current)}
+              >
+                {isFilterPanelOpen ? '收起篩選' : '篩選持倉'}
+              </button>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -739,36 +849,6 @@ export function AssetsPage() {
           </div>
         </div>
       ) : null}
-
-      <section className="summary-cluster">
-        <div className="summary-grid summary-grid-primary">
-          <SummaryCard
-            label={`總資產 ${displayCurrency}`}
-            value={formatCurrencyRounded(filteredValue, displayCurrency)}
-            hint={`${filteredHoldings.length} 項 · ${activeFilterLabel}`}
-          />
-          <SummaryCard
-            label={`本金損益 ${displayCurrency}`}
-            value={formatCurrencyRounded(filteredPnl, displayCurrency)}
-            hint={`本金 ${formatCurrency(filteredPrincipal, displayCurrency)}`}
-            tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
-          />
-        </div>
-        <div className="summary-grid summary-grid-secondary">
-          <SummaryCard
-            label="更新狀態"
-            value={coverageLabel}
-            hint={
-              hasPendingReviews
-                ? `待處理 ${reviews.length} 項`
-                : pendingPriceCount > 0
-                  ? `待更新 ${pendingPriceCount} 項`
-                  : `成本 ${formatCurrency(filteredCost, displayCurrency)}`
-            }
-            tone={pendingPriceCount > 0 || hasPendingReviews ? 'caution' : 'positive'}
-          />
-        </div>
-      </section>
 
       {editingHolding ? (
         <div className="modal-backdrop" role="presentation">
@@ -896,99 +976,6 @@ export function AssetsPage() {
         actionError={reviewActionError}
         actionSuccess={reviewActionSuccess}
       />
-
-      <section className="card">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">持倉列表</p>
-            <h2>全部持倉</h2>
-          </div>
-          <span className={status === 'error' ? 'chip chip-strong' : 'chip chip-soft'}>
-            {status === 'loading'
-              ? '資料同步中'
-              : status === 'error'
-                ? '連接失敗'
-                : '已連接'}
-          </span>
-        </div>
-
-        {error ? <p className="status-message status-message-error">{error}</p> : null}
-        {isEmpty ? (
-          <p className="status-message">尚未有資產</p>
-        ) : null}
-
-        <div className="assets-filter-toggle-row">
-          <button
-            className={isFilterPanelOpen ? 'filter-chip active' : 'filter-chip'}
-            type="button"
-            onClick={() => setIsFilterPanelOpen((current) => !current)}
-          >
-            {isFilterPanelOpen ? '收起篩選' : '展開篩選'}
-          </button>
-          <p className="filter-total">
-            {getAssetTypeLabel(assetFilter)} · {getAccountSourceLabel(accountFilter)}
-          </p>
-        </div>
-
-        {isFilterPanelOpen ? (
-          <div className="assets-filter-panel">
-            <div className="assets-filter-block">
-              <span className="assets-filter-label">資產類別</span>
-              <div className="filter-row">
-                {assetFilterOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    className={assetFilter === option.value ? 'filter-chip active' : 'filter-chip'}
-                    type="button"
-                    onClick={() => setAssetFilter(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <p className="filter-total">
-                {getAssetTypeLabel(assetFilter)} · {formatCurrencyRounded(assetTypeValue, displayCurrency)}
-              </p>
-            </div>
-
-            <div className="assets-filter-block">
-              <span className="assets-filter-label">帳戶來源</span>
-              <div className="filter-row">
-                {accountFilterOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    className={accountFilter === option.value ? 'filter-chip active' : 'filter-chip'}
-                    type="button"
-                    onClick={() => setAccountFilter(option.value)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <p className="filter-total">
-                {getAccountSourceLabel(accountFilter)} · {formatCurrencyRounded(accountValue, displayCurrency)}
-              </p>
-            </div>
-          </div>
-        ) : null}
-
-        <HoldingsTable
-          holdings={filteredHoldings}
-          displayCurrency={displayCurrency}
-          onEdit={(holding) => {
-            setSaveError(null);
-            setEditingHolding(holding);
-          }}
-          onTrade={(holding) => {
-            setTransactionSuccess(null);
-            setTransactionError(null);
-            setTradingHolding(holding);
-          }}
-          onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
-          updatingAssetIds={updatingAssetIds}
-          pendingPriceUpdateReasons={pendingPriceUpdateReasons}
-        />
-      </section>
 
       {/* P1-2: 系統診斷面板（管理用途，按需展開） */}
       <SystemDiagnosticsPanel />

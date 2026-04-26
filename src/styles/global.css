@@ -514,6 +514,17 @@ h3 {
   gap: 0.85rem;
 }
 
+.compact-success-note {
+  margin: 0;
+  padding: 0.58rem 0.72rem;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  border-radius: 0.85rem;
+  background: rgba(15, 118, 110, 0.07);
+  color: var(--positive);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
 .dashboard-task-list {
   display: grid;
   gap: 0.55rem;
@@ -546,17 +557,21 @@ h3 {
 }
 
 .assets-toolbar-status-grid {
-  display: grid;
+  display: flex;
+  flex-wrap: nowrap;
   gap: 0.45rem;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .assets-status-item {
-  display: grid;
-  gap: 0.18rem;
-  padding: 0.72rem 0.82rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: max-content;
+  padding: 0.42rem 0.62rem;
   border: 1px solid rgba(118, 96, 77, 0.1);
-  border-radius: 0.85rem;
+  border-radius: 999px;
   background: rgba(255, 255, 255, 0.42);
 }
 
@@ -571,11 +586,49 @@ h3 {
 }
 
 .assets-status-item strong {
-  font-size: 1.05rem;
+  font-size: 0.92rem;
 }
 
 .assets-status-item small {
-  line-height: 1.45;
+  color: var(--text-subtle);
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
+.assets-status-strip {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.assets-secondary-actions {
+  position: relative;
+}
+
+.assets-secondary-actions summary,
+.compact-settings-row summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.assets-secondary-actions .button-row {
+  padding-top: 0.5rem;
+}
+
+.compact-settings-row {
+  border-top: 1px solid var(--border);
+  padding-top: 0.7rem;
+}
+
+.compact-settings-content {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.compact-settings-content p {
+  margin: 0.15rem 0 0;
+  color: var(--text-muted);
 }
 
 .analysis-summary-panel {

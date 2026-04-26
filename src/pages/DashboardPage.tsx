@@ -195,13 +195,12 @@ export function DashboardPage() {
         />
       ) : null}
 
-      <ActionPanel
-        className="dashboard-task-card"
-        eyebrow="今日處理"
-        title="今日要處理事項"
-        description="先處理價格、快照與覆核，再查看組合表現會更穩妥。"
-      >
-        {dashboardTasks.length > 0 ? (
+      {dashboardTasks.length > 0 ? (
+        <ActionPanel
+          className="dashboard-task-card"
+          title="今日要處理事項"
+          description="先處理價格、快照與覆核，再查看組合表現會更穩妥。"
+        >
           <div className="dashboard-task-list">
             {dashboardTasks.map((task) => (
               <article key={task.title} className="dashboard-task-item">
@@ -214,18 +213,10 @@ export function DashboardPage() {
               </article>
             ))}
           </div>
-        ) : (
-          <EmptyState
-            title="目前沒有需要處理的資料異常"
-            reason="價格更新、今日快照同人工覆核都已經回到正常狀態。"
-            primaryAction={
-              <Link className="button button-secondary" to="/assets">
-                查看資產
-              </Link>
-            }
-          />
-        )}
-      </ActionPanel>
+        </ActionPanel>
+      ) : (
+        <p className="compact-success-note">資料正常，暫無需要處理事項。</p>
+      )}
 
       <section className="content-grid">
         {status === 'loading' ? (
