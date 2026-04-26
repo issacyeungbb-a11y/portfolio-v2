@@ -2556,8 +2556,8 @@ h3 {
 
 @media (max-width: 720px) {
   .top-bar {
-    padding: 0.62rem 0.74rem;
-    border-radius: 1.1rem;
+    padding: 0.5rem 0.64rem;
+    border-radius: 0.95rem;
   }
 
   .top-bar-heading {
