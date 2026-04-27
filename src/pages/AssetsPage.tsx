@@ -304,6 +304,7 @@ export function AssetsPage() {
       : Math.round((todayUpdatedCount / nonCashHoldings.length) * 100);
   const coverageLabel =
     nonCashHoldings.length === 0 ? '未有可更新資產' : `${syncedCoveragePct}% 今日已同步`;
+  const todaySnapshotComplete = todaySnapshot.exists;
   const activeFilterLabel = `${getAssetTypeLabel(assetFilter)} · ${getAccountSourceLabel(accountFilter)}`;
   const todaySnapshotLabel = !todaySnapshot.exists
     ? todaySnapshotStatus === 'loading'
@@ -675,14 +676,16 @@ export function AssetsPage() {
           <details className="assets-secondary-actions">
             <summary>更多操作</summary>
             <div className="button-row">
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={handleTriggerManualSnapshot}
-                disabled={isGeneratingManualSnapshot}
-              >
-                {isGeneratingManualSnapshot ? '後補中...' : '後補快照'}
-              </button>
+              {!todaySnapshotComplete ? (
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={handleTriggerManualSnapshot}
+                  disabled={isGeneratingManualSnapshot}
+                >
+                  {isGeneratingManualSnapshot ? '後補中...' : '後補快照'}
+                </button>
+              ) : null}
               <button
                 className="button button-secondary"
                 type="button"

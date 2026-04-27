@@ -271,7 +271,7 @@ export function AssetTrendsPage() {
     .sort((left, right) => (left.capturedAt ?? '').localeCompare(right.capturedAt ?? ''))
     .slice(-1)[0];
   const latestSnapshotLabel = formatSnapshotHint(latestSnapshot?.capturedAt);
-  const todaySnapshotComplete = todaySnapshot.exists && todaySnapshot.quality !== 'fallback';
+  const todaySnapshotComplete = todaySnapshot.exists;
   const latestSnapshotIsFallback = todaySnapshot.exists && todaySnapshot.quality === 'fallback';
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
