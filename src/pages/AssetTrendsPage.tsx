@@ -272,6 +272,7 @@ export function AssetTrendsPage() {
     .slice(-1)[0];
   const latestSnapshotLabel = formatSnapshotHint(latestSnapshot?.capturedAt);
   const todaySnapshotComplete = todaySnapshot.exists && todaySnapshot.quality !== 'fallback';
+  const latestSnapshotIsFallback = todaySnapshot.exists && todaySnapshot.quality === 'fallback';
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '資產走勢',
@@ -352,7 +353,7 @@ export function AssetTrendsPage() {
           </span>
         </p>
         <p className="trends-snapshot-hint">
-          最新快照：{latestSnapshotLabel}。資產走勢數據以該次快照為基準。
+          最新快照：{latestSnapshotLabel}{latestSnapshotIsFallback ? '（備援）' : ''}。資產走勢數據以該次快照為基準。
         </p>
       </section>
 
