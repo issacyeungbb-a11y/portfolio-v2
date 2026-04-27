@@ -5,6 +5,38 @@ export type PortfolioAnalysisModel =
   | 'gemini-3.1-pro-preview'
   | 'claude-opus-4-7';
 
+export type AnalysisIntent = 'portfolio_only' | 'market_research' | 'deep_analysis';
+
+export interface ExternalSource {
+  title: string;
+  url: string;
+  publisher?: string;
+  publishedAt?: string;
+  retrievedAt: string;
+  snippet: string;
+  query: string;
+  relatedTickers: string[];
+}
+
+export interface MacroContext {
+  retrievedAt: string;
+  summary: string;
+  interestRateNotes?: string[];
+  inflationNotes?: string[];
+  bondYieldNotes?: string[];
+  fxNotes?: string[];
+  equityMarketNotes?: string[];
+  cryptoMarketNotes?: string[];
+  sources: ExternalSource[];
+}
+
+export interface GeneralQuestionDataFreshness {
+  portfolioSnapshotAt?: string;
+  externalSearchAt?: string;
+  hasExternalSearch: boolean;
+  externalSearchStatus: 'not_needed' | 'ok' | 'partial' | 'failed';
+}
+
 export interface PortfolioAnalysisRequestAsset {
   id: string;
   name: string;
@@ -96,6 +128,10 @@ export interface PortfolioAnalysisRequest {
 
 export interface PortfolioAnalysisResult {
   answer: string;
+  usedPortfolioFacts?: string[];
+  usedExternalSources?: string[];
+  uncertainty?: string[];
+  suggestedActions?: string[];
 }
 
 export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
@@ -112,6 +148,9 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
   analysisBackground: string;
   delivery?: 'manual' | 'scheduled';
   generatedAt: string;
+  intent?: AnalysisIntent;
+  dataFreshness?: GeneralQuestionDataFreshness;
+  macroContext?: MacroContext;
 }
 
 export interface CachedPortfolioAnalysis extends PortfolioAnalysisResult {

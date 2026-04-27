@@ -42,6 +42,7 @@ import { StatusMessages } from '../components/ui/StatusMessages';
 import type { AnalysisCategory, AnalysisSession, Holding } from '../types/portfolio';
 import type {
   CachedPortfolioAnalysis,
+  GeneralQuestionDataFreshness,
   PortfolioAnalysisModel,
   PortfolioAnalysisResponse,
 } from '../types/portfolioAnalysis';
@@ -298,6 +299,10 @@ export function AnalysisPage() {
   const [selectedCategory, setSelectedCategory] = useState<AnalysisCategory>('general_question');
   const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('gemini-3.1-pro-preview');
   const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
+  const [lastGeneralQuestionMeta, setLastGeneralQuestionMeta] = useState<GeneralQuestionDataFreshness | null>(null);
+  const [lastGeneralQuestionSources, setLastGeneralQuestionSources] = useState<string[]>([]);
+  const [lastGeneralQuestionUncertainty, setLastGeneralQuestionUncertainty] = useState<string[]>([]);
+  const [lastGeneralQuestionActions, setLastGeneralQuestionActions] = useState<string[]>([]);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisSuccess, setAnalysisSuccess] = useState<string | null>(null);
   const [promptSettingsSuccess, setPromptSettingsSuccess] = useState<string | null>(null);
@@ -749,6 +754,12 @@ export function AnalysisPage() {
       };
 
       setLocalAnalysis(cachedResult);
+      if (isInteractiveCategory && response.dataFreshness) {
+        setLastGeneralQuestionMeta(response.dataFreshness);
+        setLastGeneralQuestionSources(response.usedExternalSources ?? []);
+        setLastGeneralQuestionUncertainty(response.uncertainty ?? []);
+        setLastGeneralQuestionActions(response.suggestedActions ?? []);
+      }
       setAnalysisQuestionByCategory((current) => ({
         ...current,
         [selectedCategory]: '',
@@ -868,6 +879,12 @@ export function AnalysisPage() {
       };
 
       setLocalAnalysis(cachedResult);
+      if (response.dataFreshness) {
+        setLastGeneralQuestionMeta(response.dataFreshness);
+        setLastGeneralQuestionSources(response.usedExternalSources ?? []);
+        setLastGeneralQuestionUncertainty(response.uncertainty ?? []);
+        setLastGeneralQuestionActions(response.suggestedActions ?? []);
+      }
       setAnalysisQuestionByCategory((current) => ({
         ...current,
         [selectedCategory]: '',
@@ -1303,6 +1320,10 @@ export function AnalysisPage() {
           onFollowUp={() => void handleFollowUp()}
           formatAnalysisTime={formatAnalysisTime}
           getAnalysisModelLabel={getAnalysisModelLabel}
+          lastResponseMeta={lastGeneralQuestionMeta}
+          lastResponseSources={lastGeneralQuestionSources}
+          lastResponseUncertainty={lastGeneralQuestionUncertainty}
+          lastResponseActions={lastGeneralQuestionActions}
         />
       ) : null}
 

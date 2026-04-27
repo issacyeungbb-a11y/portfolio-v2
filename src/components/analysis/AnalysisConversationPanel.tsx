@@ -1,6 +1,7 @@
-import type { Dispatch, SetStateAction } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 
 import type { AnalysisCategory } from '../../types/portfolio';
+import type { GeneralQuestionDataFreshness } from '../../types/portfolioAnalysis';
 
 interface ConversationTurn {
   question: string;
@@ -32,6 +33,111 @@ interface AnalysisConversationPanelProps {
   onFollowUp: () => void;
   formatAnalysisTime: (value: string) => string;
   getAnalysisModelLabel: (model: string) => string;
+  lastResponseMeta?: GeneralQuestionDataFreshness | null;
+  lastResponseSources?: string[];
+  lastResponseUncertainty?: string[];
+  lastResponseActions?: string[];
+}
+
+function formatSearchAt(isoString?: string) {
+  if (!isoString) return '';
+  try {
+    return new Intl.DateTimeFormat('zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date(isoString));
+  } catch {
+    return isoString;
+  }
+}
+
+function DataFreshnessHint({ meta }: { meta: GeneralQuestionDataFreshness }) {
+  if (!meta.hasExternalSearch || meta.externalSearchStatus === 'not_needed') {
+    return (
+      <p className="table-hint analysis-data-hint">
+        本次回答只使用目前投資組合資料，未進行外部搜尋。
+      </p>
+    );
+  }
+  if (meta.externalSearchStatus === 'failed') {
+    return (
+      <p className="table-hint analysis-data-hint analysis-data-hint-warn">
+        外部資料檢索失敗，本次回答只基於目前投資組合資料。
+      </p>
+    );
+  }
+  return (
+    <p className="table-hint analysis-data-hint">
+      本次回答已參考外部資料，資料檢索時間：{formatSearchAt(meta.externalSearchAt)}。
+    </p>
+  );
+}
+
+function LastResponseMeta({
+  meta,
+  sources,
+  uncertainty,
+  actions,
+}: {
+  meta: GeneralQuestionDataFreshness;
+  sources: string[];
+  uncertainty: string[];
+  actions: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const hasDetails = sources.length > 0 || uncertainty.length > 0 || actions.length > 0;
+
+  return (
+    <div className="analysis-response-meta">
+      <DataFreshnessHint meta={meta} />
+      {hasDetails ? (
+        <details
+          open={open}
+          onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+          className="analysis-meta-details"
+        >
+          <summary className="analysis-meta-summary">本次使用資料</summary>
+          <div className="analysis-meta-body">
+            {sources.length > 0 ? (
+              <div className="analysis-meta-section">
+                <p className="analysis-meta-label">外部資料來源</p>
+                <ul>
+                  {sources.map((s, i) => (
+                    <li key={i}>{s}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {uncertainty.length > 0 ? (
+              <div className="analysis-meta-section">
+                <p className="analysis-meta-label">資料不足或不確定之處</p>
+                <ul>
+                  {uncertainty.map((u, i) => (
+                    <li key={i}>{u}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {actions.length > 0 ? (
+              <div className="analysis-meta-section">
+                <p className="analysis-meta-label">建議跟進事項</p>
+                <ul>
+                  {actions.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 export function AnalysisConversationPanel({
@@ -50,6 +156,10 @@ export function AnalysisConversationPanel({
   onFollowUp,
   formatAnalysisTime,
   getAnalysisModelLabel,
+  lastResponseMeta,
+  lastResponseSources = [],
+  lastResponseUncertainty = [],
+  lastResponseActions = [],
 }: AnalysisConversationPanelProps) {
   function handleNewConversation() {
     onSelectedSessionIdChange(null);
@@ -64,6 +174,9 @@ export function AnalysisConversationPanel({
       onAnalyze();
     }
   }
+
+  // Show meta only after the last AI turn (most recent response)
+  const showMeta = Boolean(lastResponseMeta) && activeConversationTurns.length > 0;
 
   return (
     <section className="card analysis-thread-card">
@@ -126,24 +239,35 @@ export function AnalysisConversationPanel({
         <div className="analysis-thread-main">
           <div className="analysis-chat-thread">
             {activeConversationTurns.length > 0 ? (
-              activeConversationTurns.map((turn, index) => (
-                <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
-                  <div className="analysis-chat-bubble analysis-chat-bubble-user">
-                    <div className="analysis-chat-bubble-meta">
-                      <span>我</span>
-                      <span>{formatAnalysisTime(turn.generatedAt)}</span>
+              activeConversationTurns.map((turn, index) => {
+                const isLast = index === activeConversationTurns.length - 1;
+                return (
+                  <div key={`${turn.generatedAt}-${index}`} className="analysis-thread-turn">
+                    <div className="analysis-chat-bubble analysis-chat-bubble-user">
+                      <div className="analysis-chat-bubble-meta">
+                        <span>我</span>
+                        <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                      </div>
+                      <p>{turn.question}</p>
                     </div>
-                    <p>{turn.question}</p>
-                  </div>
-                  <div className="analysis-chat-bubble analysis-chat-bubble-assistant">
-                    <div className="analysis-chat-bubble-meta">
-                      <span>{getAnalysisModelLabel(turn.model)}</span>
-                      <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                    <div className="analysis-chat-bubble analysis-chat-bubble-assistant">
+                      <div className="analysis-chat-bubble-meta">
+                        <span>{getAnalysisModelLabel(turn.model)}</span>
+                        <span>{formatAnalysisTime(turn.generatedAt)}</span>
+                      </div>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
                     </div>
-                    <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
+                    {isLast && showMeta && lastResponseMeta ? (
+                      <LastResponseMeta
+                        meta={lastResponseMeta}
+                        sources={lastResponseSources}
+                        uncertainty={lastResponseUncertainty}
+                        actions={lastResponseActions}
+                      />
+                    ) : null}
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <p className="status-message">選取左側對話，或直接輸入新問題開始。</p>
             )}
