@@ -7,8 +7,14 @@ import { DashboardPage } from '../pages/DashboardPage';
 import { FundsPage } from '../pages/FundsPage';
 import { AssetTrendsPage } from '../pages/AssetTrendsPage';
 import { TransactionsPage } from '../pages/TransactionsPage';
+import { SystemDiagnosticsPage } from '../pages/SystemDiagnosticsPage';
 
 export const router = createBrowserRouter([
+  // Standalone tool route — outside AppShell, no sidebar/topbar/bottomnav
+  {
+    path: '/system/diagnostics',
+    element: <SystemDiagnosticsPage />,
+  },
   {
     path: '/',
     element: <AppShell />,
