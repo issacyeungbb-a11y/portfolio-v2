@@ -224,13 +224,27 @@ export function AssetsPage() {
   const nonCashHoldings = holdings.filter((holding) => holding.assetType !== 'cash');
   const todayKey = getHongKongDateKey();
   // 今日已更新：lastPriceUpdatedAt 在今日（HKT），無論 priceAsOf 是否符合顯示時窗
-  const todayUpdatedCount = nonCashHoldings.filter((holding) => {
+  const todayUpdatedHoldings = nonCashHoldings.filter((holding) => {
     if (!holding.lastPriceUpdatedAt) {
       return false;
     }
 
     return getHongKongDateKey(new Date(holding.lastPriceUpdatedAt)) === todayKey;
-  }).length;
+  });
+  const todayUpdatedCount = todayUpdatedHoldings.length;
+  const latestSyncAt = todayUpdatedHoldings.reduce<string | undefined>((latest, holding) => {
+    if (!holding.lastPriceUpdatedAt) return latest;
+    if (!latest) return holding.lastPriceUpdatedAt;
+    return holding.lastPriceUpdatedAt > latest ? holding.lastPriceUpdatedAt : latest;
+  }, undefined);
+  const latestSyncTimeLabel = latestSyncAt
+    ? new Intl.DateTimeFormat('zh-HK', {
+        timeZone: 'Asia/Hong_Kong',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(new Date(latestSyncAt))
+    : undefined;
   // 待更新：後端 QUOTE_FRESHNESS 時窗內無有效價格（hasValidHoldingPrice 使用 QUOTE 時窗）
   const pendingPriceCount = holdings.filter(
     (holding) => holding.assetType !== 'cash' && !hasValidHoldingPrice(holding),
@@ -633,7 +647,9 @@ export function AssetsPage() {
                 ? `待處理 ${reviews.length} 項`
                 : pendingPriceCount > 0
                   ? `待更新 ${pendingPriceCount} 項`
-                  : `成本 ${formatCurrency(filteredCost, displayCurrency)}`
+                  : latestSyncTimeLabel
+                    ? `同步於 ${latestSyncTimeLabel}`
+                    : `成本 ${formatCurrency(filteredCost, displayCurrency)}`
             }
             tone={pendingPriceCount > 0 || hasPendingReviews ? 'caution' : 'positive'}
           />
