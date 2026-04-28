@@ -22,13 +22,14 @@ export function AnalysisSettingsModal({
       className="modal-backdrop analysis-settings-modal"
       role="dialog"
       aria-modal="true"
-      aria-label="分析背景設定"
+      aria-label="一般問題分析設定"
       onClick={onClose}
     >
       <section className="modal-card modal-card-wide analysis-settings-card" onClick={(event) => event.stopPropagation()}>
         <div className="section-heading">
           <div>
-            <h2>分析背景設定</h2>
+            <h2>一般問題分析設定</h2>
+            <p className="table-hint">只影響一般問題對話，不會改變每月資產分析或季度投資報告。</p>
           </div>
           <button
             className="button button-secondary"
@@ -40,12 +41,12 @@ export function AnalysisSettingsModal({
         </div>
 
         <div className="analysis-category-intro">
-          <h2>一般問題</h2>
+          <h2>對話背景</h2>
           <p className="status-message">
-            只可在網頁中設定一般問題的背景資料。
+            這裡保存的背景內容只會帶入「一般問題」模式。
           </p>
           <p className="table-hint">
-            每月資產分析與季度報告會沿用內部設定，無法在此頁面修改。
+            每月資產分析與季度投資報告會沿用各自的固定報告設定，不受此處文字影響。
           </p>
         </div>
 

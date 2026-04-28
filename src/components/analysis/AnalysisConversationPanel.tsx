@@ -31,6 +31,7 @@ interface AnalysisConversationPanelProps {
   onVisibleCountChange: Dispatch<SetStateAction<number>>;
   onAnalyze: () => void;
   onFollowUp: () => void;
+  onCopyLatestResponse: () => void;
   formatAnalysisTime: (value: string) => string;
   getAnalysisModelLabel: (model: string) => string;
   lastResponseMeta?: GeneralQuestionDataFreshness | null;
@@ -94,14 +95,21 @@ function LastResponseMeta({
 
   return (
     <div className="analysis-response-meta">
-      <DataFreshnessHint meta={meta} />
+      <div className="analysis-meta-row">
+        <DataFreshnessHint meta={meta} />
+        <span className="chip chip-soft">
+          {[sources.length ? `${sources.length} 來源` : null, uncertainty.length ? `${uncertainty.length} 不確定` : null, actions.length ? `${actions.length} 跟進` : null]
+            .filter(Boolean)
+            .join(' · ') || '無額外事項'}
+        </span>
+      </div>
       {hasDetails ? (
         <details
           open={open}
           onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
           className="analysis-meta-details"
         >
-          <summary className="analysis-meta-summary">本次使用資料</summary>
+          <summary className="analysis-meta-summary">資料來源、不確定性、建議跟進</summary>
           <div className="analysis-meta-body">
             {sources.length > 0 ? (
               <div className="analysis-meta-section">
@@ -154,6 +162,7 @@ export function AnalysisConversationPanel({
   onVisibleCountChange,
   onAnalyze,
   onFollowUp,
+  onCopyLatestResponse,
   formatAnalysisTime,
   getAnalysisModelLabel,
   lastResponseMeta,
@@ -180,6 +189,20 @@ export function AnalysisConversationPanel({
 
   return (
     <section className="card analysis-thread-card">
+      <div className="section-heading analysis-thread-heading">
+        <div>
+          <h2>一般問題工作區</h2>
+          <p className="table-hint">右側聚焦 AI 回答與追問，歷史對話作為輔助資料。</p>
+        </div>
+        <button
+          className="button button-secondary"
+          type="button"
+          onClick={onCopyLatestResponse}
+          disabled={activeConversationTurns.length === 0}
+        >
+          複製最新回覆
+        </button>
+      </div>
       <div className="analysis-thread-layout">
         {/* Left: history sidebar */}
         <aside className="analysis-thread-sidebar">

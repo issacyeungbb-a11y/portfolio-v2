@@ -33,6 +33,7 @@ interface QuarterlyReportPanelProps {
   onSelectedReportIdChange: (id: string) => void;
   onOpenSettings: () => void;
   onSwitchToMonthly: () => void;
+  onCopyReport: () => void;
   onFollowUpQuestionChange: Dispatch<SetStateAction<Record<AnalysisCategory, string>>>;
   onQuarterlyReportFollowUp: () => void;
   formatGeneratedAt: (value: string) => string;
@@ -60,6 +61,7 @@ export function QuarterlyReportPanel({
   onSelectedReportIdChange,
   onOpenSettings,
   onSwitchToMonthly,
+  onCopyReport,
   onFollowUpQuestionChange,
   onQuarterlyReportFollowUp,
   formatGeneratedAt,
@@ -67,11 +69,11 @@ export function QuarterlyReportPanel({
   getAnalysisModelLabel,
 }: QuarterlyReportPanelProps) {
   return (
-    <>
-      <section className="card quarterly-list-card">
+    <div className="analysis-workbench-layout">
+      <aside className="card quarterly-list-card analysis-history-panel">
         <div className="section-heading">
           <div>
-            <h2>歷史記錄</h2>
+            <h2>歷史季報</h2>
             <p className="table-hint">季度投資報告</p>
           </div>
           <span className="chip chip-soft">
@@ -99,7 +101,7 @@ export function QuarterlyReportPanel({
                   type="button"
                   onClick={onOpenSettings}
                 >
-                  檢視分析設定
+                  檢視一般問題設定
                 </button>
               )
             }
@@ -164,17 +166,77 @@ export function QuarterlyReportPanel({
             );
           })}
         </div>
-      </section>
+      </aside>
 
       {selectedReport ? (
-        <section className="card quarterly-viewer-card">
-          <div className="section-heading">
+        <main className="card quarterly-viewer-card analysis-report-main-card">
+          <div className="analysis-report-header">
             <div>
+              <p className="eyebrow">Quarterly Report</p>
               <h2>{selectedReport.quarter}</h2>
-              <p className="table-hint">{formatGeneratedAt(selectedReport.generatedAt)}</p>
+              <div className="analysis-report-meta-strip" aria-label="季報摘要">
+                <span>季度：{selectedReport.quarter}</span>
+                <span>生成：{formatGeneratedAt(selectedReport.generatedAt)}</span>
+                <span>模型：{getAnalysisModelLabel(selectedReport.model)}</span>
+                <span>PDF：{selectedReport.pdfUrl ? '已生成' : '未生成'}</span>
+              </div>
+            </div>
+            <div className="analysis-report-actions">
+              {selectedReport.pdfUrl ? (
+                <a
+                  className="button button-secondary"
+                  href={selectedReport.pdfUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  下載 PDF
+                </a>
+              ) : (
+                <button
+                  type="button"
+                  className="button button-secondary"
+                  onClick={() => onGeneratePdf(selectedReport)}
+                  disabled={generatingReportId === selectedReport.id}
+                >
+                  {generatingReportId === selectedReport.id ? '生成中...' : '生成 PDF'}
+                </button>
+              )}
+              <button className="button button-secondary" type="button" onClick={onCopyReport}>
+                複製內容
+              </button>
+              {canGenerateCurrentQuarterReport ? (
+                <button
+                  className="button button-primary"
+                  type="button"
+                  onClick={onGenerateQuarterlyReport}
+                  disabled={generatingPeriodicReport === 'quarterly'}
+                >
+                  {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成今季報告'}
+                </button>
+              ) : null}
             </div>
           </div>
 
+          <section className="analysis-report-section-block">
+            <div className="section-heading">
+              <div>
+                <h3>報告基準資產分佈</h3>
+                <p className="table-hint">此分佈是生成報告時保存的基準快照。</p>
+              </div>
+            </div>
+            <ReportAllocationSummaryCard
+              summary={selectedReport.allocationSummary}
+              displayCurrency={displayCurrency}
+              className="report-allocation-summary-card-compact"
+            />
+          </section>
+
+          <section className="analysis-report-section-block">
+            <div className="section-heading">
+              <div>
+                <h3>報告內容</h3>
+              </div>
+            </div>
           <div className="quarterly-report-body">
             {selectedSections.map((section, index) => (
               <section key={`${selectedReport.id}-${index}`} className="quarterly-report-section">
@@ -185,18 +247,12 @@ export function QuarterlyReportPanel({
               </section>
             ))}
           </div>
-          <details className="report-disclosure">
-            <summary>查看報告基準資產分佈</summary>
-            <ReportAllocationSummaryCard
-              summary={selectedReport.allocationSummary}
-              displayCurrency={displayCurrency}
-            />
-          </details>
-        </section>
+          </section>
+        </main>
       ) : null}
 
       {selectedReport ? (
-        <section className="card analysis-thread-card">
+        <section className="card analysis-thread-card analysis-follow-up-workspace">
           <div className="section-heading">
             <div>
               <h2>追問此報告</h2>
@@ -263,6 +319,6 @@ export function QuarterlyReportPanel({
           </div>
         </section>
       ) : null}
-    </>
+    </div>
   );
 }

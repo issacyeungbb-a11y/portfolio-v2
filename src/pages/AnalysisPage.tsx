@@ -6,7 +6,6 @@ import { AnalysisConversationPanel } from '../components/analysis/AnalysisConver
 import { AnalysisSettingsModal } from '../components/analysis/AnalysisSettingsModal';
 import { MonthlyReportPanel } from '../components/analysis/MonthlyReportPanel';
 import { QuarterlyReportPanel } from '../components/analysis/QuarterlyReportPanel';
-import { EmptyState } from '../components/ui/EmptyState';
 import { getHoldingValueInCurrency, mockPortfolio } from '../data/mockPortfolio';
 import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
@@ -80,28 +79,24 @@ function getLegacyConversationSessionId(value: string) {
 const analysisCategoryOptions: Array<{
   value: AnalysisCategory;
   label: string;
-  shortLabel: string;
   helper: string;
   questionPlaceholder: string;
 }> = [
   {
     value: 'general_question',
     label: '一般問題',
-    shortLabel: '對話',
     helper: '即時對話',
     questionPlaceholder: '輸入問題後送出',
   },
   {
     value: 'asset_analysis',
     label: '每月資產分析',
-    shortLabel: '月報',
     helper: '按月手動生成',
     questionPlaceholder: '例如：根據目前資產配置，請分析當前最值得留意的重點。',
   },
   {
     value: 'asset_report',
     label: '季度投資報告',
-    shortLabel: '季報',
     helper: '按季手動生成',
     questionPlaceholder: '',
   },
@@ -232,16 +227,6 @@ function createAnalysisTitle(question: string) {
   }
 
   return trimmed.length > 26 ? `${trimmed.slice(0, 26)}...` : trimmed;
-}
-
-function truncateText(value: string, maxLength: number) {
-  const trimmed = value.trim();
-
-  if (trimmed.length <= maxLength) {
-    return trimmed;
-  }
-
-  return `${trimmed.slice(0, maxLength).trimEnd()}...`;
 }
 
 function getAnalysisModelLabel(model: string) {
@@ -584,7 +569,6 @@ export function AnalysisPage() {
     () => reports.find((report) => report.id === selectedReportId) ?? null,
     [reports, selectedReportId],
   );
-  const latestReport = reports[0] ?? null;
   const currentQuarterReport = useMemo(
     () => reports.find((report) => report.quarter === currentQuarterLabel) ?? null,
     [currentQuarterLabel, reports],
@@ -679,7 +663,7 @@ export function AnalysisPage() {
           type="button"
           onClick={() => setIsPromptSettingsOpen(true)}
         >
-          分析設定
+          一般問題設定
         </button>
       ),
     }),
@@ -1110,22 +1094,25 @@ export function AnalysisPage() {
 
   const latestConversationTurn = activeConversationTurns[activeConversationTurns.length - 1] ?? null;
   const latestMonthlyAnalysis = currentMonthAnalysis ?? monthlyAnalysisSessions[0] ?? null;
+  const selectedMonthlyAnalysisForResponse =
+    monthlyAnalysisSessions.find((session) => session.id === selectedMonthlyAnalysisId) ??
+    latestMonthlyAnalysis;
   const currentResponse =
     isInteractiveCategory
       ? latestConversationTurn
-      : isPortfolioAnalysisCategory && latestMonthlyAnalysis
+      : isPortfolioAnalysisCategory && selectedMonthlyAnalysisForResponse
         ? {
-            question: latestMonthlyAnalysis.title || '每月資產分析',
-            answer: latestMonthlyAnalysis.result,
-            generatedAt: latestMonthlyAnalysis.updatedAt,
-            model: latestMonthlyAnalysis.model,
+            question: selectedMonthlyAnalysisForResponse.title || '每月資產分析',
+            answer: selectedMonthlyAnalysisForResponse.result,
+            generatedAt: selectedMonthlyAnalysisForResponse.updatedAt,
+            model: selectedMonthlyAnalysisForResponse.model,
           }
-        : isQuarterlyCategory && latestReport
+        : isQuarterlyCategory && selectedReport
           ? {
-              question: latestReport.quarter,
-              answer: latestReport.report,
-              generatedAt: latestReport.generatedAt,
-              model: latestReport.model,
+              question: selectedReport.quarter,
+              answer: selectedReport.report,
+              generatedAt: selectedReport.generatedAt,
+              model: selectedReport.model,
             }
           : null;
 
@@ -1143,8 +1130,8 @@ export function AnalysisPage() {
       <section className="card analysis-action-panel">
         <div className="analysis-page-header">
           <div className="analysis-page-heading">
-            <h2>問問題或生成報告</h2>
-            <p className="table-hint">{selectedCategoryOption.helper}</p>
+            <h2>分析工作台</h2>
+            <p className="table-hint">{selectedCategoryOption.label} · {selectedCategoryOption.helper}</p>
           </div>
         </div>
 
@@ -1159,7 +1146,8 @@ export function AnalysisPage() {
                 className={isActive ? 'analysis-tab-card active' : 'analysis-tab-card'}
                 onClick={() => setSelectedCategory(option.value)}
               >
-                <strong>{option.shortLabel}</strong>
+                <strong>{option.label}</strong>
+                <span>{option.helper}</span>
               </button>
             );
           })}
@@ -1256,53 +1244,6 @@ export function AnalysisPage() {
       {assetsStatus === 'loading' && !isQuarterlyCategory ? <p className="status-message">同步中</p> : null}
       {isEmpty && !isQuarterlyCategory ? <p className="status-message">尚未有可分析資產</p> : null}
 
-      <section className="card analysis-current-response">
-        <div className="section-heading">
-          <div>
-            <h2>目前回覆</h2>
-            {currentResponse ? (
-              <p className="table-hint">
-                {getAnalysisModelLabel(currentResponse.model)} · {formatAnalysisTime(currentResponse.generatedAt)}
-              </p>
-            ) : (
-              <p className="table-hint">送出問題或生成報告後會顯示在這裡。</p>
-            )}
-          </div>
-          {currentResponse ? (
-            <div className="analysis-report-preview-footer">
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={handleCopyCurrentResponse}
-              >
-                複製
-              </button>
-              {isQuarterlyCategory && latestReport?.pdfUrl ? (
-                <a
-                  className="button button-secondary"
-                  href={latestReport.pdfUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  下載 PDF
-                </a>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
-
-        {currentResponse ? (
-          <div className="analysis-report-preview">
-            <p className="analysis-summary-text">{truncateText(currentResponse.answer, 700)}</p>
-          </div>
-        ) : (
-          <EmptyState
-            title="尚未有回覆"
-            reason="此頁只保留分析輸入、目前回覆與歷史記錄；資產分佈已移回總覽及報告詳情。"
-          />
-        )}
-      </section>
-
       {isInteractiveCategory ? (
         <AnalysisConversationPanel
           analysisQuestion={analysisQuestion}
@@ -1318,6 +1259,7 @@ export function AnalysisPage() {
           onVisibleCountChange={setVisibleCount}
           onAnalyze={() => void handleAnalyzePortfolio()}
           onFollowUp={() => void handleFollowUp()}
+          onCopyLatestResponse={handleCopyCurrentResponse}
           formatAnalysisTime={formatAnalysisTime}
           getAnalysisModelLabel={getAnalysisModelLabel}
           lastResponseMeta={lastGeneralQuestionMeta}
@@ -1333,6 +1275,8 @@ export function AnalysisPage() {
           selectedMonthlyAnalysisId={selectedMonthlyAnalysisId}
           expandedMonthlyAnalysisId={expandedMonthlyAnalysisId}
           displayCurrency={displayCurrency}
+          assetCount={holdings.length}
+          baseCurrency={mockPortfolio.baseCurrency}
           canGenerateCurrentMonthAnalysis={canGenerateCurrentMonthAnalysis}
           generatingPeriodicReport={generatingPeriodicReport}
           onGenerateMonthlyAnalysisReport={() => void handleGenerateMonthlyAnalysisReport()}
@@ -1340,6 +1284,7 @@ export function AnalysisPage() {
           onExpandedMonthlyAnalysisIdChange={setExpandedMonthlyAnalysisId}
           onOpenSettings={() => setIsPromptSettingsOpen(true)}
           onSwitchToGeneralQuestion={() => setSelectedCategory('general_question')}
+          onCopyReport={handleCopyCurrentResponse}
           formatGeneratedAt={formatGeneratedAt}
           getAnalysisModelLabel={getAnalysisModelLabel}
         />
@@ -1366,6 +1311,7 @@ export function AnalysisPage() {
           onSelectedReportIdChange={setSelectedReportId}
           onOpenSettings={() => setIsPromptSettingsOpen(true)}
           onSwitchToMonthly={() => setSelectedCategory('asset_analysis')}
+          onCopyReport={handleCopyCurrentResponse}
           onFollowUpQuestionChange={setFollowUpQuestionByCategory}
           onQuarterlyReportFollowUp={() => void handleQuarterlyReportFollowUp()}
           formatGeneratedAt={formatGeneratedAt}
