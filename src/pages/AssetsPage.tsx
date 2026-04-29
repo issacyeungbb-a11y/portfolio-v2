@@ -154,7 +154,6 @@ export function AssetsPage() {
     status,
     error,
     isEmpty,
-    addAsset,
     editAsset,
     removeAsset,
   } = usePortfolioAssets();
@@ -182,10 +181,6 @@ export function AssetsPage() {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [tradingHolding, setTradingHolding] = useState<Holding | null>(null);
-  const [isAddAssetOpen, setIsAddAssetOpen] = useState(false);
-  const [isCreatingAsset, setIsCreatingAsset] = useState(false);
-  const [createAssetError, setCreateAssetError] = useState<string | null>(null);
-  const [createAssetSuccess, setCreateAssetSuccess] = useState<string | null>(null);
   const [isEditingAsset, setIsEditingAsset] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
@@ -321,19 +316,6 @@ export function AssetsPage() {
         label: pendingPriceCount > 0 ? `價格待更新 ${pendingPriceCount} 項` : '全部價格已更新',
         tone: pendingPriceCount > 0 ? 'warning' : 'success',
       },
-      actions: (
-        <button
-          className="button button-primary"
-          type="button"
-          onClick={() => {
-            setCreateAssetError(null);
-            setCreateAssetSuccess(null);
-            setIsAddAssetOpen(true);
-          }}
-        >
-          新增資產
-        </button>
-      ),
     }),
     [
       pendingPriceCount,
@@ -383,26 +365,6 @@ export function AssetsPage() {
       setSaveError(message);
     } finally {
       setIsEditingAsset(false);
-    }
-  }
-
-  async function handleCreateAsset(payload: PortfolioAssetInput) {
-    setIsCreatingAsset(true);
-    setCreateAssetError(null);
-    setCreateAssetSuccess(null);
-
-    try {
-      await addAsset(payload);
-      setCreateAssetSuccess(`${payload.symbol} 已新增至資產列表。`);
-      setIsAddAssetOpen(false);
-    } catch (submissionError) {
-      const message =
-        submissionError instanceof Error
-          ? submissionError.message
-          : '新增資產失敗，請稍後再試。';
-      setCreateAssetError(message);
-    } finally {
-      setIsCreatingAsset(false);
     }
   }
 
@@ -786,27 +748,6 @@ export function AssetsPage() {
         </div>
       ) : null}
 
-      {isAddAssetOpen ? (
-        <div className="modal-backdrop" role="presentation">
-          <div className="modal-card modal-card-wide" role="dialog" aria-modal="true">
-            <AssetInputForm
-              title="新增資產"
-              submitLabel="新增資產"
-              cancelLabel="取消"
-              deleteLabel="刪除資產"
-              onSubmit={handleCreateAsset}
-              onCancel={() => {
-                setIsAddAssetOpen(false);
-                setCreateAssetError(null);
-                setCreateAssetSuccess(null);
-              }}
-              isSubmitting={isCreatingAsset}
-              error={createAssetError}
-            />
-          </div>
-        </div>
-      ) : null}
-
       {editingHolding ? (
         <div className="modal-backdrop" role="presentation">
           <div className="modal-card modal-card-wide" role="dialog" aria-modal="true">
@@ -894,9 +835,8 @@ export function AssetsPage() {
           reviewsError,
           todaySnapshotError,
           manualSnapshotError,
-          createAssetError,
         ]}
-        successes={[priceUpdateSuccess, manualSnapshotSuccess, createAssetSuccess]}
+        successes={[priceUpdateSuccess, manualSnapshotSuccess]}
       />
       {shouldShowMissingSnapshotNotice ? (
         <WarningPanel
