@@ -33,6 +33,7 @@ export function AssetTransactionForm({
   error = null,
 }: AssetTransactionFormProps) {
   const accountSourceOptions: AccountSource[] = ['Futu', 'IB', 'Crypto'];
+  const settlementCurrency = 'USD';
   const [transactionType, setTransactionType] = useState<'buy' | 'sell'>(initialValue?.transactionType ?? 'buy');
   const [settlementAccountSource, setSettlementAccountSource] = useState<AccountSource>(
     initialValue?.settlementAccountSource ?? initialValue?.accountSource ?? holding.accountSource,
@@ -139,7 +140,7 @@ export function AssetTransactionForm({
           </label>
 
           <label className="form-field">
-            <span>現金去向賬戶</span>
+            <span>現金去向賬戶（{settlementCurrency}）</span>
             <select
               value={settlementAccountSource}
               onChange={(event) => setSettlementAccountSource(event.target.value as AccountSource)}
@@ -216,7 +217,7 @@ export function AssetTransactionForm({
           <div className="derived-card">
             <span>現金流向</span>
             <strong>{getAccountSourceLabel(settlementAccountSource)}</strong>
-            <small>{transactionType === 'buy' ? '買入會扣減現金' : '賣出會增加現金'}</small>
+            <small>{transactionType === 'buy' ? `買入會扣減 ${settlementCurrency} 現金` : `賣出會增加 ${settlementCurrency} 現金`}</small>
           </div>
         </div>
 

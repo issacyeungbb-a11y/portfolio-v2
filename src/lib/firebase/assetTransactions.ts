@@ -43,6 +43,8 @@ interface LedgerTransaction extends AssetTransactionInput {
   updatedAt?: string;
 }
 
+const SETTLEMENT_CURRENCY = 'USD';
+
 function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
 }
@@ -200,6 +202,10 @@ export function calculateCashDelta(entry: Pick<LedgerTransaction, 'recordType' |
   return entry.transactionType === 'buy'
     ? -(grossAmount + entry.fees)
     : grossAmount - entry.fees;
+}
+
+function getSettlementCurrency() {
+  return SETTLEMENT_CURRENCY;
 }
 
 async function findCashHoldingForAccount(accountSource: AccountSource, currency: string) {
@@ -364,7 +370,8 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
 
   // Preflight: check cash holding exists before entering the transaction (collection query)
   const settlementSource = entry.settlementAccountSource ?? entry.accountSource;
-  const normalizedCurrency = entry.currency.trim().toUpperCase() || 'HKD';
+  const normalizedCurrency = entry.currency.trim().toUpperCase() || SETTLEMENT_CURRENCY;
+  const settlementCurrency = getSettlementCurrency();
   const cashDelta = calculateCashDelta({
     recordType: 'trade',
     transactionType: entry.transactionType,
@@ -375,10 +382,10 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
 
   let cashHolding: Holding | null = null;
   if (Math.abs(cashDelta) >= 1e-9) {
-    cashHolding = await findCashHoldingForAccount(settlementSource, normalizedCurrency);
+    cashHolding = await findCashHoldingForAccount(settlementSource, settlementCurrency);
     if (!cashHolding) {
       throw new Error(
-        `${settlementSource} ${normalizedCurrency} 現金帳戶未設定，請先喺資產頁建立對應現金資產，再寫入交易。`,
+        `${settlementSource} ${settlementCurrency} 現金帳戶未設定，請先喺資產頁建立對應現金資產，再寫入交易。`,
       );
     }
   }
@@ -421,7 +428,7 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
     }
     if (cashRef && !cashSnap?.exists()) {
       throw new Error(
-        `${settlementSource} ${normalizedCurrency} 現金帳戶未設定，請先喺資產頁建立對應現金資產，再寫入交易。`,
+        `${settlementSource} ${settlementCurrency} 現金帳戶未設定，請先喺資產頁建立對應現金資產，再寫入交易。`,
       );
     }
 
@@ -520,11 +527,12 @@ export async function updateAssetTransaction(
   const previousEntry = toLedgerTransaction(existing);
   const existingRecordType = existing.recordType ?? 'trade';
   const assetRef = doc(getSharedAssetsCollectionRef(), existing.assetId);
+  const settlementCurrency = getSettlementCurrency();
 
   // Compute old reversal and new cash delta, merge by account+currency
   const oldSettlement = getTransactionSettlementAccountSource(previousEntry);
   const newSettlement = entry.settlementAccountSource ?? entry.accountSource;
-  const newCurrency = entry.currency.trim().toUpperCase() || 'HKD';
+  const newCurrency = entry.currency.trim().toUpperCase() || SETTLEMENT_CURRENCY;
   const oldCashReversal = calculateCashDelta(previousEntry) * -1;
   const newCashDelta = calculateCashDelta({
     recordType: existingRecordType,
@@ -545,8 +553,8 @@ export async function updateAssetTransaction(
       cashUpdateMap.set(key, { accountSource, currency, delta });
     }
   };
-  mergeCashUpdate(oldSettlement, previousEntry.currency, oldCashReversal);
-  mergeCashUpdate(newSettlement, newCurrency, newCashDelta);
+  mergeCashUpdate(oldSettlement, settlementCurrency, oldCashReversal);
+  mergeCashUpdate(newSettlement, settlementCurrency, newCashDelta);
 
   // Preflight all required cash holdings (collection queries, must be outside runTransaction)
   const cashHoldings = new Map<string, Holding>();
@@ -679,10 +687,10 @@ export async function deleteAssetTransaction(entryId: string) {
   let cashHolding: Holding | null = null;
   if (Math.abs(cashDeltaToReverse) >= 1e-9) {
     const settlement = getTransactionSettlementAccountSource(previousEntry);
-    cashHolding = await findCashHoldingForAccount(settlement, previousEntry.currency);
+    cashHolding = await findCashHoldingForAccount(settlement, getSettlementCurrency());
     if (!cashHolding) {
       throw new Error(
-        `${settlement} ${previousEntry.currency} 現金帳戶未設定，無法還原現金變動。`,
+        `${settlement} ${getSettlementCurrency()} 現金帳戶未設定，無法還原現金變動。`,
       );
     }
   }
@@ -711,7 +719,7 @@ export async function deleteAssetTransaction(entryId: string) {
     if (cashRef && !cashSnap?.exists()) {
       const settlement = getTransactionSettlementAccountSource(previousEntry);
       throw new Error(
-        `${settlement} ${previousEntry.currency} 現金帳戶未設定，無法還原現金變動。`,
+        `${settlement} ${getSettlementCurrency()} 現金帳戶未設定，無法還原現金變動。`,
       );
     }
 

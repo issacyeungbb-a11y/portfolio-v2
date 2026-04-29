@@ -1,13 +1,12 @@
 import { useMemo, useState } from 'react';
 
 import { AssetInputForm } from '../components/assets/AssetInputForm';
-import { AssetTransactionForm } from '../components/assets/AssetTransactionForm';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
+import { TransactionInputPanel } from '../components/transactions/TransactionInputPanel';
 import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { StatusMessages } from '../components/ui/StatusMessages';
 import { SystemDiagnosticsPanel } from '../components/ui/SystemDiagnosticsPanel';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
-import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
@@ -161,7 +160,6 @@ export function AssetsPage() {
   } = usePortfolioAssets();
   const { entries: accountPrincipals, error: accountPrincipalsError } = useAccountPrincipals();
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
-  const { addTransaction, error: transactionsError } = useAssetTransactions();
   const {
     todaySnapshot,
     status: todaySnapshotStatus,
@@ -189,12 +187,9 @@ export function AssetsPage() {
   const [createAssetError, setCreateAssetError] = useState<string | null>(null);
   const [createAssetSuccess, setCreateAssetSuccess] = useState<string | null>(null);
   const [isEditingAsset, setIsEditingAsset] = useState(false);
-  const [isSavingTransaction, setIsSavingTransaction] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [transactionError, setTransactionError] = useState<string | null>(null);
-  const [transactionSuccess, setTransactionSuccess] = useState<string | null>(null);
   const [isUpdatingAllPrices, setIsUpdatingAllPrices] = useState(false);
   const [isBulkUpdateConfirmOpen, setIsBulkUpdateConfirmOpen] = useState(false);
   const [updatingAssetIds, setUpdatingAssetIds] = useState<string[]>([]);
@@ -431,27 +426,6 @@ export function AssetsPage() {
       setSaveError(message);
     } finally {
       setIsDeletingAsset(false);
-    }
-  }
-
-  async function handleCreateTransaction(
-    payload: Parameters<typeof addTransaction>[0],
-  ) {
-    setIsSavingTransaction(true);
-    setTransactionError(null);
-
-    try {
-      await addTransaction(payload);
-      setTradingHolding(null);
-      setTransactionSuccess(`${payload.symbol} 交易已儲存。`);
-    } catch (submissionError) {
-      const message =
-        submissionError instanceof Error
-          ? submissionError.message
-          : '儲存交易失敗，請稍後再試。';
-      setTransactionError(message);
-    } finally {
-      setIsSavingTransaction(false);
     }
   }
 
@@ -767,8 +741,6 @@ export function AssetsPage() {
             setEditingHolding(holding);
           }}
           onTrade={(holding) => {
-            setTransactionSuccess(null);
-            setTransactionError(null);
             setTradingHolding(holding);
           }}
           onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
@@ -871,15 +843,11 @@ export function AssetsPage() {
       {tradingHolding ? (
         <div className="modal-backdrop" role="presentation">
           <div className="modal-card modal-card-wide" role="dialog" aria-modal="true">
-            <AssetTransactionForm
-              holding={tradingHolding}
-              onSubmit={handleCreateTransaction}
-              onCancel={() => {
-                setTransactionError(null);
+            <TransactionInputPanel
+              presetHolding={tradingHolding}
+              onClose={() => {
                 setTradingHolding(null);
               }}
-              isSubmitting={isSavingTransaction}
-              error={transactionError}
             />
           </div>
         </div>
@@ -925,11 +893,10 @@ export function AssetsPage() {
           accountCashFlowsError,
           reviewsError,
           todaySnapshotError,
-          transactionsError && !transactionError ? transactionsError : null,
           manualSnapshotError,
           createAssetError,
         ]}
-        successes={[priceUpdateSuccess, transactionSuccess, manualSnapshotSuccess, createAssetSuccess]}
+        successes={[priceUpdateSuccess, manualSnapshotSuccess, createAssetSuccess]}
       />
       {shouldShowMissingSnapshotNotice ? (
         <WarningPanel

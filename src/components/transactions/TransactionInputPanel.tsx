@@ -9,6 +9,7 @@ import type {
   AccountSource,
   AssetTransactionType,
   AssetType,
+  Holding,
   PortfolioAssetInput,
 } from '../../types/portfolio';
 import type {
@@ -21,6 +22,7 @@ import type {
 type InputMode = 'ai' | 'manual';
 
 const LOCKED_CASH_ACCOUNT_SOURCES: AccountSource[] = ['IB', 'Futu', 'Crypto'];
+const SETTLEMENT_CURRENCY = 'USD';
 
 function normalizeUppercase(value: string) {
   return value.trim().toUpperCase();
@@ -58,7 +60,30 @@ function createBlankItem(
     settlementAccountSource,
     transactionType: 'buy',
     quantity: '',
-    currency: 'HKD',
+    currency: SETTLEMENT_CURRENCY,
+    price: '',
+    fees: '0',
+    date: new Date().toISOString().slice(0, 10),
+    note: '',
+  };
+}
+
+function createPresetExistingTransactionItem(
+  holding: Holding,
+  settlementAccountSource: AccountSource | '',
+): ImportPreviewItem {
+  return {
+    id: `preset-${holding.id}`,
+    name: holding.name,
+    ticker: holding.symbol,
+    type: holding.assetType,
+    classification: 'existing_transaction',
+    existingAssetId: holding.id,
+    assetAccountSource: holding.accountSource,
+    settlementAccountSource,
+    transactionType: 'buy',
+    quantity: '',
+    currency: SETTLEMENT_CURRENCY,
     price: '',
     fees: '0',
     date: new Date().toISOString().slice(0, 10),
@@ -85,7 +110,7 @@ function buildPreviewItemFromTransaction(
     settlementAccountSource,
     transactionType: entry.transactionType ?? '',
     quantity: entry.quantity == null ? '' : String(entry.quantity),
-    currency: entry.currency ?? '',
+    currency: SETTLEMENT_CURRENCY,
     price: entry.price == null ? '' : String(entry.price),
     fees: entry.fees == null ? '0' : String(entry.fees),
     date: entry.date ?? new Date().toISOString().slice(0, 10),
@@ -143,9 +168,10 @@ function assertTransactionType(value: ImportPreviewItem['transactionType']): Ass
 
 interface TransactionInputPanelProps {
   onClose: () => void;
+  presetHolding?: Holding | null;
 }
 
-export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
+export function TransactionInputPanel({ onClose, presetHolding = null }: TransactionInputPanelProps) {
   const { holdings } = usePortfolioAssets();
   const tradeableHoldings = useMemo(
     () => holdings.filter((holding) => holding.assetType !== 'cash'),
@@ -170,7 +196,8 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
       holdings.filter(
         (holding) =>
           holding.assetType === 'cash' &&
-          LOCKED_CASH_ACCOUNT_SOURCES.includes(holding.accountSource),
+          LOCKED_CASH_ACCOUNT_SOURCES.includes(holding.accountSource) &&
+          holding.currency === SETTLEMENT_CURRENCY,
       ),
     [holdings],
   );
@@ -205,6 +232,19 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
   const [confirmSuccess, setConfirmSuccess] = useState<string | null>(null);
 
   useEffect(() => {
+    if (presetHolding) {
+      setInputMode('manual');
+      setPreviewItems([
+        createPresetExistingTransactionItem(presetHolding, defaultCashAccountSource),
+      ]);
+      setExtractStatus('idle');
+      setExtractError(null);
+      setConfirmStatus('idle');
+      setConfirmError(null);
+      setConfirmSuccess(null);
+      return;
+    }
+
     if (inputMode !== 'manual') {
       return;
     }
@@ -221,7 +261,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
             ),
           ],
     );
-  }, [inputMode, defaultAssetAccountSource, defaultCashAccountSource]);
+  }, [inputMode, defaultAssetAccountSource, defaultCashAccountSource, presetHolding]);
 
   function findMatchedHolding(symbol: string, accountSource: AccountSource) {
     const normalizedSymbol = normalizeUppercase(symbol);
@@ -251,6 +291,10 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
           ...item,
           [field]: nextValue,
         };
+
+        if (field === 'currency') {
+          updated.currency = SETTLEMENT_CURRENCY;
+        }
 
         if (field === 'classification' && value === 'new_asset') {
           updated.existingAssetId = '';
@@ -367,7 +411,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
       symbol: normalizeUppercase(item.ticker),
       assetType: item.type as Exclude<AssetType, 'cash'>,
       accountSource: item.assetAccountSource as AccountSource,
-      currency: normalizeUppercase(item.currency),
+      currency: SETTLEMENT_CURRENCY,
       quantity: 0,
       averageCost: 0,
       currentPrice: 0,
@@ -386,7 +430,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
       quantity: Number(item.quantity),
       price: Number(item.price),
       fees: Number(item.fees) || 0,
-      currency: assetPayload.currency,
+      currency: SETTLEMENT_CURRENCY,
       date: item.date,
       note: item.note.trim() || undefined,
     });
@@ -447,7 +491,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
           quantity: Number(item.quantity),
           price: Number(item.price),
           fees: Number(item.fees) || 0,
-          currency: normalizeUppercase(item.currency),
+          currency: SETTLEMENT_CURRENCY,
           date: item.date,
           note: item.note.trim() || undefined,
         });
@@ -481,7 +525,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
           <p className="eyebrow">輸入</p>
           <h2>輸入交易</h2>
           <p className="table-hint">
-            你可以用 AI 文字輸入快速整理交易，或者直接手動填入每筆交易，再選新增資產交易或現有資產交易。
+            所有交易現金結算固定使用 USD。你可以用 AI 文字輸入快速整理交易，或者直接手動填入每筆交易，再選新增資產交易或現有資產交易。
           </p>
         </div>
         <button className="button button-secondary" type="button" onClick={onClose}>
@@ -489,28 +533,30 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
         </button>
       </div>
 
-      <div className="import-mode-row" role="tablist" aria-label="選擇輸入方式">
-        <button
-          className={inputMode === 'ai' ? 'filter-chip active' : 'filter-chip'}
-          type="button"
-          onClick={() => setInputMode('ai')}
-        >
-          AI 文字輸入
-        </button>
-        <button
-          className={inputMode === 'manual' ? 'filter-chip active' : 'filter-chip'}
-          type="button"
-          onClick={() => setInputMode('manual')}
-        >
-          手動輸入
-        </button>
-      </div>
+      {!presetHolding ? (
+        <div className="import-mode-row" role="tablist" aria-label="選擇輸入方式">
+          <button
+            className={inputMode === 'ai' ? 'filter-chip active' : 'filter-chip'}
+            type="button"
+            onClick={() => setInputMode('ai')}
+          >
+            AI 文字輸入
+          </button>
+          <button
+            className={inputMode === 'manual' ? 'filter-chip active' : 'filter-chip'}
+            type="button"
+            onClick={() => setInputMode('manual')}
+          >
+            手動輸入
+          </button>
+        </div>
+      ) : null}
 
       {inputMode === 'ai' ? (
         <div className="prompt-box import-command-box">
           <strong>貼入交易描述，AI 自動拆分</strong>
           <p className="table-hint">
-            例如：今日買入 TSLA 5 股，240 美元，手續費 1.5；再新增 SOL 10 粒，成本 132 美元。
+            例如：今日買入 TSLA 5 股，240 美元，手續費 1.5；再新增 SOL 10 粒，成本 132 美元。交易會統一用 USD 結算現金。
           </p>
           <textarea
             value={commandText}
@@ -537,18 +583,26 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
         </div>
       ) : (
         <div className="prompt-box import-command-box">
-          <strong>手動輸入每筆交易，之後再選「新增資產交易」或者「現有資產交易」</strong>
+          <strong>{presetHolding ? `為 ${presetHolding.symbol} 輸入交易` : '手動輸入每筆交易，之後再選「新增資產交易」或者「現有資產交易」'}</strong>
           <p className="table-hint">
-            儲存後會自動對應現金帳戶，並按交易方向加減 IB、富途或穩定幣現金資產。
+            儲存後會自動對應 USD 現金帳戶，並按交易方向加減 IB、富途或穩定幣現金資產。
           </p>
           <div className="button-row">
-            <button className="button button-secondary" type="button" onClick={handleAddManualItem}>
-              新增一筆交易
-            </button>
+            {!presetHolding ? (
+              <button className="button button-secondary" type="button" onClick={handleAddManualItem}>
+                新增一筆交易
+              </button>
+            ) : null}
             <button
               className="button button-secondary"
               type="button"
-              onClick={() => setPreviewItems([createBlankItem(0, defaultAssetAccountSource, defaultCashAccountSource)])}
+              onClick={() =>
+                setPreviewItems(
+                  presetHolding
+                    ? [createPresetExistingTransactionItem(presetHolding, defaultCashAccountSource)]
+                    : [createBlankItem(0, defaultAssetAccountSource, defaultCashAccountSource)],
+                )
+              }
             >
               重設
             </button>
@@ -565,6 +619,7 @@ export function TransactionInputPanel({ onClose }: TransactionInputPanelProps) {
           items={previewItems}
           existingAssetOptions={existingAssetOptions}
           cashAccountSources={availableCashAccountSources}
+          settlementCurrency={SETTLEMENT_CURRENCY}
           onChangeItem={handleChangeItem}
           onRemoveItem={handleRemoveItem}
           onConfirm={handleConfirm}
