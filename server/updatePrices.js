@@ -481,6 +481,28 @@ function normalizeAssetType(value) {
         return 'crypto';
     return 'cash';
 }
+function normalizeAccountSource(value) {
+    return value === 'Futu' || value === 'IB' || value === 'Crypto' || value === 'Other'
+        ? value
+        : undefined;
+}
+function normalizeCurrencyCode(value) {
+    return value?.trim().toUpperCase() || '';
+}
+function convertForComparison(amount, fromCurrency, toCurrency, fxRates) {
+    const normalizedFrom = normalizeCurrencyCode(fromCurrency);
+    const normalizedTo = normalizeCurrencyCode(toCurrency);
+    if (!Number.isFinite(amount) || amount <= 0 || !normalizedFrom || !normalizedTo || normalizedFrom === normalizedTo) {
+        return amount;
+    }
+    const fromRate = fxRates[normalizedFrom];
+    const toRate = fxRates[normalizedTo];
+    if (!fromRate || !toRate) {
+        return amount;
+    }
+    const valueInHKD = amount * fromRate;
+    return valueInHKD / toRate;
+}
 function normalizeRequestAsset(asset) {
     if (typeof asset !== 'object' || asset === null) {
         return null;
@@ -499,6 +521,7 @@ function normalizeRequestAsset(asset) {
         assetName: value.assetName,
         ticker: value.ticker.trim().toUpperCase(),
         assetType: normalizeAssetType(value.assetType),
+        accountSource: normalizeAccountSource(value.accountSource),
         currentPrice: value.currentPrice,
         currency: value.currency.trim().toUpperCase(),
     };
@@ -909,24 +932,30 @@ function detectFailureCategory(params) {
     }
     return 'unknown';
 }
-async function buildReviewResults(requestedAssets, marketResults) {
+async function buildReviewResults(requestedAssets, marketResults, fxRates = DEFAULT_FX_RATES) {
     return Promise.all(requestedAssets.map(async (asset) => {
         const matched = marketResults.find((item) => item.assetId === asset.assetId) ??
             createFailedMarketResult(asset, '未取得回應');
         const nextPrice = matched.price ?? null;
+        const matchedCurrency = normalizeCurrencyCode(matched.currency || asset.currency);
+        const assetCurrency = normalizeCurrencyCode(asset.currency);
+        const comparisonCurrency = matchedCurrency || assetCurrency;
+        const comparisonCurrentPrice = asset.currentPrice > 0 && comparisonCurrency
+            ? convertForComparison(asset.currentPrice, assetCurrency, comparisonCurrency, fxRates)
+            : asset.currentPrice;
         const effectiveAsOf = matched.asOf || (nextPrice != null && nextPrice > 0 ? new Date().toISOString() : null);
         const staleQuote = isStaleQuote(effectiveAsOf, asset.assetType);
-        const diffPct = nextPrice != null && asset.currentPrice > 0
-            ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
+        const diffPct = nextPrice != null && comparisonCurrentPrice > 0
+            ? Math.abs(nextPrice - comparisonCurrentPrice) / comparisonCurrentPrice
             : 0;
         let isValid = nextPrice != null &&
             nextPrice > 0 &&
             !staleQuote &&
             Boolean(matched.sourceName || matched.sourceUrl) &&
             diffPct < getReviewThresholdForAsset(asset.assetType);
-    const historicalAnomaly = isValid && nextPrice != null
-        ? await detectHistoricalAnomaly(asset.assetId, nextPrice, asset.currentPrice)
-        : null;
+        const historicalAnomaly = isValid && nextPrice != null
+            ? await detectHistoricalAnomaly(asset.assetId, nextPrice, comparisonCurrentPrice)
+            : null;
         if (historicalAnomaly?.isAnomaly) {
             isValid = false;
         }
@@ -950,8 +979,14 @@ async function buildReviewResults(requestedAssets, marketResults) {
             assetName: matched.assetName || asset.assetName,
             ticker: (matched.ticker || asset.ticker).toUpperCase(),
             assetType: matched.assetType || asset.assetType,
+            accountSource: asset.accountSource,
             price: isValid ? nextPrice : nextPrice,
-            currency: (matched.currency || asset.currency).toUpperCase(),
+            currency: matchedCurrency || assetCurrency,
+            assetCurrency: assetCurrency || undefined,
+            comparisonCurrentPrice,
+            comparisonCurrency,
+            marketCurrency: matchedCurrency || undefined,
+            currencyMismatch: Boolean(assetCurrency && matchedCurrency) && assetCurrency !== matchedCurrency,
             asOf: effectiveAsOf || '',
             sourceName: matched.sourceName || '',
             sourceUrl: matched.sourceUrl || '',
@@ -1005,7 +1040,7 @@ export async function generatePriceUpdates(payload) {
         fetchYahooPrice(yahooAssets),
         fetchCoinGeckoPrice(cryptoAssets),
     ]);
-    const results = await buildReviewResults(request.assets, [...yahooResults, ...cryptoResults]);
+    const results = await buildReviewResults(request.assets, [...yahooResults, ...cryptoResults], DEFAULT_FX_RATES);
     return {
         ok: true,
         route: UPDATE_PRICES_ROUTE,

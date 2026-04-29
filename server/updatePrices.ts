@@ -16,6 +16,7 @@ import type {
   PriceUpdateResponse,
 } from '../src/types/priceUpdates';
 import type { AssetType } from '../src/types/portfolio';
+import type { AccountSource } from '../src/types/portfolio';
 import type { FxRates } from '../src/types/fxRates';
 import { getAnomalyThreshold } from './priceAnomalyDetection.js';
 import { detectHistoricalAnomaly } from './priceAnomalyDetection.js';
@@ -678,6 +679,40 @@ function normalizeAssetType(value: string): AssetType {
   return 'cash';
 }
 
+function normalizeAccountSource(value: unknown): AccountSource | undefined {
+  return value === 'Futu' || value === 'IB' || value === 'Crypto' || value === 'Other'
+    ? value
+    : undefined;
+}
+
+function normalizeCurrencyCode(value: string | null | undefined) {
+  return value?.trim().toUpperCase() || '';
+}
+
+function convertForComparison(
+  amount: number,
+  fromCurrency: string,
+  toCurrency: string,
+  fxRates: FxRates,
+) {
+  const normalizedFrom = normalizeCurrencyCode(fromCurrency);
+  const normalizedTo = normalizeCurrencyCode(toCurrency);
+
+  if (!Number.isFinite(amount) || amount <= 0 || !normalizedFrom || !normalizedTo || normalizedFrom === normalizedTo) {
+    return amount;
+  }
+
+  const fromRate = fxRates[normalizedFrom as keyof FxRates];
+  const toRate = fxRates[normalizedTo as keyof FxRates];
+
+  if (!fromRate || !toRate) {
+    return amount;
+  }
+
+  const valueInHKD = amount * fromRate;
+  return valueInHKD / toRate;
+}
+
 function normalizeRequestAsset(asset: unknown): PriceUpdateRequestAsset | null {
   if (typeof asset !== 'object' || asset === null) {
     return null;
@@ -701,6 +736,7 @@ function normalizeRequestAsset(asset: unknown): PriceUpdateRequestAsset | null {
     assetName: value.assetName,
     ticker: value.ticker.trim().toUpperCase(),
     assetType: normalizeAssetType(value.assetType),
+    accountSource: normalizeAccountSource(value.accountSource),
     currentPrice: value.currentPrice,
     currency: value.currency.trim().toUpperCase(),
   };
@@ -1283,18 +1319,26 @@ function detectFailureCategory(params: {
 async function buildReviewResults(
   requestedAssets: PriceUpdateRequestAsset[],
   marketResults: MarketPriceResult[],
+  fxRates: FxRates = DEFAULT_FX_RATES,
 ): Promise<PendingPriceUpdateReview[]> {
   const reviews = await Promise.all(requestedAssets.map(async (asset) => {
     const matched =
       marketResults.find((item) => item.assetId === asset.assetId) ??
       createFailedMarketResult(asset, '未取得回應');
     const nextPrice = matched.price ?? null;
+    const matchedCurrency = normalizeCurrencyCode(matched.currency || asset.currency);
+    const assetCurrency = normalizeCurrencyCode(asset.currency);
+    const comparisonCurrency = matchedCurrency || assetCurrency;
+    const comparisonCurrentPrice =
+      asset.currentPrice > 0 && comparisonCurrency
+        ? convertForComparison(asset.currentPrice, assetCurrency, comparisonCurrency, fxRates)
+        : asset.currentPrice;
     const effectiveAsOf =
       matched.asOf || (nextPrice != null && nextPrice > 0 ? new Date().toISOString() : null);
     const staleQuote = isStaleQuote(effectiveAsOf, asset.assetType);
     const diffPct =
-      nextPrice != null && asset.currentPrice > 0
-        ? Math.abs(nextPrice - asset.currentPrice) / asset.currentPrice
+      nextPrice != null && comparisonCurrentPrice > 0
+        ? Math.abs(nextPrice - comparisonCurrentPrice) / comparisonCurrentPrice
         : 0;
     let isValid =
       nextPrice != null &&
@@ -1304,7 +1348,7 @@ async function buildReviewResults(
       diffPct < getReviewThresholdForAsset(asset.assetType);
     const historicalAnomaly =
       isValid && nextPrice != null
-        ? await detectHistoricalAnomaly(asset.assetId, nextPrice, asset.currentPrice)
+        ? await detectHistoricalAnomaly(asset.assetId, nextPrice, comparisonCurrentPrice)
         : null;
     if (historicalAnomaly?.isAnomaly) {
       isValid = false;
@@ -1331,8 +1375,15 @@ async function buildReviewResults(
       assetName: matched.assetName || asset.assetName,
       ticker: (matched.ticker || asset.ticker).toUpperCase(),
       assetType: matched.assetType || asset.assetType,
+      accountSource: asset.accountSource,
       price: isValid ? nextPrice : nextPrice,
-      currency: (matched.currency || asset.currency).toUpperCase(),
+      currency: matchedCurrency || assetCurrency,
+      assetCurrency: assetCurrency || undefined,
+      comparisonCurrentPrice,
+      comparisonCurrency,
+      marketCurrency: matchedCurrency || undefined,
+      currencyMismatch:
+        Boolean(assetCurrency && matchedCurrency) && assetCurrency !== matchedCurrency,
       asOf: effectiveAsOf || '',
       sourceName: matched.sourceName || '',
       sourceUrl: matched.sourceUrl || '',
@@ -1402,7 +1453,7 @@ export async function generatePriceUpdates(payload: unknown): Promise<PriceUpdat
     fetchCoinGeckoPrice(cryptoAssets),
   ]);
 
-  const results = await buildReviewResults(request.assets, [...yahooResults, ...cryptoResults]);
+  const results = await buildReviewResults(request.assets, [...yahooResults, ...cryptoResults], DEFAULT_FX_RATES);
 
   return {
     ok: true,

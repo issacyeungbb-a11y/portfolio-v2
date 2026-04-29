@@ -90,6 +90,7 @@ async function applyCronResults(results) {
     const assetRef = portfolioRef.collection('assets').doc(r.assetId);
     batch.update(assetRef, {
       currentPrice: r.price,
+      currency: r.currency,
       updatedAt: FieldValue.serverTimestamp(),
       lastPriceUpdatedAt: FieldValue.serverTimestamp(),
       priceSource: 'api_auto_cron',

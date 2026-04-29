@@ -1,4 +1,5 @@
 import type { AssetType } from './portfolio';
+import type { AccountSource } from './portfolio';
 
 export type PriceSource = 'api_auto' | 'api_auto_cron' | 'api_review_confirmed' | 'manual';
 
@@ -7,6 +8,7 @@ export interface PriceUpdateRequestAsset {
   assetName: string;
   ticker: string;
   assetType: AssetType;
+  accountSource?: AccountSource;
   currentPrice: number;
   currency: string;
 }
@@ -41,8 +43,14 @@ export interface PendingPriceUpdateReview extends PriceUpdateModelResult {
   assetName: string;
   ticker: string;
   assetType: AssetType;
+  accountSource?: AccountSource;
   currentPrice: number;
   currency: string;
+  assetCurrency?: string;
+  comparisonCurrentPrice?: number;
+  comparisonCurrency?: string;
+  marketCurrency?: string;
+  currencyMismatch?: boolean;
   asOf: string;
   sourceName: string;
   sourceUrl: string;

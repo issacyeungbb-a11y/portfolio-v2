@@ -3,6 +3,7 @@ import { useState } from 'react';
 import {
   formatCurrency,
   formatPercent,
+  getAccountSourceLabel,
   getAssetTypeLabel,
 } from '../../data/mockPortfolio';
 import type { PendingPriceUpdateReview } from '../../types/priceUpdates';
@@ -120,6 +121,9 @@ export function PriceUpdateReviewPanel({
                 <div>
                   <p className="holding-symbol">{review.ticker}</p>
                   <h3>{review.assetName}</h3>
+                  <p className="table-hint">
+                    {review.accountSource ? getAccountSourceLabel(review.accountSource) : '未記錄帳戶來源'}
+                  </p>
                 </div>
                 <span className="chip chip-soft">{getAssetTypeLabel(review.assetType)}</span>
               </div>
@@ -128,7 +132,7 @@ export function PriceUpdateReviewPanel({
               <div className="holding-grid">
                 <div>
                   <p className="muted-label">現有價格</p>
-                  <strong>{formatCurrency(review.currentPrice, review.currency)}</strong>
+                  <strong>{formatCurrency(review.currentPrice, review.assetCurrency || review.currency)}</strong>
                 </div>
                 <div>
                   <p className="muted-label">建議新價格</p>
@@ -143,6 +147,24 @@ export function PriceUpdateReviewPanel({
                   <strong data-tone={hasSuggestedPrice ? diffTone : undefined}>
                     {hasSuggestedPrice ? formatPercent(review.diffPct * 100) : '—'}
                   </strong>
+                </div>
+              </div>
+
+              <div className="roadmap-list">
+                <div className="roadmap-item">
+                  <strong>比價基準</strong>
+                  <p>
+                    {review.comparisonCurrentPrice != null && review.comparisonCurrency
+                      ? `${formatCurrency(review.comparisonCurrentPrice, review.comparisonCurrency)} 對 ${hasSuggestedPrice ? formatCurrency(review.price as number, review.comparisonCurrency) : '未取得'}`
+                      : '沿用資產現有價格作比較'}
+                  </p>
+                </div>
+                <div className="roadmap-item">
+                  <strong>Debug</strong>
+                  <p>
+                    {`failure=${review.failureCategory ?? 'none'} · asset=${review.assetCurrency || review.currency || '—'} · market=${review.marketCurrency || review.currency || '—'}`}
+                  </p>
+                  {review.currencyMismatch ? <p>系統已按匯率換算後再比較差幅。</p> : null}
                 </div>
               </div>
 

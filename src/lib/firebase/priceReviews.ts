@@ -48,6 +48,10 @@ function sanitizeOptionalString(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
+function sanitizeOptionalNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 function sanitizeFailureCategory(value: unknown): PendingPriceUpdateReview['failureCategory'] {
   if (
     value === 'ticker_format' ||
@@ -75,8 +79,14 @@ function normalizePendingReview(assetId: string, value: Record<string, unknown>)
     assetName: sanitizeString(value.assetName),
     ticker: sanitizeString(value.ticker),
     assetType: (sanitizeString(value.assetType) || 'stock') as PendingPriceUpdateReview['assetType'],
+    accountSource: sanitizeString(value.accountSource) as PendingPriceUpdateReview['accountSource'],
     price: sanitizeNumber(value.price),
     currency: sanitizeString(value.currency),
+    assetCurrency: sanitizeOptionalString(value.assetCurrency) || undefined,
+    comparisonCurrentPrice: sanitizeOptionalNumber(value.comparisonCurrentPrice),
+    comparisonCurrency: sanitizeOptionalString(value.comparisonCurrency) || undefined,
+    marketCurrency: sanitizeOptionalString(value.marketCurrency) || undefined,
+    currencyMismatch: value.currencyMismatch === true,
     asOf: sanitizeString(value.asOf),
     sourceName: sanitizeString(value.sourceName),
     sourceUrl: sanitizeString(value.sourceUrl),
@@ -209,6 +219,7 @@ export async function applyPriceUpdateReviews(
 
     batch.update(assetRef, {
       currentPrice: review.price,
+      currency: review.currency,
       updatedAt: serverTimestamp(),
       lastPriceUpdatedAt: serverTimestamp(),
       priceSource,

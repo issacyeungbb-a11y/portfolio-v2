@@ -398,6 +398,7 @@ export function AssetsPage() {
         assetName: holding.name,
         ticker: holding.symbol,
         assetType: holding.assetType,
+        accountSource: holding.accountSource,
         currentPrice: holding.currentPrice,
         currency: holding.currency,
       })),
