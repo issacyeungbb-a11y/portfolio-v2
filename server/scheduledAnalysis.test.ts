@@ -8,6 +8,7 @@ import {
   buildReportFactsPayload,
   buildAnalysisRequestFromAssets,
   buildMonthlyAnalysisQuestion,
+  getDefaultServerPromptSettings,
   getSearchSummaryPrompt,
   getPreviousMonthStartDate,
   normalizeSnapshotDocument,
@@ -385,13 +386,28 @@ test('monthly grounded search prompt keeps structured macro-only summary require
   });
 
   assert.match(prompt, /過去一個月市場主線/);
+  assert.match(prompt, /risk-on \/ risk-off \/ mixed/);
+  assert.match(prompt, /利率、通脹、美元、股市情緒、加密市場/);
   assert.match(prompt, /股票 \/ ETF 影響/);
   assert.match(prompt, /加密貨幣影響/);
   assert.match(prompt, /現金 \/ 債券 \/ 利率影響/);
-  assert.match(prompt, /匯率與 JPY \/ USD \/ HKD 影響/);
+  assert.match(prompt, /匯率與 USD \/ HKD \/ JPY 影響/);
   assert.match(prompt, /下月值得觀察的 3-5 個外部因素/);
   assert.match(prompt, /不要做投資分析、買賣建議或價格預測/);
   assert.match(prompt, /800-1200 中文字以內/);
+});
+
+test('monthly default prompt keeps five sections and macro linkage requirements', () => {
+  const prompt = getDefaultServerPromptSettings().asset_analysis;
+
+  assert.match(prompt, /1\. 【本月一句總結】/);
+  assert.match(prompt, /2\. 【本月資產變化摘要】/);
+  assert.match(prompt, /3\. 【組合健康檢查】/);
+  assert.match(prompt, /4\. 【三個重點觀察】/);
+  assert.match(prompt, /5\. 【下月行動建議】/);
+  assert.match(prompt, /過去一個月宏觀與市場背景摘要/);
+  assert.match(prompt, /宏觀背景 → 對我資產的影響 → 投資含義/);
+  assert.match(prompt, /必須跟進 \/ 可以考慮 \/ 暫時不建議/);
 });
 
 test('monthly analysis prompt preserves five sections and adds macro, data quality, and conditional guidance constraints', () => {
@@ -424,6 +440,7 @@ test('monthly analysis prompt preserves five sections and adds macro, data quali
       staleAssetCount: 1,
       warningMessages: ['有 1 項資產價格超過 24 小時未更新。'],
     },
+    searchSummary: '市場氣氛偏 risk-on，美股與加密資產同步走強，美元與利率預期仍主導資金流向。',
   });
 
   assert.match(prompt, /【本月一句總結】/);
@@ -440,4 +457,7 @@ test('monthly analysis prompt preserves five sections and adds macro, data quali
   assert.match(prompt, /staleAssetCount > 0/);
   assert.match(prompt, /dataQualitySummary.status 係 partial 或 warning/);
   assert.match(prompt, /資金流覆蓋率唔係 100%/);
+  assert.match(prompt, /【過去一個月宏觀與市場背景摘要】/);
+  assert.match(prompt, /市場氣氛偏 risk-on/);
+  assert.match(prompt, /你必須引用此摘要/);
 });

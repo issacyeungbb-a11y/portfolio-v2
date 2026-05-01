@@ -217,18 +217,18 @@ function getPreviousQuarterEndDate(date = new Date()) {
   ].join('-');
 }
 
-function getDefaultServerPromptSettings(): AnalysisPromptSettings {
+export function getDefaultServerPromptSettings(): AnalysisPromptSettings {
   return {
     asset_analysis: [
       '你是每月資產分析助手，定位是監察、告警、下月行動。',
       '系統會在正文前顯示結構化「資產分佈總覽」圖像卡；你不要生成圖表、表格或圖表資料，也不要逐項重覆卡片上的百分比分布。',
-      '你只需要承接系統提供的分佈判讀、持倉與快照對比，再結合外部背景摘要，寫出短而準、可落地監察的文字結論。',
+      '你必須引用系統提供的「過去一個月宏觀與市場背景摘要」，並將其與目前資產配置、月度變化、幣別曝險逐項對照；不要只做一般配置診斷。',
       '固定輸出欄目，並按順序使用以下標題：',
-      '1. 【本月一句總結】',
-      '2. 【本月資產變化摘要】',
-      '3. 【組合健康檢查】',
-      '4. 【三個重點觀察】',
-      '5. 【下月行動建議】',
+      '1. 【本月一句總結】（必須同時提及本月資產變化方向、過去一個月主要宏觀 / 市場背景、組合最大風險或最大機會）',
+      '2. 【本月資產變化摘要】（必須區分總資產變化、淨入金 / 出金、扣除資金流後表現、資金流覆蓋率、最大貢獻者 / 最大拖累者，並判斷升幅是否集中於少數高 beta / 加密 / 科技資產）',
+      '3. 【組合健康檢查】（必須加入宏觀壓力測試：risk-on 持續時如何受惠、risk-off 時最大風險、現金 / 債券是否足夠防守、USD / HKD / JPY 幣別曝險是否需要留意；如果 dataQualitySummary.status 不是 ok，要限制結論強度）',
+      '4. 【三個重點觀察】（剛好 3 點；每點必須使用「宏觀背景 → 對我資產的影響 → 投資含義」格式，不可只列持倉集中度，亦不可只寫普通新聞摘要）',
+      '5. 【下月行動建議】（必須分成「必須跟進 / 可以考慮 / 暫時不建議」，每項都要有觸發條件；不要寫成直接買賣指令，不要給確定性價格預測）',
       '每段要引用可核對的持倉、變化、資金流、幣別或風險；如果資料不足，要直說，並降低結論強度。',
     ].join('\n'),
     general_question: '你是投資組合對話助手，請直接回答我當次提出的問題。',
@@ -435,12 +435,12 @@ export function getSearchSummaryPrompt(params: {
     '請使用 Google Search 幫我整理投資組合相關的外部市場背景，只輸出精簡摘要，不要做投資分析、買賣建議或價格預測。',
     '時間範圍：只總結過去一個月最重要的變化。',
     '請按以下結構輸出，每部分 1-3 句，避免長篇新聞摘要：',
-    '1. 過去一個月市場主線',
-    '2. 主要宏觀因素',
+    '1. 過去一個月市場主線：必須明確判斷偏 risk-on / risk-off / mixed，並簡述主因',
+    '2. 主要宏觀因素：聚焦利率、通脹、美元、股市情緒、加密市場',
     '3. 股票 / ETF 影響',
     '4. 加密貨幣影響',
     '5. 現金 / 債券 / 利率影響',
-    '6. 匯率與 JPY / USD / HKD 影響',
+    '6. 匯率與 USD / HKD / JPY 影響',
     '7. 下月值得觀察的 3-5 個外部因素',
     `主要股票 / ETF 代碼：${tickers}`,
     `組合資產類別：${assetTypeSummary}`,
@@ -1101,10 +1101,16 @@ export function buildMonthlyAnalysisQuestion(params: {
   comparison: ReturnType<typeof compareSnapshots> | null;
   allocationSummary: ReportAllocationSummary;
   dataQualitySummary: ReportDataQualitySummary;
+  searchSummary: string;
 }) {
   const comparisonText = params.comparison
     ? buildComparisonPromptSections(params.comparison, { limitHoldings: 12 })
     : '缺少基準 snapshot（上個月 1 號或合理容忍範圍內未找到）；請明確指出缺少基準 snapshot，並只根據目前持倉與系統分佈總覽做監察及下月行動建議，不要假設月度變化。';
+  const macroSummaryText = [
+    '【過去一個月宏觀與市場背景摘要】',
+    params.searchSummary.trim() || '未有可用的外部市場背景摘要；如引用宏觀判讀，請明確指出資料限制。',
+    '你必須引用此摘要，並將其與目前資產配置、月度變化、幣別曝險逐項對照；不可只做一般配置診斷。',
+  ].join('\n');
 
   return [
     '請撰寫一份「每月資產分析」，定位係監察 / 告警 / 下月行動。',
@@ -1124,6 +1130,8 @@ export function buildMonthlyAnalysisQuestion(params: {
     '如果資金流覆蓋率唔係 100%，要保留限制提示，避免把所有升跌都當成投資回報。',
     '不要重覆 summary card 已顯示的百分比分布，只需輸出高價值觀察。',
     '每段短而準，繁體中文輸出，整份月報保持清晰可讀，不要寫成長篇文章。',
+    '',
+    macroSummaryText,
     '',
     formatReportAllocationSummaryForPrompt(params.allocationSummary),
     '',
@@ -1319,10 +1327,12 @@ export async function runMonthlyAssetAnalysis() {
     comparison,
     allocationSummary,
     dataQualitySummary,
+    searchSummary: searchSummary.summary,
   });
   const conversationContext = [
-    'Gemini Google Search 摘要：',
+    '【過去一個月宏觀與市場背景摘要】',
     searchSummary.summary,
+    '你必須引用此摘要，並將其與目前資產配置、月度變化、幣別曝險逐項對照；不可只做一般配置診斷。',
     '',
     formatReportAllocationSummaryForPrompt(allocationSummary),
     '',
