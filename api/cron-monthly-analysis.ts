@@ -1,5 +1,9 @@
 import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
 import { verifyCronRequest } from '../server/cronAuth.js';
+// Runtime note:
+// This API route executes `../server/scheduledAnalysis.js` on Vercel today.
+// Keep `server/scheduledAnalysis.ts` and `server/scheduledAnalysis.js` fully in sync
+// until the runtime build path is consolidated into a single maintained source.
 import {
   getScheduledAnalysisErrorResponse,
   runManualMonthlyAssetAnalysis,

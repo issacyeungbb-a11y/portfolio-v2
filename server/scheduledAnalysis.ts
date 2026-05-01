@@ -8,9 +8,12 @@ import {
   getAnalyzePortfolioErrorResponse,
   runPortfolioAnalysisRequest,
 } from './analyzePortfolio.js';
+// Runtime note:
+// Vercel API routes currently import `server/scheduledAnalysis.js` directly.
+// When you edit this file, you must keep `server/scheduledAnalysis.js` in sync
+// until the runtime architecture is unified to a single maintained source.
 import {
   compareSnapshots,
-  formatSnapshotComparisonForPrompt,
   selectRecentDistinctMonthlySnapshots,
   type SnapshotComparisonSource,
 } from './snapshotComparison.js';
@@ -18,15 +21,16 @@ import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { buildReportAllocationSummaryFromHoldings } from '../src/lib/portfolio/reportAllocationSummary.js';
 import {
   convertToHKDValue,
-  formatCurrencyRounded,
   normalizeCurrencyCode,
 } from '../src/lib/currency.js';
 import type {
   AnalysisCategory,
   AnalysisPromptSettings,
   AssetType,
+  ReportDataQualitySummary,
+  ReportFactsPayload,
   ReportAllocationSummary,
-  SnapshotHoldingPoint,
+  SnapshotFxRatesUsed,
 } from '../src/types/portfolio';
 import type {
   PortfolioAnalysisModel,
@@ -45,13 +49,23 @@ const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-previ
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
 const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
 const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
+export const SCHEDULED_ANALYSIS_LOGIC_VERSION = '2026-05-01-p0-round2';
+const REPORT_PROMPT_VERSION = '2026-05-01-p0-round2';
 
 type AdminAsset = Awaited<ReturnType<typeof readAdminPortfolioAssets>>[number];
 type ScheduledCategory = Extract<AnalysisCategory, 'asset_analysis' | 'asset_report'>;
 
 interface SnapshotDocument {
+  id?: string;
   date: string;
   totalValueHKD: number;
+  netExternalFlowHKD?: number;
+  snapshotQuality?: 'strict' | 'fallback';
+  coveragePct?: number;
+  fallbackAssetCount?: number;
+  missingAssetCount?: number;
+  fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
+  fxRatesUsed?: SnapshotFxRatesUsed;
   holdings: SnapshotComparisonSource['holdings'];
 }
 
@@ -82,10 +96,6 @@ function getScheduledAnalysisModel(): PortfolioAnalysisModel {
   return process.env.ANTHROPIC_API_KEY?.trim()
     ? DEFAULT_DIAGNOSTIC_MODEL
     : DEFAULT_DIAGNOSTIC_FALLBACK_MODEL;
-}
-
-function formatHoldingCurrencyPair(localValue: number, currency: string, hkdValue: number) {
-  return `${formatCurrencyRounded(localValue, currency)} / 約 ${formatCurrencyRounded(hkdValue, 'HKD')}`;
 }
 
 function getAssetMarketValueHKD(asset: Pick<AdminAsset, 'quantity' | 'currentPrice' | 'currency'>) {
@@ -490,6 +500,7 @@ async function generateGroundedSearchSummary(params: {
 
 export function normalizeSnapshotDocument(
   value: Record<string, unknown>,
+  snapshotId?: string,
 ): SnapshotDocument {
   const holdings = Array.isArray(value.holdings)
     ? value.holdings
@@ -525,6 +536,7 @@ export function normalizeSnapshotDocument(
                 : 'HKD',
             quantity: typeof holding.quantity === 'number' ? holding.quantity : 0,
             currentPrice: typeof holding.currentPrice === 'number' ? holding.currentPrice : 0,
+            priceAsOf: typeof holding.priceAsOf === 'string' ? holding.priceAsOf : undefined,
             marketValueHKD: (() => {
               if (typeof holding.marketValueHKD === 'number') {
                 return holding.marketValueHKD;
@@ -549,9 +561,41 @@ export function normalizeSnapshotDocument(
   const fallbackTotalValueHKD = holdings.reduce((sum, holding) => sum + holding.marketValueHKD, 0);
 
   return {
+    id: snapshotId,
     date: typeof value.date === 'string' ? value.date : '',
     totalValueHKD:
       typeof value.totalValueHKD === 'number' ? value.totalValueHKD : fallbackTotalValueHKD,
+    netExternalFlowHKD:
+      typeof value.netExternalFlowHKD === 'number' ? value.netExternalFlowHKD : undefined,
+    snapshotQuality: value.snapshotQuality === 'fallback' ? 'fallback' : 'strict',
+    coveragePct: typeof value.coveragePct === 'number' ? value.coveragePct : undefined,
+    fallbackAssetCount:
+      typeof value.fallbackAssetCount === 'number' ? value.fallbackAssetCount : undefined,
+    missingAssetCount:
+      typeof value.missingAssetCount === 'number' ? value.missingAssetCount : undefined,
+    fxSource:
+      value.fxSource === 'cron_pipeline' ||
+      value.fxSource === 'persisted' ||
+      value.fxSource === 'live'
+        ? value.fxSource
+        : 'unknown',
+    fxRatesUsed:
+      typeof value.fxRatesUsed === 'object' && value.fxRatesUsed !== null
+        ? {
+            USD:
+              typeof (value.fxRatesUsed as Record<string, unknown>).USD === 'number'
+                ? ((value.fxRatesUsed as Record<string, unknown>).USD as number)
+                : undefined,
+            JPY:
+              typeof (value.fxRatesUsed as Record<string, unknown>).JPY === 'number'
+                ? ((value.fxRatesUsed as Record<string, unknown>).JPY as number)
+                : undefined,
+            HKD:
+              typeof (value.fxRatesUsed as Record<string, unknown>).HKD === 'number'
+                ? ((value.fxRatesUsed as Record<string, unknown>).HKD as number)
+                : undefined,
+          }
+        : undefined,
     holdings,
   };
 }
@@ -593,7 +637,10 @@ async function readSnapshotOnOrBefore(targetDate: string) {
     .get();
 
   if (!snapshotBefore.empty) {
-    return normalizeSnapshotDocument(snapshotBefore.docs[0].data() as Record<string, unknown>);
+    return normalizeSnapshotDocument(
+      snapshotBefore.docs[0].data() as Record<string, unknown>,
+      snapshotBefore.docs[0].id,
+    );
   }
 
   return null;
@@ -610,7 +657,7 @@ async function readRecentSnapshotHistory(limitCount = 120) {
     .get();
 
   return snapshot.docs.map((document) =>
-    normalizeSnapshotDocument(document.data() as Record<string, unknown>),
+    normalizeSnapshotDocument(document.data() as Record<string, unknown>, document.id),
   );
 }
 
@@ -621,6 +668,10 @@ function getMonthKey(value: string) {
 async function readPreviousQuarterSnapshot() {
   const previousQuarterEndDate = getPreviousQuarterEndDate();
   return readSnapshotOnOrBefore(previousQuarterEndDate);
+}
+
+async function readLatestSnapshotMeta(date = getHongKongDate()) {
+  return readSnapshotOnOrBefore(date);
 }
 
 export function getPreviousMonthStartDate(date = new Date()) {
@@ -672,6 +723,172 @@ async function readPreviousMonthSnapshot(date = new Date()) {
   return selectNearestSnapshotToDate(history, targetDate);
 }
 
+function getOldestPriceDate(assets: AdminAsset[]) {
+  return assets
+    .map((asset) => asset.lastPriceUpdatedAt ?? asset.priceAsOf ?? '')
+    .filter(Boolean)
+    .sort()[0];
+}
+
+function getStaleAssetCount(assets: AdminAsset[], now = new Date()) {
+  return assets.filter((asset) => {
+    const timestamp = asset.lastPriceUpdatedAt ?? asset.priceAsOf;
+    if (!timestamp) {
+      return true;
+    }
+
+    const updatedAt = new Date(timestamp);
+
+    if (Number.isNaN(updatedAt.getTime())) {
+      return true;
+    }
+
+    return now.getTime() - updatedAt.getTime() > 24 * 60 * 60 * 1000;
+  }).length;
+}
+
+function buildReportDataQualitySummary(params: {
+  assets: AdminAsset[];
+  snapshotMeta?: SnapshotDocument | null;
+  now?: Date;
+}): ReportDataQualitySummary {
+  const now = params.now ?? new Date();
+  const snapshotMeta = params.snapshotMeta ?? null;
+  const staleAssetCount = getStaleAssetCount(params.assets, now);
+  const coveragePct = snapshotMeta?.coveragePct;
+  const fallbackAssetCount = snapshotMeta?.fallbackAssetCount;
+  const missingAssetCount = snapshotMeta?.missingAssetCount;
+  const warningMessages: string[] = [];
+
+  if (snapshotMeta?.snapshotQuality === 'fallback') {
+    warningMessages.push('快照使用 fallback 價格或降級資料。');
+  }
+  if (typeof coveragePct === 'number' && coveragePct < 100) {
+    warningMessages.push(`價格覆蓋率只有 ${coveragePct}%。`);
+  }
+  if (typeof fallbackAssetCount === 'number' && fallbackAssetCount > 0) {
+    warningMessages.push(`有 ${fallbackAssetCount} 項資產沿用 fallback 價格。`);
+  }
+  if (typeof missingAssetCount === 'number' && missingAssetCount > 0) {
+    warningMessages.push(`有 ${missingAssetCount} 項資產缺少價格或快照資料。`);
+  }
+  if (staleAssetCount > 0) {
+    warningMessages.push(`有 ${staleAssetCount} 項資產價格超過 24 小時未更新。`);
+  }
+  if (!snapshotMeta) {
+    warningMessages.push('未能讀到最新 snapshot metadata，部分資料品質指標可能不足。');
+  }
+
+  let status: ReportDataQualitySummary['status'] = 'ok';
+  if (
+    warningMessages.length > 0 &&
+    ((typeof missingAssetCount === 'number' && missingAssetCount > 0) ||
+      (typeof coveragePct === 'number' && coveragePct < 80) ||
+      !snapshotMeta)
+  ) {
+    status = 'warning';
+  } else if (warningMessages.length > 0) {
+    status = 'partial';
+  }
+
+  return {
+    status,
+    coveragePct,
+    staleAssetCount,
+    fallbackAssetCount,
+    missingAssetCount,
+    fxSource: snapshotMeta?.fxSource ?? 'unknown',
+    fxRatesUsed: snapshotMeta?.fxRatesUsed,
+    oldestPriceAsOf: getOldestPriceDate(params.assets),
+    warningMessages,
+  };
+}
+
+function formatReportDataQualitySummaryForPrompt(
+  summary: ReportDataQualitySummary,
+  title: '【資料品質檢查】' | '【資料品質與限制】',
+) {
+  const lines = [
+    `${title}`,
+    `- 狀態：${summary.status}`,
+    `- 價格覆蓋率：${typeof summary.coveragePct === 'number' ? `${summary.coveragePct}%` : '未提供'}`,
+    `- 匯率來源：${summary.fxSource ?? 'unknown'}`,
+    `- 過期價格資產數：${summary.staleAssetCount}`,
+  ];
+
+  if (summary.oldestPriceAsOf) {
+    lines.push(`- 最舊價格日期：${summary.oldestPriceAsOf}`);
+  }
+
+  if (typeof summary.fallbackAssetCount === 'number') {
+    lines.push(`- fallback 價格資產數：${summary.fallbackAssetCount}`);
+  }
+  if (typeof summary.missingAssetCount === 'number') {
+    lines.push(`- 缺失資產數：${summary.missingAssetCount}`);
+  }
+
+  if (summary.warningMessages.length > 0) {
+    lines.push(...summary.warningMessages.map((message) => `- 限制：${message}`));
+  } else {
+    lines.push('- 資料完整，可作一般解讀。');
+  }
+
+  return lines.join('\n');
+}
+
+function buildReportFactsPayload(params: {
+  reportType: 'monthly' | 'quarterly';
+  generatedAt: string;
+  periodStartDate: string;
+  periodEndDate: string;
+  baselineSnapshot?: SnapshotDocument | null;
+  currentSnapshot: SnapshotComparisonSource;
+  totalCostHKD: number;
+  allocationSummary: ReportAllocationSummary;
+  allocationsByCurrency: PortfolioAnalysisRequest['allocationsByCurrency'];
+  model: string;
+  provider: 'google' | 'anthropic';
+  snapshotHash: string;
+  dataQualitySummary: ReportDataQualitySummary;
+  topHoldingsByHKD: PortfolioAnalysisRequest['holdings'];
+  comparison?: ReturnType<typeof compareSnapshots> | null;
+  fxSource?: SnapshotDocument['fxSource'];
+  fxRatesUsed?: SnapshotFxRatesUsed;
+}) {
+  const comparison = params.comparison ?? null;
+
+  return {
+    generatedAt: params.generatedAt,
+    reportType: params.reportType,
+    periodStartDate: params.periodStartDate,
+    periodEndDate: params.periodEndDate,
+    baselineSnapshotId: params.baselineSnapshot?.id,
+    baselineSnapshotDate: params.baselineSnapshot?.date,
+    currentSnapshotDate: params.currentSnapshot.date,
+    totalValueHKD: params.currentSnapshot.totalValueHKD,
+    totalCostHKD: params.totalCostHKD,
+    netExternalFlowHKD: comparison?.totalValue.netExternalFlowHKD,
+    investmentGainHKD: comparison?.totalValue.investmentGainHKD,
+    investmentGainPercent: comparison?.totalValue.investmentGainPercent,
+    fxRatesUsed: params.fxRatesUsed,
+    fxSource: params.fxSource ?? 'unknown',
+    dataQualitySummary: params.dataQualitySummary,
+    topHoldingsByHKD: params.topHoldingsByHKD.slice(0, 10).map((holding) => ({
+      ticker: holding.ticker,
+      name: holding.name,
+      currency: holding.currency,
+      marketValueHKD: holding.marketValueHKD,
+      marketValueLocal: holding.marketValue,
+    })),
+    allocationByType: params.allocationSummary.slices,
+    allocationByCurrency: params.allocationsByCurrency,
+    model: params.model,
+    provider: params.provider,
+    snapshotHash: params.snapshotHash,
+    promptVersion: REPORT_PROMPT_VERSION,
+  } satisfies ReportFactsPayload;
+}
+
 function buildMonthlyTrendSnapshots(snapshots: SnapshotComparisonSource[]) {
   return selectRecentDistinctMonthlySnapshots(snapshots, 3);
 }
@@ -710,6 +927,13 @@ function buildComparisonPromptSections(
     `【期間】${comparison.periodLabel}`,
     `【總資產變化】現值 ${comparison.totalValue.current.toFixed(2)} HKD｜前值 ${comparison.totalValue.previous.toFixed(2)} HKD｜` +
       `變化 ${comparison.totalValue.changeHKD.toFixed(2)} HKD｜${comparison.totalValue.changePercent.toFixed(1)}%`,
+    comparison.totalValue.cashFlowDataComplete &&
+    typeof comparison.totalValue.netExternalFlowHKD === 'number' &&
+    typeof comparison.totalValue.investmentGainHKD === 'number' &&
+    typeof comparison.totalValue.investmentGainPercent === 'number'
+      ? `【扣除資金流後變化】淨入金／出金 ${comparison.totalValue.netExternalFlowHKD.toFixed(2)} HKD｜` +
+        `投資表現 ${comparison.totalValue.investmentGainHKD.toFixed(2)} HKD｜${comparison.totalValue.investmentGainPercent.toFixed(1)}%`
+      : '【扣除資金流後變化】未能完整扣除入金／出金，以下只反映總資產變化。',
     `【資產類別變化】`,
     ...comparison.assetTypeChanges.map(
       (entry) =>
@@ -758,6 +982,7 @@ function formatReportAllocationSummaryForPrompt(summary: ReportAllocationSummary
 function buildMonthlyAnalysisQuestion(params: {
   comparison: ReturnType<typeof compareSnapshots> | null;
   allocationSummary: ReportAllocationSummary;
+  dataQualitySummary: ReportDataQualitySummary;
 }) {
   const comparisonText = params.comparison
     ? buildComparisonPromptSections(params.comparison, { limitHoldings: 12 })
@@ -768,7 +993,7 @@ function buildMonthlyAnalysisQuestion(params: {
     '資產分佈總覽已由系統用真實資料計算並顯示在正文前；不要輸出圖表資料、表格，亦不要逐項重覆百分比分布。',
     '必須按以下順序輸出，每段用【】做標題：',
     '【本月一句總結】（1 句，直接講最大重點）',
-    '【本月資產變化摘要】（如無上月快照，要明確講未有可比較快照）',
+    '【本月資產變化摘要】（必須同時交代總資產變化、淨入金／出金、扣除資金流後變化；如資料不足要明確講限制）',
     '【組合健康檢查】（承接系統分佈總覽，只做判讀）',
     '【三個重點觀察】（剛好 3 點，引用持倉、金額或變化）',
     '【下月行動建議】（2-4 點，偏監察和行動）',
@@ -780,6 +1005,8 @@ function buildMonthlyAnalysisQuestion(params: {
     '',
     formatReportAllocationSummaryForPrompt(params.allocationSummary),
     '',
+    formatReportDataQualitySummaryForPrompt(params.dataQualitySummary, '【資料品質檢查】'),
+    '',
     '對比數據：',
     comparisonText,
   ].join('\n');
@@ -790,9 +1017,10 @@ function buildQuarterlyAnalysisQuestion(
     currentComparison: ReturnType<typeof compareSnapshots> | null;
     trendComparisons: ReturnType<typeof compareSnapshots>[];
     allocationSummary: ReportAllocationSummary;
+    dataQualitySummary: ReportDataQualitySummary;
   },
 ) {
-  const { currentComparison, trendComparisons, allocationSummary } = params;
+  const { currentComparison, trendComparisons, allocationSummary, dataQualitySummary } = params;
   const currentComparisonText = currentComparison
     ? buildComparisonPromptSections(currentComparison, { limitHoldings: 12 })
     : '未有可比較的上季季末快照；請只根據目前持倉、系統分佈總覽與可用趨勢資料歸檔，不要假設季度變化。';
@@ -812,7 +1040,7 @@ function buildQuarterlyAnalysisQuestion(
     '【資產配置分佈】',
     '【幣別曝險】',
     '【重點持倉分析】',
-    '【季度對比摘要】',
+    '【季度對比摘要】（必須同時交代總資產變化、淨入金／出金、扣除資金流後變化；如資料不足要明確講限制）',
     '【主要風險與集中度】',
     '【下季觀察重點】',
     '',
@@ -822,6 +1050,8 @@ function buildQuarterlyAnalysisQuestion(
     '短而準，繁體中文輸出；資料不足就直說。',
     '',
     formatReportAllocationSummaryForPrompt(allocationSummary),
+    '',
+    formatReportDataQualitySummaryForPrompt(dataQualitySummary, '【資料品質與限制】'),
     '',
     '今季 vs 上季對比數據：',
     currentComparisonText,
@@ -835,6 +1065,7 @@ async function saveScheduledAnalysis(
   response: PortfolioAnalysisResponse & { assetCount: number },
   title: string,
   allocationSummary?: ReportAllocationSummary,
+  reportFactsPayload?: ReportFactsPayload,
 ) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -853,6 +1084,7 @@ async function saveScheduledAnalysis(
       assetCount: response.assetCount,
       answer: response.answer,
       ...(allocationSummary ? { allocationSummary } : {}),
+      ...(reportFactsPayload ? { reportFactsPayload } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true },
@@ -868,6 +1100,7 @@ async function saveScheduledAnalysis(
     snapshotHash: response.snapshotHash,
     delivery: 'scheduled',
     ...(allocationSummary ? { allocationSummary } : {}),
+    ...(reportFactsPayload ? { reportFactsPayload } : {}),
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
@@ -883,6 +1116,7 @@ async function saveQuarterlyReport(params: {
   model: string;
   provider: string;
   allocationSummary?: ReportAllocationSummary;
+  reportFactsPayload?: ReportFactsPayload;
 }) {
   const db = getFirebaseAdminDb();
 
@@ -900,6 +1134,7 @@ async function saveQuarterlyReport(params: {
       model: params.model,
       provider: params.provider,
       ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
+      ...(params.reportFactsPayload ? { reportFactsPayload: params.reportFactsPayload } : {}),
       pdfUrl: '',
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -913,7 +1148,6 @@ async function runScheduledCategoryAnalysis(params: {
   conversationContext: string;
   maxTokens: number;
   assets?: AdminAsset[];
-  allocationSummary?: ReportAllocationSummary;
 }) {
   const assets = params.assets ?? await readAdminPortfolioAssets();
 
@@ -940,15 +1174,22 @@ async function runScheduledCategoryAnalysis(params: {
     assetCount: request.assetCount,
   };
 
-  await saveScheduledAnalysis(payload, params.title, params.allocationSummary);
-
-  return payload;
+  return {
+    response: payload,
+    request,
+  };
 }
 
 export async function runMonthlyAssetAnalysis() {
   const assets = await readAdminPortfolioAssets();
   const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
+  const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
+  const recentSnapshotHistory = await readRecentSnapshotHistory(120);
   const previousMonthSnapshot = await readPreviousMonthSnapshot();
+  const dataQualitySummary = buildReportDataQualitySummary({
+    assets,
+    snapshotMeta: latestSnapshotMeta,
+  });
   const allocationSummary = buildReportAllocationSummaryFromHoldings({
     holdings: currentSnapshot.holdings,
     asOfDate: currentSnapshot.date,
@@ -962,7 +1203,9 @@ export async function runMonthlyAssetAnalysis() {
   });
   const title = `${getHongKongYearMonthLabel()}每月資產分析`;
   const comparison = previousMonthSnapshot
-    ? compareSnapshots(currentSnapshot, previousMonthSnapshot)
+    ? compareSnapshots(currentSnapshot, previousMonthSnapshot, {
+        periodSnapshots: recentSnapshotHistory,
+      })
     : null;
   const comparisonText = comparison
     ? buildComparisonPromptSections(comparison, { limitHoldings: 12 })
@@ -970,6 +1213,7 @@ export async function runMonthlyAssetAnalysis() {
   const question = buildMonthlyAnalysisQuestion({
     comparison,
     allocationSummary,
+    dataQualitySummary,
   });
   const conversationContext = [
     'Gemini Google Search 摘要：',
@@ -977,18 +1221,39 @@ export async function runMonthlyAssetAnalysis() {
     '',
     formatReportAllocationSummaryForPrompt(allocationSummary),
     '',
+    formatReportDataQualitySummaryForPrompt(dataQualitySummary, '【資料品質檢查】'),
+    '',
     '月度對比資料：',
     comparisonText,
   ].join('\n');
-  const response = await runScheduledCategoryAnalysis({
+  const { response, request } = await runScheduledCategoryAnalysis({
     category: 'asset_analysis',
     title,
     question,
     conversationContext,
     maxTokens: 3500,
     assets,
-    allocationSummary,
   });
+  const reportFactsPayload = buildReportFactsPayload({
+    reportType: 'monthly',
+    generatedAt: response.generatedAt,
+    periodStartDate: previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
+    periodEndDate: currentSnapshot.date,
+    baselineSnapshot: previousMonthSnapshot,
+    currentSnapshot,
+    totalCostHKD: request.totalCostHKD,
+    allocationSummary,
+    allocationsByCurrency: request.allocationsByCurrency,
+    model: response.model,
+    provider: response.provider,
+    snapshotHash: response.snapshotHash,
+    dataQualitySummary,
+    topHoldingsByHKD: [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD),
+    comparison,
+    fxSource: latestSnapshotMeta?.fxSource,
+    fxRatesUsed: latestSnapshotMeta?.fxRatesUsed,
+  });
+  await saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload);
 
   return {
     ok: true,
@@ -1036,7 +1301,13 @@ export async function runManualMonthlyAssetAnalysis() {
 export async function runQuarterlyAssetReport() {
   const assets = await readAdminPortfolioAssets();
   const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
+  const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
   const previousQuarterSnapshot = await readPreviousQuarterSnapshot();
+  const recentSnapshotHistory = await readRecentSnapshotHistory(120);
+  const dataQualitySummary = buildReportDataQualitySummary({
+    assets,
+    snapshotMeta: latestSnapshotMeta,
+  });
   const allocationSummary = buildReportAllocationSummaryFromHoldings({
     holdings: currentSnapshot.holdings,
     asOfDate: currentSnapshot.date,
@@ -1044,7 +1315,6 @@ export async function runQuarterlyAssetReport() {
     comparisonHoldings: previousQuarterSnapshot?.holdings,
     comparisonLabel: previousQuarterSnapshot ? '較上季' : undefined,
   });
-  const recentSnapshotHistory = await readRecentSnapshotHistory(120);
   const trendSnapshots = buildMonthlyTrendSnapshots([
     currentSnapshot,
     ...recentSnapshotHistory,
@@ -1053,7 +1323,11 @@ export async function runQuarterlyAssetReport() {
     trendSnapshots.length >= 2
       ? trendSnapshots
           .slice(0, trendSnapshots.length - 1)
-          .map((snapshot, index) => compareSnapshots(snapshot, trendSnapshots[index + 1]))
+          .map((snapshot, index) =>
+            compareSnapshots(snapshot, trendSnapshots[index + 1], {
+              periodSnapshots: recentSnapshotHistory,
+            }),
+          )
       : [];
   const searchSummary = await generateGroundedSearchSummary({
     assets,
@@ -1061,7 +1335,9 @@ export async function runQuarterlyAssetReport() {
   });
   const title = `${getHongKongQuarterLabel()}資產報告`;
   const currentComparison = previousQuarterSnapshot
-    ? compareSnapshots(currentSnapshot, previousQuarterSnapshot)
+    ? compareSnapshots(currentSnapshot, previousQuarterSnapshot, {
+        periodSnapshots: recentSnapshotHistory,
+      })
     : null;
   const currentComparisonText = currentComparison
     ? buildComparisonPromptSections(currentComparison, { limitHoldings: 12 })
@@ -1070,6 +1346,7 @@ export async function runQuarterlyAssetReport() {
     currentComparison,
     trendComparisons,
     allocationSummary,
+    dataQualitySummary,
   });
   const currentSnapshotHash = createSnapshotHashFromAssets(assets);
   const conversationContext = [
@@ -1077,6 +1354,8 @@ export async function runQuarterlyAssetReport() {
     searchSummary.summary,
     '',
     formatReportAllocationSummaryForPrompt(allocationSummary),
+    '',
+    formatReportDataQualitySummaryForPrompt(dataQualitySummary, '【資料品質與限制】'),
     '',
     '今季 vs 上季對比資料：',
     currentComparisonText,
@@ -1090,15 +1369,34 @@ export async function runQuarterlyAssetReport() {
           .join('\n\n')
       : '未有足夠三個月趨勢資料。',
   ].join('\n');
-  const response = await runScheduledCategoryAnalysis({
+  const { response, request } = await runScheduledCategoryAnalysis({
     category: 'asset_report',
     title,
     question,
     conversationContext,
     maxTokens: 5000,
     assets,
-    allocationSummary,
   });
+  const reportFactsPayload = buildReportFactsPayload({
+    reportType: 'quarterly',
+    generatedAt: response.generatedAt,
+    periodStartDate: previousQuarterSnapshot?.date ?? getPreviousQuarterEndDate(),
+    periodEndDate: currentSnapshot.date,
+    baselineSnapshot: previousQuarterSnapshot,
+    currentSnapshot,
+    totalCostHKD: request.totalCostHKD,
+    allocationSummary,
+    allocationsByCurrency: request.allocationsByCurrency,
+    model: response.model,
+    provider: response.provider,
+    snapshotHash: currentSnapshotHash || response.snapshotHash,
+    dataQualitySummary,
+    topHoldingsByHKD: [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD),
+    comparison: currentComparison,
+    fxSource: latestSnapshotMeta?.fxSource,
+    fxRatesUsed: latestSnapshotMeta?.fxRatesUsed,
+  });
+  await saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload);
 
   await saveQuarterlyReport({
     quarter: getHongKongQuarterLabel(),
@@ -1110,6 +1408,7 @@ export async function runQuarterlyAssetReport() {
     model: response.model,
     provider: response.provider,
     allocationSummary,
+    reportFactsPayload,
   });
 
   return {

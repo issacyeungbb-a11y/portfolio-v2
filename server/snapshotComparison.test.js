@@ -6,6 +6,7 @@ import {
   getMonthKey,
   normalizeDateKey,
   selectRecentDistinctMonthlySnapshots,
+  summarizePeriodExternalFlow,
 } from './snapshotComparison.js';
 
 const previousSnapshot = {
@@ -179,4 +180,63 @@ test('compareSnapshots matches holdings without assetId by ticker and currency',
   assert.equal(comparison.holdingChanges.length, 1);
   assert.equal(comparison.holdingChanges[0]?.status, 'unchanged');
   assert.equal(comparison.holdingChanges[0]?.name, 'Ethereum New Name');
+});
+
+test('compareSnapshots calculates cash-flow adjusted return when period snapshots are complete', () => {
+  const comparison = compareSnapshots(
+    {
+      ...currentSnapshot,
+      date: '2026-03-03',
+      totalValueHKD: 120000,
+    },
+    {
+      ...previousSnapshot,
+      date: '2026-03-01',
+      totalValueHKD: 100000,
+    },
+    {
+      periodSnapshots: [
+        { date: '2026-03-02', totalValueHKD: 110000, netExternalFlowHKD: 15000, holdings: [] },
+        { date: '2026-03-03', totalValueHKD: 120000, netExternalFlowHKD: 0, holdings: [] },
+      ],
+    },
+  );
+
+  assert.equal(comparison.totalValue.netExternalFlowHKD, 15000);
+  assert.equal(comparison.totalValue.investmentGainHKD, 5000);
+  assert.equal(comparison.totalValue.investmentGainPercent, 5);
+  assert.equal(comparison.totalValue.cashFlowDataComplete, true);
+});
+
+test('compareSnapshots handles withdrawal-adjusted gain correctly', () => {
+  const comparison = compareSnapshots(
+    {
+      ...currentSnapshot,
+      date: '2026-03-03',
+      totalValueHKD: 90000,
+    },
+    {
+      ...previousSnapshot,
+      date: '2026-03-01',
+      totalValueHKD: 100000,
+    },
+    {
+      periodSnapshots: [
+        { date: '2026-03-02', totalValueHKD: 95000, netExternalFlowHKD: -20000, holdings: [] },
+        { date: '2026-03-03', totalValueHKD: 90000, netExternalFlowHKD: 0, holdings: [] },
+      ],
+    },
+  );
+
+  assert.equal(comparison.totalValue.netExternalFlowHKD, -20000);
+  assert.equal(comparison.totalValue.investmentGainHKD, 10000);
+});
+
+test('summarizePeriodExternalFlow marks missing snapshot dates as incomplete', () => {
+  const flow = summarizePeriodExternalFlow('2026-03-01', '2026-03-03', [
+    { date: '2026-03-03', totalValueHKD: 1, netExternalFlowHKD: 0, holdings: [] },
+  ]);
+
+  assert.equal(flow.isComplete, false);
+  assert.deepEqual(flow.missingDates, ['2026-03-02']);
 });

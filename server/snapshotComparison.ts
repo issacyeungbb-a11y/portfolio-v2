@@ -12,9 +12,29 @@ export interface SnapshotComparisonHolding {
 }
 
 export interface SnapshotComparisonSource {
+  id?: string;
   date: string;
   totalValueHKD: number;
+  netExternalFlowHKD?: number;
+  snapshotQuality?: 'strict' | 'fallback';
+  coveragePct?: number;
+  fallbackAssetCount?: number;
+  missingAssetCount?: number;
+  fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
+  fxRatesUsed?: {
+    USD?: number;
+    JPY?: number;
+    HKD?: number;
+  };
   holdings: SnapshotComparisonHolding[];
+}
+
+export interface SnapshotFlowSummary {
+  isComplete: boolean;
+  netExternalFlowHKD?: number;
+  periodStartDate: string;
+  periodEndDate: string;
+  missingDates: string[];
 }
 
 export interface SnapshotComparison {
@@ -26,6 +46,10 @@ export interface SnapshotComparison {
     previous: number;
     changeHKD: number;
     changePercent: number;
+    netExternalFlowHKD?: number;
+    investmentGainHKD?: number;
+    investmentGainPercent?: number;
+    cashFlowDataComplete: boolean;
   };
   assetTypeChanges: Array<{
     assetType: string;
@@ -80,6 +104,68 @@ export function normalizeDateKey(value: string) {
 export function getMonthKey(value: string) {
   const normalized = normalizeDateKey(value);
   return normalized.slice(0, 7);
+}
+
+function formatDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function listDateKeysBetween(startDateExclusive: string, endDateInclusive: string) {
+  const keys: string[] = [];
+  const cursor = new Date(`${normalizeDateKey(startDateExclusive)}T00:00:00Z`);
+  const end = new Date(`${normalizeDateKey(endDateInclusive)}T00:00:00Z`);
+
+  cursor.setUTCDate(cursor.getUTCDate() + 1);
+
+  while (cursor <= end) {
+    keys.push(formatDateKey(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return keys;
+}
+
+export function summarizePeriodExternalFlow(
+  previousDate: string,
+  currentDate: string,
+  snapshots: SnapshotComparisonSource[],
+): SnapshotFlowSummary {
+  const expectedDates = listDateKeysBetween(previousDate, currentDate);
+
+  if (expectedDates.length === 0) {
+    return {
+      isComplete: true,
+      netExternalFlowHKD: 0,
+      periodStartDate: normalizeDateKey(previousDate),
+      periodEndDate: normalizeDateKey(currentDate),
+      missingDates: [],
+    };
+  }
+
+  const snapshotsByDate = new Map(
+    snapshots.map((snapshot) => [normalizeDateKey(snapshot.date), snapshot]),
+  );
+  const missingDates = expectedDates.filter((date) => !snapshotsByDate.has(date));
+
+  if (missingDates.length > 0) {
+    return {
+      isComplete: false,
+      periodStartDate: normalizeDateKey(previousDate),
+      periodEndDate: normalizeDateKey(currentDate),
+      missingDates,
+    };
+  }
+
+  return {
+    isComplete: true,
+    netExternalFlowHKD: expectedDates.reduce(
+      (sum, date) => sum + toFiniteNumber(snapshotsByDate.get(date)?.netExternalFlowHKD),
+      0,
+    ),
+    periodStartDate: normalizeDateKey(previousDate),
+    periodEndDate: normalizeDateKey(currentDate),
+    missingDates: [],
+  };
 }
 
 function getHoldingKey(holding: SnapshotComparisonHolding) {
@@ -184,6 +270,9 @@ function buildDistributionChanges(
 export function compareSnapshots(
   current: SnapshotComparisonSource,
   previous: SnapshotComparisonSource,
+  options?: {
+    periodSnapshots?: SnapshotComparisonSource[];
+  },
 ): SnapshotComparison {
   const currentHoldings = new Map(
     current.holdings.map((holding) => [getHoldingKey(holding), holding]),
@@ -232,6 +321,17 @@ export function compareSnapshots(
   const totalValueChangeHKD = current.totalValueHKD - previous.totalValueHKD;
   const totalValueChangePercent =
     previous.totalValueHKD !== 0 ? (totalValueChangeHKD / previous.totalValueHKD) * 100 : 0;
+  const flowSummary = options?.periodSnapshots
+    ? summarizePeriodExternalFlow(previous.date, current.date, options.periodSnapshots)
+    : null;
+  const investmentGainHKD =
+    flowSummary?.isComplete && typeof flowSummary.netExternalFlowHKD === 'number'
+      ? totalValueChangeHKD - flowSummary.netExternalFlowHKD
+      : undefined;
+  const investmentGainPercent =
+    typeof investmentGainHKD === 'number' && previous.totalValueHKD > 0
+      ? (investmentGainHKD / previous.totalValueHKD) * 100
+      : undefined;
 
   const assetTypeChanges = buildDistributionChanges(current, previous, (holding) =>
     String(holding.assetType || 'unknown'),
@@ -260,6 +360,10 @@ export function compareSnapshots(
       previous: previous.totalValueHKD,
       changeHKD: totalValueChangeHKD,
       changePercent: totalValueChangePercent,
+      netExternalFlowHKD: flowSummary?.isComplete ? flowSummary.netExternalFlowHKD : undefined,
+      investmentGainHKD,
+      investmentGainPercent,
+      cashFlowDataComplete: flowSummary?.isComplete ?? false,
     },
     assetTypeChanges,
     currencyChanges,
@@ -344,6 +448,12 @@ export function formatSnapshotComparisonForPrompt(comparison: SnapshotComparison
   return [
     `【期間】${comparison.periodLabel}`,
     `【總資產變化】現值 ${formatMoney(comparison.totalValue.current)} HKD｜前值 ${formatMoney(comparison.totalValue.previous)} HKD｜變化 ${formatMoney(comparison.totalValue.changeHKD)} HKD｜${formatSignedPercent(comparison.totalValue.changePercent)}`,
+    comparison.totalValue.cashFlowDataComplete &&
+    typeof comparison.totalValue.netExternalFlowHKD === 'number' &&
+    typeof comparison.totalValue.investmentGainHKD === 'number' &&
+    typeof comparison.totalValue.investmentGainPercent === 'number'
+      ? `【扣除資金流後】淨入金／出金 ${formatMoney(comparison.totalValue.netExternalFlowHKD)} HKD｜投資表現 ${formatMoney(comparison.totalValue.investmentGainHKD)} HKD｜${formatSignedPercent(comparison.totalValue.investmentGainPercent)}`
+      : '【扣除資金流後】未能完整扣除入金／出金，以下只反映總資產變化。',
     `【資產類別變化】`,
     ...comparison.assetTypeChanges.map(
       (entry) =>

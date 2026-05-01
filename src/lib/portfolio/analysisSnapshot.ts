@@ -12,6 +12,7 @@ import {
 import {
   getRecentPortfolioSnapshots,
 } from '../firebase/portfolioSnapshots';
+import { sortAnalysisHoldingsByHKD } from './analysisSnapshotRanking';
 import type { Holding } from '../../types/portfolio';
 import type {
   PortfolioAnalysisPriceHistoryGroup,
@@ -202,9 +203,7 @@ async function enrichPortfolioAnalysisRequest(params: {
   holdings: Holding[];
 }): Promise<PortfolioAnalysisRequest> {
   const { baseRequest, holdings } = params;
-  const topHoldings = [...holdings]
-    .sort((left, right) => right.marketValue - left.marketValue)
-    .slice(0, 10);
+  const topHoldings = sortAnalysisHoldingsByHKD(holdings).slice(0, 10);
   const transactionsCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   try {

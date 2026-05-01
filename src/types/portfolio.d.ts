@@ -24,6 +24,25 @@ export interface Holding extends PortfolioAssetInput {
     allocation: number;
     priceAsOf?: string;
     lastPriceUpdatedAt?: string;
+    archivedAt?: string;
+}
+export interface SnapshotFxRatesUsed {
+    USD?: number;
+    JPY?: number;
+    HKD?: number;
+}
+export interface SnapshotHoldingPoint {
+    assetId: string;
+    name: string;
+    symbol: string;
+    assetType: AssetType;
+    accountSource: AccountSource;
+    currency: string;
+    quantity: number;
+    currentPrice: number;
+    averageCost: number;
+    marketValueHKD: number;
+    priceAsOf?: string;
 }
 export interface AccountPrincipalEntry {
     accountSource: AccountSource;
@@ -43,9 +62,20 @@ export interface AccountCashFlowEntry {
     updatedAt?: string;
 }
 export interface PortfolioPerformancePoint {
+    id?: string;
     date: string;
+    capturedAt?: string;
     totalValue: number;
     netExternalFlow: number;
+    assetCount?: number;
+    holdings?: SnapshotHoldingPoint[];
+    reason?: 'daily_snapshot' | 'daily_snapshot_fallback';
+    snapshotQuality?: 'strict' | 'fallback';
+    coveragePct?: number;
+    fallbackAssetCount?: number;
+    missingAssetCount?: number;
+    fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
+    fxRatesUsed?: SnapshotFxRatesUsed;
 }
 export interface PortfolioPerformanceSummary {
     range: PerformanceRange;
@@ -83,14 +113,86 @@ export interface ImportJob {
 }
 export interface AnalysisSession {
     id: string;
+    category?: 'asset_analysis' | 'general_question' | 'asset_report';
     title: string;
     question: string;
     result: string;
     model: string;
     provider?: 'google' | 'anthropic';
     snapshotHash?: string;
+    delivery?: 'manual' | 'scheduled';
+    allocationSummary?: ReportAllocationSummary;
+    reportFactsPayload?: ReportFactsPayload;
     updatedAt: string;
     createdAt?: string;
+}
+export interface ReportAllocationSliceSummary {
+    key: AssetType;
+    label: string;
+    color: string;
+    percentage: number;
+    totalValueHKD: number;
+    totalValueUSD: number;
+}
+export interface ReportAllocationSummary {
+    asOfDate: string;
+    basis: 'monthly' | 'quarterly';
+    comparisonLabel?: string;
+    styleTag: '平衡型' | '進攻型' | '防守型' | '高集中型';
+    warningTags: string[];
+    dominantBucketKey?: AssetType;
+    slices: ReportAllocationSliceSummary[];
+    deltas?: Array<{
+        key: AssetType;
+        deltaPercentagePoints: number;
+    }>;
+    totalValueHKD?: number;
+    summarySentence?: string;
+}
+export interface ReportDataQualitySummary {
+    status: 'ok' | 'partial' | 'warning';
+    coveragePct?: number;
+    staleAssetCount: number;
+    fallbackAssetCount?: number;
+    missingAssetCount?: number;
+    fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
+    fxRatesUsed?: SnapshotFxRatesUsed;
+    oldestPriceAsOf?: string;
+    warningMessages: string[];
+}
+export interface ReportFactsPayload {
+    generatedAt: string;
+    reportType: 'monthly' | 'quarterly';
+    periodStartDate: string;
+    periodEndDate: string;
+    baselineSnapshotId?: string;
+    baselineSnapshotDate?: string;
+    currentSnapshotDate: string;
+    totalValueHKD: number;
+    totalCostHKD: number;
+    netExternalFlowHKD?: number;
+    investmentGainHKD?: number;
+    investmentGainPercent?: number;
+    fxRatesUsed?: SnapshotFxRatesUsed;
+    fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
+    dataQualitySummary: ReportDataQualitySummary;
+    topHoldingsByHKD: Array<{
+        ticker: string;
+        name: string;
+        currency: string;
+        marketValueHKD: number;
+        marketValueLocal?: number;
+    }>;
+    allocationByType: ReportAllocationSummary['slices'];
+    allocationByCurrency: Array<{
+        currency: string;
+        percentage: number;
+        totalValueHKD: number;
+    }>;
+    model: string;
+    provider: 'google' | 'anthropic';
+    snapshotHash: string;
+    promptVersion: string;
 }
 export interface PortfolioSnapshot {
     owner: string;

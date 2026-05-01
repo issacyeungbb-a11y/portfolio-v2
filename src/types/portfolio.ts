@@ -88,6 +88,13 @@ export interface SnapshotHoldingPoint {
   currentPrice: number;
   averageCost: number;
   marketValueHKD: number;
+  priceAsOf?: string;
+}
+
+export interface SnapshotFxRatesUsed {
+  USD?: number;
+  JPY?: number;
+  HKD?: number;
 }
 
 export interface PortfolioPerformancePoint {
@@ -102,6 +109,9 @@ export interface PortfolioPerformancePoint {
   snapshotQuality?: 'strict' | 'fallback';
   coveragePct?: number;
   fallbackAssetCount?: number;
+  missingAssetCount?: number;
+  fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
+  fxRatesUsed?: SnapshotFxRatesUsed;
 }
 
 export interface PortfolioPerformanceSummary {
@@ -180,8 +190,56 @@ export interface AnalysisSession {
   snapshotHash?: string;
   delivery?: 'manual' | 'scheduled';
   allocationSummary?: ReportAllocationSummary;
+  reportFactsPayload?: ReportFactsPayload;
   updatedAt: string;
   createdAt?: string;
+}
+
+export interface ReportDataQualitySummary {
+  status: 'ok' | 'partial' | 'warning';
+  coveragePct?: number;
+  staleAssetCount: number;
+  fallbackAssetCount?: number;
+  missingAssetCount?: number;
+  fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
+  fxRatesUsed?: SnapshotFxRatesUsed;
+  oldestPriceAsOf?: string;
+  warningMessages: string[];
+}
+
+export interface ReportFactsPayload {
+  generatedAt: string;
+  reportType: 'monthly' | 'quarterly';
+  periodStartDate: string;
+  periodEndDate: string;
+  baselineSnapshotId?: string;
+  baselineSnapshotDate?: string;
+  currentSnapshotDate: string;
+  totalValueHKD: number;
+  totalCostHKD: number;
+  netExternalFlowHKD?: number;
+  investmentGainHKD?: number;
+  investmentGainPercent?: number;
+  fxRatesUsed?: SnapshotFxRatesUsed;
+  fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
+  dataQualitySummary: ReportDataQualitySummary;
+  topHoldingsByHKD: Array<{
+    ticker: string;
+    name: string;
+    currency: string;
+    marketValueHKD: number;
+    marketValueLocal?: number;
+  }>;
+  allocationByType: ReportAllocationSummary['slices'];
+  allocationByCurrency: Array<{
+    currency: string;
+    percentage: number;
+    totalValueHKD: number;
+  }>;
+  model: string;
+  provider: 'google' | 'anthropic';
+  snapshotHash: string;
+  promptVersion: string;
 }
 
 export interface AnalysisPromptSettings {

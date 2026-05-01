@@ -122,6 +122,7 @@ function normalizeSnapshotHolding(value: unknown): SnapshotHoldingPoint | null {
     currentPrice: sanitizeNumber(entry.currentPrice),
     averageCost: sanitizeNumber(entry.averageCost),
     marketValueHKD: sanitizeNumber(entry.marketValueHKD),
+    priceAsOf: typeof entry.priceAsOf === 'string' ? entry.priceAsOf : undefined,
   };
 }
 
@@ -145,6 +146,21 @@ function normalizePortfolioSnapshot(
     snapshotQuality: value.snapshotQuality === 'fallback' ? 'fallback' : 'strict',
     coveragePct: sanitizeNumber(value.coveragePct),
     fallbackAssetCount: sanitizeNumber(value.fallbackAssetCount),
+    missingAssetCount: sanitizeNumber(value.missingAssetCount),
+    fxSource:
+      value.fxSource === 'cron_pipeline' ||
+      value.fxSource === 'persisted' ||
+      value.fxSource === 'live'
+        ? value.fxSource
+        : 'unknown',
+    fxRatesUsed:
+      typeof value.fxRatesUsed === 'object' && value.fxRatesUsed !== null
+        ? {
+            USD: sanitizeNumber((value.fxRatesUsed as Record<string, unknown>).USD),
+            JPY: sanitizeNumber((value.fxRatesUsed as Record<string, unknown>).JPY),
+            HKD: sanitizeNumber((value.fxRatesUsed as Record<string, unknown>).HKD),
+          }
+        : undefined,
   };
 }
 

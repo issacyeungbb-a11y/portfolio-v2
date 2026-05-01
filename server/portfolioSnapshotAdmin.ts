@@ -11,6 +11,7 @@ const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 
 type AdminPortfolioAsset = PortfolioAssetInput & {
+  priceAsOf?: string;
   lastPriceUpdatedAt?: string;
   archivedAt?: string;
 };
@@ -49,6 +50,12 @@ function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsse
       : typeof value.lastPriceUpdatedAt === 'string'
         ? value.lastPriceUpdatedAt
         : undefined;
+  const priceAsOf =
+    value.priceAsOf instanceof Timestamp
+      ? value.priceAsOf.toDate().toISOString()
+      : typeof value.priceAsOf === 'string'
+        ? value.priceAsOf
+        : undefined;
   const archivedAt =
     value.archivedAt instanceof Timestamp
       ? value.archivedAt.toDate().toISOString()
@@ -71,6 +78,7 @@ function normalizeAssetInput(value: Record<string, unknown>): AdminPortfolioAsse
     quantity: typeof value.quantity === 'number' ? value.quantity : 0,
     averageCost: typeof value.averageCost === 'number' ? value.averageCost : 0,
     currentPrice: typeof value.currentPrice === 'number' ? value.currentPrice : 0,
+    priceAsOf,
     lastPriceUpdatedAt,
     archivedAt,
   };

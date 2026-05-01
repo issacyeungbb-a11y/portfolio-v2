@@ -42,6 +42,10 @@ function normalizeAnalysisSession(
     snapshotHash: typeof value.snapshotHash === 'string' ? value.snapshotHash : '',
     delivery: value.delivery === 'scheduled' ? 'scheduled' : 'manual',
     allocationSummary: normalizeReportAllocationSummary(value.allocationSummary),
+    reportFactsPayload:
+      typeof value.reportFactsPayload === 'object' && value.reportFactsPayload !== null
+        ? (value.reportFactsPayload as AnalysisSession['reportFactsPayload'])
+        : undefined,
     updatedAt: formatTimestamp(value.updatedAt),
     createdAt: formatTimestamp(value.createdAt),
   };
@@ -109,6 +113,7 @@ export async function createAnalysisSession(
     snapshotHash: entry.snapshotHash ?? '',
     delivery: entry.delivery === 'scheduled' ? 'scheduled' : 'manual',
     ...(entry.allocationSummary ? { allocationSummary: entry.allocationSummary } : {}),
+    ...(entry.reportFactsPayload ? { reportFactsPayload: entry.reportFactsPayload } : {}),
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
