@@ -3,6 +3,8 @@ export const portfolioFunctionConfig = {
     health: { path: '/api/health', method: 'GET' },
     'extract-assets': { path: '/api/extract-assets', method: 'POST' },
     'extract-transactions': { path: '/api/extract-transactions', method: 'POST' },
+    'manual-monthly-analysis': { path: '/api/cron-monthly-analysis', method: 'POST' },
+    'manual-quarterly-report': { path: '/api/cron-quarterly-report', method: 'POST' },
     'manual-capture-snapshot': { path: '/api/manual-capture-snapshot', method: 'POST' },
     'parse-assets-command': { path: '/api/parse-assets-command', method: 'POST' },
     'parse-transactions-command': { path: '/api/parse-transactions-command', method: 'POST' },
@@ -25,6 +27,9 @@ function normalizeTextError(status, text) {
 }
 export async function callPortfolioFunction(key, payload) {
     const config = portfolioFunctionConfig[key];
+    if (!config) {
+        throw new Error(`未支援的函式請求：${key}`);
+    }
     const headers = {};
     if (config.method === 'POST') {
         headers['Content-Type'] = 'application/json';
