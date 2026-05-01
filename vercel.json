@@ -1,6 +1,12 @@
 {
   "fluid": true,
   "functions": {
+    "api/cron-monthly-analysis.ts": {
+      "maxDuration": 120
+    },
+    "api/cron-quarterly-report.ts": {
+      "maxDuration": 120
+    },
     "api/cron-daily-update.ts": {
       "maxDuration": 120
     },

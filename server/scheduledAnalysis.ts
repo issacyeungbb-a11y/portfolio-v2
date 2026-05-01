@@ -34,6 +34,7 @@ const SHARED_PORTFOLIO_DOC_ID = 'app';
 const MONTHLY_ROUTE = '/api/cron-monthly-analysis' as const;
 const QUARTERLY_ROUTE = '/api/cron-quarterly-report' as const;
 const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-7' as const;
+const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = 'gemini-3.1-pro-preview' as const;
 const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
 const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'] as const;
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
@@ -69,6 +70,12 @@ function getGeminiApiKey() {
   }
 
   return apiKey;
+}
+
+function getScheduledAnalysisModel(): PortfolioAnalysisModel {
+  return process.env.ANTHROPIC_API_KEY?.trim()
+    ? DEFAULT_DIAGNOSTIC_MODEL
+    : DEFAULT_DIAGNOSTIC_FALLBACK_MODEL;
 }
 
 function convertToHKD(amount: number, currency: string) {
@@ -859,7 +866,7 @@ async function runScheduledCategoryAnalysis(params: {
     category: params.category,
     analysisQuestion: params.question,
     analysisBackground: promptSettings[params.category],
-    analysisModel: DEFAULT_DIAGNOSTIC_MODEL,
+    analysisModel: getScheduledAnalysisModel(),
     conversationContext: params.conversationContext,
   });
   const response = await runPortfolioAnalysisRequest(request, {
