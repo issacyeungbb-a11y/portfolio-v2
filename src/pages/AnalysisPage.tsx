@@ -316,6 +316,7 @@ export function AnalysisPage() {
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [generatingReportId, setGeneratingReportId] = useState<string | null>(null);
   const [generatingPeriodicReport, setGeneratingPeriodicReport] = useState<'monthly' | 'quarterly' | null>(null);
+  const [deletingMonthlyAnalysisId, setDeletingMonthlyAnalysisId] = useState<string | null>(null);
   const [reportActionMessage, setReportActionMessage] = useState<string | null>(null);
   const [reportActionError, setReportActionError] = useState<string | null>(null);
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
@@ -490,6 +491,7 @@ export function AnalysisPage() {
     entries: analysisSessions,
     error: analysisSessionsError,
     addAnalysisSession,
+    removeAnalysisSession,
   } = useAnalysisSessions();
   const {
     entries: analysisThreads,
@@ -1052,6 +1054,27 @@ export function AnalysisPage() {
     }
   }
 
+  async function handleDeleteMonthlyAnalysisReport(session: AnalysisSession) {
+    if (!window.confirm(`是否確認刪除「${session.title}」？此操作無法復原。`)) {
+      return;
+    }
+
+    setAnalysisError(null);
+    setAnalysisSuccess(null);
+    setReportActionError(null);
+    setReportActionMessage(null);
+    setDeletingMonthlyAnalysisId(session.id);
+
+    try {
+      await removeAnalysisSession(session.id);
+      setReportActionMessage(`已刪除「${session.title}」。`);
+    } catch (error) {
+      setReportActionError(error instanceof Error ? error.message : '刪除每月資產分析失敗，請稍後再試。');
+    } finally {
+      setDeletingMonthlyAnalysisId(null);
+    }
+  }
+
   async function generateAndUploadPdf(report: QuarterlyReport) {
     if (!storage) {
       throw new Error('Firebase Storage 尚未設定完成，請先補上 storageBucket。');
@@ -1279,7 +1302,9 @@ export function AnalysisPage() {
           baseCurrency={mockPortfolio.baseCurrency}
           canGenerateCurrentMonthAnalysis={canGenerateCurrentMonthAnalysis}
           generatingPeriodicReport={generatingPeriodicReport}
+          deletingMonthlyAnalysisId={deletingMonthlyAnalysisId}
           onGenerateMonthlyAnalysisReport={() => void handleGenerateMonthlyAnalysisReport()}
+          onDeleteMonthlyAnalysisReport={(session) => void handleDeleteMonthlyAnalysisReport(session)}
           onSelectedMonthlyAnalysisIdChange={setSelectedMonthlyAnalysisId}
           onExpandedMonthlyAnalysisIdChange={setExpandedMonthlyAnalysisId}
           onOpenSettings={() => setIsPromptSettingsOpen(true)}

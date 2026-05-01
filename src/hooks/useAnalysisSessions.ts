@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import type { AnalysisSession } from '../types/portfolio';
 import {
   createAnalysisSession,
+  deleteAnalysisSession,
   getAnalysisSessionsErrorMessage,
   subscribeToAnalysisSessions,
 } from '../lib/firebase/analysisSessions';
@@ -64,8 +65,22 @@ export function useAnalysisSessions() {
     }
   }
 
+  async function removeAnalysisSession(sessionId: string) {
+    try {
+      await deleteAnalysisSession(sessionId);
+    } catch (error) {
+      const message = getAnalysisSessionsErrorMessage(error);
+      setState((current) => ({
+        ...current,
+        error: message,
+      }));
+      throw new Error(message);
+    }
+  }
+
   return {
     ...state,
     addAnalysisSession,
+    removeAnalysisSession,
   };
 }

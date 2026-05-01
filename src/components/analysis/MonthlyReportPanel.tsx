@@ -12,7 +12,9 @@ interface MonthlyReportPanelProps {
   baseCurrency: string;
   canGenerateCurrentMonthAnalysis: boolean;
   generatingPeriodicReport: 'monthly' | 'quarterly' | null;
+  deletingMonthlyAnalysisId: string | null;
   onGenerateMonthlyAnalysisReport: () => void;
+  onDeleteMonthlyAnalysisReport: (session: AnalysisSession) => void;
   onSelectedMonthlyAnalysisIdChange: (id: string) => void;
   onExpandedMonthlyAnalysisIdChange: (id: string) => void;
   onOpenSettings: () => void;
@@ -30,7 +32,9 @@ export function MonthlyReportPanel({
   baseCurrency,
   canGenerateCurrentMonthAnalysis,
   generatingPeriodicReport,
+  deletingMonthlyAnalysisId,
   onGenerateMonthlyAnalysisReport,
+  onDeleteMonthlyAnalysisReport,
   onSelectedMonthlyAnalysisIdChange,
   onExpandedMonthlyAnalysisIdChange,
   onOpenSettings,
@@ -64,6 +68,14 @@ export function MonthlyReportPanel({
               <div className="analysis-report-actions">
                 <button className="button button-secondary" type="button" onClick={onCopyReport}>
                   複製內容
+                </button>
+                <button
+                  className="button button-secondary"
+                  type="button"
+                  onClick={() => onDeleteMonthlyAnalysisReport(selectedMonthlyAnalysis)}
+                  disabled={deletingMonthlyAnalysisId === selectedMonthlyAnalysis.id}
+                >
+                  {deletingMonthlyAnalysisId === selectedMonthlyAnalysis.id ? '刪除中...' : '刪除'}
                 </button>
                 {canGenerateCurrentMonthAnalysis ? (
                   <button
@@ -168,6 +180,14 @@ export function MonthlyReportPanel({
                       <p>{formatGeneratedAt(session.updatedAt)}</p>
                     </div>
                     <span className="table-hint">{getAnalysisModelLabel(session.model)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => onDeleteMonthlyAnalysisReport(session)}
+                    disabled={deletingMonthlyAnalysisId === session.id}
+                  >
+                    {deletingMonthlyAnalysisId === session.id ? '刪除中...' : '刪除'}
                   </button>
                 </article>
               );

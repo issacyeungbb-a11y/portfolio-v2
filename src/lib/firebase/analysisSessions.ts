@@ -1,5 +1,7 @@
 import {
   addDoc,
+  deleteDoc,
+  doc,
   onSnapshot,
   orderBy,
   query,
@@ -117,4 +119,12 @@ export async function createAnalysisSession(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function deleteAnalysisSession(sessionId: string) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  await deleteDoc(doc(getSharedAnalysisSessionsCollectionRef(), sessionId));
 }
