@@ -49,8 +49,8 @@ const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-previ
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
 const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
 const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
-export const SCHEDULED_ANALYSIS_LOGIC_VERSION = '2026-05-01-p0-round2';
-const REPORT_PROMPT_VERSION = '2026-05-01-p0-round2';
+export const SCHEDULED_ANALYSIS_LOGIC_VERSION = '2026-05-01-p0-round3';
+const REPORT_PROMPT_VERSION = '2026-05-01-p0-round3';
 
 type AdminAsset = Awaited<ReturnType<typeof readAdminPortfolioAssets>>[number];
 type ScheduledCategory = Extract<AnalysisCategory, 'asset_analysis' | 'asset_report'>;
@@ -222,14 +222,14 @@ function getDefaultServerPromptSettings(): AnalysisPromptSettings {
     asset_analysis: [
       '你是每月資產分析助手，定位是監察、告警、下月行動。',
       '系統會在正文前顯示結構化「資產分佈總覽」圖像卡；你不要生成圖表、表格或圖表資料，也不要逐項重覆卡片上的百分比分布。',
-      '你只需要承接系統提供的分佈判讀、持倉與快照對比，寫出短而準的文字結論。',
+      '你只需要承接系統提供的分佈判讀、持倉與快照對比，再結合外部背景摘要，寫出短而準、可落地監察的文字結論。',
       '固定輸出欄目，並按順序使用以下標題：',
       '1. 【本月一句總結】',
       '2. 【本月資產變化摘要】',
       '3. 【組合健康檢查】',
       '4. 【三個重點觀察】',
       '5. 【下月行動建議】',
-      '每段要引用可核對的持倉、變化或風險；如果資料不足，要直說，不要猜測外部市場消息。',
+      '每段要引用可核對的持倉、變化、資金流、幣別或風險；如果資料不足，要直說，並降低結論強度。',
     ].join('\n'),
     general_question: '你是投資組合對話助手，請直接回答我當次提出的問題。',
     asset_report: [
@@ -410,7 +410,7 @@ function getSearchTargetAssets(assets: AdminAsset[]) {
     .slice(0, 12);
 }
 
-function getSearchSummaryPrompt(params: {
+export function getSearchSummaryPrompt(params: {
   assets: AdminAsset[];
   mode: 'monthly' | 'quarterly';
 }) {
@@ -432,13 +432,20 @@ function getSearchSummaryPrompt(params: {
   }
 
   return [
-    '請使用 Google Search 幫我整理投資組合相關的外部市場摘要，只輸出摘要文字，不要做投資分析或建議。',
-    '重點整理：',
-    '1. 近期主要市場表現',
-    '2. 宏觀背景重點',
-    '3. 目前主要持倉近況',
+    '請使用 Google Search 幫我整理投資組合相關的外部市場背景，只輸出精簡摘要，不要做投資分析、買賣建議或價格預測。',
+    '時間範圍：只總結過去一個月最重要的變化。',
+    '請按以下結構輸出，每部分 1-3 句，避免長篇新聞摘要：',
+    '1. 過去一個月市場主線',
+    '2. 主要宏觀因素',
+    '3. 股票 / ETF 影響',
+    '4. 加密貨幣影響',
+    '5. 現金 / 債券 / 利率影響',
+    '6. 匯率與 JPY / USD / HKD 影響',
+    '7. 下月值得觀察的 3-5 個外部因素',
     `主要股票 / ETF 代碼：${tickers}`,
-    '請用繁體中文，寫成可直接提供給另一個 AI 做每月資產診斷的背景摘要。',
+    `組合資產類別：${assetTypeSummary}`,
+    '請優先整理可能影響上述持倉與資產類別的共同背景，不要逐項覆述所有新聞。',
+    '請用繁體中文，控制在 800-1200 中文字以內，寫成可直接提供給另一個 AI 做每月資產診斷的背景摘要。',
   ].join('\n');
 }
 
@@ -1090,7 +1097,7 @@ function formatReportAllocationSummaryForPrompt(summary: ReportAllocationSummary
   ].join('\n');
 }
 
-function buildMonthlyAnalysisQuestion(params: {
+export function buildMonthlyAnalysisQuestion(params: {
   comparison: ReturnType<typeof compareSnapshots> | null;
   allocationSummary: ReportAllocationSummary;
   dataQualitySummary: ReportDataQualitySummary;
@@ -1101,18 +1108,22 @@ function buildMonthlyAnalysisQuestion(params: {
 
   return [
     '請撰寫一份「每月資產分析」，定位係監察 / 告警 / 下月行動。',
-    '資產分佈總覽已由系統用真實資料計算並顯示在正文前；不要輸出圖表資料、表格，亦不要逐項重覆百分比分布。',
+    '你會同時收到：外部市場背景摘要、系統資產分佈總覽、月度對比、cash-flow adjusted return 與資料品質檢查。請把宏觀背景同我實際資產分佈、資產變化互相對照，而唔係分開各講各。',
+    '資產分佈總覽已由系統用真實資料計算並顯示在正文前；不要輸出圖表資料、表格，亦不要逐項重覆百分比分布或列出所有持倉。',
     '必須按以下順序輸出，每段用【】做標題：',
-    '【本月一句總結】（1 句，直接講最大重點）',
-    '【本月資產變化摘要】（必須同時交代總資產變化、淨入金／出金、扣除資金流後變化；如資料不足要明確講限制）',
-    '【組合健康檢查】（承接系統分佈總覽，只做判讀）',
-    '【三個重點觀察】（剛好 3 點，引用持倉、金額或變化）',
-    '【下月行動建議】（2-4 點，偏監察和行動）',
+    '【本月一句總結】（1 句；必須同時提及本月資產變化方向、主要宏觀 / 市場背景，以及組合最大風險或最重要機會）',
+    '【本月資產變化摘要】（必須區分總資產變化、淨入金／出金、扣除資金流後表現、資金流覆蓋率、最大貢獻者 / 最大拖累者；如果回報集中於少數資產，要明確指出）',
+    '【組合健康檢查】（承接系統分佈總覽，加入 risk-on / risk-off、現金 / 債券防守能力、幣別曝險判讀；如資料品質有限要主動收窄結論）',
+    '【三個重點觀察】（剛好 3 點；每點都要用「宏觀背景 → 對我資產的影響 → 投資含義」格式，並引用持倉、金額、分佈或變化）',
+    '【下月行動建議】（2-4 點，必須分成「必須跟進 / 可以考慮 / 暫時不建議」類型，全部都要寫明觸發條件；不要寫成直接買賣指令或確定性價格預測）',
     '',
     '規則：',
     '所有結論必須引用 input 內的資料；不要虛構新聞、估值或宏觀資料。',
-    '不要重覆 summary card 已顯示的百分比分布，只需做判讀。',
-    '每段短而準，繁體中文輸出。',
+    '如果 staleAssetCount > 0，要明確指出哪些結論受價格時效限制影響。',
+    '如果 dataQualitySummary.status 係 partial 或 warning，組合健康檢查與下月行動建議要偏保守，避免下過強判斷。',
+    '如果資金流覆蓋率唔係 100%，要保留限制提示，避免把所有升跌都當成投資回報。',
+    '不要重覆 summary card 已顯示的百分比分布，只需輸出高價值觀察。',
+    '每段短而準，繁體中文輸出，整份月報保持清晰可讀，不要寫成長篇文章。',
     '',
     formatReportAllocationSummaryForPrompt(params.allocationSummary),
     '',

@@ -7,6 +7,8 @@ import {
   buildReportDataQualitySummary,
   buildReportFactsPayload,
   buildAnalysisRequestFromAssets,
+  buildMonthlyAnalysisQuestion,
+  getSearchSummaryPrompt,
   getPreviousMonthStartDate,
   normalizeSnapshotDocument,
   sanitizeForFirestore,
@@ -351,4 +353,91 @@ test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write
   assert.ok(!('cashFlowWarningMessage' in reportFactsPayload));
   assert.ok(!('fallbackAssetCount' in dataQualitySummary));
   assert.ok(!('marketValueLocal' in firstHolding));
+});
+
+test('monthly grounded search prompt keeps structured macro-only summary requirements', () => {
+  const prompt = getSearchSummaryPrompt({
+    mode: 'monthly',
+    assets: [
+      {
+        id: 'vt',
+        symbol: 'VT',
+        name: 'Vanguard Total World Stock ETF',
+        assetType: 'etf',
+        accountSource: 'IB',
+        currency: 'USD',
+        quantity: 10,
+        averageCost: 100,
+        currentPrice: 110,
+      } as never,
+      {
+        id: 'btc',
+        symbol: 'BTC',
+        name: 'Bitcoin',
+        assetType: 'crypto',
+        accountSource: 'Wallet',
+        currency: 'USD',
+        quantity: 1,
+        averageCost: 50000,
+        currentPrice: 60000,
+      } as never,
+    ],
+  });
+
+  assert.match(prompt, /過去一個月市場主線/);
+  assert.match(prompt, /股票 \/ ETF 影響/);
+  assert.match(prompt, /加密貨幣影響/);
+  assert.match(prompt, /現金 \/ 債券 \/ 利率影響/);
+  assert.match(prompt, /匯率與 JPY \/ USD \/ HKD 影響/);
+  assert.match(prompt, /下月值得觀察的 3-5 個外部因素/);
+  assert.match(prompt, /不要做投資分析、買賣建議或價格預測/);
+  assert.match(prompt, /800-1200 中文字以內/);
+});
+
+test('monthly analysis prompt preserves five sections and adds macro, data quality, and conditional guidance constraints', () => {
+  const prompt = buildMonthlyAnalysisQuestion({
+    comparison: null,
+    allocationSummary: {
+      asOfDate: '2026-05-01',
+      basis: 'monthly',
+      styleTag: 'balanced',
+      warningTags: ['currency_watch'],
+      slices: [
+        {
+          key: 'equity',
+          label: '股票',
+          percentage: 60,
+          totalValueHKD: 60000,
+        },
+      ],
+      deltas: [
+        {
+          key: 'equity',
+          deltaPercentagePoints: 2,
+        },
+      ],
+      summarySentence: '股票比重略升。',
+      comparisonLabel: '較上月月初基準',
+    } as never,
+    dataQualitySummary: {
+      status: 'partial',
+      staleAssetCount: 1,
+      warningMessages: ['有 1 項資產價格超過 24 小時未更新。'],
+    },
+  });
+
+  assert.match(prompt, /【本月一句總結】/);
+  assert.match(prompt, /【本月資產變化摘要】/);
+  assert.match(prompt, /【組合健康檢查】/);
+  assert.match(prompt, /【三個重點觀察】/);
+  assert.match(prompt, /【下月行動建議】/);
+  assert.match(prompt, /宏觀背景同我實際資產分佈、資產變化互相對照/);
+  assert.match(prompt, /cash-flow adjusted return/);
+  assert.match(prompt, /risk-on \/ risk-off/);
+  assert.match(prompt, /「宏觀背景 → 對我資產的影響 → 投資含義」/);
+  assert.match(prompt, /必須跟進 \/ 可以考慮 \/ 暫時不建議/);
+  assert.match(prompt, /寫明觸發條件/);
+  assert.match(prompt, /staleAssetCount > 0/);
+  assert.match(prompt, /dataQualitySummary.status 係 partial 或 warning/);
+  assert.match(prompt, /資金流覆蓋率唔係 100%/);
 });
