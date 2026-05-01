@@ -9,6 +9,7 @@ import {
   buildAnalysisRequestFromAssets,
   buildMonthlyAnalysisQuestion,
   getDefaultServerPromptSettings,
+  getMonthlyAnalysisSessionDocId,
   getSearchSummaryPrompt,
   getPreviousMonthStartDate,
   normalizeSnapshotDocument,
@@ -408,6 +409,11 @@ test('monthly default prompt keeps five sections and macro linkage requirements'
   assert.match(prompt, /過去一個月宏觀與市場背景摘要/);
   assert.match(prompt, /宏觀背景 → 對我資產的影響 → 投資含義/);
   assert.match(prompt, /必須跟進 \/ 可以考慮 \/ 暫時不建議/);
+});
+
+test('monthly analysis session doc id is fixed per month', () => {
+  assert.equal(getMonthlyAnalysisSessionDocId('2026-05-01'), 'monthly-2026-05');
+  assert.equal(getMonthlyAnalysisSessionDocId('2026-05-31'), 'monthly-2026-05');
 });
 
 test('monthly analysis prompt preserves five sections and adds macro, data quality, and conditional guidance constraints', () => {

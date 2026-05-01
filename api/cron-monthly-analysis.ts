@@ -37,10 +37,16 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         : (() => {
             return requirePortfolioAccess(request, route).then(() => runManualMonthlyAssetAnalysis());
           })();
+    const payload = await result;
     sendJson(response, 200, {
-      ...(await result),
+      ...payload,
       route,
-      message: request.method === 'GET' ? '已完成每月資產分析。' : undefined,
+      message:
+        typeof payload.message === 'string'
+          ? payload.message
+          : request.method === 'GET'
+            ? '已完成每月資產分析。'
+            : undefined,
     });
   } catch (error) {
     if (isPortfolioAccessError(error)) {

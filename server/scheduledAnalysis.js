@@ -146,6 +146,25 @@ function getPreviousQuarterEndDate(date = new Date()) {
     const endDay = new Date(previousQuarterYear, previousQuarterEndMonth, 0).getDate();
     return `${previousQuarterYear}-${String(previousQuarterEndMonth).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
 }
+export function getMonthlyAnalysisSessionDocId(dateKey) {
+    const normalized = dateKey.trim();
+    if (!normalized) {
+        return 'monthly-unknown';
+    }
+    return `monthly-${normalized.slice(0, 7)}`;
+}
+function isFirestoreAlreadyExistsError(error) {
+    if (!error || typeof error !== 'object') {
+        return false;
+    }
+    const value = error;
+    const code = value.code;
+    const message = typeof value.message === 'string' ? value.message.toLowerCase() : '';
+    return (code === 6 ||
+        code === '6' ||
+        (typeof code === 'string' && code.toLowerCase().includes('already-exists')) ||
+        message.includes('already exists'));
+}
 export function getDefaultServerPromptSettings() {
     return {
         asset_analysis: [
@@ -857,7 +876,7 @@ function buildQuarterlyAnalysisQuestion(params) {
         trendSections || '未有足夠三個月趨勢資料。',
     ].join('\n');
 }
-async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload) {
+async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId) {
     const db = getFirebaseAdminDb();
     const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
     const sanitizedReportFactsPayload = reportFactsPayload
@@ -879,12 +898,17 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
         ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
         updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
-    await portfolioRef.collection('analysisSessions').add(buildAnalysisSessionWritePayload({
+    const sessionPayload = buildAnalysisSessionWritePayload({
         response,
         title,
         allocationSummary,
         reportFactsPayload: sanitizedReportFactsPayload,
-    }));
+    });
+    if (sessionDocId) {
+        await portfolioRef.collection('analysisSessions').doc(sessionDocId).create(sessionPayload);
+        return;
+    }
+    await portfolioRef.collection('analysisSessions').add(sessionPayload);
 }
 async function saveQuarterlyReport(params) {
     const db = getFirebaseAdminDb();
@@ -927,6 +951,17 @@ export async function runMonthlyAssetAnalysis() {
     const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
     const recentSnapshotHistory = await readRecentSnapshotHistory(120);
     const previousMonthSnapshot = await readPreviousMonthSnapshot();
+    const title = `${getHongKongYearMonthLabel()}每月資產分析`;
+    if (await hasExistingMonthlyAnalysis(title)) {
+        return {
+            ok: true,
+            skipped: true,
+            category: 'asset_analysis',
+            title,
+            route: MONTHLY_ROUTE,
+            message: '今個月嘅每月資產分析已經生成，毋須重複建立。',
+        };
+    }
     const dataQualitySummary = buildReportDataQualitySummary({
         assets,
         snapshotMeta: latestSnapshotMeta,
@@ -942,7 +977,6 @@ export async function runMonthlyAssetAnalysis() {
         assets,
         mode: 'monthly',
     });
-    const title = `${getHongKongYearMonthLabel()}每月資產分析`;
     const comparison = previousMonthSnapshot
         ? compareSnapshots(currentSnapshot, previousMonthSnapshot, {
             periodSnapshots: recentSnapshotHistory,
@@ -996,7 +1030,28 @@ export async function runMonthlyAssetAnalysis() {
         fxSource: latestSnapshotMeta?.fxSource,
         fxRatesUsed: latestSnapshotMeta?.fxRatesUsed,
     });
-    await saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload);
+    try {
+        await saveScheduledAnalysis(
+            response,
+            title,
+            allocationSummary,
+            reportFactsPayload,
+            getMonthlyAnalysisSessionDocId(currentSnapshot.date),
+        );
+    }
+    catch (error) {
+        if (isFirestoreAlreadyExistsError(error)) {
+            return {
+                ok: true,
+                skipped: true,
+                category: 'asset_analysis',
+                title,
+                route: MONTHLY_ROUTE,
+                message: '今個月嘅每月資產分析已經生成，毋須重複建立。',
+            };
+        }
+        throw error;
+    }
     return {
         ok: true,
         category: 'asset_analysis',
