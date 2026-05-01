@@ -409,6 +409,12 @@ test('monthly default prompt keeps five sections and macro linkage requirements'
   assert.match(prompt, /過去一個月宏觀與市場背景摘要/);
   assert.match(prompt, /宏觀背景 → 對我資產的影響 → 投資含義/);
   assert.match(prompt, /必須跟進 \/ 可以考慮 \/ 暫時不建議/);
+  assert.match(prompt, /previous value 為 0/);
+  assert.match(prompt, /成本資料為 0 或缺失/);
+  assert.match(prompt, /報價貨幣曝險與經濟風險曝險/);
+  assert.match(prompt, /加密貨幣以 USD 報價，不等於完全美元資產/);
+  assert.match(prompt, /單一資產 > 20%/);
+  assert.match(prompt, /dataQualitySummary\.status 是 partial \/ warning/);
 });
 
 test('monthly analysis session doc id is fixed per month', () => {
@@ -463,6 +469,15 @@ test('monthly analysis prompt preserves five sections and adds macro, data quali
   assert.match(prompt, /staleAssetCount > 0/);
   assert.match(prompt, /dataQualitySummary.status 係 partial 或 warning/);
   assert.match(prompt, /資金流覆蓋率唔係 100%/);
+  assert.match(prompt, /previous value 為 0/);
+  assert.match(prompt, /新建倉、資料補錄、snapshot matching 或 baseline holdings 缺失/);
+  assert.match(prompt, /成本資料為 0 或缺失，無法準確判斷實際盈虧/);
+  assert.match(prompt, /補回成本資料列為「必須跟進」/);
+  assert.match(prompt, /報價貨幣曝險、經濟風險曝險/);
+  assert.match(prompt, /加密貨幣以 USD 報價，不等於完全美元資產/);
+  assert.match(prompt, /SGOV \+ 現金 < 10%/);
+  assert.match(prompt, /高 beta 股票合計超過股票部位 60%/);
+  assert.match(prompt, /資料修復列入「必須跟進」/);
   assert.match(prompt, /【過去一個月宏觀與市場背景摘要】/);
   assert.match(prompt, /市場氣氛偏 risk-on/);
   assert.match(prompt, /你必須引用此摘要/);
