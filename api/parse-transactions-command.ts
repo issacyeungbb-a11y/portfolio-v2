@@ -1,4 +1,4 @@
-import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
+import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
 import {
   getParseTransactionsCommandErrorResponse,
   parseTransactionsFromCommand,

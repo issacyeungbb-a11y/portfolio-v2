@@ -1,4 +1,4 @@
-import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
+import { sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
 import { verifyCronRequest } from '../server/cronAuth.js';
 import {
   getScheduledAnalysisErrorResponse,

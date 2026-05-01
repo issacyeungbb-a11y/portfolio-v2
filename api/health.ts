@@ -1,4 +1,4 @@
-import { sendJson, type ApiRequest, type ApiResponse } from './_shared.js';
+import { sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
 import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
 import { readDailyJob } from '../server/dailyJobs.js';
 import {
