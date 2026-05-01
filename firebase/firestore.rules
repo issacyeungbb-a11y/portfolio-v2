@@ -28,7 +28,7 @@ service cloud.firestore {
 
       match /analysisSessions/{sessionId} {
         allow read, create, update: if true;
-        allow delete: if false;
+        allow delete: if true;
       }
 
       match /analysisThreads/{threadId} {

@@ -60,6 +60,7 @@ Keep the existing Firebase Web SDK variables:
 For the shared portfolio path now in use, asset delete also requires published rules allowing:
 
 - `portfolio/app/assets/{assetId}` -> `delete`
+- `portfolio/app/analysisSessions/{sessionId}` -> `delete`
 
 ## 6. Still to add later
 
