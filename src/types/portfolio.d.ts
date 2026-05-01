@@ -171,8 +171,10 @@ export interface ReportFactsPayload {
     totalValueHKD: number;
     totalCostHKD: number;
     netExternalFlowHKD?: number;
+    netExternalFlowCoveragePct?: number;
     investmentGainHKD?: number;
     investmentGainPercent?: number;
+    cashFlowWarningMessage?: string;
     fxRatesUsed?: SnapshotFxRatesUsed;
     fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
     dataQualitySummary: ReportDataQualitySummary;

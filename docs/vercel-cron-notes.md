@@ -4,10 +4,10 @@
 
 如日後需要保守加入，香港時間與 UTC 轉換建議如下：
 
-- Monthly analysis: 香港時間每月 1 日 08:00 後
-  - UTC cron: `5 0 1 * *`
-- Quarterly report: 香港時間每季第一個月 1 日 09:00 後
-  - UTC cron: `10 1 1 1,4,7,10 *`
+- Monthly analysis: 香港時間每月 1 日 08:15
+  - UTC cron: `15 0 1 * *`
+- Quarterly report: 香港時間每季第一個月 1 日 09:15
+  - UTC cron: `15 1 1 1,4,7,10 *`
 
 現有 `hasExistingMonthlyAnalysis()` / `hasExistingQuarterlyReport()` 已可避免重複生成，但正式啟用前仍應先驗證：
 

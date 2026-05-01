@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   compareSnapshots,
+  formatSnapshotComparisonForPrompt,
   getMonthKey,
   normalizeDateKey,
   selectRecentDistinctMonthlySnapshots,
@@ -206,6 +207,8 @@ test('compareSnapshots calculates cash-flow adjusted return when period snapshot
   assert.equal(comparison.totalValue.investmentGainHKD, 5000);
   assert.equal(comparison.totalValue.investmentGainPercent, 5);
   assert.equal(comparison.totalValue.cashFlowDataComplete, true);
+  assert.equal(comparison.totalValue.netExternalFlowCoveragePct, 100);
+  assert.equal(comparison.totalValue.cashFlowWarningMessage, undefined);
 });
 
 test('compareSnapshots handles withdrawal-adjusted gain correctly', () => {
@@ -238,5 +241,67 @@ test('summarizePeriodExternalFlow marks missing snapshot dates as incomplete', (
   ]);
 
   assert.equal(flow.isComplete, false);
+  assert.equal(flow.expectedSnapshotDays, 2);
+  assert.equal(flow.availableSnapshotDays, 1);
+  assert.equal(flow.netExternalFlowCoveragePct, 50);
   assert.deepEqual(flow.missingDates, ['2026-03-02']);
+});
+
+test('compareSnapshots keeps adjusted return when cash-flow coverage is between 80% and 99%', () => {
+  const comparison = compareSnapshots(
+    {
+      ...currentSnapshot,
+      date: '2026-03-06',
+      totalValueHKD: 120000,
+    },
+    {
+      ...previousSnapshot,
+      date: '2026-03-01',
+      totalValueHKD: 100000,
+    },
+    {
+      periodSnapshots: [
+        { date: '2026-03-02', totalValueHKD: 101000, netExternalFlowHKD: 5000, holdings: [] },
+        { date: '2026-03-03', totalValueHKD: 106000, netExternalFlowHKD: 3000, holdings: [] },
+        { date: '2026-03-04', totalValueHKD: 110000, netExternalFlowHKD: 2000, holdings: [] },
+        { date: '2026-03-06', totalValueHKD: 120000, netExternalFlowHKD: 0, holdings: [] },
+      ],
+    },
+  );
+
+  assert.equal(comparison.totalValue.netExternalFlowCoveragePct, 80);
+  assert.equal(comparison.totalValue.cashFlowDataComplete, false);
+  assert.equal(comparison.totalValue.netExternalFlowHKD, 10000);
+  assert.equal(comparison.totalValue.investmentGainHKD, 10000);
+  assert.equal(comparison.totalValue.investmentGainPercent, 10);
+  assert.match(comparison.totalValue.cashFlowWarningMessage ?? '', /資金流資料未完全覆蓋/);
+  assert.match(formatSnapshotComparisonForPrompt(comparison), /資金流資料未完全覆蓋/);
+});
+
+test('compareSnapshots suppresses adjusted return when cash-flow coverage is below 80%', () => {
+  const comparison = compareSnapshots(
+    {
+      ...currentSnapshot,
+      date: '2026-03-06',
+      totalValueHKD: 120000,
+    },
+    {
+      ...previousSnapshot,
+      date: '2026-03-01',
+      totalValueHKD: 100000,
+    },
+    {
+      periodSnapshots: [
+        { date: '2026-03-02', totalValueHKD: 101000, netExternalFlowHKD: 5000, holdings: [] },
+        { date: '2026-03-06', totalValueHKD: 120000, netExternalFlowHKD: 0, holdings: [] },
+      ],
+    },
+  );
+
+  assert.equal(comparison.totalValue.netExternalFlowCoveragePct, 40);
+  assert.equal(comparison.totalValue.cashFlowDataComplete, false);
+  assert.equal(comparison.totalValue.netExternalFlowHKD, undefined);
+  assert.equal(comparison.totalValue.investmentGainHKD, undefined);
+  assert.match(comparison.totalValue.cashFlowWarningMessage ?? '', /資金流覆蓋不足/);
+  assert.match(formatSnapshotComparisonForPrompt(comparison), /資金流覆蓋不足，暫不計扣除資金流後表現/);
 });

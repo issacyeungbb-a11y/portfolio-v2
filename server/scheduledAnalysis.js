@@ -529,7 +529,7 @@ function getStaleAssetCount(assets, now = new Date()) {
         return now.getTime() - updatedAt.getTime() > 24 * 60 * 60 * 1000;
     }).length;
 }
-function buildReportDataQualitySummary(params) {
+export function buildReportDataQualitySummary(params) {
     const now = params.now ?? new Date();
     const snapshotMeta = params.snapshotMeta ?? null;
     const staleAssetCount = getStaleAssetCount(params.assets, now);
@@ -602,7 +602,7 @@ function formatReportDataQualitySummaryForPrompt(summary, title) {
     }
     return lines.join('\n');
 }
-function buildReportFactsPayload(params) {
+export function buildReportFactsPayload(params) {
     const comparison = params.comparison ?? null;
     return {
         generatedAt: params.generatedAt,
@@ -615,8 +615,10 @@ function buildReportFactsPayload(params) {
         totalValueHKD: params.currentSnapshot.totalValueHKD,
         totalCostHKD: params.totalCostHKD,
         netExternalFlowHKD: comparison?.totalValue.netExternalFlowHKD,
+        netExternalFlowCoveragePct: comparison?.totalValue.netExternalFlowCoveragePct,
         investmentGainHKD: comparison?.totalValue.investmentGainHKD,
         investmentGainPercent: comparison?.totalValue.investmentGainPercent,
+        cashFlowWarningMessage: comparison?.totalValue.cashFlowWarningMessage,
         fxRatesUsed: params.fxRatesUsed,
         fxSource: params.fxSource ?? 'unknown',
         dataQualitySummary: params.dataQualitySummary,
@@ -657,12 +659,16 @@ function buildComparisonPromptSections(comparison, opts) {
         `【期間】${comparison.periodLabel}`,
         `【總資產變化】現值 ${comparison.totalValue.current.toFixed(2)} HKD｜前值 ${comparison.totalValue.previous.toFixed(2)} HKD｜` +
             `變化 ${comparison.totalValue.changeHKD.toFixed(2)} HKD｜${comparison.totalValue.changePercent.toFixed(1)}%`,
-        comparison.totalValue.cashFlowDataComplete &&
-            typeof comparison.totalValue.netExternalFlowHKD === 'number' &&
-            typeof comparison.totalValue.investmentGainHKD === 'number' &&
-            typeof comparison.totalValue.investmentGainPercent === 'number'
-            ? `【扣除資金流後變化】淨入金／出金 ${comparison.totalValue.netExternalFlowHKD.toFixed(2)} HKD｜投資表現 ${comparison.totalValue.investmentGainHKD.toFixed(2)} HKD｜${comparison.totalValue.investmentGainPercent.toFixed(1)}%`
-            : '【扣除資金流後變化】未能完整扣除入金／出金，以下只反映總資產變化。',
+        typeof comparison.totalValue.netExternalFlowCoveragePct === 'number' &&
+            comparison.totalValue.netExternalFlowCoveragePct < 80
+            ? '【扣除資金流後變化】資金流覆蓋不足，暫不計扣除資金流後表現。'
+            : typeof comparison.totalValue.netExternalFlowHKD === 'number' &&
+                typeof comparison.totalValue.investmentGainHKD === 'number' &&
+                typeof comparison.totalValue.investmentGainPercent === 'number'
+                ? comparison.totalValue.cashFlowDataComplete
+                    ? `【扣除資金流後變化】淨入金／出金 ${comparison.totalValue.netExternalFlowHKD.toFixed(2)} HKD｜投資表現 ${comparison.totalValue.investmentGainHKD.toFixed(2)} HKD｜${comparison.totalValue.investmentGainPercent.toFixed(1)}%`
+                    : `【扣除資金流後變化】資金流資料未完全覆蓋｜淨入金／出金 ${comparison.totalValue.netExternalFlowHKD.toFixed(2)} HKD｜投資表現 ${comparison.totalValue.investmentGainHKD.toFixed(2)} HKD｜${comparison.totalValue.investmentGainPercent.toFixed(1)}%`
+                : '【扣除資金流後變化】未能完整扣除入金／出金，以下只反映總資產變化。',
         `【資產類別變化】`,
         ...comparison.assetTypeChanges.map((entry) => `- ${entry.assetType}：${entry.previousPercent.toFixed(1)}% → ${entry.currentPercent.toFixed(1)}%（${entry.deltaPercent.toFixed(1)}pp）`),
         `【幣別曝險變化】`,

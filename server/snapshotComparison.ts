@@ -31,6 +31,9 @@ export interface SnapshotComparisonSource {
 
 export interface SnapshotFlowSummary {
   isComplete: boolean;
+  expectedSnapshotDays: number;
+  availableSnapshotDays: number;
+  netExternalFlowCoveragePct: number;
   netExternalFlowHKD?: number;
   periodStartDate: string;
   periodEndDate: string;
@@ -47,9 +50,11 @@ export interface SnapshotComparison {
     changeHKD: number;
     changePercent: number;
     netExternalFlowHKD?: number;
+    netExternalFlowCoveragePct?: number;
     investmentGainHKD?: number;
     investmentGainPercent?: number;
     cashFlowDataComplete: boolean;
+    cashFlowWarningMessage?: string;
   };
   assetTypeChanges: Array<{
     assetType: string;
@@ -135,6 +140,9 @@ export function summarizePeriodExternalFlow(
   if (expectedDates.length === 0) {
     return {
       isComplete: true,
+      expectedSnapshotDays: 0,
+      availableSnapshotDays: 0,
+      netExternalFlowCoveragePct: 100,
       netExternalFlowHKD: 0,
       periodStartDate: normalizeDateKey(previousDate),
       periodEndDate: normalizeDateKey(currentDate),
@@ -145,11 +153,17 @@ export function summarizePeriodExternalFlow(
   const snapshotsByDate = new Map(
     snapshots.map((snapshot) => [normalizeDateKey(snapshot.date), snapshot]),
   );
+  const availableDates = expectedDates.filter((date) => snapshotsByDate.has(date));
   const missingDates = expectedDates.filter((date) => !snapshotsByDate.has(date));
+  const netExternalFlowCoveragePct =
+    expectedDates.length > 0 ? Math.round((availableDates.length / expectedDates.length) * 100) : 100;
 
-  if (missingDates.length > 0) {
+  if (netExternalFlowCoveragePct < 80) {
     return {
       isComplete: false,
+      expectedSnapshotDays: expectedDates.length,
+      availableSnapshotDays: availableDates.length,
+      netExternalFlowCoveragePct,
       periodStartDate: normalizeDateKey(previousDate),
       periodEndDate: normalizeDateKey(currentDate),
       missingDates,
@@ -157,14 +171,17 @@ export function summarizePeriodExternalFlow(
   }
 
   return {
-    isComplete: true,
-    netExternalFlowHKD: expectedDates.reduce(
+    isComplete: netExternalFlowCoveragePct === 100,
+    expectedSnapshotDays: expectedDates.length,
+    availableSnapshotDays: availableDates.length,
+    netExternalFlowCoveragePct,
+    netExternalFlowHKD: availableDates.reduce(
       (sum, date) => sum + toFiniteNumber(snapshotsByDate.get(date)?.netExternalFlowHKD),
       0,
     ),
     periodStartDate: normalizeDateKey(previousDate),
     periodEndDate: normalizeDateKey(currentDate),
-    missingDates: [],
+    missingDates,
   };
 }
 
@@ -324,8 +341,19 @@ export function compareSnapshots(
   const flowSummary = options?.periodSnapshots
     ? summarizePeriodExternalFlow(previous.date, current.date, options.periodSnapshots)
     : null;
+  const netExternalFlowCoveragePct = flowSummary?.netExternalFlowCoveragePct;
+  const hasSufficientFlowCoverage =
+    typeof netExternalFlowCoveragePct === 'number' &&
+    netExternalFlowCoveragePct >= 80 &&
+    typeof flowSummary?.netExternalFlowHKD === 'number';
+  const cashFlowWarningMessage =
+    typeof netExternalFlowCoveragePct === 'number' && netExternalFlowCoveragePct >= 80 && netExternalFlowCoveragePct < 100
+      ? `資金流資料未完全覆蓋（${netExternalFlowCoveragePct}%）`
+      : typeof netExternalFlowCoveragePct === 'number' && netExternalFlowCoveragePct < 80
+        ? `資金流覆蓋不足（${netExternalFlowCoveragePct}%），暫不計扣除資金流後表現。`
+        : undefined;
   const investmentGainHKD =
-    flowSummary?.isComplete && typeof flowSummary.netExternalFlowHKD === 'number'
+    hasSufficientFlowCoverage
       ? totalValueChangeHKD - flowSummary.netExternalFlowHKD
       : undefined;
   const investmentGainPercent =
@@ -360,10 +388,12 @@ export function compareSnapshots(
       previous: previous.totalValueHKD,
       changeHKD: totalValueChangeHKD,
       changePercent: totalValueChangePercent,
-      netExternalFlowHKD: flowSummary?.isComplete ? flowSummary.netExternalFlowHKD : undefined,
+      netExternalFlowHKD: hasSufficientFlowCoverage ? flowSummary?.netExternalFlowHKD : undefined,
+      netExternalFlowCoveragePct,
       investmentGainHKD,
       investmentGainPercent,
       cashFlowDataComplete: flowSummary?.isComplete ?? false,
+      cashFlowWarningMessage,
     },
     assetTypeChanges,
     currencyChanges,
@@ -448,12 +478,16 @@ export function formatSnapshotComparisonForPrompt(comparison: SnapshotComparison
   return [
     `【期間】${comparison.periodLabel}`,
     `【總資產變化】現值 ${formatMoney(comparison.totalValue.current)} HKD｜前值 ${formatMoney(comparison.totalValue.previous)} HKD｜變化 ${formatMoney(comparison.totalValue.changeHKD)} HKD｜${formatSignedPercent(comparison.totalValue.changePercent)}`,
-    comparison.totalValue.cashFlowDataComplete &&
-    typeof comparison.totalValue.netExternalFlowHKD === 'number' &&
-    typeof comparison.totalValue.investmentGainHKD === 'number' &&
-    typeof comparison.totalValue.investmentGainPercent === 'number'
-      ? `【扣除資金流後】淨入金／出金 ${formatMoney(comparison.totalValue.netExternalFlowHKD)} HKD｜投資表現 ${formatMoney(comparison.totalValue.investmentGainHKD)} HKD｜${formatSignedPercent(comparison.totalValue.investmentGainPercent)}`
-      : '【扣除資金流後】未能完整扣除入金／出金，以下只反映總資產變化。',
+    typeof comparison.totalValue.netExternalFlowCoveragePct === 'number' &&
+    comparison.totalValue.netExternalFlowCoveragePct < 80
+      ? '【扣除資金流後】資金流覆蓋不足，暫不計扣除資金流後表現。'
+      : typeof comparison.totalValue.netExternalFlowHKD === 'number' &&
+          typeof comparison.totalValue.investmentGainHKD === 'number' &&
+          typeof comparison.totalValue.investmentGainPercent === 'number'
+        ? comparison.totalValue.cashFlowDataComplete
+          ? `【扣除資金流後】淨入金／出金 ${formatMoney(comparison.totalValue.netExternalFlowHKD)} HKD｜投資表現 ${formatMoney(comparison.totalValue.investmentGainHKD)} HKD｜${formatSignedPercent(comparison.totalValue.investmentGainPercent)}`
+          : `【扣除資金流後】資金流資料未完全覆蓋｜淨入金／出金 ${formatMoney(comparison.totalValue.netExternalFlowHKD)} HKD｜投資表現 ${formatMoney(comparison.totalValue.investmentGainHKD)} HKD｜${formatSignedPercent(comparison.totalValue.investmentGainPercent)}`
+        : '【扣除資金流後】未能完整扣除入金／出金，以下只反映總資產變化。',
     `【資產類別變化】`,
     ...comparison.assetTypeChanges.map(
       (entry) =>
