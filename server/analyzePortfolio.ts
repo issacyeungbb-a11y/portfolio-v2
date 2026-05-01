@@ -20,6 +20,7 @@ import {
   resolveModelProvider,
 } from './analysisModels';
 import { type AnalysisIntent, classifyIntent, intentNeedsExternalSearch } from './analysisIntent';
+import { convertToHKDValue, formatCurrencyRounded } from '../src/lib/currency.js';
 
 const ANALYZE_ROUTE = '/api/analyze' as const;
 
@@ -411,7 +412,9 @@ export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisReq
       const averageCost = sanitizeNumber(asset.averageCost);
       const currentPrice = sanitizeNumber(asset.currentPrice);
       const marketValue = sanitizeNumber(asset.marketValue);
+      const marketValueHKD = sanitizeNumber(asset.marketValueHKD);
       const costValue = sanitizeNumber(asset.costValue);
+      const costValueHKD = sanitizeNumber(asset.costValueHKD);
 
       if (
         !id ||
@@ -429,6 +432,11 @@ export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisReq
         return null;
       }
 
+      const resolvedMarketValueHKD =
+        marketValueHKD ?? convertToHKDValue(marketValue, currency);
+      const resolvedCostValueHKD =
+        costValueHKD ?? convertToHKDValue(costValue, currency);
+
       return {
         id,
         name,
@@ -440,7 +448,9 @@ export function normalizeAnalysisRequest(payload: unknown): PortfolioAnalysisReq
         averageCost,
         currentPrice,
         marketValue,
+        marketValueHKD: resolvedMarketValueHKD,
         costValue,
+        costValueHKD: resolvedCostValueHKD,
       };
     })
     .filter((item): item is PortfolioAnalysisRequest['holdings'][number] => item !== null);
@@ -665,8 +675,12 @@ function formatMoney(value: number) {
   return Number.isFinite(value) ? value.toFixed(2) : '0.00';
 }
 
+function formatHoldingValuePair(localValue: number, currency: string, hkdValue: number) {
+  return `${formatCurrencyRounded(localValue, currency)} / 約 ${formatCurrencyRounded(hkdValue, 'HKD')}`;
+}
+
 function formatHoldingsSection(request: PortfolioAnalysisRequest) {
-  const sorted = [...request.holdings].sort((a, b) => b.marketValue - a.marketValue);
+  const sorted = [...request.holdings].sort((a, b) => b.marketValueHKD - a.marketValueHKD);
   const top10 = sorted.slice(0, 10);
   const rest = sorted.slice(10);
 
@@ -674,13 +688,17 @@ function formatHoldingsSection(request: PortfolioAnalysisRequest) {
     (holding, index) =>
       `${index + 1}. ${holding.ticker}｜${holding.name}｜${holding.assetType}｜` +
       `qty ${formatMoney(holding.quantity)}｜價 ${formatMoney(holding.currentPrice)} ${holding.currency}｜` +
-      `市值 ${formatMoney(holding.marketValue)}｜成本 ${formatMoney(holding.costValue)}`,
+      `市值 ${formatHoldingValuePair(holding.marketValue, holding.currency, holding.marketValueHKD)}｜` +
+      `成本 ${formatHoldingValuePair(holding.costValue, holding.currency, holding.costValueHKD)}`,
   );
 
   const restLines =
     rest.length > 0
       ? [
-          `其他 ${rest.length} 項（總市值 ${formatMoney(rest.reduce((s, h) => s + h.marketValue, 0))}）：` +
+          `其他 ${rest.length} 項（總市值 約 ${formatCurrencyRounded(
+            rest.reduce((sum, holding) => sum + holding.marketValueHKD, 0),
+            'HKD',
+          )}）：` +
             rest.map((h) => `${h.ticker}(${h.assetType})`).join('、'),
         ]
       : [];
@@ -736,7 +754,7 @@ function formatRecentSnapshotsSection(request: PortfolioAnalysisRequest) {
     .sort((left, right) => left.date.localeCompare(right.date))
     .map((snapshot) => {
       const holdings = snapshot.holdings
-        .map((holding) => `${holding.ticker} ${formatMoney(holding.marketValueHKD)}`)
+        .map((holding) => `${holding.ticker} ${formatCurrencyRounded(holding.marketValueHKD, 'HKD')}`)
         .join('； ');
 
       return `- ${snapshot.date}｜總值 ${formatMoney(snapshot.totalValueHKD)} HKD｜淨流入 ${formatMoney(snapshot.netExternalFlowHKD)} HKD｜持倉 ${holdings}`;
@@ -825,11 +843,13 @@ ${request.analysisQuestion || '請根據目前投資組合做一般分析。'}
 Portfolio snapshot summary:
 ${request.holdings
   .slice()
-  .sort((left, right) => right.marketValue - left.marketValue)
+  .sort((left, right) => right.marketValueHKD - left.marketValueHKD)
   .map(
     (holding) =>
       `- ${holding.ticker}｜${holding.name}｜${holding.assetType}｜qty ${formatMoney(holding.quantity)}｜` +
-      `價 ${formatMoney(holding.currentPrice)} ${holding.currency}｜市值 ${formatMoney(holding.marketValue)}｜成本 ${formatMoney(holding.costValue)}`,
+      `價 ${formatMoney(holding.currentPrice)} ${holding.currency}｜` +
+      `市值 ${formatHoldingValuePair(holding.marketValue, holding.currency, holding.marketValueHKD)}｜` +
+      `成本 ${formatHoldingValuePair(holding.costValue, holding.currency, holding.costValueHKD)}`,
   )
   .join('\n')}
 
@@ -896,7 +916,7 @@ function extractGroundingSources(
 function buildGeneralQuestionSearchPrompt(request: PortfolioAnalysisRequest) {
   const searchTargets = [...request.holdings]
     .filter((holding) => holding.assetType !== 'cash')
-    .sort((left, right) => right.marketValue - left.marketValue)
+    .sort((left, right) => right.marketValueHKD - left.marketValueHKD)
     .slice(0, 10);
   const tickers =
     searchTargets.map((holding) => `${holding.ticker} (${holding.name})`).join('、') || '目前無主要持倉';
@@ -922,7 +942,7 @@ async function generateGeneralQuestionSearchSummary(
   const retrievedAt = new Date().toISOString();
   const searchTargets = [...request.holdings]
     .filter((h) => h.assetType !== 'cash')
-    .sort((a, b) => b.marketValue - a.marketValue)
+    .sort((a, b) => b.marketValueHKD - a.marketValueHKD)
     .slice(0, 10);
   const relatedTickers = searchTargets.map((h) => h.ticker);
   const query = request.analysisQuestion.trim() || '投資組合外部資訊';

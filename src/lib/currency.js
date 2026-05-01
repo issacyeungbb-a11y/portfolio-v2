@@ -36,6 +36,14 @@ export function convertCurrency(amount, fromCurrency, toCurrency, customRates) {
     const valueInHKD = amount * fromRate;
     return valueInHKD / toRate;
 }
+export function getFxRateToHKD(currency, customRates) {
+    const normalizedCurrency = normalizeCurrencyCode(currency);
+    const fxRates = customRates ?? FX_TO_HKD;
+    return fxRates[normalizedCurrency] ?? null;
+}
+export function convertToHKDValue(amount, currency, customRates) {
+    return convertCurrency(amount, currency, 'HKD', customRates);
+}
 export function formatCurrency(value, currency) {
     const normalizedCurrency = normalizeCurrencyCode(currency);
     const fractionDigits = 0;

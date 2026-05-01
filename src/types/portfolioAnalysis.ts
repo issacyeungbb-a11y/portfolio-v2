@@ -48,7 +48,9 @@ export interface PortfolioAnalysisRequestAsset {
   averageCost: number;
   currentPrice: number;
   marketValue: number;
+  marketValueHKD: number;
   costValue: number;
+  costValueHKD: number;
 }
 
 export interface PortfolioAnalysisRecentTransaction {

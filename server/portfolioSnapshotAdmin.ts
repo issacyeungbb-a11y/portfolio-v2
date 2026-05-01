@@ -3,6 +3,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { fetchLiveFxRates } from './updatePrices.js';
 import { withRetry } from './retry.js';
+import { convertToHKDValue } from '../src/lib/currency.js';
 import type { FxRates } from '../src/types/fxRates';
 import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio';
 
@@ -20,20 +21,6 @@ function normalizeAssetType(value: unknown): AssetType {
   }
 
   return 'stock';
-}
-
-function convertToHKD(amount: number, currency: string, fxRates: FxRates) {
-  const normalized = currency.trim().toUpperCase();
-
-  if (normalized === 'USD') {
-    return amount * fxRates.USD;
-  }
-
-  if (normalized === 'JPY') {
-    return amount * fxRates.JPY;
-  }
-
-  return amount;
 }
 
 function getHongKongDateKey(date = new Date()) {
@@ -223,10 +210,10 @@ export async function captureAdminPortfolioSnapshot(params: {
     currentPrice: holding.currentPrice,
     priceAsOf: holding.lastPriceUpdatedAt ?? null,  // P2-6: 追溯價格時間
     averageCost: holding.averageCost,
-    marketValueHKD: convertToHKD(
+    marketValueHKD: convertToHKDValue(
       holding.quantity * holding.currentPrice,
       holding.currency,
-      fxRates,
+      fxRates as unknown as Record<string, number>,
     ),
   }));
 

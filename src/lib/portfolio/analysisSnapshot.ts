@@ -86,6 +86,9 @@ export async function createPortfolioAnalysisCacheKey(
 }
 
 function buildAnalysisRequestAsset(holding: Holding): PortfolioAnalysisRequestAsset {
+  const marketValueHKD = getHoldingValueInCurrency(holding, 'HKD');
+  const costValueHKD = getHoldingCostInCurrency(holding, 'HKD');
+
   return {
     id: holding.id,
     name: holding.name,
@@ -97,7 +100,9 @@ function buildAnalysisRequestAsset(holding: Holding): PortfolioAnalysisRequestAs
     averageCost: holding.averageCost,
     currentPrice: holding.currentPrice,
     marketValue: holding.marketValue,
+    marketValueHKD,
     costValue: holding.quantity * holding.averageCost,
+    costValueHKD,
   };
 }
 

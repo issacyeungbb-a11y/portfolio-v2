@@ -16,6 +16,11 @@ import {
 } from './snapshotComparison.js';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { buildReportAllocationSummaryFromHoldings } from '../src/lib/portfolio/reportAllocationSummary.js';
+import {
+  convertToHKDValue,
+  formatCurrencyRounded,
+  normalizeCurrencyCode,
+} from '../src/lib/currency.js';
 import type {
   AnalysisCategory,
   AnalysisPromptSettings,
@@ -39,6 +44,7 @@ const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
 const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'] as const;
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
 const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
+const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
 
 type AdminAsset = Awaited<ReturnType<typeof readAdminPortfolioAssets>>[number];
 type ScheduledCategory = Extract<AnalysisCategory, 'asset_analysis' | 'asset_report'>;
@@ -78,18 +84,16 @@ function getScheduledAnalysisModel(): PortfolioAnalysisModel {
     : DEFAULT_DIAGNOSTIC_FALLBACK_MODEL;
 }
 
-function convertToHKD(amount: number, currency: string) {
-  const normalized = currency.trim().toUpperCase();
+function formatHoldingCurrencyPair(localValue: number, currency: string, hkdValue: number) {
+  return `${formatCurrencyRounded(localValue, currency)} / 約 ${formatCurrencyRounded(hkdValue, 'HKD')}`;
+}
 
-  if (normalized === 'USD') {
-    return amount * 7.8;
-  }
+function getAssetMarketValueHKD(asset: Pick<AdminAsset, 'quantity' | 'currentPrice' | 'currency'>) {
+  return convertToHKDValue(asset.quantity * asset.currentPrice, asset.currency);
+}
 
-  if (normalized === 'JPY') {
-    return amount * 0.052;
-  }
-
-  return amount;
+function getAssetCostValueHKD(asset: Pick<AdminAsset, 'quantity' | 'averageCost' | 'currency'>) {
+  return convertToHKDValue(asset.quantity * asset.averageCost, asset.currency);
 }
 
 function getHongKongDate(date = new Date()) {
@@ -300,7 +304,7 @@ function createCacheKey(
     .digest('hex');
 }
 
-function buildAnalysisRequestFromAssets(params: {
+export function buildAnalysisRequestFromAssets(params: {
   assets: AdminAsset[];
   category: AnalysisCategory;
   analysisQuestion: string;
@@ -327,20 +331,21 @@ function buildAnalysisRequestFromAssets(params: {
     analysisBackground,
   );
   const totalValueHKD = assets.reduce(
-    (sum, asset) => sum + convertToHKD(asset.quantity * asset.currentPrice, asset.currency),
+    (sum, asset) => sum + getAssetMarketValueHKD(asset),
     0,
   );
   const totalCostHKD = assets.reduce(
-    (sum, asset) => sum + convertToHKD(asset.quantity * asset.averageCost, asset.currency),
+    (sum, asset) => sum + getAssetCostValueHKD(asset),
     0,
   );
   const typeBuckets = new Map<AssetType, number>();
   const currencyBuckets = new Map<string, number>();
 
   for (const asset of assets) {
-    const valueHKD = convertToHKD(asset.quantity * asset.currentPrice, asset.currency);
+    const valueHKD = getAssetMarketValueHKD(asset);
     typeBuckets.set(asset.assetType, (typeBuckets.get(asset.assetType) ?? 0) + valueHKD);
-    currencyBuckets.set(asset.currency, (currencyBuckets.get(asset.currency) ?? 0) + valueHKD);
+    const normalizedCurrency = normalizeCurrencyCode(asset.currency);
+    currencyBuckets.set(normalizedCurrency, (currencyBuckets.get(normalizedCurrency) ?? 0) + valueHKD);
   }
 
   return {
@@ -367,7 +372,9 @@ function buildAnalysisRequestFromAssets(params: {
         averageCost: asset.averageCost,
         currentPrice: asset.currentPrice,
         marketValue: asset.quantity * asset.currentPrice,
+        marketValueHKD: getAssetMarketValueHKD(asset),
         costValue: asset.quantity * asset.averageCost,
+        costValueHKD: getAssetCostValueHKD(asset),
       })),
     allocationsByType: [...typeBuckets.entries()]
       .map(([assetType, bucketTotal]) => ({
@@ -389,7 +396,7 @@ function buildAnalysisRequestFromAssets(params: {
 function getSearchTargetAssets(assets: AdminAsset[]) {
   return [...assets]
     .filter((asset) => asset.assetType === 'stock' || asset.assetType === 'etf')
-    .sort((left, right) => right.quantity * right.currentPrice - left.quantity * left.currentPrice)
+    .sort((left, right) => getAssetMarketValueHKD(right) - getAssetMarketValueHKD(left))
     .slice(0, 12);
 }
 
@@ -481,7 +488,7 @@ async function generateGroundedSearchSummary(params: {
   };
 }
 
-function normalizeSnapshotDocument(
+export function normalizeSnapshotDocument(
   value: Record<string, unknown>,
 ): SnapshotDocument {
   const holdings = Array.isArray(value.holdings)
@@ -512,22 +519,39 @@ function normalizeSnapshotDocument(
               holding.assetType === 'cash'
                 ? holding.assetType
                 : 'stock',
-            currency: typeof holding.currency === 'string' ? holding.currency : 'HKD',
+            currency:
+              typeof holding.currency === 'string'
+                ? normalizeCurrencyCode(holding.currency)
+                : 'HKD',
             quantity: typeof holding.quantity === 'number' ? holding.quantity : 0,
             currentPrice: typeof holding.currentPrice === 'number' ? holding.currentPrice : 0,
-            marketValueHKD:
-              typeof holding.marketValueHKD === 'number'
-                ? holding.marketValueHKD
-                : typeof holding.marketValue === 'number'
-                  ? holding.marketValue
-                  : 0,
+            marketValueHKD: (() => {
+              if (typeof holding.marketValueHKD === 'number') {
+                return holding.marketValueHKD;
+              }
+
+              const currency =
+                typeof holding.currency === 'string' ? holding.currency : 'HKD';
+
+              if (typeof holding.marketValue === 'number') {
+                return convertToHKDValue(holding.marketValue, currency);
+              }
+
+              const quantity = typeof holding.quantity === 'number' ? holding.quantity : 0;
+              const currentPrice =
+                typeof holding.currentPrice === 'number' ? holding.currentPrice : 0;
+              return convertToHKDValue(quantity * currentPrice, currency);
+            })(),
           };
         })
     : [];
 
+  const fallbackTotalValueHKD = holdings.reduce((sum, holding) => sum + holding.marketValueHKD, 0);
+
   return {
     date: typeof value.date === 'string' ? value.date : '',
-    totalValueHKD: typeof value.totalValueHKD === 'number' ? value.totalValueHKD : 0,
+    totalValueHKD:
+      typeof value.totalValueHKD === 'number' ? value.totalValueHKD : fallbackTotalValueHKD,
     holdings,
   };
 }
@@ -539,7 +563,7 @@ function buildSnapshotFromAssets(
   return {
     date,
     totalValueHKD: assets.reduce(
-      (sum, asset) => sum + convertToHKD(asset.quantity * asset.currentPrice, asset.currency),
+      (sum, asset) => sum + getAssetMarketValueHKD(asset),
       0,
     ),
     holdings: assets
@@ -553,7 +577,7 @@ function buildSnapshotFromAssets(
         currency: asset.currency,
         quantity: asset.quantity,
         currentPrice: asset.currentPrice,
-        marketValueHKD: convertToHKD(asset.quantity * asset.currentPrice, asset.currency),
+        marketValueHKD: getAssetMarketValueHKD(asset),
       })),
   };
 }
@@ -599,15 +623,53 @@ async function readPreviousQuarterSnapshot() {
   return readSnapshotOnOrBefore(previousQuarterEndDate);
 }
 
-async function readPreviousMonthSnapshot() {
-  const { year, month } = getHongKongDateParts();
-  const previousMonthEnd = new Date(year, month - 1, 0);
-  const previousMonthEndDate = [
-    previousMonthEnd.getFullYear(),
-    String(previousMonthEnd.getMonth() + 1).padStart(2, '0'),
-    String(previousMonthEnd.getDate()).padStart(2, '0'),
-  ].join('-');
-  return readSnapshotOnOrBefore(previousMonthEndDate);
+export function getPreviousMonthStartDate(date = new Date()) {
+  const { year, month } = getHongKongDateParts(date);
+  const previousMonth = month === 1 ? 12 : month - 1;
+  const previousYear = month === 1 ? year - 1 : year;
+  return `${previousYear}-${String(previousMonth).padStart(2, '0')}-01`;
+}
+
+function getDateDistanceInDays(leftDate: string, rightDate: string) {
+  const left = new Date(`${leftDate}T00:00:00Z`);
+  const right = new Date(`${rightDate}T00:00:00Z`);
+  return Math.abs(left.getTime() - right.getTime()) / (24 * 60 * 60 * 1000);
+}
+
+export function selectNearestSnapshotToDate(
+  snapshots: SnapshotDocument[],
+  targetDate: string,
+  toleranceDays = MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS,
+) {
+  const exactMonth = getMonthKey(targetDate);
+  const candidates = snapshots
+    .filter((snapshot) => snapshot.date && getDateDistanceInDays(snapshot.date, targetDate) <= toleranceDays)
+    .sort((left, right) => {
+      const distanceDelta =
+        getDateDistanceInDays(left.date, targetDate) -
+        getDateDistanceInDays(right.date, targetDate);
+
+      if (distanceDelta !== 0) {
+        return distanceDelta;
+      }
+
+      const leftSameMonth = getMonthKey(left.date) === exactMonth ? 1 : 0;
+      const rightSameMonth = getMonthKey(right.date) === exactMonth ? 1 : 0;
+
+      if (leftSameMonth !== rightSameMonth) {
+        return rightSameMonth - leftSameMonth;
+      }
+
+      return left.date.localeCompare(right.date);
+    });
+
+  return candidates[0] ?? null;
+}
+
+async function readPreviousMonthSnapshot(date = new Date()) {
+  const targetDate = getPreviousMonthStartDate(date);
+  const history = await readRecentSnapshotHistory(120);
+  return selectNearestSnapshotToDate(history, targetDate);
 }
 
 function buildMonthlyTrendSnapshots(snapshots: SnapshotComparisonSource[]) {
@@ -699,7 +761,7 @@ function buildMonthlyAnalysisQuestion(params: {
 }) {
   const comparisonText = params.comparison
     ? buildComparisonPromptSections(params.comparison, { limitHoldings: 12 })
-    : '未有可比較的上月月末快照；請只根據目前持倉與系統分佈總覽做監察及下月行動建議，不要假設月度變化。';
+    : '缺少基準 snapshot（上個月 1 號或合理容忍範圍內未找到）；請明確指出缺少基準 snapshot，並只根據目前持倉與系統分佈總覽做監察及下月行動建議，不要假設月度變化。';
 
   return [
     '請撰寫一份「每月資產分析」，定位係監察 / 告警 / 下月行動。',
@@ -892,7 +954,7 @@ export async function runMonthlyAssetAnalysis() {
     asOfDate: currentSnapshot.date,
     basis: 'monthly',
     comparisonHoldings: previousMonthSnapshot?.holdings,
-    comparisonLabel: previousMonthSnapshot ? '較上月' : undefined,
+    comparisonLabel: previousMonthSnapshot ? '較上月月初基準' : undefined,
   });
   const searchSummary = await generateGroundedSearchSummary({
     assets,
@@ -904,7 +966,7 @@ export async function runMonthlyAssetAnalysis() {
     : null;
   const comparisonText = comparison
     ? buildComparisonPromptSections(comparison, { limitHoldings: 12 })
-    : '未有可比較的上月月末快照。';
+    : `缺少基準 snapshot（目標 ${getPreviousMonthStartDate()}）。`;
   const question = buildMonthlyAnalysisQuestion({
     comparison,
     allocationSummary,

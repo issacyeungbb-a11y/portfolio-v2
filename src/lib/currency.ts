@@ -47,6 +47,23 @@ export function convertCurrency(
   return valueInHKD / toRate;
 }
 
+export function getFxRateToHKD(
+  currency: string,
+  customRates?: Record<string, number>,
+) {
+  const normalizedCurrency = normalizeCurrencyCode(currency);
+  const fxRates = customRates ?? FX_TO_HKD;
+  return fxRates[normalizedCurrency] ?? null;
+}
+
+export function convertToHKDValue(
+  amount: number,
+  currency: string,
+  customRates?: Record<string, number>,
+) {
+  return convertCurrency(amount, currency, 'HKD', customRates);
+}
+
 export function formatCurrency(value: number, currency: string) {
   const normalizedCurrency = normalizeCurrencyCode(currency);
   const fractionDigits = 0;
