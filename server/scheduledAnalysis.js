@@ -3,6 +3,7 @@ import { GoogleGenAI } from '@google/genai';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { getAnalyzePortfolioErrorResponse, runPortfolioAnalysisRequest, } from './analyzePortfolio.js';
+import { compareSnapshots, formatSnapshotComparisonForPrompt, selectRecentDistinctMonthlySnapshots, } from './snapshotComparison.js';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { buildReportAllocationSummaryFromHoldings } from '../src/lib/portfolio/reportAllocationSummary.js';
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
