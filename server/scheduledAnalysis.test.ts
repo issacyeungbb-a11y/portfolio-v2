@@ -2,11 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildAnalysisSessionWritePayload,
+  buildQuarterlyReportWritePayload,
   buildReportDataQualitySummary,
   buildReportFactsPayload,
   buildAnalysisRequestFromAssets,
   getPreviousMonthStartDate,
   normalizeSnapshotDocument,
+  sanitizeForFirestore,
   selectNearestSnapshotToDate,
 } from './scheduledAnalysis.js';
 
@@ -178,4 +181,174 @@ test('buildReportDataQualitySummary includes stale price warning messages', () =
   });
 
   assert.match(summary.warningMessages.join('\n'), /超過 24 小時未更新/);
+});
+
+test('sanitizeForFirestore removes undefined recursively from report facts payload', () => {
+  const payload = buildReportFactsPayload({
+    reportType: 'monthly',
+    generatedAt: '2026-05-01T00:15:00.000Z',
+    periodStartDate: '2026-04-01',
+    periodEndDate: '2026-05-01',
+    currentSnapshot: { date: '2026-05-01', totalValueHKD: 120000, holdings: [] },
+    totalCostHKD: 100000,
+    allocationSummary: {
+      asOfDate: '2026-05-01',
+      basis: 'snapshot',
+      styleTag: 'balanced',
+      warningTags: [],
+      slices: [],
+    } as never,
+    allocationsByCurrency: [],
+    model: 'claude-opus-4-7',
+    provider: 'anthropic',
+    snapshotHash: 'snapshot-hash',
+    dataQualitySummary: {
+      status: 'partial',
+      staleAssetCount: 1,
+      coveragePct: undefined,
+      fallbackAssetCount: undefined,
+      missingAssetCount: undefined,
+      oldestPriceAsOf: undefined,
+      warningMessages: ['有 1 項資產價格超過 24 小時未更新。'],
+    },
+    topHoldingsByHKD: [
+      {
+        assetId: 'metaplanet',
+        ticker: '3350',
+        name: 'Metaplanet',
+        assetType: 'stock',
+        currency: 'JPY',
+        quantity: 500,
+        currentPrice: 326,
+        marketValue: undefined,
+        marketValueHKD: 8476,
+        costValue: 10608,
+      } as never,
+    ],
+  });
+
+  const sanitized = sanitizeForFirestore(payload) as Record<string, unknown>;
+  const dataQualitySummary = sanitized.dataQualitySummary as Record<string, unknown>;
+  const firstHolding = (sanitized.topHoldingsByHKD as Array<Record<string, unknown>>)[0];
+
+  assert.ok(!('netExternalFlowHKD' in sanitized));
+  assert.ok(!('netExternalFlowCoveragePct' in sanitized));
+  assert.ok(!('investmentGainHKD' in sanitized));
+  assert.ok(!('investmentGainPercent' in sanitized));
+  assert.ok(!('cashFlowWarningMessage' in sanitized));
+  assert.ok(!('fxRatesUsed' in sanitized));
+  assert.ok(!('coveragePct' in dataQualitySummary));
+  assert.ok(!('fallbackAssetCount' in dataQualitySummary));
+  assert.ok(!('missingAssetCount' in dataQualitySummary));
+  assert.ok(!('oldestPriceAsOf' in dataQualitySummary));
+  assert.ok(!('marketValueLocal' in firstHolding));
+});
+
+test('buildAnalysisSessionWritePayload sanitizes reportFactsPayload before write', () => {
+  const writePayload = buildAnalysisSessionWritePayload({
+    response: {
+      category: 'asset_analysis',
+      analysisQuestion: 'question',
+      answer: 'answer',
+      model: 'claude-opus-4-7',
+      provider: 'anthropic',
+      snapshotHash: 'snapshot-hash',
+      cacheKey: 'cache-key',
+      analysisBackground: 'background',
+      generatedAt: '2026-05-01T00:15:00.000Z',
+      assetCount: 1,
+    } as never,
+    title: '2026年5每月資產分析',
+    reportFactsPayload: {
+      generatedAt: '2026-05-01T00:15:00.000Z',
+      reportType: 'monthly',
+      periodStartDate: '2026-04-01',
+      periodEndDate: '2026-05-01',
+      currentSnapshotDate: '2026-05-01',
+      totalValueHKD: 120000,
+      totalCostHKD: 100000,
+      netExternalFlowHKD: undefined,
+      dataQualitySummary: {
+        status: 'partial',
+        staleAssetCount: 1,
+        missingAssetCount: undefined,
+        warningMessages: ['warn'],
+      },
+      topHoldingsByHKD: [
+        {
+          ticker: '3350',
+          name: 'Metaplanet',
+          currency: 'JPY',
+          marketValueHKD: 8476,
+          marketValueLocal: undefined,
+        },
+      ],
+      allocationByType: [],
+      allocationByCurrency: [],
+      model: 'claude-opus-4-7',
+      provider: 'anthropic',
+      snapshotHash: 'snapshot-hash',
+      promptVersion: 'v1',
+    },
+  });
+
+  const reportFactsPayload = writePayload.reportFactsPayload as unknown as Record<string, unknown>;
+  const dataQualitySummary = reportFactsPayload.dataQualitySummary as Record<string, unknown>;
+  const firstHolding = (reportFactsPayload.topHoldingsByHKD as Array<Record<string, unknown>>)[0];
+
+  assert.ok(reportFactsPayload);
+  assert.ok(!('netExternalFlowHKD' in reportFactsPayload));
+  assert.ok(!('missingAssetCount' in dataQualitySummary));
+  assert.ok(!('marketValueLocal' in firstHolding));
+});
+
+test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write', () => {
+  const writePayload = buildQuarterlyReportWritePayload({
+    quarter: '2026年Q2',
+    generatedAt: '2026-05-01T00:15:00.000Z',
+    report: 'report',
+    currentSnapshotHash: 'snapshot-hash',
+    searchSummary: 'summary',
+    model: 'claude-opus-4-7',
+    provider: 'anthropic',
+    reportFactsPayload: {
+      generatedAt: '2026-05-01T00:15:00.000Z',
+      reportType: 'quarterly',
+      periodStartDate: '2026-01-01',
+      periodEndDate: '2026-05-01',
+      currentSnapshotDate: '2026-05-01',
+      totalValueHKD: 120000,
+      totalCostHKD: 100000,
+      cashFlowWarningMessage: undefined,
+      dataQualitySummary: {
+        status: 'warning',
+        staleAssetCount: 2,
+        fallbackAssetCount: undefined,
+        warningMessages: ['warn'],
+      },
+      topHoldingsByHKD: [
+        {
+          ticker: '3350',
+          name: 'Metaplanet',
+          currency: 'JPY',
+          marketValueHKD: 8476,
+          marketValueLocal: undefined,
+        },
+      ],
+      allocationByType: [],
+      allocationByCurrency: [],
+      model: 'claude-opus-4-7',
+      provider: 'anthropic',
+      snapshotHash: 'snapshot-hash',
+      promptVersion: 'v1',
+    },
+  });
+
+  const reportFactsPayload = writePayload.reportFactsPayload as unknown as Record<string, unknown>;
+  const dataQualitySummary = reportFactsPayload.dataQualitySummary as Record<string, unknown>;
+  const firstHolding = (reportFactsPayload.topHoldingsByHKD as Array<Record<string, unknown>>)[0];
+
+  assert.ok(!('cashFlowWarningMessage' in reportFactsPayload));
+  assert.ok(!('fallbackAssetCount' in dataQualitySummary));
+  assert.ok(!('marketValueLocal' in firstHolding));
 });

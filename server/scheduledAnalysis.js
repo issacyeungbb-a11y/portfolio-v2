@@ -637,6 +637,76 @@ export function buildReportFactsPayload(params) {
         promptVersion: REPORT_PROMPT_VERSION,
     };
 }
+function isPlainObject(value) {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+}
+export function sanitizeForFirestore(value) {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (value === null || typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') {
+        return value;
+    }
+    if (Array.isArray(value)) {
+        return value
+            .map((item) => sanitizeForFirestore(item))
+            .filter((item) => item !== undefined);
+    }
+    if (value instanceof Date) {
+        return value;
+    }
+    if (!isPlainObject(value)) {
+        return value;
+    }
+    const sanitizedEntries = Object.entries(value).flatMap(([key, nestedValue]) => {
+        const sanitizedValue = sanitizeForFirestore(nestedValue);
+        return sanitizedValue === undefined ? [] : [[key, sanitizedValue]];
+    });
+    return Object.fromEntries(sanitizedEntries);
+}
+export function buildAnalysisSessionWritePayload(params) {
+    const sanitizedReportFactsPayload = params.reportFactsPayload
+        ? sanitizeForFirestore(params.reportFactsPayload)
+        : undefined;
+    return {
+        category: params.response.category,
+        title: params.title,
+        question: params.response.analysisQuestion,
+        result: params.response.answer,
+        model: params.response.model,
+        provider: params.response.provider,
+        snapshotHash: params.response.snapshotHash,
+        delivery: 'scheduled',
+        ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
+        ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+    };
+}
+export function buildQuarterlyReportWritePayload(params) {
+    const sanitizedReportFactsPayload = params.reportFactsPayload
+        ? sanitizeForFirestore(params.reportFactsPayload)
+        : undefined;
+    return {
+        quarter: params.quarter,
+        generatedAt: params.generatedAt,
+        report: params.report,
+        currentSnapshotHash: params.currentSnapshotHash,
+        previousSnapshotDate: params.previousSnapshotDate ?? '',
+        searchSummary: params.searchSummary,
+        model: params.model,
+        provider: params.provider,
+        ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
+        ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
+        pdfUrl: '',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+    };
+}
 function buildMonthlyTrendSnapshots(snapshots) {
     return selectRecentDistinctMonthlySnapshots(snapshots, 3);
 }
@@ -769,6 +839,9 @@ function buildQuarterlyAnalysisQuestion(params) {
 async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload) {
     const db = getFirebaseAdminDb();
     const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
+    const sanitizedReportFactsPayload = reportFactsPayload
+        ? sanitizeForFirestore(reportFactsPayload)
+        : undefined;
     await portfolioRef.collection('analysisCache').doc(response.cacheKey).set({
         cacheKey: response.cacheKey,
         snapshotHash: response.snapshotHash,
@@ -782,23 +855,15 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
         assetCount: response.assetCount,
         answer: response.answer,
         ...(allocationSummary ? { allocationSummary } : {}),
-        ...(reportFactsPayload ? { reportFactsPayload } : {}),
+        ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
         updatedAt: FieldValue.serverTimestamp(),
     }, { merge: true });
-    await portfolioRef.collection('analysisSessions').add({
-        category: response.category,
+    await portfolioRef.collection('analysisSessions').add(buildAnalysisSessionWritePayload({
+        response,
         title,
-        question: response.analysisQuestion,
-        result: response.answer,
-        model: response.model,
-        provider: response.provider,
-        snapshotHash: response.snapshotHash,
-        delivery: 'scheduled',
-        ...(allocationSummary ? { allocationSummary } : {}),
-        ...(reportFactsPayload ? { reportFactsPayload } : {}),
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-    });
+        allocationSummary,
+        reportFactsPayload: sanitizedReportFactsPayload,
+    }));
 }
 async function saveQuarterlyReport(params) {
     const db = getFirebaseAdminDb();
@@ -806,21 +871,7 @@ async function saveQuarterlyReport(params) {
         .collection(SHARED_PORTFOLIO_COLLECTION)
         .doc(SHARED_PORTFOLIO_DOC_ID)
         .collection('quarterlyReports')
-        .add({
-        quarter: params.quarter,
-        generatedAt: params.generatedAt,
-        report: params.report,
-        currentSnapshotHash: params.currentSnapshotHash,
-        previousSnapshotDate: params.previousSnapshotDate ?? '',
-        searchSummary: params.searchSummary,
-        model: params.model,
-        provider: params.provider,
-        ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
-        ...(params.reportFactsPayload ? { reportFactsPayload: params.reportFactsPayload } : {}),
-        pdfUrl: '',
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-    });
+        .add(buildQuarterlyReportWritePayload(params));
 }
 async function runScheduledCategoryAnalysis(params) {
     const assets = params.assets ?? await readAdminPortfolioAssets();
