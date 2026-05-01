@@ -511,9 +511,10 @@ export function AnalysisPage() {
     () => monthlyAnalysisSessions.find((session) => session.title === currentMonthLabel) ?? null,
     [currentMonthLabel, monthlyAnalysisSessions],
   );
+  const hasCurrentMonthAnalysis = currentMonthAnalysis != null;
   const canGenerateCurrentMonthAnalysis = useMemo(
-    () => canGenerateMonthlyAnalysisNow(currentTime) && currentMonthAnalysis == null,
-    [currentMonthAnalysis, currentTime],
+    () => canGenerateMonthlyAnalysisNow(currentTime) && !hasCurrentMonthAnalysis,
+    [currentTime, hasCurrentMonthAnalysis],
   );
   useEffect(() => {
     if (monthlyAnalysisSessions.length === 0) {
@@ -1197,7 +1198,7 @@ export function AnalysisPage() {
           <div className="analysis-scheduled-actions">
             <p className="status-message">
               {canGenerateMonthlyAnalysisNow(currentTime)
-                ? currentMonthAnalysis
+                ? hasCurrentMonthAnalysis
                   ? '本月每月資產分析已經生成。'
                   : '已進入本月可生成時段。'
                 : '未到每月 1 號香港時間上午 8:00。'}
