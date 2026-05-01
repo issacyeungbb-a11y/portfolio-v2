@@ -322,7 +322,6 @@ async function generateGroundedSearchSummary(params) {
                 model,
                 contents: prompt,
                 config: {
-                    temperature: 0.2,
                     maxOutputTokens: 1500,
                     tools: [{ googleSearch: {} }],
                 },

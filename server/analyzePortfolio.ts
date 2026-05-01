@@ -939,7 +939,6 @@ async function generateGeneralQuestionSearchSummary(
           model,
           contents: prompt,
           config: {
-            temperature: 0.2,
             maxOutputTokens: 1500,
             tools: [{ googleSearch: {} }],
           },
@@ -1015,7 +1014,6 @@ async function analyzeWithGemini(
     model,
     contents: prompt,
     config: {
-      temperature: 0.3,
       ...(typeof maxTokens === 'number' ? { maxOutputTokens: maxTokens } : {}),
       ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
     },
@@ -1041,7 +1039,6 @@ async function analyzeWithClaude(
     body: JSON.stringify({
       model,
       max_tokens: maxTokens,
-      temperature: 0.3,
       system: systemPrompt,
       messages: [
         {
