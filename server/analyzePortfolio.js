@@ -56,24 +56,64 @@ function getSearchModelCandidates() {
     const preferred = process.env.GROUNDED_GEMINI_MODEL?.trim() || PREFERRED_GROUNDED_SEARCH_MODEL;
     return [preferred, ...GROUNDED_SEARCH_FALLBACK_MODELS.filter((model) => model !== preferred)];
 }
+function extractGroundingSources(response, query, relatedTickers, retrievedAt) {
+    try {
+        const candidates = response?.candidates;
+        if (!Array.isArray(candidates) || candidates.length === 0)
+            return [];
+        const meta = candidates[0]?.groundingMetadata;
+        const chunks = meta?.groundingChunks;
+        if (!Array.isArray(chunks))
+            return [];
+        return chunks
+            .slice(0, 10)
+            .map((chunk) => {
+            const web = chunk?.web;
+            const url = typeof web?.uri === 'string' ? web.uri : '';
+            const title = typeof web?.title === 'string' ? web.title : url;
+            if (!url)
+                return null;
+            return {
+                title,
+                url,
+                retrievedAt,
+                snippet: '',
+                query,
+                relatedTickers,
+            };
+        })
+            .filter((source) => source !== null);
+    }
+    catch {
+        return [];
+    }
+}
 function buildGeneralQuestionSearchPrompt(request) {
     const searchTargets = getSearchTargets(request.holdings);
     const tickers = searchTargets.map((holding) => `${holding.ticker} (${holding.name})`).join('、') || '目前無主要持倉';
     const question = request.analysisQuestion.trim() || '目前投資組合有咩最新外部資訊值得留意？';
-    const conversationContext = request.conversationContext.trim() || '目前未有前文對話。';
+    const conversationContext = request.conversationContext.trim().slice(-500) || '目前未有前文對話。';
+    const retrievedDate = new Date().toISOString().slice(0, 10);
     return [
-        '請使用 Google Search 幫我整理與投資組合相關的最新外部資訊，只輸出可直接提供給另一個 AI 的摘要文字，不要作投資分析或建議。',
-        '重點整理：',
-        '1. 與以下問題最相關的最新新聞、公告、政策、財報或市場背景',
-        '2. 若涉及持倉，整理與主要持倉最相關的近期外部資訊',
-        '3. 若有時間敏感資料，請盡量標明日期或時間範圍',
+        '請使用 Google Search 做一份可交給專業投資分析模型使用的最新外部資料摘要。只輸出資料摘要，不要直接給買賣建議。',
+        `檢索日期：${retrievedDate}`,
+        '研究範圍要同時覆蓋：',
+        '1. 使用者問題直接提及的公司、ETF、資產類別、國家/地區、行業或宏觀主題。',
+        '2. 若問題涉及財報/業績，整理最新季度/年度收入、盈利、指引、管理層重點、估值或市場反應。',
+        '3. 若問題涉及宏觀，整理利率、通脹、美元、債息、政策、風險偏好、主要市場表現與資金流向。',
+        '4. 若問題涉及持倉，整理與主要持倉最相關的近期外部資訊，並標明哪些 ticker 可能受影響。',
+        '5. 若資料有衝突或不完整，請標明不確定之處；不要用舊資料扮最新。',
         `使用者問題：${question}`,
         `對話上下文：${conversationContext}`,
         `主要持倉：${tickers}`,
-        '請用繁體中文，寫成簡潔、可引用的外部資料摘要。',
+        '請用繁體中文，以條列輸出：關鍵事實、宏觀背景、相關持倉影響線索、資料限制。',
     ].join('\n');
 }
 async function generateGeneralQuestionSearchSummary(request) {
+    const retrievedAt = new Date().toISOString();
+    const searchTargets = getSearchTargets(request.holdings);
+    const relatedTickers = searchTargets.map((holding) => holding.ticker);
+    const query = request.analysisQuestion.trim() || '投資組合外部資訊';
     try {
         const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
         const prompt = buildGeneralQuestionSearchPrompt(request);
@@ -85,13 +125,14 @@ async function generateGeneralQuestionSearchSummary(request) {
                     model,
                     contents: prompt,
                     config: {
-                        maxOutputTokens: 1500,
+                        maxOutputTokens: 3000,
                         tools: [{ googleSearch: {} }],
                     },
                 });
                 const summary = response.text?.trim();
                 if (summary) {
-                    return summary;
+                    const sources = extractGroundingSources(response, query, relatedTickers, retrievedAt);
+                    return { summary, sources, status: 'ok', retrievedAt };
                 }
                 console.warn(`[analyzePortfolio] Gemini grounding returned empty summary for model ${model}; trying fallback if available.`);
             }
@@ -101,12 +142,22 @@ async function generateGeneralQuestionSearchSummary(request) {
             }
         }
         const fallbackMessage = lastError instanceof Error ? lastError.message : 'grounding_failed';
-        return `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`;
+        return {
+            summary: `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`,
+            sources: [],
+            status: 'failed',
+            retrievedAt,
+        };
     }
     catch (error) {
         const fallbackMessage = error instanceof Error ? error.message : 'grounding_unavailable';
         console.warn('[analyzePortfolio] external search unavailable:', fallbackMessage);
-        return `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`;
+        return {
+            summary: `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`,
+            sources: [],
+            status: 'failed',
+            retrievedAt,
+        };
     }
 }
 function sanitizeString(value) {
@@ -466,6 +517,35 @@ export function normalizeAnalysisRequest(payload) {
         recentSnapshots,
     };
 }
+function parseStructuredGeneralAnswer(raw) {
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/(\{[\s\S]*\})/);
+    const candidate = jsonMatch ? jsonMatch[1] : raw;
+    try {
+        const parsed = JSON.parse(candidate.trim());
+        const answer = sanitizeString(parsed.answer);
+        if (!answer)
+            throw new Error('missing answer');
+        return {
+            answer,
+            usedPortfolioFacts: Array.isArray(parsed.usedPortfolioFacts)
+                ? parsed.usedPortfolioFacts.filter((value) => typeof value === 'string').slice(0, 10)
+                : [],
+            uncertainty: Array.isArray(parsed.uncertainty)
+                ? parsed.uncertainty.filter((value) => typeof value === 'string').slice(0, 5)
+                : [],
+            suggestedActions: Array.isArray(parsed.suggestedActions)
+                ? parsed.suggestedActions.filter((value) => typeof value === 'string').slice(0, 5)
+                : [],
+        };
+    }
+    catch {
+        const answer = raw.trim();
+        if (!answer) {
+            throw new AnalyzePortfolioError('模型未有回傳分析內容。', 502);
+        }
+        return { answer, usedPortfolioFacts: [], uncertainty: [], suggestedActions: [] };
+    }
+}
 function sanitizeAnalysisResult(rawPayload) {
     if (typeof rawPayload === 'string') {
         const answer = rawPayload.trim();
@@ -490,10 +570,17 @@ function getCategoryPromptPrefix(category) {
     if (category === 'general_question') {
         return `
 Category: 一般問題
-- 將自己視為投資組合助手。
-- 直接回答使用者問題。
-- 若問題與資產直接相關，可引用持倉數據。
-- 若問題較泛，仍以目前組合背景作答，但不要強行變成完整資產診斷。
+你是專業投資研究與投資組合對話助手。你的任務是結合使用者目前持倉、資產分類、幣別、成本、市值、30日價格走勢、最近交易、最近 snapshots，以及系統提供的外部／宏觀資料，直接回答使用者當次投資問題。
+
+回答規則：
+1. 先用一句話給結論。
+2. 再清楚分開「組合內可核對數據」、「外部／宏觀資料」與「對組合的含義」。
+3. 如果問題涉及持倉，必須引用具體持倉、幣別、成本、市值、集中度或 30日走勢。
+4. 如果問題涉及宏觀、新聞、利率、政策、財報、估值、行業或市場情緒，只可使用系統提供的外部資料；不足就直說。
+5. 如果外部搜尋失敗或未進行，要明確說明本次回答只基於目前組合資料。
+6. 如果問題屬於判斷、比較或策略題，請先給結論，再給理由，最後補可執行的觀察/風險控制方向。
+7. 不要保證回報，不要給絕對買賣指令。
+8. 除非使用者要求長文，否則保持精煉、清楚、可操作。
     `.trim();
     }
     if (category === 'asset_report') {
@@ -520,18 +607,30 @@ function getAnalysisRules() {
 - If the data lacks price history or cash-flow history, mention that limitation briefly where relevant.
 - If structured comparison, trend, or market summary data is included in the user prompt, treat it as provided evidence and引用其中數字。
 - If a latest external search summary is included, treat it as current evidence for recent news, company updates, macro context, or other time-sensitive facts.
-- If external search is unavailable, say so briefly and fall back to the portfolio data already provided.
+- If external search is unavailable or not performed, say so briefly and fall back to the portfolio data already provided.
 - Keep the tone practical, calm, and beginner-friendly.
 - Prioritize the user's analysis instruction when deciding what to emphasize, but do not invent any external facts or unsupported claims.
 - Answer the user's instruction directly. Do not force your response into sections unless the user's question naturally calls for it.
-- If the user's instruction asks for a comparison, recommendation, or explanation, answer that request directly in flowing prose or a natural list.
   `.trim();
 }
-function buildAnalysisSystemPrompt(request, externalSearchSummary = '') {
+function buildAnalysisSystemPrompt(request) {
+    const isGeneralQuestion = request.category === 'general_question';
+    const jsonInstruction = isGeneralQuestion
+        ? `
+Output format: You MUST respond with a valid JSON object (no markdown fences) with exactly these fields:
+{
+  "answer": "main answer in Traditional Chinese",
+  "usedPortfolioFacts": ["fact from portfolio data used in answer", ...],
+  "uncertainty": ["uncertainty or data gap", ...],
+  "suggestedActions": ["concrete follow-up action", ...]
+}
+Keep usedPortfolioFacts, uncertainty, suggestedActions as short, 1-line strings. Max 8 items each.
+    `.trim()
+        : 'Return ONLY the final answer text in Traditional Chinese. Do not use markdown code fences.';
     return `
 You are a portfolio analysis assistant.
-Analyze ONLY the portfolio snapshot provided below.
-Return ONLY the final answer text in Traditional Chinese. Do not use markdown code fences.
+Analyze the portfolio snapshot and the supplied external search summary only.
+${jsonInstruction}
 
 Rules:
 ${getAnalysisRules()}
@@ -618,7 +717,7 @@ function buildAnalysisUserPrompt(request, externalSearchSummary = '') {
     const richContextSection = request.holdings.length > 0 ? buildRichContextSection(request) : '';
     const externalSearchSection = request.category === 'general_question' && externalSearchSummary.trim()
         ? `
-Latest external information summary:
+Latest external information summary (retrieved from Google Search):
 ${externalSearchSummary.trim()}
       `.trim()
         : '';
@@ -645,12 +744,12 @@ ${richContextSection ? `${richContextSection}\n` : ''}
   `.trim();
 }
 export function buildPrompt(request, externalSearchSummary = '') {
-    return `${buildAnalysisSystemPrompt(request, externalSearchSummary)}\n\n${buildAnalysisUserPrompt(request, externalSearchSummary)}`;
+    return `${buildAnalysisSystemPrompt(request)}\n\n${buildAnalysisUserPrompt(request, externalSearchSummary)}`;
 }
 function getModelProvider(model) {
     return SUPPORTED_ANALYSIS_MODELS[model].provider;
 }
-async function analyzeWithGemini(prompt, model, maxTokens) {
+async function analyzeWithGemini(prompt, model, maxTokens, jsonMode = false) {
     const apiKey = getGeminiApiKey();
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
@@ -658,6 +757,7 @@ async function analyzeWithGemini(prompt, model, maxTokens) {
         contents: prompt,
         config: {
             ...(typeof maxTokens === 'number' ? { maxOutputTokens: maxTokens } : {}),
+            ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
         },
     });
     return response.text ?? '';
@@ -745,10 +845,12 @@ export function getAnalyzePortfolioErrorResponse(error) {
     };
 }
 export async function runPortfolioAnalysisRequest(request, options) {
-    const externalSearchSummary = request.category === 'general_question'
+    const isGeneralQuestion = request.category === 'general_question';
+    const searchResult = isGeneralQuestion
         ? await generateGeneralQuestionSearchSummary(request)
-        : '';
-    const systemPrompt = buildAnalysisSystemPrompt(request, externalSearchSummary);
+        : null;
+    const externalSearchSummary = searchResult?.summary ?? '';
+    const systemPrompt = buildAnalysisSystemPrompt(request);
     const userPrompt = buildAnalysisUserPrompt(request, externalSearchSummary);
     const provider = getModelProvider(request.analysisModel);
     const resolvedMaxTokens = options?.maxTokens ?? getDefaultAnalysisMaxTokens(request.category);
@@ -757,8 +859,27 @@ export async function runPortfolioAnalysisRequest(request, options) {
         : getGeminiAnalyzeModel(request.analysisModel);
     const raw = provider === 'anthropic'
         ? await analyzeWithClaude(systemPrompt, userPrompt, resolvedModel, resolvedMaxTokens)
-        : await analyzeWithGemini(`${systemPrompt}\n\n${userPrompt}`, resolvedModel, resolvedMaxTokens);
-    const result = sanitizeAnalysisResult(raw);
+        : await analyzeWithGemini(`${systemPrompt}\n\n${userPrompt}`, resolvedModel, resolvedMaxTokens, isGeneralQuestion);
+    const result = isGeneralQuestion
+        ? {
+            ...parseStructuredGeneralAnswer(raw),
+            usedExternalSources: searchResult?.sources.slice(0, 5).map((source) => `${source.title} — ${source.url}`) ?? [],
+        }
+        : sanitizeAnalysisResult(raw);
+    const dataFreshness = isGeneralQuestion
+        ? {
+            hasExternalSearch: Boolean(searchResult),
+            externalSearchAt: searchResult?.retrievedAt,
+            externalSearchStatus: searchResult ? searchResult.status : 'not_needed',
+        }
+        : undefined;
+    const macroContext = searchResult
+        ? {
+            retrievedAt: searchResult.retrievedAt,
+            summary: searchResult.summary,
+            sources: searchResult.sources,
+        }
+        : undefined;
     return {
         ok: true,
         route: ANALYZE_ROUTE,
@@ -773,6 +894,8 @@ export async function runPortfolioAnalysisRequest(request, options) {
         analysisBackground: request.analysisBackground ?? '',
         delivery: options?.delivery ?? 'manual',
         generatedAt: new Date().toISOString(),
+        dataFreshness,
+        macroContext,
         ...result,
     };
 }

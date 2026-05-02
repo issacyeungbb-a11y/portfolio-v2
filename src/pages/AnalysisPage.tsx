@@ -108,14 +108,14 @@ const analysisModelOptions: Array<{
   hint: string;
 }> = [
   {
+    value: 'claude-opus-4-7',
+    label: 'Claude Opus',
+    hint: '4.7 · 最佳分析',
+  },
+  {
     value: 'gemini-3.1-pro-preview',
     label: 'Google Gemini',
     hint: '3.1 Pro Preview',
-  },
-  {
-    value: 'claude-opus-4-7',
-    label: 'Claude Opus',
-    hint: '4.7',
   },
 ];
 
@@ -282,7 +282,7 @@ export function AnalysisPage() {
   const [analysisCacheKeyStatus, setAnalysisCacheKeyStatus] = useState<SnapshotHashStatus>('idle');
   const [snapshotHashError, setSnapshotHashError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<AnalysisCategory>('general_question');
-  const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('gemini-3.1-pro-preview');
+  const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('claude-opus-4-7');
   const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
   const [lastGeneralQuestionMeta, setLastGeneralQuestionMeta] = useState<GeneralQuestionDataFreshness | null>(null);
   const [lastGeneralQuestionSources, setLastGeneralQuestionSources] = useState<string[]>([]);

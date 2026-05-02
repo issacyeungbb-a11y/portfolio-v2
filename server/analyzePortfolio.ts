@@ -620,15 +620,15 @@ function getCategoryPromptPrefix(category: AnalysisCategory) {
   if (category === 'general_question') {
     return `
 Category: 一般問題
-你是投資組合對話助手。你的任務是根據使用者目前持倉、資產分類、幣別、成本、市值、30日價格走勢、最近交易、最近 snapshots，以及系統提供的外部／宏觀資料，直接回答使用者當次問題。
+你是專業投資研究與投資組合對話助手。你的任務是結合使用者目前持倉、資產分類、幣別、成本、市值、30日價格走勢、最近交易、最近 snapshots，以及系統提供的外部／宏觀資料，直接回答使用者當次投資問題。
 
 回答規則：
 1. 先用一句話給結論。
-2. 再清楚分開「組合內可核對數據」與「外部／宏觀資料」。
+2. 再清楚分開「組合內可核對數據」、「外部／宏觀資料」與「對組合的含義」。
 3. 如果問題涉及持倉，必須引用具體持倉、幣別、成本、市值、集中度或 30日走勢。
-4. 如果問題涉及宏觀、新聞、利率、政策、財報或市場估值，只可使用系統提供的外部資料；不足就直說。
+4. 如果問題涉及宏觀、新聞、利率、政策、財報、估值、行業或市場情緒，只可使用系統提供的外部資料；不足就直說。
 5. 如果外部搜尋失敗或未進行，要明確說明本次回答只基於目前組合資料。
-6. 如果問題屬於判斷或比較題，請先給結論，再給理由，最後補實際建議。
+6. 如果問題屬於判斷、比較或策略題，請先給結論，再給理由，最後補可執行的觀察/風險控制方向。
 7. 不要保證回報，不要給絕對買賣指令。
 8. 除非使用者要求長文，否則保持精煉、清楚、可操作。
     `.trim();
@@ -805,7 +805,7 @@ Keep usedPortfolioFacts, uncertainty, suggestedActions as short, 1-line strings.
 
   return `
 You are a portfolio analysis assistant.
-Analyze ONLY the portfolio snapshot provided below.
+Analyze the portfolio snapshot and the supplied external search summary only.
 ${jsonInstruction}
 
 Rules:
@@ -922,17 +922,21 @@ function buildGeneralQuestionSearchPrompt(request: PortfolioAnalysisRequest) {
     searchTargets.map((holding) => `${holding.ticker} (${holding.name})`).join('、') || '目前無主要持倉';
   const question = request.analysisQuestion.trim() || '目前投資組合有咩最新外部資訊值得留意？';
   const conversationContext = truncateConversationContext(request.conversationContext || '', 500);
+  const retrievedDate = new Date().toISOString().slice(0, 10);
 
   return [
-    '請使用 Google Search 幫我整理與投資組合相關的最新外部資訊，只輸出可直接提供給另一個 AI 的摘要文字，不要作投資分析或建議。',
-    '重點整理：',
-    '1. 與以下問題最相關的最新新聞、公告、政策、財報或市場背景',
-    '2. 若涉及持倉，整理與主要持倉最相關的近期外部資訊',
-    '3. 若有時間敏感資料，請盡量標明日期或時間範圍',
+    '請使用 Google Search 做一份可交給專業投資分析模型使用的最新外部資料摘要。只輸出資料摘要，不要直接給買賣建議。',
+    `檢索日期：${retrievedDate}`,
+    '研究範圍要同時覆蓋：',
+    '1. 使用者問題直接提及的公司、ETF、資產類別、國家/地區、行業或宏觀主題。',
+    '2. 若問題涉及財報/業績，整理最新季度/年度收入、盈利、指引、管理層重點、估值或市場反應。',
+    '3. 若問題涉及宏觀，整理利率、通脹、美元、債息、政策、風險偏好、主要市場表現與資金流向。',
+    '4. 若問題涉及持倉，整理與主要持倉最相關的近期外部資訊，並標明哪些 ticker 可能受影響。',
+    '5. 若資料有衝突或不完整，請標明不確定之處；不要用舊資料扮最新。',
     `使用者問題：${question}`,
     `對話上下文：${conversationContext || '目前未有前文對話。'}`,
     `主要持倉：${tickers}`,
-    '請用繁體中文，寫成簡潔、可引用的外部資料摘要。',
+    '請用繁體中文，以條列輸出：關鍵事實、宏觀背景、相關持倉影響線索、資料限制。',
   ].join('\n');
 }
 
@@ -959,7 +963,7 @@ async function generateGeneralQuestionSearchSummary(
           model,
           contents: prompt,
           config: {
-            maxOutputTokens: 1500,
+            maxOutputTokens: 3000,
             tools: [{ googleSearch: {} }],
           },
         });

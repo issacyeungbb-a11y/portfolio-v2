@@ -47,3 +47,35 @@ test('buildPrompt sorts holdings by HKD value and labels local plus HKD values',
   assert.doesNotMatch(prompt, /市值 180,?000(?!\s*\/)/);
   assert.doesNotMatch(prompt, /成本 150,?000(?!\s*\/)/);
 });
+
+test('general question prompt expects grounded macro context and structured answer', () => {
+  const request = buildAnalysisRequestFromAssets({
+    assets: [
+      {
+        id: 'goog',
+        name: 'Alphabet',
+        symbol: 'GOOG',
+        assetType: 'stock',
+        accountSource: 'IB',
+        currency: 'USD',
+        quantity: 46,
+        averageCost: 180,
+        currentPrice: 250,
+      },
+    ],
+    category: 'general_question',
+    analysisQuestion: '根據 Google 最新財報，係咩水平？背後有咩說明？',
+    analysisBackground: '請用專業投資角度回答一般問題。',
+    analysisModel: 'claude-opus-4-7',
+  });
+
+  const prompt = buildPrompt(
+    request,
+    'Alphabet 最新季度雲業務增長加快，搜尋廣告仍是主要收入來源；市場同時關注 AI 資本開支。',
+  );
+
+  assert.match(prompt, /專業投資研究與投資組合對話助手/);
+  assert.match(prompt, /Latest external information summary \(retrieved from Google Search\)/);
+  assert.match(prompt, /外部／宏觀資料/);
+  assert.match(prompt, /"usedPortfolioFacts"/);
+});
