@@ -32,6 +32,17 @@ const EXTERNAL_EVIDENCE_CACHE = new Map<
   { expiresAt: number; value: ExternalSearchResult }
 >();
 
+export interface AnalyzePortfolioTestHooks {
+  generateExternalSearchSummary?: (
+    request: PortfolioAnalysisRequest,
+    intent: AnalysisIntent,
+  ) => Promise<ExternalSearchResult>;
+  buildEarningsEvidencePack?: typeof buildEarningsEvidencePack;
+  qualityCheckGeneralAnswer?: typeof qualityCheckGeneralAnswer;
+  analyzeWithGemini?: typeof analyzeWithGemini;
+  analyzeWithClaude?: typeof analyzeWithClaude;
+}
+
 class AnalyzePortfolioError extends Error {
   status: number;
 
@@ -957,7 +968,7 @@ export function buildPrompt(
 // External search (grounded Gemini)
 // ---------------------------------------------------------------------------
 
-interface ExternalSearchResult {
+export interface ExternalSearchResult {
   summary: string;
   sources: ExternalSource[];
   externalEvidence: ExternalEvidenceSource[];
@@ -1024,6 +1035,22 @@ function getDominantTopic(request: PortfolioAnalysisRequest, intent: AnalysisInt
 
 function buildExternalEvidenceCacheKey(request: PortfolioAnalysisRequest, intent: AnalysisIntent) {
   return [intent, getDominantTopic(request, intent)].join(':').toLowerCase();
+}
+
+export function clearExternalEvidenceCacheForTest() {
+  EXTERNAL_EVIDENCE_CACHE.clear();
+}
+
+export function seedExternalEvidenceCacheForTest(
+  request: PortfolioAnalysisRequest,
+  intent: AnalysisIntent,
+  value: ExternalSearchResult,
+  ttlMs = 60 * 60 * 1000,
+) {
+  EXTERNAL_EVIDENCE_CACHE.set(buildExternalEvidenceCacheKey(request, intent), {
+    expiresAt: Date.now() + ttlMs,
+    value,
+  });
 }
 
 function shouldReuseConversationEvidence(request: PortfolioAnalysisRequest) {
@@ -1134,6 +1161,210 @@ function normalizeEarningsEvidencePack(
   };
 }
 
+function getEarningsSourcePriority(sourceType: ExternalEvidenceSourceType) {
+  switch (sourceType) {
+    case 'official_report':
+      return 0;
+    case 'sec_filing':
+      return 1;
+    case 'company_ir':
+      return 2;
+    case 'earnings_call':
+      return 3;
+    case 'news':
+      return 4;
+    default:
+      return 5;
+  }
+}
+
+function sortEarningsSourcesByPriority(sources: ExternalEvidenceSource[]) {
+  return [...sources].sort(
+    (left, right) => getEarningsSourcePriority(left.sourceType) - getEarningsSourcePriority(right.sourceType),
+  );
+}
+
+function getPreferredEarningsSources(sources: ExternalEvidenceSource[]) {
+  const sorted = sortEarningsSourcesByPriority(sources);
+  const official = sorted.filter((source) =>
+    ['official_report', 'sec_filing', 'company_ir', 'earnings_call'].includes(source.sourceType),
+  );
+  return official.length > 0 ? official : sorted;
+}
+
+function findEarningsFigure(
+  sources: ExternalEvidenceSource[],
+  patterns: RegExp[],
+) {
+  return getPreferredEarningsSources(sources)
+    .flatMap((source) => source.keyFigures)
+    .find((figure) => patterns.some((pattern) => pattern.test(figure))) ?? null;
+}
+
+function findEarningsFacts(
+  sources: ExternalEvidenceSource[],
+  patterns: RegExp[],
+  maxItems = 8,
+) {
+  return getPreferredEarningsSources(sources)
+    .flatMap((source) => source.keyFacts)
+    .filter((fact) => patterns.some((pattern) => pattern.test(fact)))
+    .slice(0, maxItems);
+}
+
+function addMissingEarningsFieldUncertainty(
+  uncertainty: string[],
+  fieldName: keyof EarningsEvidencePack,
+  value: string | string[] | null,
+  label: string,
+) {
+  const isMissing = Array.isArray(value) ? value.length === 0 : !value;
+  if (isMissing) {
+    uncertainty.push(`未能從已取得資料確認 ${label}（${String(fieldName)}）。`);
+  }
+}
+
+function completeEarningsEvidencePack(
+  basePack: EarningsEvidencePack,
+  externalSources: ExternalEvidenceSource[],
+): EarningsEvidencePack {
+  const sortedSources = sortEarningsSourcesByPriority(
+    basePack.sources.length > 0 ? basePack.sources : externalSources,
+  );
+  const uncertainty = [...basePack.uncertainty, ...sortedSources.flatMap((source) => source.uncertainty)];
+  const pick = (current: string | null, patterns: RegExp[]) =>
+    current ?? findEarningsFigure(sortedSources, patterns);
+  const segmentRevenue =
+    basePack.segmentRevenue.length > 0
+      ? basePack.segmentRevenue
+      : getPreferredEarningsSources(sortedSources)
+          .flatMap((source) => source.keyFigures)
+          .filter((figure) => /cloud|advertising|youtube|search|segment|分部|廣告|搜尋/i.test(figure))
+          .slice(0, 8);
+  const segmentOperatingIncome =
+    basePack.segmentOperatingIncome.length > 0
+      ? basePack.segmentOperatingIncome
+      : getPreferredEarningsSources(sortedSources)
+          .flatMap((source) => source.keyFigures)
+          .filter((figure) => /segment.*operating|operating.*segment|分部.*利潤|cloud.*income|operating income.*cloud/i.test(figure))
+          .slice(0, 8);
+  const completed: EarningsEvidencePack = {
+    ...basePack,
+    reportingPeriod: pick(basePack.reportingPeriod, [/quarter|季度|年度|year|Q[1-4]|FY/i]),
+    reportDate: basePack.reportDate ?? sortedSources.find((source) => source.publishedDate)?.publishedDate ?? null,
+    revenue: pick(basePack.revenue, [/revenue|收入|營收/i]),
+    revenueGrowth: pick(basePack.revenueGrowth, [/revenue.*growth|收入.*增|營收.*增|同比|YoY|year-over-year/i]),
+    operatingIncome: pick(basePack.operatingIncome, [/operating income|經營利潤|營業利潤/i]),
+    operatingMargin: pick(basePack.operatingMargin, [/operating margin|經營利潤率|營業利潤率|margin/i]),
+    netIncome: pick(basePack.netIncome, [/net income|淨利潤|純利/i]),
+    EPS: pick(basePack.EPS, [/EPS|diluted.*share|每股/i]),
+    operatingCashFlow: pick(basePack.operatingCashFlow, [/operating cash flow|net cash.*operating|營運現金流/i]),
+    freeCashFlow: pick(basePack.freeCashFlow, [/free cash flow|自由現金流|FCF/i]),
+    capitalExpenditure: pick(basePack.capitalExpenditure, [/capex|capital expenditure|capital expenditures|資本開支/i]),
+    segmentRevenue,
+    segmentOperatingIncome,
+    managementCommentary:
+      basePack.managementCommentary.length > 0
+        ? basePack.managementCommentary
+        : findEarningsFacts(sortedSources, [/management|CEO|CFO|管理層|指引|guidance|comment/i], 8),
+    marketReaction:
+      basePack.marketReaction.length > 0
+        ? basePack.marketReaction
+        : findEarningsFacts(sortedSources, [/stock|share|market|股價|市場|reaction/i], 6),
+    oneOffItems:
+      basePack.oneOffItems.length > 0
+        ? basePack.oneOffItems
+        : findEarningsFacts(sortedSources, [/one-off|一次性|non-recurring|restructuring|impairment|減值|會計/i], 6),
+    mainRisks:
+      basePack.mainRisks.length > 0
+        ? basePack.mainRisks
+        : sortedSources.flatMap((source) => source.uncertainty).slice(0, 6),
+    sources: sortedSources,
+    uncertainty,
+  };
+
+  addMissingEarningsFieldUncertainty(uncertainty, 'companyName', completed.companyName, '公司名稱');
+  addMissingEarningsFieldUncertainty(uncertainty, 'ticker', completed.ticker, 'ticker');
+  addMissingEarningsFieldUncertainty(uncertainty, 'reportingPeriod', completed.reportingPeriod, '報告期');
+  addMissingEarningsFieldUncertainty(uncertainty, 'reportDate', completed.reportDate, '財報日期');
+  addMissingEarningsFieldUncertainty(uncertainty, 'revenue', completed.revenue, '收入');
+  addMissingEarningsFieldUncertainty(uncertainty, 'revenueGrowth', completed.revenueGrowth, '收入增長');
+  addMissingEarningsFieldUncertainty(uncertainty, 'operatingIncome', completed.operatingIncome, '經營利潤');
+  addMissingEarningsFieldUncertainty(uncertainty, 'operatingMargin', completed.operatingMargin, '經營利潤率');
+  addMissingEarningsFieldUncertainty(uncertainty, 'netIncome', completed.netIncome, '淨利潤');
+  addMissingEarningsFieldUncertainty(uncertainty, 'EPS', completed.EPS, 'EPS');
+  addMissingEarningsFieldUncertainty(uncertainty, 'operatingCashFlow', completed.operatingCashFlow, '營運現金流');
+  addMissingEarningsFieldUncertainty(uncertainty, 'freeCashFlow', completed.freeCashFlow, '自由現金流');
+  addMissingEarningsFieldUncertainty(uncertainty, 'capitalExpenditure', completed.capitalExpenditure, '資本開支');
+  addMissingEarningsFieldUncertainty(uncertainty, 'segmentRevenue', completed.segmentRevenue, '分部收入');
+  addMissingEarningsFieldUncertainty(uncertainty, 'segmentOperatingIncome', completed.segmentOperatingIncome, '分部經營利潤');
+  addMissingEarningsFieldUncertainty(uncertainty, 'oneOffItems', completed.oneOffItems, '一次性因素');
+
+  completed.uncertainty = [...new Set(uncertainty)].slice(0, 16);
+  return completed;
+}
+
+function mergeEarningsEvidencePacks(
+  parsedPack: EarningsEvidencePack | undefined,
+  deterministicPack: EarningsEvidencePack,
+) {
+  if (!parsedPack) return deterministicPack;
+
+  return completeEarningsEvidencePack(
+    {
+      ...deterministicPack,
+      ...parsedPack,
+      companyName: parsedPack.companyName ?? deterministicPack.companyName,
+      ticker: parsedPack.ticker ?? deterministicPack.ticker,
+      reportingPeriod: parsedPack.reportingPeriod ?? deterministicPack.reportingPeriod,
+      reportDate: parsedPack.reportDate ?? deterministicPack.reportDate,
+      revenue: parsedPack.revenue ?? deterministicPack.revenue,
+      revenueGrowth: parsedPack.revenueGrowth ?? deterministicPack.revenueGrowth,
+      operatingIncome: parsedPack.operatingIncome ?? deterministicPack.operatingIncome,
+      operatingMargin: parsedPack.operatingMargin ?? deterministicPack.operatingMargin,
+      netIncome: parsedPack.netIncome ?? deterministicPack.netIncome,
+      EPS: parsedPack.EPS ?? deterministicPack.EPS,
+      operatingCashFlow: parsedPack.operatingCashFlow ?? deterministicPack.operatingCashFlow,
+      freeCashFlow: parsedPack.freeCashFlow ?? deterministicPack.freeCashFlow,
+      capitalExpenditure: parsedPack.capitalExpenditure ?? deterministicPack.capitalExpenditure,
+      segmentRevenue:
+        parsedPack.segmentRevenue.length > 0 ? parsedPack.segmentRevenue : deterministicPack.segmentRevenue,
+      segmentOperatingIncome:
+        parsedPack.segmentOperatingIncome.length > 0
+          ? parsedPack.segmentOperatingIncome
+          : deterministicPack.segmentOperatingIncome,
+      managementCommentary:
+        parsedPack.managementCommentary.length > 0
+          ? parsedPack.managementCommentary
+          : deterministicPack.managementCommentary,
+      marketReaction:
+        parsedPack.marketReaction.length > 0 ? parsedPack.marketReaction : deterministicPack.marketReaction,
+      oneOffItems:
+        parsedPack.oneOffItems.length > 0 ? parsedPack.oneOffItems : deterministicPack.oneOffItems,
+      mainRisks: parsedPack.mainRisks.length > 0 ? parsedPack.mainRisks : deterministicPack.mainRisks,
+      sources: parsedPack.sources.length > 0 ? parsedPack.sources : deterministicPack.sources,
+      uncertainty: [...deterministicPack.uncertainty, ...parsedPack.uncertainty],
+    },
+    parsedPack.sources.length > 0 ? parsedPack.sources : deterministicPack.sources,
+  );
+}
+
+function ensureEarningsEvidencePack(
+  searchResult: ExternalSearchResult,
+  request: PortfolioAnalysisRequest,
+  buildPack: typeof buildEarningsEvidencePack,
+): ExternalSearchResult {
+  const deterministicPack = buildPack(
+    request.analysisQuestion || '',
+    searchResult.externalEvidence,
+    request,
+  );
+  return {
+    ...searchResult,
+    earningsEvidencePack: mergeEarningsEvidencePacks(searchResult.earningsEvidencePack, deterministicPack),
+  };
+}
+
 export function buildEarningsEvidencePack(
   question: string,
   externalSources: ExternalEvidenceSource[],
@@ -1144,15 +1375,17 @@ export function buildEarningsEvidencePack(
   const holding = ticker
     ? portfolioSnapshot.holdings.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase())
     : undefined;
-  const combinedFigures = externalSources.flatMap((source) => source.keyFigures);
+  const sortedSources = sortEarningsSourcesByPriority(externalSources);
+  const preferredSources = getPreferredEarningsSources(sortedSources);
+  const combinedFigures = preferredSources.flatMap((source) => source.keyFigures);
   const findFigure = (patterns: RegExp[]) =>
     combinedFigures.find((figure) => patterns.some((pattern) => pattern.test(figure))) ?? null;
 
-  return {
+  return completeEarningsEvidencePack({
     companyName: holding?.name ?? null,
     ticker,
     reportingPeriod: findFigure([/quarter|季度|年度|year|Q[1-4]/i]),
-    reportDate: externalSources.find((source) => source.publishedDate)?.publishedDate ?? null,
+    reportDate: sortedSources.find((source) => source.publishedDate)?.publishedDate ?? null,
     revenue: findFigure([/revenue|收入|營收/i]),
     revenueGrowth: findFigure([/revenue.*growth|收入.*增|營收.*增|同比|YoY/i]),
     operatingIncome: findFigure([/operating income|經營利潤|營業利潤/i]),
@@ -1164,20 +1397,20 @@ export function buildEarningsEvidencePack(
     capitalExpenditure: findFigure([/capex|capital expenditure|資本開支/i]),
     segmentRevenue: combinedFigures.filter((figure) => /cloud|advertising|youtube|search|分部/i.test(figure)).slice(0, 8),
     segmentOperatingIncome: combinedFigures.filter((figure) => /segment.*operating|分部.*利潤|cloud.*income/i.test(figure)).slice(0, 8),
-    managementCommentary: externalSources.flatMap((source) => source.keyFacts).filter((fact) => /management|CEO|CFO|管理層|指引|guidance/i.test(fact)).slice(0, 8),
-    marketReaction: externalSources.flatMap((source) => source.keyFacts).filter((fact) => /stock|share|market|股價|市場/i.test(fact)).slice(0, 6),
-    oneOffItems: externalSources.flatMap((source) => source.keyFacts).filter((fact) => /one-off|一次性|non-recurring|restructuring|減值/i.test(fact)).slice(0, 6),
-    mainRisks: externalSources.flatMap((source) => source.uncertainty).slice(0, 6),
-    sources: externalSources,
+    managementCommentary: preferredSources.flatMap((source) => source.keyFacts).filter((fact) => /management|CEO|CFO|管理層|指引|guidance/i.test(fact)).slice(0, 8),
+    marketReaction: sortedSources.flatMap((source) => source.keyFacts).filter((fact) => /stock|share|market|股價|市場/i.test(fact)).slice(0, 6),
+    oneOffItems: preferredSources.flatMap((source) => source.keyFacts).filter((fact) => /one-off|一次性|non-recurring|restructuring|減值|會計/i.test(fact)).slice(0, 6),
+    mainRisks: sortedSources.flatMap((source) => source.uncertainty).slice(0, 6),
+    sources: sortedSources,
     uncertainty: [
-      ...externalSources.flatMap((source) => source.uncertainty),
+      ...sortedSources.flatMap((source) => source.uncertainty),
       ...[
         findFigure([/operating cash flow|營運現金流/i]) ? null : '未能從已取得資料確認營運現金流。',
         findFigure([/free cash flow|自由現金流|FCF/i]) ? null : '未能從已取得資料確認自由現金流。',
         findFigure([/capex|capital expenditure|資本開支/i]) ? null : '未能從已取得資料確認資本開支。',
       ].filter((item): item is string => Boolean(item)),
     ].slice(0, 10),
-  };
+  }, sortedSources);
 }
 
 function extractGroundingSources(
@@ -1402,13 +1635,13 @@ async function generateGeneralQuestionSearchSummary(
             retrievedAt,
             getExternalSourceLimit(intent),
           );
-          const fallbackPack =
+          const deterministicPack =
             intent === 'earnings_analysis'
               ? buildEarningsEvidencePack(request.analysisQuestion || '', evidenceSources, request)
               : undefined;
           const earningsEvidencePack =
-            intent === 'earnings_analysis'
-              ? parsed.earningsEvidencePack ?? fallbackPack
+            intent === 'earnings_analysis' && deterministicPack
+              ? mergeEarningsEvidencePacks(parsed.earningsEvidencePack, deterministicPack)
               : undefined;
           const status = evidenceSources.length > 0 ? parsed.status : 'partial';
           const result: ExternalSearchResult = {
@@ -1696,7 +1929,11 @@ export function getAnalyzePortfolioErrorResponse(error: unknown) {
 
 export async function runPortfolioAnalysisRequest(
   request: PortfolioAnalysisRequest,
-  options?: { delivery?: 'manual' | 'scheduled'; maxTokens?: number },
+  options?: {
+    delivery?: 'manual' | 'scheduled';
+    maxTokens?: number;
+    testHooks?: AnalyzePortfolioTestHooks;
+  },
 ): Promise<PortfolioAnalysisResponse> {
   const isGeneralQuestion = request.category === 'general_question';
 
@@ -1709,7 +1946,16 @@ export async function runPortfolioAnalysisRequest(
   let searchResult: ExternalSearchResult | null = null;
   let macroCtx: MacroContext | undefined;
   if (isGeneralQuestion && intent && intentNeedsExternalSearch(intent)) {
-    searchResult = await generateGeneralQuestionSearchSummary(request, intent);
+    searchResult = options?.testHooks?.generateExternalSearchSummary
+      ? await options.testHooks.generateExternalSearchSummary(request, intent)
+      : await generateGeneralQuestionSearchSummary(request, intent);
+    if (intent === 'earnings_analysis') {
+      searchResult = ensureEarningsEvidencePack(
+        searchResult,
+        request,
+        options?.testHooks?.buildEarningsEvidencePack ?? buildEarningsEvidencePack,
+      );
+    }
     macroCtx = buildMacroContext(searchResult);
   }
 
@@ -1740,13 +1986,13 @@ export async function runPortfolioAnalysisRequest(
 
   let raw =
     provider === 'anthropic'
-      ? await analyzeWithClaude(
+      ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
           systemPrompt,
           userPrompt,
           resolvedModel as 'claude-opus-4-7',
           resolvedMaxTokens,
         )
-      : await analyzeWithGemini(
+      : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
           `${systemPrompt}\n\n${userPrompt}`,
           resolvedModel as 'gemini-3.1-pro-preview',
           resolvedMaxTokens,
@@ -1757,7 +2003,9 @@ export async function runPortfolioAnalysisRequest(
   let result: PortfolioAnalysisResult;
   if (isGeneralQuestion) {
     let parsed = parseStructuredGeneralAnswer(raw);
-    const quality = qualityCheckGeneralAnswer({
+    const checkGeneralAnswer = options?.testHooks?.qualityCheckGeneralAnswer ?? qualityCheckGeneralAnswer;
+    let finalQualityFailures: string[] = [];
+    const quality = checkGeneralAnswer({
       answer: parsed.answer,
       intent,
       question: request.analysisQuestion || '',
@@ -1768,25 +2016,36 @@ export async function runPortfolioAnalysisRequest(
       const rewritePrompt = buildRewriteUserPrompt(userPrompt, parsed.answer, quality.failures);
       raw =
         provider === 'anthropic'
-          ? await analyzeWithClaude(
+          ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
               systemPrompt,
               rewritePrompt,
               resolvedModel as 'claude-opus-4-7',
               resolvedMaxTokens,
             )
-          : await analyzeWithGemini(
+          : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
               `${systemPrompt}\n\n${rewritePrompt}`,
               resolvedModel as 'gemini-3.1-pro-preview',
               resolvedMaxTokens,
               true,
             );
       parsed = parseStructuredGeneralAnswer(raw);
+      const rewriteQuality = checkGeneralAnswer({
+        answer: parsed.answer,
+        intent,
+        question: request.analysisQuestion || '',
+        request,
+        externalEvidence: searchResult?.externalEvidence,
+      });
+      finalQualityFailures = rewriteQuality.ok
+        ? []
+        : rewriteQuality.failures.map((failure) => `重寫後仍需留意：${failure}`);
     }
     result = {
       answer: parsed.answer,
       usedPortfolioFacts: parsed.usedPortfolioFacts,
       uncertainty: [
         ...parsed.uncertainty,
+        ...finalQualityFailures,
         ...(searchResult?.externalEvidence.flatMap((source) => source.uncertainty) ?? []),
         ...(searchResult?.earningsEvidencePack?.uncertainty ?? []),
       ].slice(0, 8),
