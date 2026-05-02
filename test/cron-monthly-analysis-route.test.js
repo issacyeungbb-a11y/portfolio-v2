@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 
 import { SCHEDULED_ANALYSIS_LOGIC_VERSION } from '../server/scheduledAnalysis.js';
 
@@ -23,4 +23,16 @@ test('analyze route has enough Vercel duration for grounded earnings analysis', 
   );
 
   assert.equal(config.functions['api/analyze.ts'].maxDuration, 120);
+});
+
+test('analyze route runtime JS imports exist for Vercel serverless', async () => {
+  const apiSource = await readFile(new URL('../api/analyze.ts', import.meta.url), 'utf8');
+
+  assert.match(apiSource, /from '\.\.\/server\/apiShared\.js'/);
+  assert.match(apiSource, /from '\.\.\/server\/analyzePortfolio\.js'/);
+  assert.match(apiSource, /from '\.\.\/server\/requirePortfolioAccess\.js'/);
+
+  await access(new URL('../server/apiShared.js', import.meta.url));
+  await access(new URL('../server/analyzePortfolio.js', import.meta.url));
+  await access(new URL('../server/requirePortfolioAccess.js', import.meta.url));
 });
