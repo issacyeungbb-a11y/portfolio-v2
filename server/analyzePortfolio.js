@@ -1,20 +1,9 @@
 import { GoogleGenAI } from '@google/genai';
+import { CLAUDE_ANALYZE_MODEL, GEMINI_ANALYZE_MODEL, MODEL_REGISTRY, getSearchModelCandidates, isValidAnalysisModel, resolveModelProvider, } from './analysisModels.js';
+import { classifyIntent, intentNeedsExternalSearch } from './analysisIntent.js';
 import { convertToHKDValue, formatCurrencyRounded } from '../src/lib/currency.js';
 const ANALYZE_ROUTE = '/api/analyze';
-const DEFAULT_GEMINI_ANALYZE_MODEL = 'gemini-3.1-pro-preview';
-const DEFAULT_CLAUDE_ANALYZE_MODEL = 'claude-opus-4-7';
-const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash';
-const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'];
-const SUPPORTED_ANALYSIS_MODELS = {
-    'gemini-3.1-pro-preview': {
-        provider: 'google',
-        label: 'Google Gemini 3.1 Pro Preview',
-    },
-    'claude-opus-4-7': {
-        provider: 'anthropic',
-        label: 'Claude Opus 4.7',
-    },
-};
+const EXTERNAL_EVIDENCE_CACHE = new Map();
 class AnalyzePortfolioError extends Error {
     status;
     constructor(message, status = 500) {
@@ -26,11 +15,11 @@ class AnalyzePortfolioError extends Error {
 function getGeminiAnalyzeModel(requestedModel) {
     return requestedModel === 'gemini-3.1-pro-preview'
         ? requestedModel
-        : DEFAULT_GEMINI_ANALYZE_MODEL;
+        : GEMINI_ANALYZE_MODEL;
 }
 function getClaudeAnalyzeModel() {
-    const model = process.env.CLAUDE_ANALYZE_MODEL?.trim() || DEFAULT_CLAUDE_ANALYZE_MODEL;
-    return model === 'claude-opus-4-7' ? model : DEFAULT_CLAUDE_ANALYZE_MODEL;
+    const model = process.env.CLAUDE_ANALYZE_MODEL?.trim() || CLAUDE_ANALYZE_MODEL;
+    return model === 'claude-opus-4-7' ? model : CLAUDE_ANALYZE_MODEL;
 }
 function getGeminiApiKey() {
     const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
@@ -45,120 +34,6 @@ function getAnthropicApiKey() {
         throw new AnalyzePortfolioError('未設定 ANTHROPIC_API_KEY，暫時無法使用 Claude 分析投資組合。', 500);
     }
     return apiKey;
-}
-function getSearchTargets(holdings) {
-    return [...holdings]
-        .filter((holding) => holding.assetType !== 'cash')
-        .sort((left, right) => right.marketValueHKD - left.marketValueHKD)
-        .slice(0, 10);
-}
-function getSearchModelCandidates() {
-    const preferred = process.env.GROUNDED_GEMINI_MODEL?.trim() || PREFERRED_GROUNDED_SEARCH_MODEL;
-    return [preferred, ...GROUNDED_SEARCH_FALLBACK_MODELS.filter((model) => model !== preferred)];
-}
-function extractGroundingSources(response, query, relatedTickers, retrievedAt) {
-    try {
-        const candidates = response?.candidates;
-        if (!Array.isArray(candidates) || candidates.length === 0)
-            return [];
-        const meta = candidates[0]?.groundingMetadata;
-        const chunks = meta?.groundingChunks;
-        if (!Array.isArray(chunks))
-            return [];
-        return chunks
-            .slice(0, 10)
-            .map((chunk) => {
-            const web = chunk?.web;
-            const url = typeof web?.uri === 'string' ? web.uri : '';
-            const title = typeof web?.title === 'string' ? web.title : url;
-            if (!url)
-                return null;
-            return {
-                title,
-                url,
-                retrievedAt,
-                snippet: '',
-                query,
-                relatedTickers,
-            };
-        })
-            .filter((source) => source !== null);
-    }
-    catch {
-        return [];
-    }
-}
-function buildGeneralQuestionSearchPrompt(request) {
-    const searchTargets = getSearchTargets(request.holdings);
-    const tickers = searchTargets.map((holding) => `${holding.ticker} (${holding.name})`).join('、') || '目前無主要持倉';
-    const question = request.analysisQuestion.trim() || '目前投資組合有咩最新外部資訊值得留意？';
-    const conversationContext = request.conversationContext.trim().slice(-500) || '目前未有前文對話。';
-    const retrievedDate = new Date().toISOString().slice(0, 10);
-    return [
-        '請使用 Google Search 做一份可交給專業投資分析模型使用的最新外部資料摘要。只輸出資料摘要，不要直接給買賣建議。',
-        `檢索日期：${retrievedDate}`,
-        '研究範圍要同時覆蓋：',
-        '1. 使用者問題直接提及的公司、ETF、資產類別、國家/地區、行業或宏觀主題。',
-        '2. 若問題涉及財報/業績，整理最新季度/年度收入、盈利、指引、管理層重點、估值或市場反應。',
-        '3. 若問題涉及宏觀，整理利率、通脹、美元、債息、政策、風險偏好、主要市場表現與資金流向。',
-        '4. 若問題涉及持倉，整理與主要持倉最相關的近期外部資訊，並標明哪些 ticker 可能受影響。',
-        '5. 若資料有衝突或不完整，請標明不確定之處；不要用舊資料扮最新。',
-        `使用者問題：${question}`,
-        `對話上下文：${conversationContext}`,
-        `主要持倉：${tickers}`,
-        '請用繁體中文，以條列輸出：關鍵事實、宏觀背景、相關持倉影響線索、資料限制。',
-    ].join('\n');
-}
-async function generateGeneralQuestionSearchSummary(request) {
-    const retrievedAt = new Date().toISOString();
-    const searchTargets = getSearchTargets(request.holdings);
-    const relatedTickers = searchTargets.map((holding) => holding.ticker);
-    const query = request.analysisQuestion.trim() || '投資組合外部資訊';
-    try {
-        const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
-        const prompt = buildGeneralQuestionSearchPrompt(request);
-        const candidates = getSearchModelCandidates();
-        let lastError = null;
-        for (const model of candidates) {
-            try {
-                const response = await ai.models.generateContent({
-                    model,
-                    contents: prompt,
-                    config: {
-                        maxOutputTokens: 3000,
-                        tools: [{ googleSearch: {} }],
-                    },
-                });
-                const summary = response.text?.trim();
-                if (summary) {
-                    const sources = extractGroundingSources(response, query, relatedTickers, retrievedAt);
-                    return { summary, sources, status: 'ok', retrievedAt };
-                }
-                console.warn(`[analyzePortfolio] Gemini grounding returned empty summary for model ${model}; trying fallback if available.`);
-            }
-            catch (error) {
-                console.warn(`[analyzePortfolio] Gemini grounding fallback from model ${model}: ${error instanceof Error ? error.message : 'unknown_error'}`);
-                lastError = error;
-            }
-        }
-        const fallbackMessage = lastError instanceof Error ? lastError.message : 'grounding_failed';
-        return {
-            summary: `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`,
-            sources: [],
-            status: 'failed',
-            retrievedAt,
-        };
-    }
-    catch (error) {
-        const fallbackMessage = error instanceof Error ? error.message : 'grounding_unavailable';
-        console.warn('[analyzePortfolio] external search unavailable:', fallbackMessage);
-        return {
-            summary: `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`,
-            sources: [],
-            status: 'failed',
-            retrievedAt,
-        };
-    }
 }
 function sanitizeString(value) {
     if (typeof value !== 'string') {
@@ -178,7 +53,7 @@ function sanitizeNumber(value) {
     return null;
 }
 function sanitizeAnalysisModel(value) {
-    if (value === 'gemini-3.1-pro-preview' || value === 'claude-opus-4-7') {
+    if (isValidAnalysisModel(value)) {
         return value;
     }
     return null;
@@ -245,9 +120,14 @@ function normalizeRecentTransactions(value) {
                 if (!date || !type || quantity == null || price == null) {
                     return null;
                 }
-                return { date, type, quantity, price };
+                return {
+                    date,
+                    type,
+                    quantity,
+                    price,
+                };
             })
-                .filter((tx) => tx !== null)
+                .filter((entryTx) => entryTx !== null)
             : [];
         if (!assetId || !assetName || !ticker || transactions.length === 0) {
             return null;
@@ -290,11 +170,20 @@ function normalizePriceHistory(value) {
                 if (!date || price == null) {
                     return null;
                 }
-                return { date, price };
+                return {
+                    date,
+                    price,
+                };
             })
                 .filter((point) => point !== null)
             : [];
-        if (!assetId || !assetName || !ticker || !currency || currentPrice == null || change30dPct == null || points.length === 0) {
+        if (!assetId ||
+            !assetName ||
+            !ticker ||
+            !currency ||
+            currentPrice == null ||
+            change30dPct == null ||
+            points.length === 0) {
             return null;
         }
         return {
@@ -321,7 +210,7 @@ function normalizeRecentSnapshots(value) {
         }
         const entry = item;
         const date = sanitizeString(entry.date);
-        const capturedAt = sanitizeString(entry.capturedAt) || undefined;
+        const capturedAt = sanitizeString(entry.capturedAt) ?? undefined;
         const totalValueHKD = sanitizeNumber(entry.totalValueHKD);
         const netExternalFlowHKD = sanitizeNumber(entry.netExternalFlowHKD);
         const assetCount = sanitizeNumber(entry.assetCount);
@@ -338,7 +227,12 @@ function normalizeRecentSnapshots(value) {
                 const currentPrice = sanitizeNumber(valueHolding.currentPrice);
                 const marketValueHKD = sanitizeNumber(valueHolding.marketValueHKD);
                 const quantity = sanitizeNumber(valueHolding.quantity);
-                if (!assetId || !ticker || !assetName || currentPrice == null || marketValueHKD == null || quantity == null) {
+                if (!assetId ||
+                    !ticker ||
+                    !assetName ||
+                    currentPrice == null ||
+                    marketValueHKD == null ||
+                    quantity == null) {
                     return null;
                 }
                 return {
@@ -518,6 +412,7 @@ export function normalizeAnalysisRequest(payload) {
     };
 }
 function parseStructuredGeneralAnswer(raw) {
+    // Try JSON extraction (may be wrapped in markdown code fences)
     const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/(\{[\s\S]*\})/);
     const candidate = jsonMatch ? jsonMatch[1] : raw;
     try {
@@ -528,21 +423,27 @@ function parseStructuredGeneralAnswer(raw) {
         return {
             answer,
             usedPortfolioFacts: Array.isArray(parsed.usedPortfolioFacts)
-                ? parsed.usedPortfolioFacts.filter((value) => typeof value === 'string').slice(0, 10)
+                ? parsed.usedPortfolioFacts
+                    .filter((v) => typeof v === 'string')
+                    .slice(0, 10)
                 : [],
             uncertainty: Array.isArray(parsed.uncertainty)
-                ? parsed.uncertainty.filter((value) => typeof value === 'string').slice(0, 5)
+                ? parsed.uncertainty
+                    .filter((v) => typeof v === 'string')
+                    .slice(0, 5)
                 : [],
             suggestedActions: Array.isArray(parsed.suggestedActions)
-                ? parsed.suggestedActions.filter((value) => typeof value === 'string').slice(0, 5)
+                ? parsed.suggestedActions
+                    .filter((v) => typeof v === 'string')
+                    .slice(0, 5)
                 : [],
         };
     }
     catch {
+        // Fallback: treat entire response as plain-text answer
         const answer = raw.trim();
-        if (!answer) {
+        if (!answer)
             throw new AnalyzePortfolioError('模型未有回傳分析內容。', 502);
-        }
         return { answer, usedPortfolioFacts: [], uncertainty: [], suggestedActions: [] };
     }
 }
@@ -562,25 +463,27 @@ function sanitizeAnalysisResult(rawPayload) {
     if (!answer) {
         throw new AnalyzePortfolioError('模型未有回傳分析內容。', 502);
     }
-    return {
-        answer,
-    };
+    return { answer };
 }
+// ---------------------------------------------------------------------------
+// Category prompt prefixes
+// ---------------------------------------------------------------------------
 function getCategoryPromptPrefix(category) {
     if (category === 'general_question') {
         return `
 Category: 一般問題
-你是專業投資研究與投資組合對話助手。你的任務是結合使用者目前持倉、資產分類、幣別、成本、市值、30日價格走勢、最近交易、最近 snapshots，以及系統提供的外部／宏觀資料，直接回答使用者當次投資問題。
+你是專業投資研究與投資組合分析助手。你必須根據使用者目前持倉、資產分類、幣別、成本、市值、30日價格走勢、最近交易、snapshots，以及系統提供的外部 evidence pack，直接回答使用者當次投資問題。
 
 回答規則：
-1. 先用一句話給結論。
-2. 再清楚分開「組合內可核對數據」、「外部／宏觀資料」與「對組合的含義」。
+1. 先給一句話結論。
+2. 再根據問題類型選擇分析架構。
 3. 如果問題涉及持倉，必須引用具體持倉、幣別、成本、市值、集中度或 30日走勢。
-4. 如果問題涉及宏觀、新聞、利率、政策、財報、估值、行業或市場情緒，只可使用系統提供的外部資料；不足就直說。
-5. 如果外部搜尋失敗或未進行，要明確說明本次回答只基於目前組合資料。
-6. 如果問題屬於判斷、比較或策略題，請先給結論，再給理由，最後補可執行的觀察/風險控制方向。
-7. 不要保證回報，不要給絕對買賣指令。
-8. 除非使用者要求長文，否則保持精煉、清楚、可操作。
+4. 如果問題涉及財報，必須拆解收入、利潤、現金流、資本開支、分部業務、一次性因素及市場含義。
+5. 如果問題涉及宏觀，必須拆解利率、通脹、美元、債息、政策及對不同資產類別的影響。
+6. 如果問題涉及策略，必須給出分段操作思路，而不是絕對買賣指令。
+7. 不要保證回報，不要用空泛句子。
+8. 不要只說「資料不足，建議查閱」；如果資料不足，要說明缺口，並基於現有資料作出有限度分析。
+9. 所有答案必須使用繁體中文，語氣專業、直接、清晰。
     `.trim();
     }
     if (category === 'asset_report') {
@@ -605,39 +508,66 @@ function getAnalysisRules() {
 - Base your reasoning only on the provided holdings, latest prices, asset categories, currencies, and average costs.
 - Do not invent historical returns, dividends, macro news, or external facts that are not present in the input.
 - If the data lacks price history or cash-flow history, mention that limitation briefly where relevant.
-- If structured comparison, trend, or market summary data is included in the user prompt, treat it as provided evidence and引用其中數字。
+- If structured comparison, trend, or market summary data is included in the user prompt, treat it as provided evidence and 引用其中數字。
 - If a latest external search summary is included, treat it as current evidence for recent news, company updates, macro context, or other time-sensitive facts.
+- If structured external evidence or an earnings evidence pack is included, cite only those facts and figures; do not invent missing earnings numbers.
 - If external search is unavailable or not performed, say so briefly and fall back to the portfolio data already provided.
 - Keep the tone practical, calm, and beginner-friendly.
 - Prioritize the user's analysis instruction when deciding what to emphasize, but do not invent any external facts or unsupported claims.
 - Answer the user's instruction directly. Do not force your response into sections unless the user's question naturally calls for it.
   `.trim();
 }
-function buildAnalysisSystemPrompt(request) {
-    const isGeneralQuestion = request.category === 'general_question';
-    const jsonInstruction = isGeneralQuestion
-        ? `
-Output format: You MUST respond with a valid JSON object (no markdown fences) with exactly these fields:
-{
-  "answer": "main answer in Traditional Chinese",
-  "usedPortfolioFacts": ["fact from portfolio data used in answer", ...],
-  "uncertainty": ["uncertainty or data gap", ...],
-  "suggestedActions": ["concrete follow-up action", ...]
+function getIntentPromptRules(intent) {
+    if (intent === 'portfolio_only') {
+        return `
+Intent: portfolio_only
+- 短答，不超過 400 字。
+- 不使用外部資料；只根據持倉、成本、市值、比例、30日走勢、交易與 snapshots 回答。
+    `.trim();
+    }
+    if (intent === 'earnings_analysis') {
+        return `
+Intent: earnings_analysis
+- 目標 1200 至 2500 字，必須有表格，必須有投資含義。
+- 回答必須使用以下結構：
+1. 一句話結論：直接判斷財報屬於強、普通、偏弱，還是表面強但質素需打折。
+2. 核心數字表：收入、收入增長、經營利潤、經營利潤率、淨利潤、EPS、營運現金流、自由現金流、資本開支、主要業務分部。
+3. 收入質素：核心業務、一次性項目、最重要分部。
+4. 利潤質素：經營利潤、淨利潤一次性因素、不要只看 EPS。
+5. 現金流與資本開支：營運現金流、自由現金流、capex、AI／數據中心投資。
+6. 業務分部分析：成熟現金牛與第二增長曲線。
+7. 市場反應：股價升跌原因、市場焦點、估值是否已反映。
+8. 對使用者持倉的含義：如持有相關股票，引用市值、佔比、30日升跌或成本，提供觀察、分段加倉、止盈、風險控制或觀望框架。
+9. 需要監察的指標：列出 3 至 5 個具體指標。
+10. 總結：長線投資價值、最大風險、判斷改變條件。
+    `.trim();
+    }
+    if (intent === 'macro_analysis') {
+        return `
+Intent: macro_analysis
+- 目標 800 至 1800 字。
+- 拆解利率、通脹、美元、債息、政策，並結合使用者持倉配置分析股票、ETF、債券、現金、加密貨幣的不同影響。
+    `.trim();
+    }
+    if (intent === 'strategy_analysis') {
+        return `
+Intent: strategy_analysis
+- 目標 800 至 1800 字，必須有風險控制。
+- 用分段操作思路、觀察條件與再平衡框架，不給絕對買賣指令。
+    `.trim();
+    }
+    if (intent === 'company_research' || intent === 'market_research' || intent === 'deep_analysis') {
+        return `
+Intent: company_research
+- 目標 800 至 1800 字。
+- 分析商業模式、競爭力、估值含義、產品／行業地位、管理層訊號與對使用者持倉的影響。
+    `.trim();
+    }
+    return '';
 }
-Keep usedPortfolioFacts, uncertainty, suggestedActions as short, 1-line strings. Max 8 items each.
-    `.trim()
-        : 'Return ONLY the final answer text in Traditional Chinese. Do not use markdown code fences.';
-    return `
-You are a portfolio analysis assistant.
-Analyze the portfolio snapshot and the supplied external search summary only.
-${jsonInstruction}
-
-Rules:
-${getAnalysisRules()}
-
-${getCategoryPromptPrefix(request.category)}
-  `.trim();
-}
+// ---------------------------------------------------------------------------
+// Token-budget-aware holdings formatter
+// ---------------------------------------------------------------------------
 function formatMoney(value) {
     return Number.isFinite(value) ? value.toFixed(2) : '0.00';
 }
@@ -645,9 +575,7 @@ function formatHoldingValuePair(localValue, currency, hkdValue) {
     return `${formatCurrencyRounded(localValue, currency)} / 約 ${formatCurrencyRounded(hkdValue, 'HKD')}`;
 }
 function formatHoldingsSection(request) {
-    const sorted = request.holdings
-        .slice()
-        .sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+    const sorted = [...request.holdings].sort((a, b) => b.marketValueHKD - a.marketValueHKD);
     const top10 = sorted.slice(0, 10);
     const rest = sorted.slice(10);
     const topLines = top10.map((holding, index) => `${index + 1}. ${holding.ticker}｜${holding.name}｜${holding.assetType}｜` +
@@ -657,7 +585,7 @@ function formatHoldingsSection(request) {
     const restLines = rest.length > 0
         ? [
             `其他 ${rest.length} 項（總市值 約 ${formatCurrencyRounded(rest.reduce((sum, holding) => sum + holding.marketValueHKD, 0), 'HKD')}）：` +
-                rest.map((holding) => `${holding.ticker}(${holding.assetType})`).join('、'),
+                rest.map((h) => `${h.ticker}(${h.assetType})`).join('、'),
         ]
         : [];
     return ['【持倉概覽】', ...topLines, ...restLines].join('\n');
@@ -713,7 +641,46 @@ function buildRichContextSection(request) {
         formatRecentSnapshotsSection(request),
     ].join('\n\n');
 }
-function buildAnalysisUserPrompt(request, externalSearchSummary = '') {
+// Truncate conversation context to last ~1500 chars to control token budget
+function truncateConversationContext(context, maxChars = 1500) {
+    if (!context || context.length <= maxChars)
+        return context;
+    const truncated = context.slice(-maxChars);
+    // Try to start at a clean turn boundary
+    const turnBoundary = truncated.indexOf('第 ');
+    return turnBoundary > 0 ? `[早期對話已壓縮]\n${truncated.slice(turnBoundary)}` : `[早期對話已壓縮]\n${truncated}`;
+}
+// ---------------------------------------------------------------------------
+// Prompt builders
+// ---------------------------------------------------------------------------
+function buildAnalysisSystemPrompt(request, options) {
+    const isGeneralQuestion = options?.isGeneralQuestion ?? request.category === 'general_question';
+    const jsonInstruction = isGeneralQuestion
+        ? `
+Output format: You MUST respond with a valid JSON object (no markdown fences) with exactly these fields:
+{
+  "answer": "main answer in Traditional Chinese",
+  "usedPortfolioFacts": ["fact from portfolio data used in answer", ...],
+  "uncertainty": ["uncertainty or data gap", ...],
+  "suggestedActions": ["concrete follow-up action", ...]
+}
+Keep usedPortfolioFacts, uncertainty, suggestedActions as short, 1-line strings. Max 8 items each.
+    `.trim()
+        : 'Return ONLY the final answer text in Traditional Chinese. Do not use markdown code fences.';
+    return `
+You are a portfolio analysis assistant.
+Analyze the portfolio snapshot and the supplied external search summary only.
+${jsonInstruction}
+
+Rules:
+${getAnalysisRules()}
+
+${getCategoryPromptPrefix(request.category)}
+
+${getIntentPromptRules(options?.intent)}
+  `.trim();
+}
+function buildAnalysisUserPrompt(request, externalSearchSummary = '', externalEvidence) {
     const richContextSection = request.holdings.length > 0 ? buildRichContextSection(request) : '';
     const externalSearchSection = request.category === 'general_question' && externalSearchSummary.trim()
         ? `
@@ -721,14 +688,27 @@ Latest external information summary (retrieved from Google Search):
 ${externalSearchSummary.trim()}
       `.trim()
         : '';
+    const externalEvidenceSection = request.category === 'general_question' && externalEvidence && externalEvidence.sources.length > 0
+        ? `
+Structured external evidence pack:
+${JSON.stringify({
+            status: externalEvidence.status,
+            retrievedAt: externalEvidence.retrievedAt,
+            sources: externalEvidence.sources,
+            earningsEvidencePack: externalEvidence.earningsEvidencePack,
+        }, null, 2)}
+      `.trim()
+        : '';
+    const conversationContext = truncateConversationContext(request.conversationContext || '');
     return `
 Saved category background:
 ${request.analysisBackground || '未設定額外背景。'}
 
 Conversation context:
-${request.conversationContext || '目前未有前文對話。'}
+${conversationContext || '目前未有前文對話。'}
 
 ${externalSearchSection ? `${externalSearchSection}\n\n` : ''}
+${externalEvidenceSection ? `${externalEvidenceSection}\n\n` : ''}
 User question / task:
 ${request.analysisQuestion || '請根據目前投資組合做一般分析。'}
 
@@ -737,7 +717,9 @@ ${request.holdings
         .slice()
         .sort((left, right) => right.marketValueHKD - left.marketValueHKD)
         .map((holding) => `- ${holding.ticker}｜${holding.name}｜${holding.assetType}｜qty ${formatMoney(holding.quantity)}｜` +
-        `價 ${formatMoney(holding.currentPrice)} ${holding.currency}｜市值 ${formatHoldingValuePair(holding.marketValue, holding.currency, holding.marketValueHKD)}｜成本 ${formatHoldingValuePair(holding.costValue, holding.currency, holding.costValueHKD)}`)
+        `價 ${formatMoney(holding.currentPrice)} ${holding.currency}｜` +
+        `市值 ${formatHoldingValuePair(holding.marketValue, holding.currency, holding.marketValueHKD)}｜` +
+        `成本 ${formatHoldingValuePair(holding.costValue, holding.currency, holding.costValueHKD)}`)
         .join('\n')}
 
 ${richContextSection ? `${richContextSection}\n` : ''}
@@ -746,8 +728,449 @@ ${richContextSection ? `${richContextSection}\n` : ''}
 export function buildPrompt(request, externalSearchSummary = '') {
     return `${buildAnalysisSystemPrompt(request)}\n\n${buildAnalysisUserPrompt(request, externalSearchSummary)}`;
 }
+function getExternalSourceLimit(intent) {
+    if (intent === 'earnings_analysis')
+        return 6;
+    if (intent === 'macro_analysis')
+        return 5;
+    return 4;
+}
+function getExternalEvidenceCacheTtlMs(intent) {
+    if (intent === 'macro_analysis')
+        return 6 * 60 * 60 * 1000;
+    if (intent === 'earnings_analysis')
+        return 24 * 60 * 60 * 1000;
+    return 6 * 60 * 60 * 1000;
+}
+function extractMentionedTickers(request) {
+    const question = request.analysisQuestion || '';
+    const mentioned = request.holdings
+        .filter((holding) => {
+        const ticker = holding.ticker.trim();
+        if (!ticker)
+            return false;
+        return new RegExp(`(^|[^A-Z0-9.])${ticker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Z0-9.]|$)`, 'i').test(question);
+    })
+        .map((holding) => holding.ticker);
+    if (mentioned.length > 0)
+        return [...new Set(mentioned)];
+    const companyAliases = [
+        [/google|alphabet/i, 'GOOG'],
+        [/apple/i, 'AAPL'],
+        [/nvidia/i, 'NVDA'],
+        [/tesla/i, 'TSLA'],
+        [/microsoft/i, 'MSFT'],
+        [/amazon/i, 'AMZN'],
+        [/meta/i, 'META'],
+    ];
+    const inferred = companyAliases
+        .filter(([pattern]) => pattern.test(question))
+        .map(([, ticker]) => ticker)
+        .filter((ticker) => request.holdings.some((holding) => holding.ticker.toUpperCase() === ticker));
+    return inferred.length > 0 ? [...new Set(inferred)] : [];
+}
+function getDominantTopic(request, intent) {
+    const tickers = extractMentionedTickers(request);
+    if (tickers.length > 0)
+        return tickers.join(',');
+    if (intent === 'macro_analysis') {
+        const question = (request.analysisQuestion || '').toLowerCase();
+        if (/減息|利率|聯儲局|fed|fomc/.test(question))
+            return 'rates';
+        if (/通脹|cpi/.test(question))
+            return 'inflation';
+        if (/美元|dxy/.test(question))
+            return 'usd';
+        return question.slice(0, 80) || 'macro';
+    }
+    return (request.analysisQuestion || '').toLowerCase().slice(0, 80) || intent;
+}
+function buildExternalEvidenceCacheKey(request, intent) {
+    return [intent, getDominantTopic(request, intent)].join(':').toLowerCase();
+}
+function shouldReuseConversationEvidence(request) {
+    const question = request.analysisQuestion || '';
+    return Boolean(request.conversationContext?.trim()) && !/最新|今日|昨天|尋日|剛剛|current|latest|recent/i.test(question);
+}
+function sanitizeStringArray(value, maxItems = 8) {
+    return Array.isArray(value)
+        ? value
+            .filter((item) => typeof item === 'string' && item.trim().length > 0)
+            .map((item) => item.trim())
+            .slice(0, maxItems)
+        : [];
+}
+function sanitizeEvidenceSourceType(value) {
+    if (value === 'official_report' ||
+        value === 'sec_filing' ||
+        value === 'earnings_call' ||
+        value === 'news' ||
+        value === 'macro_data' ||
+        value === 'company_ir' ||
+        value === 'market_data' ||
+        value === 'other') {
+        return value;
+    }
+    return 'other';
+}
+function normalizeExternalEvidenceSource(value, retrievedAt) {
+    if (typeof value !== 'object' || value === null)
+        return null;
+    const record = value;
+    const sourceUrl = sanitizeString(record.sourceUrl) || sanitizeString(record.url);
+    const sourceTitle = sanitizeString(record.sourceTitle) || sanitizeString(record.title) || sourceUrl;
+    if (!sourceTitle || !sourceUrl)
+        return null;
+    return {
+        sourceTitle,
+        sourceUrl,
+        publishedDate: sanitizeString(record.publishedDate) ?? undefined,
+        retrievedAt: sanitizeString(record.retrievedAt) ?? retrievedAt,
+        sourceType: sanitizeEvidenceSourceType(record.sourceType),
+        keyFacts: sanitizeStringArray(record.keyFacts, 6),
+        keyFigures: sanitizeStringArray(record.keyFigures, 8),
+        uncertainty: sanitizeStringArray(record.uncertainty, 5),
+    };
+}
+function evidenceSourcesToLegacySources(sources, query, relatedTickers) {
+    return sources.map((source) => ({
+        title: source.sourceTitle,
+        url: source.sourceUrl,
+        publisher: undefined,
+        publishedAt: source.publishedDate,
+        retrievedAt: source.retrievedAt,
+        snippet: [...source.keyFigures, ...source.keyFacts].slice(0, 3).join('； '),
+        query,
+        relatedTickers,
+    }));
+}
+function getStringOrNull(record, key) {
+    return sanitizeString(record[key]) ?? null;
+}
+function normalizeEarningsEvidencePack(value, externalSources) {
+    if (typeof value !== 'object' || value === null)
+        return undefined;
+    const record = value;
+    const sources = Array.isArray(record.sources) && record.sources.length > 0
+        ? record.sources
+            .map((source) => normalizeExternalEvidenceSource(source, new Date().toISOString()))
+            .filter((source) => source !== null)
+        : externalSources;
+    return {
+        companyName: getStringOrNull(record, 'companyName'),
+        ticker: getStringOrNull(record, 'ticker'),
+        reportingPeriod: getStringOrNull(record, 'reportingPeriod'),
+        reportDate: getStringOrNull(record, 'reportDate'),
+        revenue: getStringOrNull(record, 'revenue'),
+        revenueGrowth: getStringOrNull(record, 'revenueGrowth'),
+        operatingIncome: getStringOrNull(record, 'operatingIncome'),
+        operatingMargin: getStringOrNull(record, 'operatingMargin'),
+        netIncome: getStringOrNull(record, 'netIncome'),
+        EPS: getStringOrNull(record, 'EPS'),
+        operatingCashFlow: getStringOrNull(record, 'operatingCashFlow'),
+        freeCashFlow: getStringOrNull(record, 'freeCashFlow'),
+        capitalExpenditure: getStringOrNull(record, 'capitalExpenditure'),
+        segmentRevenue: sanitizeStringArray(record.segmentRevenue, 8),
+        segmentOperatingIncome: sanitizeStringArray(record.segmentOperatingIncome, 8),
+        managementCommentary: sanitizeStringArray(record.managementCommentary, 8),
+        marketReaction: sanitizeStringArray(record.marketReaction, 6),
+        oneOffItems: sanitizeStringArray(record.oneOffItems, 6),
+        mainRisks: sanitizeStringArray(record.mainRisks, 6),
+        sources,
+        uncertainty: sanitizeStringArray(record.uncertainty, 8),
+    };
+}
+export function buildEarningsEvidencePack(question, externalSources, portfolioSnapshot) {
+    const tickers = extractMentionedTickers({ ...portfolioSnapshot, analysisQuestion: question });
+    const ticker = tickers[0] ?? null;
+    const holding = ticker
+        ? portfolioSnapshot.holdings.find((item) => item.ticker.toUpperCase() === ticker.toUpperCase())
+        : undefined;
+    const combinedFigures = externalSources.flatMap((source) => source.keyFigures);
+    const findFigure = (patterns) => combinedFigures.find((figure) => patterns.some((pattern) => pattern.test(figure))) ?? null;
+    return {
+        companyName: holding?.name ?? null,
+        ticker,
+        reportingPeriod: findFigure([/quarter|季度|年度|year|Q[1-4]/i]),
+        reportDate: externalSources.find((source) => source.publishedDate)?.publishedDate ?? null,
+        revenue: findFigure([/revenue|收入|營收/i]),
+        revenueGrowth: findFigure([/revenue.*growth|收入.*增|營收.*增|同比|YoY/i]),
+        operatingIncome: findFigure([/operating income|經營利潤|營業利潤/i]),
+        operatingMargin: findFigure([/operating margin|經營利潤率|營業利潤率|margin/i]),
+        netIncome: findFigure([/net income|淨利潤|純利/i]),
+        EPS: findFigure([/EPS|每股/i]),
+        operatingCashFlow: findFigure([/operating cash flow|營運現金流/i]),
+        freeCashFlow: findFigure([/free cash flow|自由現金流|FCF/i]),
+        capitalExpenditure: findFigure([/capex|capital expenditure|資本開支/i]),
+        segmentRevenue: combinedFigures.filter((figure) => /cloud|advertising|youtube|search|分部/i.test(figure)).slice(0, 8),
+        segmentOperatingIncome: combinedFigures.filter((figure) => /segment.*operating|分部.*利潤|cloud.*income/i.test(figure)).slice(0, 8),
+        managementCommentary: externalSources.flatMap((source) => source.keyFacts).filter((fact) => /management|CEO|CFO|管理層|指引|guidance/i.test(fact)).slice(0, 8),
+        marketReaction: externalSources.flatMap((source) => source.keyFacts).filter((fact) => /stock|share|market|股價|市場/i.test(fact)).slice(0, 6),
+        oneOffItems: externalSources.flatMap((source) => source.keyFacts).filter((fact) => /one-off|一次性|non-recurring|restructuring|減值/i.test(fact)).slice(0, 6),
+        mainRisks: externalSources.flatMap((source) => source.uncertainty).slice(0, 6),
+        sources: externalSources,
+        uncertainty: [
+            ...externalSources.flatMap((source) => source.uncertainty),
+            ...[
+                findFigure([/operating cash flow|營運現金流/i]) ? null : '未能從已取得資料確認營運現金流。',
+                findFigure([/free cash flow|自由現金流|FCF/i]) ? null : '未能從已取得資料確認自由現金流。',
+                findFigure([/capex|capital expenditure|資本開支/i]) ? null : '未能從已取得資料確認資本開支。',
+            ].filter((item) => Boolean(item)),
+        ].slice(0, 10),
+    };
+}
+function extractGroundingSources(response, query, relatedTickers, retrievedAt) {
+    try {
+        const candidates = response?.candidates;
+        if (!Array.isArray(candidates) || candidates.length === 0)
+            return [];
+        const meta = candidates[0]?.groundingMetadata;
+        if (!meta)
+            return [];
+        const chunks = meta.groundingChunks;
+        if (!Array.isArray(chunks))
+            return [];
+        return chunks
+            .slice(0, 10)
+            .map((chunk) => {
+            const web = chunk?.web;
+            if (!web)
+                return null;
+            const url = typeof web.uri === 'string' ? web.uri : '';
+            const title = typeof web.title === 'string' ? web.title : url;
+            if (!url)
+                return null;
+            return {
+                title,
+                url,
+                retrievedAt,
+                snippet: '',
+                query,
+                relatedTickers,
+            };
+        })
+            .filter((s) => s !== null);
+    }
+    catch {
+        return [];
+    }
+}
+function buildGeneralQuestionSearchPrompt(request, intent) {
+    const searchTargets = [...request.holdings]
+        .filter((holding) => holding.assetType !== 'cash')
+        .sort((left, right) => right.marketValueHKD - left.marketValueHKD)
+        .slice(0, 10);
+    const tickers = searchTargets.map((holding) => `${holding.ticker} (${holding.name})`).join('、') || '目前無主要持倉';
+    const question = request.analysisQuestion.trim() || '目前投資組合有咩最新外部資訊值得留意？';
+    const conversationContext = truncateConversationContext(request.conversationContext || '', 500);
+    const retrievedDate = new Date().toISOString().slice(0, 10);
+    const sourceLimit = getExternalSourceLimit(intent);
+    const officialSourceRule = intent === 'earnings_analysis'
+        ? [
+            '財報問題來源優先次序：公司 investor relations、SEC 10-Q/10-K、earnings release、earnings call transcript；其次才使用 Reuters、CNBC、Bloomberg 等市場新聞。',
+            '如果官方來源不足，必須在 uncertainty 明確標記缺口，但仍要根據已取得資料作有限度分析。',
+        ]
+        : [];
+    return [
+        '請使用 Google Search 建立可交給專業投資分析模型使用的 structured evidence pack。不要直接給買賣建議，不要輸出完整網頁原文。',
+        `檢索日期：${retrievedDate}`,
+        `問題類型：${intent}`,
+        `最多使用 ${sourceLimit} 個來源，每個來源只保留 keyFacts、keyFigures、sourceUrl。`,
+        ...officialSourceRule,
+        '研究範圍要同時覆蓋：',
+        '1. 使用者問題直接提及的公司、ETF、資產類別、國家/地區、行業或宏觀主題。',
+        '2. 若問題涉及財報/業績，整理最新季度/年度收入、盈利、指引、管理層重點、估值或市場反應。',
+        '3. 若問題涉及宏觀，整理利率、通脹、美元、債息、政策、風險偏好、主要市場表現與資金流向。',
+        '4. 若問題涉及持倉，整理與主要持倉最相關的近期外部資訊，並標明哪些 ticker 可能受影響。',
+        '5. 若資料有衝突或不完整，請標明不確定之處；不要用舊資料扮最新。',
+        `使用者問題：${question}`,
+        `對話上下文：${conversationContext || '目前未有前文對話。'}`,
+        `主要持倉：${tickers}`,
+        '請只輸出 valid JSON，不要 markdown code fence。格式：',
+        `{
+  "summary": "繁體中文摘要，最多 500 字",
+  "sources": [
+    {
+      "sourceTitle": "來源標題",
+      "sourceUrl": "https://...",
+      "publishedDate": "YYYY-MM-DD 或 null",
+      "retrievedAt": "${new Date().toISOString()}",
+      "sourceType": "official_report|sec_filing|earnings_call|news|macro_data|company_ir|market_data|other",
+      "keyFacts": ["每項不超過 35 字"],
+      "keyFigures": ["只列可在來源中確認的數字"],
+      "uncertainty": ["資料缺口或衝突"]
+    }
+  ],
+  "earningsEvidencePack": ${intent === 'earnings_analysis'
+            ? `{
+    "companyName": null,
+    "ticker": null,
+    "reportingPeriod": null,
+    "reportDate": null,
+    "revenue": null,
+    "revenueGrowth": null,
+    "operatingIncome": null,
+    "operatingMargin": null,
+    "netIncome": null,
+    "EPS": null,
+    "operatingCashFlow": null,
+    "freeCashFlow": null,
+    "capitalExpenditure": null,
+    "segmentRevenue": [],
+    "segmentOperatingIncome": [],
+    "managementCommentary": [],
+    "marketReaction": [],
+    "oneOffItems": [],
+    "mainRisks": [],
+    "sources": [],
+    "uncertainty": []
+  }`
+            : 'null'}
+}`,
+    ].join('\n');
+}
+function parseExternalEvidencePayload(raw, retrievedAt) {
+    const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/(\{[\s\S]*\})/);
+    const candidate = jsonMatch ? jsonMatch[1] : raw;
+    try {
+        const parsed = JSON.parse(candidate.trim());
+        const externalEvidence = Array.isArray(parsed.sources)
+            ? parsed.sources
+                .map((source) => normalizeExternalEvidenceSource(source, retrievedAt))
+                .filter((source) => source !== null)
+            : [];
+        const earningsEvidencePack = normalizeEarningsEvidencePack(parsed.earningsEvidencePack, externalEvidence);
+        const uncertaintyCount = externalEvidence.reduce((count, source) => count + source.uncertainty.length, 0);
+        return {
+            summary: sanitizeString(parsed.summary) ?? raw,
+            externalEvidence,
+            earningsEvidencePack,
+            status: externalEvidence.length === 0 ? 'partial' : uncertaintyCount > 0 ? 'partial' : 'ok',
+        };
+    }
+    catch {
+        return {
+            summary: raw,
+            externalEvidence: [],
+            status: 'partial',
+        };
+    }
+}
+function mergeExternalEvidenceSources(parsedSources, groundingSources, retrievedAt, sourceLimit) {
+    const merged = [...parsedSources];
+    for (const source of groundingSources) {
+        if (merged.some((item) => item.sourceUrl === source.url))
+            continue;
+        merged.push({
+            sourceTitle: source.title,
+            sourceUrl: source.url,
+            publishedDate: source.publishedAt,
+            retrievedAt,
+            sourceType: 'other',
+            keyFacts: source.snippet ? [source.snippet] : [],
+            keyFigures: [],
+            uncertainty: ['此來源由 grounding metadata 提供，未能抽取完整關鍵數字。'],
+        });
+    }
+    return merged.slice(0, sourceLimit);
+}
+async function generateGeneralQuestionSearchSummary(request, intent) {
+    const retrievedAt = new Date().toISOString();
+    const searchTargets = [...request.holdings]
+        .filter((h) => h.assetType !== 'cash')
+        .sort((a, b) => b.marketValueHKD - a.marketValueHKD)
+        .slice(0, 10);
+    const relatedTickers = searchTargets.map((h) => h.ticker);
+    const query = request.analysisQuestion.trim() || '投資組合外部資訊';
+    const cacheKey = buildExternalEvidenceCacheKey(request, intent);
+    const cached = EXTERNAL_EVIDENCE_CACHE.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now() && shouldReuseConversationEvidence(request)) {
+        return { ...cached.value, fromCache: true };
+    }
+    try {
+        const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
+        const prompt = buildGeneralQuestionSearchPrompt(request, intent);
+        const candidates = getSearchModelCandidates();
+        let lastError = null;
+        for (const model of candidates) {
+            try {
+                const response = await ai.models.generateContent({
+                    model,
+                    contents: prompt,
+                    config: {
+                        maxOutputTokens: 3000,
+                        tools: [{ googleSearch: {} }],
+                    },
+                });
+                const rawSummary = response.text?.trim();
+                if (rawSummary) {
+                    const parsed = parseExternalEvidencePayload(rawSummary, retrievedAt);
+                    const groundedSources = extractGroundingSources(response, query, relatedTickers, retrievedAt);
+                    const evidenceSources = mergeExternalEvidenceSources(parsed.externalEvidence, groundedSources, retrievedAt, getExternalSourceLimit(intent));
+                    const fallbackPack = intent === 'earnings_analysis'
+                        ? buildEarningsEvidencePack(request.analysisQuestion || '', evidenceSources, request)
+                        : undefined;
+                    const earningsEvidencePack = intent === 'earnings_analysis'
+                        ? parsed.earningsEvidencePack ?? fallbackPack
+                        : undefined;
+                    const status = evidenceSources.length > 0 ? parsed.status : 'partial';
+                    const result = {
+                        summary: parsed.summary || rawSummary,
+                        sources: evidenceSourcesToLegacySources(evidenceSources, query, relatedTickers),
+                        externalEvidence: evidenceSources,
+                        earningsEvidencePack,
+                        status,
+                        retrievedAt,
+                    };
+                    EXTERNAL_EVIDENCE_CACHE.set(cacheKey, {
+                        expiresAt: Date.now() + getExternalEvidenceCacheTtlMs(intent),
+                        value: result,
+                    });
+                    return result;
+                }
+                console.warn(`[analyzePortfolio] Gemini grounding returned empty summary for model ${model}; trying fallback.`);
+            }
+            catch (error) {
+                console.warn(`[analyzePortfolio] Gemini grounding fallback from model ${model}: ${error instanceof Error ? error.message : 'unknown_error'}`);
+                lastError = error;
+            }
+        }
+        const fallbackMessage = lastError instanceof Error ? lastError.message : 'grounding_failed';
+        return {
+            summary: `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`,
+            sources: [],
+            externalEvidence: [],
+            status: 'failed',
+            retrievedAt,
+        };
+    }
+    catch (error) {
+        const fallbackMessage = error instanceof Error ? error.message : 'grounding_unavailable';
+        console.warn('[analyzePortfolio] external search unavailable:', fallbackMessage);
+        return {
+            summary: `未能取得最新外部資料摘要；請以組合資料為主回答，並註明外部搜尋暫時失敗（${fallbackMessage}）。`,
+            sources: [],
+            externalEvidence: [],
+            status: 'failed',
+            retrievedAt,
+        };
+    }
+}
+// ---------------------------------------------------------------------------
+// MacroContext builder
+// ---------------------------------------------------------------------------
+function buildMacroContext(searchResult) {
+    return {
+        retrievedAt: searchResult.retrievedAt,
+        summary: searchResult.summary,
+        sources: searchResult.sources,
+    };
+}
+// ---------------------------------------------------------------------------
+// Model callers
+// ---------------------------------------------------------------------------
 function getModelProvider(model) {
-    return SUPPORTED_ANALYSIS_MODELS[model].provider;
+    return resolveModelProvider(model);
 }
 async function analyzeWithGemini(prompt, model, maxTokens, jsonMode = false) {
     const apiKey = getGeminiApiKey();
@@ -814,6 +1237,80 @@ function getDefaultAnalysisMaxTokens(category) {
     }
     return 1800;
 }
+function getGeneralQuestionMaxTokens(intent) {
+    if (intent === 'portfolio_only')
+        return 900;
+    if (intent === 'earnings_analysis')
+        return 4200;
+    if (intent === 'company_research' ||
+        intent === 'macro_analysis' ||
+        intent === 'strategy_analysis' ||
+        intent === 'market_research' ||
+        intent === 'deep_analysis') {
+        return 3200;
+    }
+    return 1800;
+}
+export function qualityCheckGeneralAnswer(args) {
+    const { answer, intent, question, request, externalEvidence = [] } = args;
+    const failures = [];
+    const normalized = answer.trim();
+    if (!normalized)
+        failures.push('答案為空。');
+    const firstLine = normalized.split('\n').find((line) => line.trim().length > 0) ?? '';
+    if (firstLine.length < 8 || firstLine.length > 160)
+        failures.push('缺少清晰一句話結論。');
+    if (/資料不完整|資料不足|建議查閱完整財報|自行查閱/.test(normalized) && normalized.length < 500) {
+        failures.push('回答過度依賴資料不足聲明，未基於已取得資料分析。');
+    }
+    if (/立即全倉|必定|保證|一定會|無風險/.test(normalized)) {
+        failures.push('包含絕對買賣或保證式表述。');
+    }
+    if (question && !normalized.includes(question.slice(0, 2)) && normalized.length < 200) {
+        failures.push('未充分回答使用者原問題。');
+    }
+    if (intent === 'earnings_analysis') {
+        const required = [
+            [/收入|營收|revenue/i, '缺少收入分析。'],
+            [/利潤|淨利|經營利潤|EPS|margin/i, '缺少利潤分析。'],
+            [/現金流|自由現金流|cash flow|FCF/i, '缺少現金流分析。'],
+            [/資本開支|capex|數據中心|AI/i, '缺少資本開支分析。'],
+            [/分部|Cloud|Search|YouTube|Advertising|廣告/i, '缺少業務分部分析。'],
+            [/一次性|one-off|會計|non-recurring|未能.*確認/i, '缺少一次性因素或資料缺口說明。'],
+            [/持倉|市值|佔比|成本|30日|投資含義/i, '缺少投資含義或持倉連結。'],
+            [/監察|指標|留意/i, '缺少具體監察指標。'],
+        ];
+        for (const [pattern, message] of required) {
+            if (!pattern.test(normalized))
+                failures.push(message);
+        }
+        if (!/\|.+\|/.test(normalized))
+            failures.push('財報回答缺少核心數字表。');
+    }
+    const mentionedTickers = extractMentionedTickers(request);
+    const hasRelevantHolding = mentionedTickers.length > 0;
+    if (hasRelevantHolding && !/(持倉|市值|佔比|成本|30日|quantity|qty)/i.test(normalized)) {
+        failures.push('使用者持有相關資產，但答案未引用持倉資料。');
+    }
+    if (externalEvidence.some((source) => source.uncertainty.length > 0) && !/未能|不足|不確定|缺口/.test(normalized)) {
+        failures.push('外部 evidence 有不確定事項，但答案未說明資料缺口。');
+    }
+    return { ok: failures.length === 0, failures };
+}
+function buildRewriteUserPrompt(originalUserPrompt, answer, failures) {
+    return `
+以下是上一版回答，質檢未通過。請使用同一批資料重寫一次，只輸出同樣 JSON 格式，不要新增來源外的事實。
+
+質檢失敗原因：
+${failures.map((failure) => `- ${failure}`).join('\n')}
+
+上一版回答：
+${answer}
+
+原始使用者 prompt：
+${originalUserPrompt}
+  `.trim();
+}
 export function getAnalyzePortfolioErrorResponse(error) {
     if (error instanceof AnalyzePortfolioError) {
         return {
@@ -844,42 +1341,94 @@ export function getAnalyzePortfolioErrorResponse(error) {
         },
     };
 }
+// ---------------------------------------------------------------------------
+// Main analysis runner
+// ---------------------------------------------------------------------------
 export async function runPortfolioAnalysisRequest(request, options) {
     const isGeneralQuestion = request.category === 'general_question';
-    const searchResult = isGeneralQuestion
-        ? await generateGeneralQuestionSearchSummary(request)
-        : null;
+    // Intent classification (general_question only)
+    const intent = isGeneralQuestion
+        ? classifyIntent(request.analysisQuestion || '')
+        : undefined;
+    // Conditional external search
+    let searchResult = null;
+    let macroCtx;
+    if (isGeneralQuestion && intent && intentNeedsExternalSearch(intent)) {
+        searchResult = await generateGeneralQuestionSearchSummary(request, intent);
+        macroCtx = buildMacroContext(searchResult);
+    }
     const externalSearchSummary = searchResult?.summary ?? '';
-    const systemPrompt = buildAnalysisSystemPrompt(request);
-    const userPrompt = buildAnalysisUserPrompt(request, externalSearchSummary);
+    const systemPrompt = buildAnalysisSystemPrompt(request, { isGeneralQuestion, intent });
+    const userPrompt = buildAnalysisUserPrompt(request, externalSearchSummary, searchResult
+        ? {
+            sources: searchResult.externalEvidence,
+            earningsEvidencePack: searchResult.earningsEvidencePack,
+            status: searchResult.status,
+            retrievedAt: searchResult.retrievedAt,
+        }
+        : undefined);
     const provider = getModelProvider(request.analysisModel);
-    const resolvedMaxTokens = options?.maxTokens ?? getDefaultAnalysisMaxTokens(request.category);
+    const resolvedMaxTokens = options?.maxTokens ??
+        (isGeneralQuestion
+            ? getGeneralQuestionMaxTokens(intent)
+            : getDefaultAnalysisMaxTokens(request.category));
     const resolvedModel = request.analysisModel === 'claude-opus-4-7'
         ? getClaudeAnalyzeModel()
         : getGeminiAnalyzeModel(request.analysisModel);
-    const raw = provider === 'anthropic'
+    let raw = provider === 'anthropic'
         ? await analyzeWithClaude(systemPrompt, userPrompt, resolvedModel, resolvedMaxTokens)
         : await analyzeWithGemini(`${systemPrompt}\n\n${userPrompt}`, resolvedModel, resolvedMaxTokens, isGeneralQuestion);
-    const result = isGeneralQuestion
-        ? {
-            ...parseStructuredGeneralAnswer(raw),
-            usedExternalSources: searchResult?.sources.slice(0, 5).map((source) => `${source.title} — ${source.url}`) ?? [],
+    // Parse structured response for general_question; plain text for others
+    let result;
+    if (isGeneralQuestion) {
+        let parsed = parseStructuredGeneralAnswer(raw);
+        const quality = qualityCheckGeneralAnswer({
+            answer: parsed.answer,
+            intent,
+            question: request.analysisQuestion || '',
+            request,
+            externalEvidence: searchResult?.externalEvidence,
+        });
+        if (!quality.ok) {
+            const rewritePrompt = buildRewriteUserPrompt(userPrompt, parsed.answer, quality.failures);
+            raw =
+                provider === 'anthropic'
+                    ? await analyzeWithClaude(systemPrompt, rewritePrompt, resolvedModel, resolvedMaxTokens)
+                    : await analyzeWithGemini(`${systemPrompt}\n\n${rewritePrompt}`, resolvedModel, resolvedMaxTokens, true);
+            parsed = parseStructuredGeneralAnswer(raw);
         }
-        : sanitizeAnalysisResult(raw);
+        result = {
+            answer: parsed.answer,
+            usedPortfolioFacts: parsed.usedPortfolioFacts,
+            uncertainty: [
+                ...parsed.uncertainty,
+                ...(searchResult?.externalEvidence.flatMap((source) => source.uncertainty) ?? []),
+                ...(searchResult?.earningsEvidencePack?.uncertainty ?? []),
+            ].slice(0, 8),
+            suggestedActions: parsed.suggestedActions,
+            usedExternalSources: searchResult?.externalEvidence
+                .slice(0, getExternalSourceLimit(intent ?? 'company_research'))
+                .map((s) => `${s.sourceTitle} — ${s.sourceUrl}`) ?? [],
+            usedExternalSourcesDetailed: searchResult?.externalEvidence ?? [],
+        };
+    }
+    else {
+        result = sanitizeAnalysisResult(raw);
+    }
+    // Data freshness metadata
     const dataFreshness = isGeneralQuestion
         ? {
             hasExternalSearch: Boolean(searchResult),
             externalSearchAt: searchResult?.retrievedAt,
-            externalSearchStatus: searchResult ? searchResult.status : 'not_needed',
+            externalSearchStatus: searchResult
+                ? searchResult.fromCache
+                    ? 'cached'
+                    : searchResult.status
+                : 'not_needed',
         }
         : undefined;
-    const macroContext = searchResult
-        ? {
-            retrievedAt: searchResult.retrievedAt,
-            summary: searchResult.summary,
-            sources: searchResult.sources,
-        }
-        : undefined;
+    const modelRegistry = MODEL_REGISTRY;
+    void modelRegistry; // used for type checking via isValidAnalysisModel at request normalization
     return {
         ok: true,
         route: ANALYZE_ROUTE,
@@ -894,8 +1443,11 @@ export async function runPortfolioAnalysisRequest(request, options) {
         analysisBackground: request.analysisBackground ?? '',
         delivery: options?.delivery ?? 'manual',
         generatedAt: new Date().toISOString(),
+        intent,
         dataFreshness,
-        macroContext,
+        macroContext: macroCtx,
+        externalEvidence: searchResult?.externalEvidence,
+        earningsEvidencePack: searchResult?.earningsEvidencePack,
         ...result,
     };
 }

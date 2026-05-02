@@ -41,6 +41,7 @@ import { StatusMessages } from '../components/ui/StatusMessages';
 import type { AnalysisCategory, AnalysisSession, Holding } from '../types/portfolio';
 import type {
   CachedPortfolioAnalysis,
+  ExternalEvidenceSource,
   GeneralQuestionDataFreshness,
   PortfolioAnalysisModel,
   PortfolioAnalysisResponse,
@@ -286,6 +287,7 @@ export function AnalysisPage() {
   const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
   const [lastGeneralQuestionMeta, setLastGeneralQuestionMeta] = useState<GeneralQuestionDataFreshness | null>(null);
   const [lastGeneralQuestionSources, setLastGeneralQuestionSources] = useState<string[]>([]);
+  const [lastGeneralQuestionSourcesDetailed, setLastGeneralQuestionSourcesDetailed] = useState<ExternalEvidenceSource[]>([]);
   const [lastGeneralQuestionUncertainty, setLastGeneralQuestionUncertainty] = useState<string[]>([]);
   const [lastGeneralQuestionActions, setLastGeneralQuestionActions] = useState<string[]>([]);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
@@ -744,6 +746,7 @@ export function AnalysisPage() {
       if (isInteractiveCategory && response.dataFreshness) {
         setLastGeneralQuestionMeta(response.dataFreshness);
         setLastGeneralQuestionSources(response.usedExternalSources ?? []);
+        setLastGeneralQuestionSourcesDetailed(response.usedExternalSourcesDetailed ?? []);
         setLastGeneralQuestionUncertainty(response.uncertainty ?? []);
         setLastGeneralQuestionActions(response.suggestedActions ?? []);
       }
@@ -869,6 +872,7 @@ export function AnalysisPage() {
       if (response.dataFreshness) {
         setLastGeneralQuestionMeta(response.dataFreshness);
         setLastGeneralQuestionSources(response.usedExternalSources ?? []);
+        setLastGeneralQuestionSourcesDetailed(response.usedExternalSourcesDetailed ?? []);
         setLastGeneralQuestionUncertainty(response.uncertainty ?? []);
         setLastGeneralQuestionActions(response.suggestedActions ?? []);
       }
@@ -1288,6 +1292,7 @@ export function AnalysisPage() {
           getAnalysisModelLabel={getAnalysisModelLabel}
           lastResponseMeta={lastGeneralQuestionMeta}
           lastResponseSources={lastGeneralQuestionSources}
+          lastResponseSourcesDetailed={lastGeneralQuestionSourcesDetailed}
           lastResponseUncertainty={lastGeneralQuestionUncertainty}
           lastResponseActions={lastGeneralQuestionActions}
         />

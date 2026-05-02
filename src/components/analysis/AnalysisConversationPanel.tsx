@@ -1,7 +1,7 @@
 import { useState, type Dispatch, type SetStateAction } from 'react';
 
 import type { AnalysisCategory } from '../../types/portfolio';
-import type { GeneralQuestionDataFreshness } from '../../types/portfolioAnalysis';
+import type { ExternalEvidenceSource, GeneralQuestionDataFreshness } from '../../types/portfolioAnalysis';
 
 interface ConversationTurn {
   question: string;
@@ -36,6 +36,7 @@ interface AnalysisConversationPanelProps {
   getAnalysisModelLabel: (model: string) => string;
   lastResponseMeta?: GeneralQuestionDataFreshness | null;
   lastResponseSources?: string[];
+  lastResponseSourcesDetailed?: ExternalEvidenceSource[];
   lastResponseUncertainty?: string[];
   lastResponseActions?: string[];
 }
@@ -72,6 +73,20 @@ function DataFreshnessHint({ meta }: { meta: GeneralQuestionDataFreshness }) {
       </p>
     );
   }
+  if (meta.externalSearchStatus === 'partial') {
+    return (
+      <p className="table-hint analysis-data-hint analysis-data-hint-warn">
+        本次回答已搜尋外部資料，但部分資料不足。資料時間：{formatSearchAt(meta.externalSearchAt)}。
+      </p>
+    );
+  }
+  if (meta.externalSearchStatus === 'cached') {
+    return (
+      <p className="table-hint analysis-data-hint">
+        本次回答重用上一輪外部資料，資料時間：{formatSearchAt(meta.externalSearchAt)}。
+      </p>
+    );
+  }
   return (
     <p className="table-hint analysis-data-hint">
       本次回答已參考外部資料，資料檢索時間：{formatSearchAt(meta.externalSearchAt)}。
@@ -82,11 +97,13 @@ function DataFreshnessHint({ meta }: { meta: GeneralQuestionDataFreshness }) {
 function LastResponseMeta({
   meta,
   sources,
+  detailedSources,
   uncertainty,
   actions,
 }: {
   meta: GeneralQuestionDataFreshness;
   sources: string[];
+  detailedSources: ExternalEvidenceSource[];
   uncertainty: string[];
   actions: string[];
 }) {
@@ -113,11 +130,25 @@ function LastResponseMeta({
           <div className="analysis-meta-body">
             {sources.length > 0 ? (
               <div className="analysis-meta-section">
-                <p className="analysis-meta-label">外部資料來源</p>
+                <p className="analysis-meta-label">使用來源</p>
                 <ul>
-                  {sources.map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
+                  {(detailedSources.length > 0 ? detailedSources : sources).map((source, i) => {
+                    if (typeof source === 'string') {
+                      return <li key={i}>{source}</li>;
+                    }
+                    return (
+                      <li key={source.sourceUrl || i}>
+                        <a href={source.sourceUrl} target="_blank" rel="noreferrer">
+                          {source.sourceTitle}
+                        </a>
+                        <span className="table-hint">
+                          {' '}
+                          · {source.sourceType}
+                          {source.publishedDate ? ` · ${source.publishedDate}` : ''}
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ) : null}
@@ -167,6 +198,7 @@ export function AnalysisConversationPanel({
   getAnalysisModelLabel,
   lastResponseMeta,
   lastResponseSources = [],
+  lastResponseSourcesDetailed = [],
   lastResponseUncertainty = [],
   lastResponseActions = [],
 }: AnalysisConversationPanelProps) {
@@ -284,6 +316,7 @@ export function AnalysisConversationPanel({
                       <LastResponseMeta
                         meta={lastResponseMeta}
                         sources={lastResponseSources}
+                        detailedSources={lastResponseSourcesDetailed}
                         uncertainty={lastResponseUncertainty}
                         actions={lastResponseActions}
                       />

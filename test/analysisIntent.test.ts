@@ -24,49 +24,51 @@ test('intentNeedsExternalSearch: portfolio_only → false', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. market_research — triggers external search
+// 2. specialized external-search intents
 // ---------------------------------------------------------------------------
 
-test('classifyIntent: market_research — news about specific stock', () => {
+test('classifyIntent: company_research — news about specific stock', () => {
   const result = classifyIntent('最近 AAPL 有咩新聞？');
-  assert.equal(result, 'market_research');
+  assert.equal(result, 'company_research');
 });
 
-test('classifyIntent: market_research — interest rate impact', () => {
+test('classifyIntent: macro_analysis — interest rate impact', () => {
   const result = classifyIntent('利率高企對我組合有咩影響？');
-  assert.equal(result, 'market_research');
+  assert.equal(result, 'macro_analysis');
 });
 
-test('classifyIntent: market_research — crypto market risk', () => {
+test('classifyIntent: company_research — crypto market risk', () => {
   const result = classifyIntent('最近加密貨幣市場有咩風險？');
-  assert.equal(result, 'market_research');
+  assert.equal(result, 'company_research');
 });
 
-test('intentNeedsExternalSearch: market_research → true', () => {
-  assert.equal(intentNeedsExternalSearch('market_research'), true);
+test('classifyIntent: earnings_analysis — Google latest earnings', () => {
+  const result = classifyIntent('根據 Google 最新財報，係咩水平？背後有咩啟示？');
+  assert.equal(result, 'earnings_analysis');
+  assert.equal(intentNeedsExternalSearch(result), true);
 });
 
 // ---------------------------------------------------------------------------
-// 3. deep_analysis — portfolio + external + reasoning
+// 3. strategy_analysis — portfolio + external + reasoning
 // ---------------------------------------------------------------------------
 
-test('classifyIntent: deep_analysis — should I reduce position', () => {
+test('classifyIntent: strategy_analysis — should I reduce position', () => {
   const result = classifyIntent('我而家應唔應該減倉？');
-  assert.equal(result, 'deep_analysis');
+  assert.equal(result, 'strategy_analysis');
 });
 
-test('classifyIntent: deep_analysis — recession risk', () => {
+test('classifyIntent: strategy_analysis — recession risk', () => {
   const result = classifyIntent('如果經濟衰退，我嘅組合風險係邊？');
-  assert.equal(result, 'deep_analysis');
+  assert.equal(result, 'strategy_analysis');
 });
 
-test('classifyIntent: deep_analysis — next 3 months watch', () => {
+test('classifyIntent: strategy_analysis — next 3 months watch', () => {
   const result = classifyIntent('呢個組合未來三個月最需要留意咩？');
-  assert.equal(result, 'deep_analysis');
+  assert.equal(result, 'strategy_analysis');
 });
 
-test('intentNeedsExternalSearch: deep_analysis → true', () => {
-  assert.equal(intentNeedsExternalSearch('deep_analysis'), true);
+test('intentNeedsExternalSearch: strategy_analysis → true', () => {
+  assert.equal(intentNeedsExternalSearch('strategy_analysis'), true);
 });
 
 // ---------------------------------------------------------------------------
@@ -75,8 +77,10 @@ test('intentNeedsExternalSearch: deep_analysis → true', () => {
 
 test('intentNeedsExternalSearch returns boolean for all intents', () => {
   assert.equal(typeof intentNeedsExternalSearch('portfolio_only'), 'boolean');
-  assert.equal(typeof intentNeedsExternalSearch('market_research'), 'boolean');
-  assert.equal(typeof intentNeedsExternalSearch('deep_analysis'), 'boolean');
+  assert.equal(typeof intentNeedsExternalSearch('earnings_analysis'), 'boolean');
+  assert.equal(typeof intentNeedsExternalSearch('company_research'), 'boolean');
+  assert.equal(typeof intentNeedsExternalSearch('macro_analysis'), 'boolean');
+  assert.equal(typeof intentNeedsExternalSearch('strategy_analysis'), 'boolean');
 });
 
 // ---------------------------------------------------------------------------
@@ -131,7 +135,25 @@ test('MODEL_REGISTRY: claude-opus-4-7 has provider and label', () => {
 // 9. Default fallback for unclassified questions
 // ---------------------------------------------------------------------------
 
-test('classifyIntent: unclassified question defaults to market_research', () => {
+test('classifyIntent: unclassified question defaults to company_research', () => {
   const result = classifyIntent('幫我分析吓個組合？');
-  assert.equal(result, 'market_research');
+  assert.equal(result, 'company_research');
+});
+
+test('classifyIntent: portfolio_only — GOOG allocation question does not search', () => {
+  const result = classifyIntent('我而家 GOOG 佔成個組合幾多？');
+  assert.equal(result, 'portfolio_only');
+  assert.equal(intentNeedsExternalSearch(result), false);
+});
+
+test('classifyIntent: macro or strategy — future rate cut impact searches', () => {
+  const result = classifyIntent('如果未來減息，對我組合有咩影響？');
+  assert.equal(result, 'macro_analysis');
+  assert.equal(intentNeedsExternalSearch(result), true);
+});
+
+test('classifyIntent: Google Cloud question searches as company research', () => {
+  const result = classifyIntent('Google Cloud 增長對我持有 GOOG 有咩啟示？');
+  assert.ok(result === 'earnings_analysis' || result === 'company_research');
+  assert.equal(intentNeedsExternalSearch(result), true);
 });

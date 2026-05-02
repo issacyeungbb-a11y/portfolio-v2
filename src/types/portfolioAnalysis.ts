@@ -5,7 +5,24 @@ export type PortfolioAnalysisModel =
   | 'gemini-3.1-pro-preview'
   | 'claude-opus-4-7';
 
-export type AnalysisIntent = 'portfolio_only' | 'market_research' | 'deep_analysis';
+export type AnalysisIntent =
+  | 'portfolio_only'
+  | 'earnings_analysis'
+  | 'company_research'
+  | 'macro_analysis'
+  | 'strategy_analysis'
+  | 'market_research'
+  | 'deep_analysis';
+
+export type ExternalEvidenceSourceType =
+  | 'official_report'
+  | 'sec_filing'
+  | 'earnings_call'
+  | 'news'
+  | 'macro_data'
+  | 'company_ir'
+  | 'market_data'
+  | 'other';
 
 export interface ExternalSource {
   title: string;
@@ -16,6 +33,41 @@ export interface ExternalSource {
   snippet: string;
   query: string;
   relatedTickers: string[];
+}
+
+export interface ExternalEvidenceSource {
+  sourceTitle: string;
+  sourceUrl: string;
+  publishedDate?: string;
+  retrievedAt: string;
+  sourceType: ExternalEvidenceSourceType;
+  keyFacts: string[];
+  keyFigures: string[];
+  uncertainty: string[];
+}
+
+export interface EarningsEvidencePack {
+  companyName: string | null;
+  ticker: string | null;
+  reportingPeriod: string | null;
+  reportDate: string | null;
+  revenue: string | null;
+  revenueGrowth: string | null;
+  operatingIncome: string | null;
+  operatingMargin: string | null;
+  netIncome: string | null;
+  EPS: string | null;
+  operatingCashFlow: string | null;
+  freeCashFlow: string | null;
+  capitalExpenditure: string | null;
+  segmentRevenue: string[];
+  segmentOperatingIncome: string[];
+  managementCommentary: string[];
+  marketReaction: string[];
+  oneOffItems: string[];
+  mainRisks: string[];
+  sources: ExternalEvidenceSource[];
+  uncertainty: string[];
 }
 
 export interface MacroContext {
@@ -34,7 +86,7 @@ export interface GeneralQuestionDataFreshness {
   portfolioSnapshotAt?: string;
   externalSearchAt?: string;
   hasExternalSearch: boolean;
-  externalSearchStatus: 'not_needed' | 'ok' | 'partial' | 'failed';
+  externalSearchStatus: 'not_needed' | 'ok' | 'partial' | 'failed' | 'cached';
 }
 
 export interface PortfolioAnalysisRequestAsset {
@@ -132,6 +184,7 @@ export interface PortfolioAnalysisResult {
   answer: string;
   usedPortfolioFacts?: string[];
   usedExternalSources?: string[];
+  usedExternalSourcesDetailed?: ExternalEvidenceSource[];
   uncertainty?: string[];
   suggestedActions?: string[];
 }
@@ -153,6 +206,8 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
   intent?: AnalysisIntent;
   dataFreshness?: GeneralQuestionDataFreshness;
   macroContext?: MacroContext;
+  externalEvidence?: ExternalEvidenceSource[];
+  earningsEvidencePack?: EarningsEvidencePack;
 }
 
 export interface CachedPortfolioAnalysis extends PortfolioAnalysisResult {
