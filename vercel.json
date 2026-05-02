@@ -18,6 +18,9 @@
     },
     "api/manual-capture-snapshot.ts": {
       "maxDuration": 60
+    },
+    "api/analyze.ts": {
+      "maxDuration": 120
     }
   },
   "crons": [

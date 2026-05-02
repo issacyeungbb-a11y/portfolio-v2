@@ -16,3 +16,11 @@ test('monthly cron route still points to runtime scheduledAnalysis.js and sync v
     new RegExp(`SCHEDULED_ANALYSIS_LOGIC_VERSION = '${SCHEDULED_ANALYSIS_LOGIC_VERSION}'`),
   );
 });
+
+test('analyze route has enough Vercel duration for grounded earnings analysis', async () => {
+  const config = JSON.parse(
+    await readFile(new URL('../vercel.json', import.meta.url), 'utf8'),
+  );
+
+  assert.equal(config.functions['api/analyze.ts'].maxDuration, 120);
+});
