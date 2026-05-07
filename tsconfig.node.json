@@ -19,5 +19,6 @@
     "server/**/*.ts",
     "api/**/*.ts",
     "src/types/**/*.ts"
-  ]
+  ],
+  "exclude": ["server/**/*.test.ts"]
 }

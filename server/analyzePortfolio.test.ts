@@ -10,6 +10,8 @@ import {
   seedExternalEvidenceCacheForTest,
 } from './analyzePortfolio.js';
 import type { ExternalSearchResult } from './analyzePortfolio.js';
+import type { AccountSource } from '../src/types/portfolio.js';
+import type { PortfolioAnalysisRequest } from '../src/types/portfolioAnalysis.js';
 
 function convertTestValueToHKD(value: number, currency: string) {
   if (currency === 'USD') return value * 7.8;
@@ -29,7 +31,7 @@ function buildAnalysisRequestFromAssets({
     name: string;
     symbol: string;
     assetType: 'stock' | 'etf' | 'bond' | 'crypto' | 'cash';
-    accountSource: string;
+    accountSource: AccountSource;
     currency: string;
     quantity: number;
     averageCost: number;
@@ -39,7 +41,7 @@ function buildAnalysisRequestFromAssets({
   analysisQuestion: string;
   analysisBackground: string;
   analysisModel: 'gemini-3.1-pro-preview' | 'claude-opus-4-7';
-}) {
+}): PortfolioAnalysisRequest {
   const holdings = assets.map((asset) => {
     const marketValue = asset.quantity * asset.currentPrice;
     const costValue = asset.quantity * asset.averageCost;
