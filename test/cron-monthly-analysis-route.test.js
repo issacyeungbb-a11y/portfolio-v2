@@ -2,19 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { access, readFile } from 'node:fs/promises';
 
-import { SCHEDULED_ANALYSIS_LOGIC_VERSION } from '../server/scheduledAnalysis.js';
-
 test('monthly cron route still points to runtime scheduledAnalysis.js and sync version marker matches source', async () => {
-  const [apiSource, tsSource] = await Promise.all([
+  const [apiSource, tsSource, jsSource] = await Promise.all([
     readFile(new URL('../api/cron-monthly-analysis.ts', import.meta.url), 'utf8'),
     readFile(new URL('../server/scheduledAnalysis.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../server/scheduledAnalysis.js', import.meta.url), 'utf8'),
   ]);
+  const versionMatch = tsSource.match(/SCHEDULED_ANALYSIS_LOGIC_VERSION = '([^']+)'/);
 
+  assert.ok(versionMatch);
   assert.match(apiSource, /from '\.\.\/server\/scheduledAnalysis\.js'/);
-  assert.match(
-    tsSource,
-    new RegExp(`SCHEDULED_ANALYSIS_LOGIC_VERSION = '${SCHEDULED_ANALYSIS_LOGIC_VERSION}'`),
-  );
+  assert.match(jsSource, new RegExp(`SCHEDULED_ANALYSIS_LOGIC_VERSION = "${versionMatch[1]}"`));
 });
 
 test('analyze route has enough Vercel duration for grounded earnings analysis', async () => {
@@ -35,4 +33,22 @@ test('analyze route runtime JS imports exist for Vercel serverless', async () =>
   await access(new URL('../server/apiShared.js', import.meta.url));
   await access(new URL('../server/analyzePortfolio.js', import.meta.url));
   await access(new URL('../server/requirePortfolioAccess.js', import.meta.url));
+});
+
+test('serverless analysis routes avoid top-level Google GenAI SDK import', async () => {
+  const [tsSource, jsSource, scheduledTsSource, scheduledJsSource] = await Promise.all([
+    readFile(new URL('../server/analyzePortfolio.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../server/analyzePortfolio.js', import.meta.url), 'utf8'),
+    readFile(new URL('../server/scheduledAnalysis.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../server/scheduledAnalysis.js', import.meta.url), 'utf8'),
+  ]);
+
+  assert.doesNotMatch(tsSource, /from ['"]@google\/genai['"]/);
+  assert.doesNotMatch(jsSource, /from ['"]@google\/genai['"]/);
+  assert.doesNotMatch(scheduledTsSource, /from ['"]@google\/genai['"]/);
+  assert.doesNotMatch(scheduledJsSource, /from ['"]@google\/genai['"]/);
+  assert.match(tsSource, /generateGeminiContentViaRest/);
+  assert.match(jsSource, /generateGeminiContentViaRest/);
+  assert.match(scheduledTsSource, /generateGeminiContentViaRest/);
+  assert.match(scheduledJsSource, /generateGeminiContentViaRest/);
 });

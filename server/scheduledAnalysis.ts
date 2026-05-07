@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 
-import { GoogleGenAI } from '@google/genai';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
@@ -486,27 +485,84 @@ function getSearchModelCandidates() {
   return [preferred, ...GROUNDED_SEARCH_FALLBACK_MODELS.filter((model) => model !== preferred)];
 }
 
+function getGeminiResponseText(response: unknown) {
+  if (typeof (response as { text?: unknown })?.text === 'string') {
+    return ((response as { text: string }).text).trim();
+  }
+
+  const candidates = (response as Record<string, unknown>)?.candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return '';
+  const content = (candidates[0] as Record<string, unknown>)?.content as Record<string, unknown> | undefined;
+  const parts = content?.parts;
+  if (!Array.isArray(parts)) return '';
+
+  return parts
+    .map((part) => {
+      if (typeof part !== 'object' || part === null) return '';
+      const text = (part as Record<string, unknown>).text;
+      return typeof text === 'string' ? text : '';
+    })
+    .join('\n')
+    .trim();
+}
+
+async function generateGeminiContentViaRest(args: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+  maxOutputTokens?: number;
+  googleSearch?: boolean;
+}) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    args.model,
+  )}:generateContent?key=${encodeURIComponent(args.apiKey)}`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: args.prompt }] }],
+      generationConfig: {
+        ...(typeof args.maxOutputTokens === 'number' ? { maxOutputTokens: args.maxOutputTokens } : {}),
+      },
+      ...(args.googleSearch ? { tools: [{ googleSearch: {} }] } : {}),
+    }),
+    signal: AbortSignal.timeout(args.googleSearch ? 45_000 : 60_000),
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof (payload as { error?: { message?: unknown } }).error?.message === 'string'
+        ? (payload as { error: { message: string } }).error.message
+        : `Gemini REST request failed with status ${response.status}`;
+    throw new Error(message);
+  }
+
+  return payload;
+}
+
 async function generateGroundedSearchSummary(params: {
   assets: AdminAsset[];
   mode: 'monthly' | 'quarterly';
 }) {
-  const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
   const prompt = getSearchSummaryPrompt(params);
   const candidates = getSearchModelCandidates();
   let lastError: unknown = null;
 
   for (const model of candidates) {
     try {
-      const response = await ai.models.generateContent({
+      const response = await generateGeminiContentViaRest({
+        apiKey: getGeminiApiKey(),
         model,
-        contents: prompt,
-        config: {
-          maxOutputTokens: 1500,
-          tools: [{ googleSearch: {} }],
-        },
+        prompt,
+        maxOutputTokens: 1500,
+        googleSearch: true,
       });
 
-      const summary = response.text?.trim();
+      const summary = getGeminiResponseText(response);
 
       if (summary) {
         return {

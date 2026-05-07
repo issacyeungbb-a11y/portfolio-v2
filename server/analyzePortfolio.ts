@@ -1,5 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
-
 import type { AnalysisCategory, AssetType } from '../src/types/portfolio';
 import type {
   ExternalSource,
@@ -1451,6 +1449,73 @@ function extractGroundingSources(
   }
 }
 
+function getGeminiResponseText(response: unknown) {
+  if (typeof (response as { text?: unknown })?.text === 'string') {
+    return ((response as { text: string }).text).trim();
+  }
+
+  const candidates = (response as Record<string, unknown>)?.candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return '';
+  const content = (candidates[0] as Record<string, unknown>)?.content as Record<string, unknown> | undefined;
+  const parts = content?.parts;
+  if (!Array.isArray(parts)) return '';
+
+  return parts
+    .map((part) => {
+      if (typeof part !== 'object' || part === null) return '';
+      const text = (part as Record<string, unknown>).text;
+      return typeof text === 'string' ? text : '';
+    })
+    .join('\n')
+    .trim();
+}
+
+async function generateGeminiContentViaRest(args: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+  maxOutputTokens?: number;
+  jsonMode?: boolean;
+  googleSearch?: boolean;
+}) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    args.model,
+  )}:generateContent?key=${encodeURIComponent(args.apiKey)}`;
+  const generationConfig: Record<string, unknown> = {};
+
+  if (typeof args.maxOutputTokens === 'number') {
+    generationConfig.maxOutputTokens = args.maxOutputTokens;
+  }
+  if (args.jsonMode) {
+    generationConfig.responseMimeType = 'application/json';
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: args.prompt }] }],
+      ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
+      ...(args.googleSearch ? { tools: [{ googleSearch: {} }] } : {}),
+    }),
+    signal: AbortSignal.timeout(args.googleSearch ? 45_000 : 60_000),
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    const message =
+      typeof payload === 'object' &&
+      payload !== null &&
+      'error' in payload &&
+      typeof (payload as { error?: { message?: unknown } }).error?.message === 'string'
+        ? (payload as { error: { message: string } }).error.message
+        : `Gemini REST request failed with status ${response.status}`;
+    throw new AnalyzePortfolioError(message, response.status);
+  }
+
+  return payload;
+}
+
 function buildGeneralQuestionSearchPrompt(request: PortfolioAnalysisRequest, intent: AnalysisIntent) {
   const searchTargets = [...request.holdings]
     .filter((holding) => holding.assetType !== 'cash')
@@ -1609,23 +1674,21 @@ async function generateGeneralQuestionSearchSummary(
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: getGeminiApiKey() });
     const prompt = buildGeneralQuestionSearchPrompt(request, intent);
     const candidates = getSearchModelCandidates();
     let lastError: unknown = null;
 
     for (const model of candidates) {
       try {
-        const response = await ai.models.generateContent({
+        const response = await generateGeminiContentViaRest({
+          apiKey: getGeminiApiKey(),
           model,
-          contents: prompt,
-          config: {
-            maxOutputTokens: 3000,
-            tools: [{ googleSearch: {} }],
-          },
+          prompt,
+          maxOutputTokens: 3000,
+          googleSearch: true,
         });
 
-        const rawSummary = response.text?.trim();
+        const rawSummary = getGeminiResponseText(response);
         if (rawSummary) {
           const parsed = parseExternalEvidencePayload(rawSummary, retrievedAt);
           const groundedSources = extractGroundingSources(response, query, relatedTickers, retrievedAt);
@@ -1721,17 +1784,15 @@ async function analyzeWithGemini(
   jsonMode = false,
 ) {
   const apiKey = getGeminiApiKey();
-  const ai = new GoogleGenAI({ apiKey });
-  const response = await ai.models.generateContent({
+  const response = await generateGeminiContentViaRest({
+    apiKey,
     model,
-    contents: prompt,
-    config: {
-      ...(typeof maxTokens === 'number' ? { maxOutputTokens: maxTokens } : {}),
-      ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
-    },
+    prompt,
+    maxOutputTokens: maxTokens,
+    jsonMode,
   });
 
-  return response.text ?? '';
+  return getGeminiResponseText(response);
 }
 
 async function analyzeWithClaude(

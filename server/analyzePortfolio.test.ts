@@ -10,7 +10,71 @@ import {
   seedExternalEvidenceCacheForTest,
 } from './analyzePortfolio.js';
 import type { ExternalSearchResult } from './analyzePortfolio.js';
-import { buildAnalysisRequestFromAssets } from './scheduledAnalysis.js';
+
+function convertTestValueToHKD(value: number, currency: string) {
+  if (currency === 'USD') return value * 7.8;
+  if (currency === 'JPY') return value * 0.052;
+  return value;
+}
+
+function buildAnalysisRequestFromAssets({
+  assets,
+  category,
+  analysisQuestion,
+  analysisBackground,
+  analysisModel,
+}: {
+  assets: Array<{
+    id: string;
+    name: string;
+    symbol: string;
+    assetType: 'stock' | 'etf' | 'bond' | 'crypto' | 'cash';
+    accountSource: string;
+    currency: string;
+    quantity: number;
+    averageCost: number;
+    currentPrice: number;
+  }>;
+  category: 'asset_analysis' | 'general_question' | 'asset_report';
+  analysisQuestion: string;
+  analysisBackground: string;
+  analysisModel: 'gemini-3.1-pro-preview' | 'claude-opus-4-7';
+}) {
+  const holdings = assets.map((asset) => {
+    const marketValue = asset.quantity * asset.currentPrice;
+    const costValue = asset.quantity * asset.averageCost;
+    return {
+      id: asset.id,
+      name: asset.name,
+      ticker: asset.symbol,
+      assetType: asset.assetType,
+      accountSource: asset.accountSource,
+      currency: asset.currency,
+      quantity: asset.quantity,
+      averageCost: asset.averageCost,
+      currentPrice: asset.currentPrice,
+      marketValue,
+      marketValueHKD: convertTestValueToHKD(marketValue, asset.currency),
+      costValue,
+      costValueHKD: convertTestValueToHKD(costValue, asset.currency),
+    };
+  });
+
+  return {
+    cacheKey: 'test-cache',
+    snapshotHash: 'test-snapshot',
+    category,
+    analysisModel,
+    analysisQuestion,
+    analysisBackground,
+    assetCount: holdings.length,
+    totalValueHKD: holdings.reduce((sum, holding) => sum + holding.marketValueHKD, 0),
+    totalCostHKD: holdings.reduce((sum, holding) => sum + holding.costValueHKD, 0),
+    holdings,
+    allocationsByType: [],
+    allocationsByCurrency: [],
+  };
+}
 
 function buildGoogGeneralRequest(question = '根據 Google 最新財報，係咩水平？背後有咩啟示？') {
   return buildAnalysisRequestFromAssets({
