@@ -30,6 +30,9 @@ export async function callPortfolioFunction(key, payload) {
     if (!config) {
         throw new Error(`未支援的函式請求：${key}`);
     }
+    const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     const headers = {};
     if (config.method === 'POST') {
         headers['Content-Type'] = 'application/json';
@@ -41,11 +44,20 @@ export async function callPortfolioFunction(key, payload) {
         }
         headers['x-portfolio-access-code'] = accessCode;
     }
-    const response = await fetch(config.path, {
-        method: config.method,
-        headers,
-        body: config.method === 'POST' ? JSON.stringify(payload ?? {}) : undefined,
-    });
+    headers['x-client-request-id'] = requestId;
+    let response;
+    try {
+        response = await fetch(config.path, {
+            method: config.method,
+            headers,
+            body: config.method === 'POST' ? JSON.stringify(payload ?? {}) : undefined,
+        });
+    }
+    catch (error) {
+        const errorName = error instanceof Error ? error.name : 'NetworkError';
+        const errorMessage = error instanceof Error ? error.message : 'unknown network error';
+        throw new Error(`無法連線到 ${config.path}（${errorName}: ${errorMessage}）。可能是 Vercel function 超時、瀏覽器網絡被中斷，或部署仍在切換。Request ID: ${requestId}`);
+    }
     const rawText = await response.text();
     const contentType = response.headers.get('content-type') ?? '';
     let data = null;
@@ -79,7 +91,7 @@ export async function callPortfolioFunction(key, payload) {
             : typeof data === 'string'
                 ? normalizeTextError(response.status, data)
                 : `Request failed with status ${response.status}`;
-        throw new Error(message);
+        throw new Error(`${message}（${config.method} ${config.path}，HTTP ${response.status}，Request ID: ${requestId}）`);
     }
     return data;
 }

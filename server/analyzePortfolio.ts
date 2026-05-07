@@ -24,6 +24,11 @@ import { type AnalysisIntent, classifyIntent, intentNeedsExternalSearch } from '
 import { convertToHKDValue, formatCurrencyRounded } from '../src/lib/currency.js';
 
 const ANALYZE_ROUTE = '/api/analyze' as const;
+const GEMINI_GROUNDING_TIMEOUT_MS = 8_000;
+const GEMINI_GROUNDING_TOTAL_BUDGET_MS = 12_000;
+const GEMINI_ANALYSIS_TIMEOUT_MS = 32_000;
+const CLAUDE_ANALYSIS_TIMEOUT_MS = 32_000;
+const QUALITY_REWRITE_TIMEOUT_MS = 12_000;
 
 const EXTERNAL_EVIDENCE_CACHE = new Map<
   string,
@@ -1477,6 +1482,7 @@ async function generateGeminiContentViaRest(args: {
   maxOutputTokens?: number;
   jsonMode?: boolean;
   googleSearch?: boolean;
+  timeoutMs?: number;
 }) {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     args.model,
@@ -1498,7 +1504,9 @@ async function generateGeminiContentViaRest(args: {
       ...(Object.keys(generationConfig).length > 0 ? { generationConfig } : {}),
       ...(args.googleSearch ? { tools: [{ googleSearch: {} }] } : {}),
     }),
-    signal: AbortSignal.timeout(args.googleSearch ? 45_000 : 60_000),
+    signal: AbortSignal.timeout(
+      args.timeoutMs ?? (args.googleSearch ? GEMINI_GROUNDING_TIMEOUT_MS : GEMINI_ANALYSIS_TIMEOUT_MS),
+    ),
   });
 
   const payload = (await response.json().catch(() => null)) as unknown;
@@ -1676,9 +1684,16 @@ async function generateGeneralQuestionSearchSummary(
   try {
     const prompt = buildGeneralQuestionSearchPrompt(request, intent);
     const candidates = getSearchModelCandidates();
+    const deadlineAt = Date.now() + GEMINI_GROUNDING_TOTAL_BUDGET_MS;
     let lastError: unknown = null;
 
     for (const model of candidates) {
+      const remainingMs = deadlineAt - Date.now();
+      if (remainingMs <= 2_000) {
+        lastError = new Error('external_search_time_budget_exceeded');
+        break;
+      }
+
       try {
         const response = await generateGeminiContentViaRest({
           apiKey: getGeminiApiKey(),
@@ -1686,6 +1701,7 @@ async function generateGeneralQuestionSearchSummary(
           prompt,
           maxOutputTokens: 3000,
           googleSearch: true,
+          timeoutMs: Math.min(GEMINI_GROUNDING_TIMEOUT_MS, Math.max(2_000, remainingMs)),
         });
 
         const rawSummary = getGeminiResponseText(response);
@@ -1782,14 +1798,16 @@ async function analyzeWithGemini(
   model: Extract<PortfolioAnalysisModel, 'gemini-3.1-pro-preview'>,
   maxTokens?: number,
   jsonMode = false,
+  timeoutMs = GEMINI_ANALYSIS_TIMEOUT_MS,
 ) {
   const apiKey = getGeminiApiKey();
   const response = await generateGeminiContentViaRest({
     apiKey,
     model,
     prompt,
-    maxOutputTokens: maxTokens,
-    jsonMode,
+      maxOutputTokens: maxTokens,
+      jsonMode,
+      timeoutMs,
   });
 
   return getGeminiResponseText(response);
@@ -1800,6 +1818,7 @@ async function analyzeWithClaude(
   userPrompt: string,
   model: Extract<PortfolioAnalysisModel, 'claude-opus-4-7'>,
   maxTokens = 1800,
+  timeoutMs = CLAUDE_ANALYSIS_TIMEOUT_MS,
 ) {
   const apiKey = getAnthropicApiKey();
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1820,6 +1839,7 @@ async function analyzeWithClaude(
         },
       ],
     }),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   const payload = (await response.json()) as Record<string, unknown>;
@@ -2082,12 +2102,14 @@ export async function runPortfolioAnalysisRequest(
               rewritePrompt,
               resolvedModel as 'claude-opus-4-7',
               resolvedMaxTokens,
+              QUALITY_REWRITE_TIMEOUT_MS,
             )
           : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
               `${systemPrompt}\n\n${rewritePrompt}`,
               resolvedModel as 'gemini-3.1-pro-preview',
               resolvedMaxTokens,
               true,
+              QUALITY_REWRITE_TIMEOUT_MS,
             );
       parsed = parseStructuredGeneralAnswer(raw);
       const rewriteQuality = checkGeneralAnswer({

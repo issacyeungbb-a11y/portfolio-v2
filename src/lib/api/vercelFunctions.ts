@@ -54,6 +54,10 @@ export async function callPortfolioFunction(
   payload?: unknown,
 ): Promise<unknown> {
   const config = portfolioFunctionConfig[key];
+  const requestId =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const headers: Record<string, string> = {};
 
   if (config.method === 'POST') {
@@ -69,12 +73,22 @@ export async function callPortfolioFunction(
 
     headers['x-portfolio-access-code'] = accessCode;
   }
+  headers['x-client-request-id'] = requestId;
 
-  const response = await fetch(config.path, {
-    method: config.method,
-    headers,
-    body: config.method === 'POST' ? JSON.stringify(payload ?? {}) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(config.path, {
+      method: config.method,
+      headers,
+      body: config.method === 'POST' ? JSON.stringify(payload ?? {}) : undefined,
+    });
+  } catch (error) {
+    const errorName = error instanceof Error ? error.name : 'NetworkError';
+    const errorMessage = error instanceof Error ? error.message : 'unknown network error';
+    throw new Error(
+      `無法連線到 ${config.path}（${errorName}: ${errorMessage}）。可能是 Vercel function 超時、瀏覽器網絡被中斷，或部署仍在切換。Request ID: ${requestId}`,
+    );
+  }
 
   const rawText = await response.text();
   const contentType = response.headers.get('content-type') ?? '';
@@ -110,7 +124,7 @@ export async function callPortfolioFunction(
           ? normalizeTextError(response.status, data)
           : `Request failed with status ${response.status}`;
 
-    throw new Error(message);
+    throw new Error(`${message}（${config.method} ${config.path}，HTTP ${response.status}，Request ID: ${requestId}）`);
   }
 
   return data;
