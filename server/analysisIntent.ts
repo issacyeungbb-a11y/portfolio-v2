@@ -51,6 +51,23 @@ const STRATEGY_PATTERNS: RegExp[] = [
   /調整持倉|持倉.*調整/,
 ];
 
+const PORTFOLIO_REVIEW_PATTERNS: RegExp[] = [
+  /檢視.*倉位|倉位.*檢視/,
+  /檢視.*持倉|持倉.*檢視/,
+  /我倉位|我嘅倉位|我啲倉位/,
+  /我持有.*股票|所有股票|每隻股票|逐隻股票/,
+  /每隻.*點處理|逐隻.*點處理/,
+  /用你覺得.*方法|合適嘅方法/,
+  /幫我分析吓個組合|分析.*組合/,
+];
+
+const EXTERNAL_CONTEXT_PATTERNS: RegExp[] = [
+  /最新|最近|今日|尋日|昨天|current|latest|recent/i,
+  /市場|新聞|消息|公告|政策|監管/,
+  /財報|業績|盈利|收入|營收|EPS|guidance|earnings/i,
+  /利率|加息|減息|通脹|CPI|債息|美元|聯儲局|FOMC|宏觀|macro/i,
+];
+
 // External data needed: news, macro, rates, company updates, market events
 const MARKET_RESEARCH_PATTERNS: RegExp[] = [
   /新聞|消息|公告/,
@@ -85,6 +102,8 @@ const PORTFOLIO_ONLY_PATTERNS: RegExp[] = [
 
 export function classifyIntent(question: string): AnalysisIntent {
   const normalized = question.trim();
+  const asksForPortfolioReview = PORTFOLIO_REVIEW_PATTERNS.some((p) => p.test(normalized));
+  const asksForExternalContext = EXTERNAL_CONTEXT_PATTERNS.some((p) => p.test(normalized));
 
   // Priority matters: earnings and macro questions need specialized evidence and prompts.
   if (EARNINGS_PATTERNS.some((p) => p.test(normalized))) {
@@ -92,6 +111,9 @@ export function classifyIntent(question: string): AnalysisIntent {
   }
   if (MACRO_PATTERNS.some((p) => p.test(normalized))) {
     return 'macro_analysis';
+  }
+  if (asksForPortfolioReview && !asksForExternalContext) {
+    return 'portfolio_only';
   }
   if (STRATEGY_PATTERNS.some((p) => p.test(normalized)) || DEEP_ANALYSIS_PATTERNS.some((p) => p.test(normalized))) {
     return 'strategy_analysis';
@@ -105,10 +127,15 @@ export function classifyIntent(question: string): AnalysisIntent {
   if (MARKET_RESEARCH_PATTERNS.some((p) => p.test(normalized))) {
     return 'company_research';
   }
-  // Default: do external search to ground the answer
-  return 'company_research';
+  // Default: answer from portfolio data. External search is reserved for explicit market,
+  // earnings, macro, company-research, or strategy context to control cost and timeout risk.
+  return 'portfolio_only';
 }
 
-export function intentNeedsExternalSearch(intent: AnalysisIntent): boolean {
-  return intent !== 'portfolio_only';
+export function intentNeedsExternalSearch(intent: AnalysisIntent, question = ''): boolean {
+  if (intent === 'portfolio_only') return false;
+  if (intent === 'strategy_analysis') {
+    return EXTERNAL_CONTEXT_PATTERNS.some((p) => p.test(question));
+  }
+  return true;
 }

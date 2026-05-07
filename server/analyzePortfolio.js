@@ -1393,7 +1393,7 @@ async function runPortfolioAnalysisRequest(request, options) {
   const intent = isGeneralQuestion ? classifyIntent(request.analysisQuestion || "") : void 0;
   let searchResult = null;
   let macroCtx;
-  if (isGeneralQuestion && intent && intentNeedsExternalSearch(intent)) {
+  if (isGeneralQuestion && intent && intentNeedsExternalSearch(intent, request.analysisQuestion || "")) {
     searchResult = options?.testHooks?.generateExternalSearchSummary ? await options.testHooks.generateExternalSearchSummary(request, intent) : await generateGeneralQuestionSearchSummary(request, intent);
     if (intent === "earnings_analysis") {
       searchResult = ensureEarningsEvidencePack(

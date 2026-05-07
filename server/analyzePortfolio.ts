@@ -2026,7 +2026,7 @@ export async function runPortfolioAnalysisRequest(
   // Conditional external search
   let searchResult: ExternalSearchResult | null = null;
   let macroCtx: MacroContext | undefined;
-  if (isGeneralQuestion && intent && intentNeedsExternalSearch(intent)) {
+  if (isGeneralQuestion && intent && intentNeedsExternalSearch(intent, request.analysisQuestion || '')) {
     searchResult = options?.testHooks?.generateExternalSearchSummary
       ? await options.testHooks.generateExternalSearchSummary(request, intent)
       : await generateGeneralQuestionSearchSummary(request, intent);

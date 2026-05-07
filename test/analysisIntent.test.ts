@@ -67,8 +67,9 @@ test('classifyIntent: strategy_analysis — next 3 months watch', () => {
   assert.equal(result, 'strategy_analysis');
 });
 
-test('intentNeedsExternalSearch: strategy_analysis → true', () => {
-  assert.equal(intentNeedsExternalSearch('strategy_analysis'), true);
+test('intentNeedsExternalSearch: strategy_analysis only searches with market context', () => {
+  assert.equal(intentNeedsExternalSearch('strategy_analysis', '我而家應唔應該減倉？'), false);
+  assert.equal(intentNeedsExternalSearch('strategy_analysis', '如果未來減息，對我組合有咩影響？'), true);
 });
 
 // ---------------------------------------------------------------------------
@@ -135,9 +136,15 @@ test('MODEL_REGISTRY: claude-opus-4-7 has provider and label', () => {
 // 9. Default fallback for unclassified questions
 // ---------------------------------------------------------------------------
 
-test('classifyIntent: unclassified question defaults to company_research', () => {
+test('classifyIntent: unclassified portfolio question defaults to portfolio_only', () => {
   const result = classifyIntent('幫我分析吓個組合？');
-  assert.equal(result, 'company_research');
+  assert.equal(result, 'portfolio_only');
+});
+
+test('classifyIntent: portfolio review question does not search', () => {
+  const result = classifyIntent('幫我檢視下面家我倉位嘅所有股票，用你覺得合適嘅方法為每隻股票分析');
+  assert.equal(result, 'portfolio_only');
+  assert.equal(intentNeedsExternalSearch(result), false);
 });
 
 test('classifyIntent: portfolio_only — GOOG allocation question does not search', () => {
