@@ -1898,6 +1898,75 @@ function getGeneralQuestionMaxTokens(intent?: AnalysisIntent) {
   return 1800;
 }
 
+function isAbortTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return /abort|timeout|aborted/i.test(`${error.name} ${error.message}`);
+}
+
+function buildPortfolioOnlyTimeoutFallback(request: PortfolioAnalysisRequest): StructuredGeneralAnswer {
+  const sorted = [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+  const totalValueHKD =
+    request.totalValueHKD ||
+    sorted.reduce((sum, holding) => sum + holding.marketValueHKD, 0);
+  const topHoldings = sorted.slice(0, 12);
+  const stockHoldings = sorted.filter((holding) => holding.assetType === 'stock');
+  const largest = sorted[0];
+  const lines = topHoldings.map((holding, index) => {
+    const weight = totalValueHKD > 0 ? (holding.marketValueHKD / totalValueHKD) * 100 : 0;
+    const gainLoss = holding.marketValueHKD - holding.costValueHKD;
+    const gainLossPct = holding.costValueHKD > 0 ? (gainLoss / holding.costValueHKD) * 100 : 0;
+    return `${index + 1}. ${holding.ticker}｜${holding.name}｜${holding.assetType}｜市值 ${formatCurrencyRounded(
+      holding.marketValueHKD,
+      'HKD',
+    )}｜佔比 ${weight.toFixed(1)}%｜成本 ${formatCurrencyRounded(
+      holding.costValueHKD,
+      'HKD',
+    )}｜帳面 ${gainLoss >= 0 ? '+' : ''}${formatCurrencyRounded(gainLoss, 'HKD')}（${gainLossPct.toFixed(1)}%）`;
+  });
+  const concentration =
+    largest && totalValueHKD > 0 ? (largest.marketValueHKD / totalValueHKD) * 100 : 0;
+  const conclusion =
+    concentration >= 30
+      ? `一句話結論：目前組合最大持倉 ${largest?.ticker ?? 'N/A'} 佔比約 ${concentration.toFixed(
+          1,
+        )}%，需要先管理集中度，再逐隻檢視回報與風險。`
+      : `一句話結論：目前組合未見單一持倉極端集中，適合按市值佔比、成本安全邊際與資產類別逐隻檢視。`;
+  const answer = [
+    conclusion,
+    '',
+    '【持倉檢視】',
+    ...lines,
+    sorted.length > topHoldings.length
+      ? `另外 ${sorted.length - topHoldings.length} 項較小持倉未逐項列出，合計約 ${formatCurrencyRounded(
+          sorted.slice(topHoldings.length).reduce((sum, holding) => sum + holding.marketValueHKD, 0),
+          'HKD',
+        )}。`
+      : '',
+    '',
+    '【處理次序】',
+    '1. 先處理佔比最高及帳面虧損最大的持倉，因為它們最影響整體波動。',
+    '2. 對盈利持倉，以分段止盈或調低集中度為主，不需要一次性絕對買賣。',
+    '3. 對虧損持倉，先分清楚是價格波動、基本面轉弱，還是倉位過大導致心理壓力。',
+    '4. 現金、債券、ETF 與股票要分開看，不應用同一把尺處理所有資產。',
+    '',
+    '【後續監察】',
+    '集中度、30日走勢、成本距離、市值佔比、最近交易後倉位變化。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return {
+    answer,
+    usedPortfolioFacts: [
+      `總市值約 ${formatCurrencyRounded(totalValueHKD, 'HKD')}`,
+      `持倉數量 ${request.holdings.length} 項，股票 ${stockHoldings.length} 項`,
+      largest ? `最大持倉 ${largest.ticker}，市值約 ${formatCurrencyRounded(largest.marketValueHKD, 'HKD')}` : '',
+    ].filter(Boolean),
+    uncertainty: ['分析模型回應超時，系統已先根據目前持倉資料產生可用回覆；未加入外部市場或財報資料。'],
+    suggestedActions: ['如要逐隻股票加入最新財報或新聞，再用「最新財報／近期消息」指定個別 ticker 追問。'],
+  };
+}
+
 export function qualityCheckGeneralAnswer(args: {
   answer: string;
   intent?: AnalysisIntent;
@@ -2065,25 +2134,36 @@ export async function runPortfolioAnalysisRequest(
       ? getClaudeAnalyzeModel()
       : getGeminiAnalyzeModel(request.analysisModel);
 
-  let raw =
-    provider === 'anthropic'
-      ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
-          systemPrompt,
-          userPrompt,
-          resolvedModel as 'claude-opus-4-7',
-          resolvedMaxTokens,
-        )
-      : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
-          `${systemPrompt}\n\n${userPrompt}`,
-          resolvedModel as 'gemini-3.1-pro-preview',
-          resolvedMaxTokens,
-          isGeneralQuestion,
-        );
+  let raw: string;
+  let timedOutPortfolioFallback: StructuredGeneralAnswer | null = null;
+  try {
+    raw =
+      provider === 'anthropic'
+        ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
+            systemPrompt,
+            userPrompt,
+            resolvedModel as 'claude-opus-4-7',
+            resolvedMaxTokens,
+          )
+        : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
+            `${systemPrompt}\n\n${userPrompt}`,
+            resolvedModel as 'gemini-3.1-pro-preview',
+            resolvedMaxTokens,
+            isGeneralQuestion,
+          );
+  } catch (error) {
+    if (isGeneralQuestion && intent === 'portfolio_only' && isAbortTimeoutError(error)) {
+      timedOutPortfolioFallback = buildPortfolioOnlyTimeoutFallback(request);
+      raw = JSON.stringify(timedOutPortfolioFallback);
+    } else {
+      throw error;
+    }
+  }
 
   // Parse structured response for general_question; plain text for others
   let result: PortfolioAnalysisResult;
   if (isGeneralQuestion) {
-    let parsed = parseStructuredGeneralAnswer(raw);
+    let parsed = timedOutPortfolioFallback ?? parseStructuredGeneralAnswer(raw);
     const checkGeneralAnswer = options?.testHooks?.qualityCheckGeneralAnswer ?? qualityCheckGeneralAnswer;
     let finalQualityFailures: string[] = [];
     const quality = checkGeneralAnswer({
@@ -2093,7 +2173,7 @@ export async function runPortfolioAnalysisRequest(
       request,
       externalEvidence: searchResult?.externalEvidence,
     });
-    if (!quality.ok) {
+    if (!quality.ok && !timedOutPortfolioFallback) {
       const rewritePrompt = buildRewriteUserPrompt(userPrompt, parsed.answer, quality.failures);
       raw =
         provider === 'anthropic'

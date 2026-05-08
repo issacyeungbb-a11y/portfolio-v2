@@ -328,6 +328,27 @@ test('portfolio_only does not build external evidence', async () => {
   assert.equal(response.externalEvidence, undefined);
 });
 
+test('portfolio_only model timeout returns deterministic portfolio fallback instead of failing', async () => {
+  const request = buildGoogGeneralRequest('幫我檢視下面家我倉位嘅所有股票，用你覺得合適嘅方法為每隻股票分析');
+
+  const response = await runPortfolioAnalysisRequest(request, {
+    testHooks: {
+      analyzeWithClaude: async () => {
+        const error = new Error('The operation was aborted due to timeout');
+        error.name = 'AbortError';
+        throw error;
+      },
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.intent, 'portfolio_only');
+  assert.equal(response.dataFreshness?.externalSearchStatus, 'not_needed');
+  assert.match(response.answer, /持倉檢視/);
+  assert.match(response.answer, /GOOG/);
+  assert.ok(response.uncertainty?.some((item) => item.includes('模型回應超時')));
+});
+
 test('external evidence cache hit marks data freshness as cached', async () => {
   clearExternalEvidenceCacheForTest();
   const request = buildGoogGeneralRequest('Google Cloud 增長對我持有 GOOG 有咩啟示？');

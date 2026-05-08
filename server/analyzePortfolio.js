@@ -1302,6 +1302,62 @@ function getGeneralQuestionMaxTokens(intent) {
   }
   return 1800;
 }
+function isAbortTimeoutError(error) {
+  if (!(error instanceof Error)) return false;
+  return /abort|timeout|aborted/i.test(`${error.name} ${error.message}`);
+}
+function buildPortfolioOnlyTimeoutFallback(request) {
+  const sorted = [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+  const totalValueHKD = request.totalValueHKD || sorted.reduce((sum, holding) => sum + holding.marketValueHKD, 0);
+  const topHoldings = sorted.slice(0, 12);
+  const stockHoldings = sorted.filter((holding) => holding.assetType === "stock");
+  const largest = sorted[0];
+  const lines = topHoldings.map((holding, index) => {
+    const weight = totalValueHKD > 0 ? holding.marketValueHKD / totalValueHKD * 100 : 0;
+    const gainLoss = holding.marketValueHKD - holding.costValueHKD;
+    const gainLossPct = holding.costValueHKD > 0 ? gainLoss / holding.costValueHKD * 100 : 0;
+    return `${index + 1}. ${holding.ticker}\uFF5C${holding.name}\uFF5C${holding.assetType}\uFF5C\u5E02\u503C ${formatCurrencyRounded(
+      holding.marketValueHKD,
+      "HKD"
+    )}\uFF5C\u4F54\u6BD4 ${weight.toFixed(1)}%\uFF5C\u6210\u672C ${formatCurrencyRounded(
+      holding.costValueHKD,
+      "HKD"
+    )}\uFF5C\u5E33\u9762 ${gainLoss >= 0 ? "+" : ""}${formatCurrencyRounded(gainLoss, "HKD")}\uFF08${gainLossPct.toFixed(1)}%\uFF09`;
+  });
+  const concentration = largest && totalValueHKD > 0 ? largest.marketValueHKD / totalValueHKD * 100 : 0;
+  const conclusion = concentration >= 30 ? `\u4E00\u53E5\u8A71\u7D50\u8AD6\uFF1A\u76EE\u524D\u7D44\u5408\u6700\u5927\u6301\u5009 ${largest?.ticker ?? "N/A"} \u4F54\u6BD4\u7D04 ${concentration.toFixed(
+    1
+  )}%\uFF0C\u9700\u8981\u5148\u7BA1\u7406\u96C6\u4E2D\u5EA6\uFF0C\u518D\u9010\u96BB\u6AA2\u8996\u56DE\u5831\u8207\u98A8\u96AA\u3002` : `\u4E00\u53E5\u8A71\u7D50\u8AD6\uFF1A\u76EE\u524D\u7D44\u5408\u672A\u898B\u55AE\u4E00\u6301\u5009\u6975\u7AEF\u96C6\u4E2D\uFF0C\u9069\u5408\u6309\u5E02\u503C\u4F54\u6BD4\u3001\u6210\u672C\u5B89\u5168\u908A\u969B\u8207\u8CC7\u7522\u985E\u5225\u9010\u96BB\u6AA2\u8996\u3002`;
+  const answer = [
+    conclusion,
+    "",
+    "\u3010\u6301\u5009\u6AA2\u8996\u3011",
+    ...lines,
+    sorted.length > topHoldings.length ? `\u53E6\u5916 ${sorted.length - topHoldings.length} \u9805\u8F03\u5C0F\u6301\u5009\u672A\u9010\u9805\u5217\u51FA\uFF0C\u5408\u8A08\u7D04 ${formatCurrencyRounded(
+      sorted.slice(topHoldings.length).reduce((sum, holding) => sum + holding.marketValueHKD, 0),
+      "HKD"
+    )}\u3002` : "",
+    "",
+    "\u3010\u8655\u7406\u6B21\u5E8F\u3011",
+    "1. \u5148\u8655\u7406\u4F54\u6BD4\u6700\u9AD8\u53CA\u5E33\u9762\u8667\u640D\u6700\u5927\u7684\u6301\u5009\uFF0C\u56E0\u70BA\u5B83\u5011\u6700\u5F71\u97FF\u6574\u9AD4\u6CE2\u52D5\u3002",
+    "2. \u5C0D\u76C8\u5229\u6301\u5009\uFF0C\u4EE5\u5206\u6BB5\u6B62\u76C8\u6216\u8ABF\u4F4E\u96C6\u4E2D\u5EA6\u70BA\u4E3B\uFF0C\u4E0D\u9700\u8981\u4E00\u6B21\u6027\u7D55\u5C0D\u8CB7\u8CE3\u3002",
+    "3. \u5C0D\u8667\u640D\u6301\u5009\uFF0C\u5148\u5206\u6E05\u695A\u662F\u50F9\u683C\u6CE2\u52D5\u3001\u57FA\u672C\u9762\u8F49\u5F31\uFF0C\u9084\u662F\u5009\u4F4D\u904E\u5927\u5C0E\u81F4\u5FC3\u7406\u58D3\u529B\u3002",
+    "4. \u73FE\u91D1\u3001\u50B5\u5238\u3001ETF \u8207\u80A1\u7968\u8981\u5206\u958B\u770B\uFF0C\u4E0D\u61C9\u7528\u540C\u4E00\u628A\u5C3A\u8655\u7406\u6240\u6709\u8CC7\u7522\u3002",
+    "",
+    "\u3010\u5F8C\u7E8C\u76E3\u5BDF\u3011",
+    "\u96C6\u4E2D\u5EA6\u300130\u65E5\u8D70\u52E2\u3001\u6210\u672C\u8DDD\u96E2\u3001\u5E02\u503C\u4F54\u6BD4\u3001\u6700\u8FD1\u4EA4\u6613\u5F8C\u5009\u4F4D\u8B8A\u5316\u3002"
+  ].filter(Boolean).join("\n");
+  return {
+    answer,
+    usedPortfolioFacts: [
+      `\u7E3D\u5E02\u503C\u7D04 ${formatCurrencyRounded(totalValueHKD, "HKD")}`,
+      `\u6301\u5009\u6578\u91CF ${request.holdings.length} \u9805\uFF0C\u80A1\u7968 ${stockHoldings.length} \u9805`,
+      largest ? `\u6700\u5927\u6301\u5009 ${largest.ticker}\uFF0C\u5E02\u503C\u7D04 ${formatCurrencyRounded(largest.marketValueHKD, "HKD")}` : ""
+    ].filter(Boolean),
+    uncertainty: ["\u5206\u6790\u6A21\u578B\u56DE\u61C9\u8D85\u6642\uFF0C\u7CFB\u7D71\u5DF2\u5148\u6839\u64DA\u76EE\u524D\u6301\u5009\u8CC7\u6599\u7522\u751F\u53EF\u7528\u56DE\u8986\uFF1B\u672A\u52A0\u5165\u5916\u90E8\u5E02\u5834\u6216\u8CA1\u5831\u8CC7\u6599\u3002"],
+    suggestedActions: ["\u5982\u8981\u9010\u96BB\u80A1\u7968\u52A0\u5165\u6700\u65B0\u8CA1\u5831\u6216\u65B0\u805E\uFF0C\u518D\u7528\u300C\u6700\u65B0\u8CA1\u5831\uFF0F\u8FD1\u671F\u6D88\u606F\u300D\u6307\u5B9A\u500B\u5225 ticker \u8FFD\u554F\u3002"]
+  };
+}
 function qualityCheckGeneralAnswer(args) {
   const { answer, intent, question, request, externalEvidence = [] } = args;
   const failures = [];
@@ -1419,22 +1475,33 @@ async function runPortfolioAnalysisRequest(request, options) {
   const provider = getModelProvider(request.analysisModel);
   const resolvedMaxTokens = options?.maxTokens ?? (isGeneralQuestion ? getGeneralQuestionMaxTokens(intent) : getDefaultAnalysisMaxTokens(request.category));
   const resolvedModel = request.analysisModel === "claude-opus-4-7" ? getClaudeAnalyzeModel() : getGeminiAnalyzeModel(request.analysisModel);
-  let raw = provider === "anthropic" ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
-    systemPrompt,
-    userPrompt,
-    resolvedModel,
-    resolvedMaxTokens
-  ) : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
-    `${systemPrompt}
+  let raw;
+  let timedOutPortfolioFallback = null;
+  try {
+    raw = provider === "anthropic" ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
+      systemPrompt,
+      userPrompt,
+      resolvedModel,
+      resolvedMaxTokens
+    ) : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
+      `${systemPrompt}
 
 ${userPrompt}`,
-    resolvedModel,
-    resolvedMaxTokens,
-    isGeneralQuestion
-  );
+      resolvedModel,
+      resolvedMaxTokens,
+      isGeneralQuestion
+    );
+  } catch (error) {
+    if (isGeneralQuestion && intent === "portfolio_only" && isAbortTimeoutError(error)) {
+      timedOutPortfolioFallback = buildPortfolioOnlyTimeoutFallback(request);
+      raw = JSON.stringify(timedOutPortfolioFallback);
+    } else {
+      throw error;
+    }
+  }
   let result;
   if (isGeneralQuestion) {
-    let parsed = parseStructuredGeneralAnswer(raw);
+    let parsed = timedOutPortfolioFallback ?? parseStructuredGeneralAnswer(raw);
     const checkGeneralAnswer = options?.testHooks?.qualityCheckGeneralAnswer ?? qualityCheckGeneralAnswer;
     let finalQualityFailures = [];
     const quality = checkGeneralAnswer({
@@ -1444,7 +1511,7 @@ ${userPrompt}`,
       request,
       externalEvidence: searchResult?.externalEvidence
     });
-    if (!quality.ok) {
+    if (!quality.ok && !timedOutPortfolioFallback) {
       const rewritePrompt = buildRewriteUserPrompt(userPrompt, parsed.answer, quality.failures);
       raw = provider === "anthropic" ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
         systemPrompt,
