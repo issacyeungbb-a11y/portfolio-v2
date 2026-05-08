@@ -1967,6 +1967,86 @@ function buildPortfolioOnlyTimeoutFallback(request: PortfolioAnalysisRequest): S
   };
 }
 
+function buildGeneralQuestionTimeoutFallback(
+  request: PortfolioAnalysisRequest,
+  intent: AnalysisIntent | undefined,
+  searchResult: ExternalSearchResult | null,
+): StructuredGeneralAnswer {
+  if (intent === 'portfolio_only') {
+    return buildPortfolioOnlyTimeoutFallback(request);
+  }
+
+  const sorted = [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+  const totalValueHKD =
+    request.totalValueHKD ||
+    sorted.reduce((sum, holding) => sum + holding.marketValueHKD, 0);
+  const topHoldings = sorted.slice(0, 10);
+  const sourceFacts =
+    searchResult?.externalEvidence
+      ?.flatMap((source) => [
+        `${source.sourceTitle}${source.publishedDate ? `（${source.publishedDate}）` : ''}`,
+        ...source.keyFacts,
+        ...source.keyFigures,
+      ])
+      .filter(Boolean)
+      .slice(0, 12) ?? [];
+  const externalStatus =
+    searchResult?.status === 'ok'
+      ? '外部資料已取得'
+      : searchResult
+        ? '外部資料只取得部分或搜尋失敗'
+        : '今次問題未取得外部資料';
+  const holdingLines = topHoldings.map((holding, index) => {
+    const weight = totalValueHKD > 0 ? (holding.marketValueHKD / totalValueHKD) * 100 : 0;
+    const gainLoss = holding.marketValueHKD - holding.costValueHKD;
+    const gainLossPct = holding.costValueHKD > 0 ? (gainLoss / holding.costValueHKD) * 100 : 0;
+    return `${index + 1}. ${holding.ticker}｜${holding.name}｜市值 ${formatCurrencyRounded(
+      holding.marketValueHKD,
+      'HKD',
+    )}｜佔比 ${weight.toFixed(1)}%｜帳面 ${gainLoss >= 0 ? '+' : ''}${formatCurrencyRounded(
+      gainLoss,
+      'HKD',
+    )}（${gainLossPct.toFixed(1)}%）`;
+  });
+
+  const answer = [
+    `一句話結論：分析模型今次回應超時，但 ${externalStatus}；以下先用已同步持倉同已取得資料提供臨時版本，避免一般分析完全不可用。`,
+    '',
+    '【外部資料狀態】',
+    searchResult?.summary?.trim() || '未能穩定取得最新外部摘要；不應把以下內容當成完整最新市場研究。',
+    ...sourceFacts.map((fact) => `- ${fact}`),
+    '',
+    '【持倉快照】',
+    ...holdingLines,
+    '',
+    '【臨時處理方向】',
+    '1. 先用市值佔比排序，集中處理最大持倉及帳面波動最大的股票。',
+    '2. 涉及最新財報、新聞或估值排名時，要等主模型正常完成後再作最終排序。',
+    '3. 如果要即時再試，建議縮窄到 3-5 隻 ticker，或先用 Claude 模型產生完整版本。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return {
+    answer,
+    usedPortfolioFacts: [
+      `總市值約 ${formatCurrencyRounded(totalValueHKD, 'HKD')}`,
+      `持倉數量 ${request.holdings.length} 項`,
+      ...topHoldings.slice(0, 5).map((holding) => `${holding.ticker} 市值約 ${formatCurrencyRounded(holding.marketValueHKD, 'HKD')}`),
+    ],
+    uncertainty: [
+      '分析模型回應超時，系統已回傳臨時答案，未完成深度推理或最終排名。',
+      searchResult?.status === 'ok'
+        ? '外部搜尋資料已取得，但主模型未能在時限內消化完整資料。'
+        : '最新外部資料不完整或搜尋失敗，臨時答案主要依賴目前持倉資料。',
+    ],
+    suggestedActions: [
+      '重新提交時可先縮窄股票範圍，降低單次分析時間。',
+      '如需要完整最新市場排序，可改用 Claude 或分批問每 3-5 隻股票。',
+    ],
+  };
+}
+
 export function qualityCheckGeneralAnswer(args: {
   answer: string;
   intent?: AnalysisIntent;
@@ -2135,7 +2215,7 @@ export async function runPortfolioAnalysisRequest(
       : getGeminiAnalyzeModel(request.analysisModel);
 
   let raw: string;
-  let timedOutPortfolioFallback: StructuredGeneralAnswer | null = null;
+  let timedOutGeneralFallback: StructuredGeneralAnswer | null = null;
   try {
     raw =
       provider === 'anthropic'
@@ -2152,9 +2232,9 @@ export async function runPortfolioAnalysisRequest(
             isGeneralQuestion,
           );
   } catch (error) {
-    if (isGeneralQuestion && intent === 'portfolio_only' && isAbortTimeoutError(error)) {
-      timedOutPortfolioFallback = buildPortfolioOnlyTimeoutFallback(request);
-      raw = JSON.stringify(timedOutPortfolioFallback);
+    if (isGeneralQuestion && isAbortTimeoutError(error)) {
+      timedOutGeneralFallback = buildGeneralQuestionTimeoutFallback(request, intent, searchResult);
+      raw = JSON.stringify(timedOutGeneralFallback);
     } else {
       throw error;
     }
@@ -2163,7 +2243,7 @@ export async function runPortfolioAnalysisRequest(
   // Parse structured response for general_question; plain text for others
   let result: PortfolioAnalysisResult;
   if (isGeneralQuestion) {
-    let parsed = timedOutPortfolioFallback ?? parseStructuredGeneralAnswer(raw);
+    let parsed = timedOutGeneralFallback ?? parseStructuredGeneralAnswer(raw);
     const checkGeneralAnswer = options?.testHooks?.qualityCheckGeneralAnswer ?? qualityCheckGeneralAnswer;
     let finalQualityFailures: string[] = [];
     const quality = checkGeneralAnswer({
@@ -2173,35 +2253,45 @@ export async function runPortfolioAnalysisRequest(
       request,
       externalEvidence: searchResult?.externalEvidence,
     });
-    if (!quality.ok && !timedOutPortfolioFallback) {
+    if (!quality.ok && !timedOutGeneralFallback) {
       const rewritePrompt = buildRewriteUserPrompt(userPrompt, parsed.answer, quality.failures);
-      raw =
-        provider === 'anthropic'
-          ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
-              systemPrompt,
-              rewritePrompt,
-              resolvedModel as 'claude-opus-4-7',
-              resolvedMaxTokens,
-              QUALITY_REWRITE_TIMEOUT_MS,
-            )
-          : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
-              `${systemPrompt}\n\n${rewritePrompt}`,
-              resolvedModel as 'gemini-3.1-pro-preview',
-              resolvedMaxTokens,
-              true,
-              QUALITY_REWRITE_TIMEOUT_MS,
-            );
-      parsed = parseStructuredGeneralAnswer(raw);
-      const rewriteQuality = checkGeneralAnswer({
-        answer: parsed.answer,
-        intent,
-        question: request.analysisQuestion || '',
-        request,
-        externalEvidence: searchResult?.externalEvidence,
-      });
-      finalQualityFailures = rewriteQuality.ok
-        ? []
-        : rewriteQuality.failures.map((failure) => `重寫後仍需留意：${failure}`);
+      try {
+        raw =
+          provider === 'anthropic'
+            ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
+                systemPrompt,
+                rewritePrompt,
+                resolvedModel as 'claude-opus-4-7',
+                resolvedMaxTokens,
+                QUALITY_REWRITE_TIMEOUT_MS,
+              )
+            : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
+                `${systemPrompt}\n\n${rewritePrompt}`,
+                resolvedModel as 'gemini-3.1-pro-preview',
+                resolvedMaxTokens,
+                true,
+                QUALITY_REWRITE_TIMEOUT_MS,
+              );
+        parsed = parseStructuredGeneralAnswer(raw);
+        const rewriteQuality = checkGeneralAnswer({
+          answer: parsed.answer,
+          intent,
+          question: request.analysisQuestion || '',
+          request,
+          externalEvidence: searchResult?.externalEvidence,
+        });
+        finalQualityFailures = rewriteQuality.ok
+          ? []
+          : rewriteQuality.failures.map((failure) => `重寫後仍需留意：${failure}`);
+      } catch (error) {
+        if (!isAbortTimeoutError(error)) {
+          throw error;
+        }
+        finalQualityFailures = [
+          ...quality.failures.map((failure) => `原回答質檢需留意：${failure}`),
+          '質檢重寫回應超時，已保留第一版可用回答。',
+        ];
+      }
     }
     result = {
       answer: parsed.answer,

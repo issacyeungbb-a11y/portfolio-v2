@@ -349,6 +349,60 @@ test('portfolio_only model timeout returns deterministic portfolio fallback inst
   assert.ok(response.uncertainty?.some((item) => item.includes('模型回應超時')));
 });
 
+test('general question with external evidence returns timeout fallback instead of HTTP failure', async () => {
+  const request = buildGoogGeneralRequest('根據 Google 最新消息同我持倉，分析 GOOG 現時值唔值得繼續持有？');
+
+  const response = await runPortfolioAnalysisRequest(request, {
+    testHooks: {
+      generateExternalSearchSummary: async () => buildExternalSearchFixture(),
+      analyzeWithClaude: async () => {
+        const error = new Error('The operation was aborted due to timeout');
+        error.name = 'AbortError';
+        throw error;
+      },
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.intent, 'company_research');
+  assert.equal(response.dataFreshness?.externalSearchStatus, 'ok');
+  assert.match(response.answer, /分析模型今次回應超時/);
+  assert.match(response.answer, /Alphabet 官方財報/);
+  assert.match(response.answer, /GOOG/);
+  assert.ok(response.uncertainty?.some((item) => item.includes('臨時答案')));
+});
+
+test('general question rewrite timeout keeps first answer with warning', async () => {
+  const request = buildGoogGeneralRequest('Google Cloud 增長對我持有 GOOG 有咩啟示？');
+  let calls = 0;
+
+  const response = await runPortfolioAnalysisRequest(request, {
+    testHooks: {
+      generateExternalSearchSummary: async () => buildExternalSearchFixture(),
+      analyzeWithClaude: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return JSON.stringify({
+            answer: '一句話結論：Google Cloud 增長仍支持 GOOG，但回答暫時未完整。',
+            usedPortfolioFacts: ['GOOG 持倉已納入。'],
+            uncertainty: [],
+            suggestedActions: [],
+          });
+        }
+        const error = new Error('The operation was aborted due to timeout');
+        error.name = 'AbortError';
+        throw error;
+      },
+      qualityCheckGeneralAnswer: () => ({ ok: false, failures: ['缺少核心數字表。'] }),
+    },
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(calls, 2);
+  assert.match(response.answer, /Google Cloud 增長/);
+  assert.ok(response.uncertainty?.some((item) => item.includes('質檢重寫回應超時')));
+});
+
 test('external evidence cache hit marks data freshness as cached', async () => {
   clearExternalEvidenceCacheForTest();
   const request = buildGoogGeneralRequest('Google Cloud 增長對我持有 GOOG 有咩啟示？');
