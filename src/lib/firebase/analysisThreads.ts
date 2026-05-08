@@ -81,6 +81,26 @@ function sanitizeString(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeStoredAnswer(value: unknown, depth = 0): string {
+  const text = sanitizeString(value);
+  if (!text || depth >= 2) return text;
+
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) ?? text.match(/(\{[\s\S]*\})/);
+  const candidate = jsonMatch ? jsonMatch[1] : text;
+
+  try {
+    const parsed = JSON.parse(candidate.trim()) as Record<string, unknown>;
+    const nestedAnswer = sanitizeString(parsed.answer);
+    if (nestedAnswer) {
+      return normalizeStoredAnswer(nestedAnswer, depth + 1);
+    }
+  } catch {
+    // Existing turns can be plain text. Leave them unchanged.
+  }
+
+  return text;
+}
+
 function normalizeThread(
   id: string,
   value: Record<string, unknown>,
@@ -107,7 +127,7 @@ function normalizeTurn(
   return {
     id,
     question: sanitizeString(value.question),
-    answer: sanitizeString(value.answer),
+    answer: normalizeStoredAnswer(value.answer),
     model: sanitizeString(value.model),
     provider: value.provider === 'anthropic' ? 'anthropic' : 'google',
     snapshotHash: sanitizeString(value.snapshotHash),

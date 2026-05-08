@@ -3207,6 +3207,47 @@ h3 {
   white-space: pre-wrap;
 }
 
+.analysis-answer-body {
+  display: grid;
+  gap: 0.72rem;
+  color: var(--text-main);
+  line-height: 1.78;
+}
+
+.analysis-answer-body p {
+  white-space: pre-wrap;
+}
+
+.analysis-answer-lead {
+  padding: 0.65rem 0.8rem;
+  border-left: 3px solid var(--accent);
+  background: rgba(239, 249, 247, 0.72);
+  font-weight: 800;
+}
+
+.analysis-answer-heading {
+  margin: 0.6rem 0 0.1rem;
+  color: var(--text-main);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.analysis-answer-list {
+  margin: 0;
+  padding-left: 1.35rem;
+  display: grid;
+  gap: 0.42rem;
+}
+
+.analysis-answer-list li {
+  padding-left: 0.15rem;
+  line-height: 1.7;
+}
+
+.analysis-answer-paragraph {
+  margin: 0;
+}
+
 .analysis-chat-bubble-user {
   margin-left: 40px;
   text-align: right;

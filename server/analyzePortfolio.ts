@@ -575,6 +575,26 @@ interface StructuredGeneralAnswer {
   suggestedActions: string[];
 }
 
+function normalizeStructuredGeneralAnswerText(answer: string, depth = 0): string {
+  const trimmed = answer.trim();
+  if (!trimmed || depth >= 2) return trimmed;
+
+  const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/) ?? trimmed.match(/(\{[\s\S]*\})/);
+  const candidate = jsonMatch ? jsonMatch[1] : trimmed;
+
+  try {
+    const parsed = JSON.parse(candidate.trim()) as Record<string, unknown>;
+    const nestedAnswer = sanitizeString(parsed.answer);
+    if (nestedAnswer) {
+      return normalizeStructuredGeneralAnswerText(nestedAnswer, depth + 1);
+    }
+  } catch {
+    // Not a nested JSON answer. Keep the text as-is.
+  }
+
+  return trimmed;
+}
+
 function parseStructuredGeneralAnswer(raw: string): StructuredGeneralAnswer {
   // Try JSON extraction (may be wrapped in markdown code fences)
   const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/) ?? raw.match(/(\{[\s\S]*\})/);
@@ -585,7 +605,7 @@ function parseStructuredGeneralAnswer(raw: string): StructuredGeneralAnswer {
     const answer = sanitizeString(parsed.answer);
     if (!answer) throw new Error('missing answer');
     return {
-      answer,
+      answer: normalizeStructuredGeneralAnswerText(answer),
       usedPortfolioFacts: Array.isArray(parsed.usedPortfolioFacts)
         ? (parsed.usedPortfolioFacts as unknown[])
             .filter((v): v is string => typeof v === 'string')
@@ -604,7 +624,7 @@ function parseStructuredGeneralAnswer(raw: string): StructuredGeneralAnswer {
     };
   } catch {
     // Fallback: treat entire response as plain-text answer
-    const answer = raw.trim();
+    const answer = normalizeStructuredGeneralAnswerText(raw);
     if (!answer) throw new AnalyzePortfolioError('模型未有回傳分析內容。', 502);
     return { answer, usedPortfolioFacts: [], uncertainty: [], suggestedActions: [] };
   }
@@ -872,12 +892,34 @@ function buildAnalysisSystemPrompt(
     ? `
 Output format: You MUST respond with a valid JSON object (no markdown fences) with exactly these fields:
 {
-  "answer": "main answer in Traditional Chinese",
+  "answer": "main answer in Traditional Chinese; this value must be the final formatted analysis text only, never another JSON string",
   "usedPortfolioFacts": ["fact from portfolio data used in answer", ...],
   "uncertainty": ["uncertainty or data gap", ...],
   "suggestedActions": ["concrete follow-up action", ...]
 }
 Keep usedPortfolioFacts, uncertainty, suggestedActions as short, 1-line strings. Max 8 items each.
+The answer string must be detailed, structured, and sorted. Use this exact shape when relevant:
+一句話結論：...
+
+【排序方法】
+- Explain the ranking factors and weights, using portfolio data first.
+
+【排名總表】
+1. TICKER｜名稱｜分類：相對偏貴/中性/相對偏平｜核心理由：...
+2. ...
+
+【逐項分析】
+1. TICKER
+   - 估值/成本：...
+   - 30日走勢/動能：...
+   - 持倉影響：...
+   - 風險與觀察：...
+
+【行動優先次序】
+1. ...
+2. ...
+
+Do not put escaped "\\n" into the visible answer. Use real line breaks inside the JSON string.
     `.trim()
     : 'Return ONLY the final answer text in Traditional Chinese. Do not use markdown code fences.';
 

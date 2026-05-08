@@ -1,4 +1,4 @@
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 
 import type { AnalysisCategory } from '../../types/portfolio';
 import type { ExternalEvidenceSource, GeneralQuestionDataFreshness } from '../../types/portfolioAnalysis';
@@ -56,6 +56,123 @@ function formatSearchAt(isoString?: string) {
   } catch {
     return isoString;
   }
+}
+
+function normalizeAnswerForDisplay(answer: string, depth = 0): string {
+  const trimmed = answer.trim();
+  if (!trimmed || depth >= 2) return trimmed;
+
+  const jsonMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/) ?? trimmed.match(/(\{[\s\S]*\})/);
+  const candidate = jsonMatch ? jsonMatch[1] : trimmed;
+
+  try {
+    const parsed = JSON.parse(candidate.trim()) as Record<string, unknown>;
+    const nestedAnswer = typeof parsed.answer === 'string' ? parsed.answer.trim() : '';
+    if (nestedAnswer) {
+      return normalizeAnswerForDisplay(nestedAnswer, depth + 1);
+    }
+  } catch {
+    // Plain text answer. Continue below.
+  }
+
+  return trimmed.includes('\\n') && !trimmed.includes('\n')
+    ? trimmed.replace(/\\n/g, '\n')
+    : trimmed;
+}
+
+function renderAnswerBlock(lines: string[], key: string): ReactNode {
+  if (lines.length === 0) return null;
+
+  const first = lines[0].trim();
+  if (/^【.+】$/.test(first)) {
+    return (
+      <h3 key={key} className="analysis-answer-heading">
+        {first.replace(/^【|】$/g, '')}
+      </h3>
+    );
+  }
+
+  if (/^一句話結論[:：]/.test(first)) {
+    return (
+      <p key={key} className="analysis-answer-lead">
+        {first}
+      </p>
+    );
+  }
+
+  if (lines.every((line) => /^\d+[.)]\s+/.test(line.trim()))) {
+    return (
+      <ol key={key} className="analysis-answer-list">
+        {lines.map((line, index) => (
+          <li key={`${key}-${index}`}>{line.trim().replace(/^\d+[.)]\s+/, '')}</li>
+        ))}
+      </ol>
+    );
+  }
+
+  if (lines.every((line) => /^[-•]\s+/.test(line.trim()))) {
+    return (
+      <ul key={key} className="analysis-answer-list">
+        {lines.map((line, index) => (
+          <li key={`${key}-${index}`}>{line.trim().replace(/^[-•]\s+/, '')}</li>
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <p key={key} className="analysis-answer-paragraph">
+      {lines.join('\n')}
+    </p>
+  );
+}
+
+function FormattedAnswer({ answer }: { answer: string }) {
+  const normalized = normalizeAnswerForDisplay(answer);
+  const lines = normalized.split('\n');
+  const blocks: ReactNode[] = [];
+  let current: string[] = [];
+  let currentType = '';
+
+  function flush() {
+    if (current.length === 0) return;
+    blocks.push(renderAnswerBlock(current, `answer-block-${blocks.length}`));
+    current = [];
+    currentType = '';
+  }
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd();
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flush();
+      continue;
+    }
+
+    const type = /^【.+】$/.test(trimmed)
+      ? 'heading'
+      : /^一句話結論[:：]/.test(trimmed)
+        ? 'lead'
+        : /^\d+[.)]\s+/.test(trimmed)
+          ? 'ordered'
+          : /^[-•]\s+/.test(trimmed)
+            ? 'bullet'
+            : 'paragraph';
+
+    if (current.length > 0 && type !== currentType) {
+      flush();
+    }
+
+    currentType = type;
+    current.push(trimmed);
+
+    if (type === 'heading' || type === 'lead') {
+      flush();
+    }
+  }
+  flush();
+
+  return <div className="analysis-answer-body">{blocks}</div>;
 }
 
 function DataFreshnessHint({ meta }: { meta: GeneralQuestionDataFreshness }) {
@@ -310,7 +427,7 @@ export function AnalysisConversationPanel({
                         <span>{getAnalysisModelLabel(turn.model)}</span>
                         <span>{formatAnalysisTime(turn.generatedAt)}</span>
                       </div>
-                      <p style={{ whiteSpace: 'pre-wrap' }}>{turn.answer}</p>
+                      <FormattedAnswer answer={turn.answer} />
                     </div>
                     {isLast && showMeta && lastResponseMeta ? (
                       <LastResponseMeta

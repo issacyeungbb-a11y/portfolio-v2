@@ -226,6 +226,34 @@ test('qualityCheckGeneralAnswer rejects shallow earnings answer', () => {
   assert.ok(result.failures.some((failure) => failure.includes('核心數字表')));
 });
 
+test('general question parser unwraps nested JSON answer text', async () => {
+  const request = buildGoogGeneralRequest('我所有股票邊隻相對偏貴，請排序。');
+
+  const response = await runPortfolioAnalysisRequest(request, {
+    testHooks: {
+      generateExternalSearchSummary: async () => buildExternalSearchFixture(),
+      analyzeWithClaude: async () =>
+        JSON.stringify({
+          answer: JSON.stringify({
+            answer:
+              '一句話結論：TSM 相對最貴，GOOG 屬中性。\n\n【排名總表】\n1. TSM｜相對偏貴｜升幅大。\n2. GOOG｜中性｜估值較合理。',
+            usedPortfolioFacts: ['nested fact'],
+            uncertainty: [],
+            suggestedActions: [],
+          }),
+          usedPortfolioFacts: ['GOOG 持倉已納入。'],
+          uncertainty: [],
+          suggestedActions: [],
+        }),
+      qualityCheckGeneralAnswer: () => ({ ok: true, failures: [] }),
+    },
+  });
+
+  assert.doesNotMatch(response.answer, /^\s*\{/);
+  assert.match(response.answer, /【排名總表】/);
+  assert.match(response.answer, /TSM/);
+});
+
 test('earnings_analysis flow builds earnings evidence pack before model call', async () => {
   const request = buildGoogGeneralRequest();
   let buildPackCalls = 0;
