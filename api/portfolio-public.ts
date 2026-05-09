@@ -1,5 +1,4 @@
 import { sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
-import { getFirebaseAdminDb } from '../server/firebaseAdmin.js';
 
 const ROUTE = '/api/portfolio-public';
 
@@ -20,10 +19,40 @@ type PublicAssetRecord = {
   lastPriceUpdatedAt: string;
 };
 
+type FirestoreValue = {
+  stringValue?: string;
+  integerValue?: string;
+  doubleValue?: number;
+  booleanValue?: boolean;
+  timestampValue?: string;
+  nullValue?: null;
+};
+
+type FirestoreDocument = {
+  name: string;
+  fields?: Record<string, FirestoreValue>;
+};
+
+type FirestoreListResponse = {
+  documents?: FirestoreDocument[];
+  nextPageToken?: string;
+  error?: {
+    message?: string;
+  };
+};
+
 function getConfiguredAccessCode() {
   return (
     process.env.VITE_PORTFOLIO_ACCESS_CODE?.trim() ||
     process.env.PORTFOLIO_ACCESS_CODE?.trim() ||
+    ''
+  );
+}
+
+function getFirebaseProjectId() {
+  return (
+    process.env.VITE_FIREBASE_PROJECT_ID?.trim() ||
+    process.env.FIREBASE_ADMIN_PROJECT_ID?.trim() ||
     ''
   );
 }
@@ -45,22 +74,46 @@ function toStringValue(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
-function formatTimestamp(value: unknown) {
-  if (typeof value === 'string') {
-    return value;
+function getFirestoreDocumentId(name: string) {
+  return name.split('/').pop() ?? name;
+}
+
+function readFirestoreValue(value: FirestoreValue | undefined): unknown {
+  if (!value) {
+    return undefined;
   }
 
-  if (
-    value &&
-    typeof value === 'object' &&
-    'toDate' in value &&
-    typeof value.toDate === 'function'
-  ) {
-    const date = value.toDate() as Date;
-    return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+  if ('stringValue' in value) {
+    return value.stringValue ?? '';
   }
 
-  return '';
+  if ('integerValue' in value) {
+    return toNumber(value.integerValue);
+  }
+
+  if ('doubleValue' in value) {
+    return toNumber(value.doubleValue);
+  }
+
+  if ('booleanValue' in value) {
+    return value.booleanValue === true;
+  }
+
+  if ('timestampValue' in value) {
+    return value.timestampValue ?? '';
+  }
+
+  return undefined;
+}
+
+function readFirestoreFields(fields: Record<string, FirestoreValue> | undefined) {
+  const result: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(fields ?? {})) {
+    result[key] = readFirestoreValue(value);
+  }
+
+  return result;
 }
 
 function isArchived(value: Record<string, unknown>) {
@@ -98,9 +151,42 @@ function buildPublicAsset(id: string, value: Record<string, unknown>): PublicAss
     marketValue,
     unrealizedPnl,
     unrealizedPct,
-    priceAsOf: formatTimestamp(value.priceAsOf),
-    lastPriceUpdatedAt: formatTimestamp(value.lastPriceUpdatedAt),
+    priceAsOf: toStringValue(value.priceAsOf),
+    lastPriceUpdatedAt: toStringValue(value.lastPriceUpdatedAt),
   };
+}
+
+async function fetchAssetDocuments(projectId: string) {
+  const documents: FirestoreDocument[] = [];
+  let pageToken = '';
+
+  do {
+    const searchParams = new URLSearchParams({ pageSize: '100' });
+
+    if (pageToken) {
+      searchParams.set('pageToken', pageToken);
+    }
+
+    const firestoreUrl =
+      `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}` +
+      `/databases/(default)/documents/portfolio/app/assets?${searchParams.toString()}`;
+    const firestoreResponse = await fetch(firestoreUrl, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+      },
+    });
+    const payload = (await firestoreResponse.json()) as FirestoreListResponse;
+
+    if (!firestoreResponse.ok) {
+      throw new Error(payload.error?.message ?? 'Failed to load portfolio assets');
+    }
+
+    documents.push(...(payload.documents ?? []));
+    pageToken = payload.nextPageToken ?? '';
+  } while (pageToken);
+
+  return documents;
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
@@ -124,15 +210,17 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   try {
-    const snapshot = await getFirebaseAdminDb()
-      .collection('portfolio')
-      .doc('app')
-      .collection('assets')
-      .get();
-    const assets = snapshot.docs
+    const projectId = getFirebaseProjectId();
+
+    if (!projectId) {
+      throw new Error('Missing Firebase project id');
+    }
+
+    const documents = await fetchAssetDocuments(projectId);
+    const assets = documents
       .map((document) => ({
-        id: document.id,
-        value: document.data() as Record<string, unknown>,
+        id: getFirestoreDocumentId(document.name),
+        value: readFirestoreFields(document.fields),
       }))
       .filter((entry) => !isArchived(entry.value))
       .map((entry) => buildPublicAsset(entry.id, entry.value));
