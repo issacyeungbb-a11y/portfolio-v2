@@ -41,14 +41,14 @@ export interface HistoricalAnomalyCheckResult {
 
 /**
  * A price change >= REVIEW_THRESHOLD blocks the update and creates a pending review.
- * These values mirror DEFAULT_STOCK_DIFF_THRESHOLD / DEFAULT_CRYPTO_DIFF_THRESHOLD
- * that were previously embedded in updatePrices.ts.
+ * Keep these values high enough that large-but-plausible market moves can still
+ * complete the daily automated update.
  */
 export const REVIEW_THRESHOLDS: Record<string, number> = {
-  stock: 0.5,   // 50% — covers stock splits, rights issues, circuit-breaker reopens
-  etf:   0.5,
-  bond:  0.5,
-  crypto: 0.8,  // 80% — crypto can move 50%+ in hours; only flag extreme moves
+  stock: 2,   // 200% — allow high-volatility days and corporate actions to auto-update
+  etf:   2,
+  bond:  2,
+  crypto: 5,  // 500% — crypto can reprice violently; only block extreme data errors
   cash:  Number.POSITIVE_INFINITY,
 };
 

@@ -2,10 +2,10 @@
 // Do NOT edit directly — edit the .ts source instead.
 
 export const REVIEW_THRESHOLDS = {
-  stock: 0.5,
-  etf:   0.5,
-  bond:  0.5,
-  crypto: 0.8,
+  stock: 2,
+  etf:   2,
+  bond:  2,
+  crypto: 5,
   cash:  Number.POSITIVE_INFINITY,
 };
 

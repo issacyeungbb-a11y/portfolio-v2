@@ -6,8 +6,6 @@ import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
 import { getAnomalyThreshold, detectHistoricalAnomaly } from './priceAnomalyDetection.js';
 import { withRetry } from './retry.js';
 const UPDATE_PRICES_ROUTE = '/api/update-prices';
-const DEFAULT_STOCK_DIFF_THRESHOLD = 0.5;
-const DEFAULT_CRYPTO_DIFF_THRESHOLD = 0.8;
 const DEFAULT_FX_RATES = {
     USD: 7.8,
     JPY: 0.052,
@@ -543,9 +541,7 @@ function normalizeRequest(payload) {
     return { assets };
 }
 function getReviewThresholdForAsset(assetType) {
-    return assetType === 'crypto'
-        ? DEFAULT_CRYPTO_DIFF_THRESHOLD
-        : DEFAULT_STOCK_DIFF_THRESHOLD;
+    return getAnomalyThreshold(assetType);
 }
 function parseAsOf(value) {
     if (!value) {
@@ -956,7 +952,9 @@ async function buildReviewResults(requestedAssets, marketResults, fxRates = DEFA
         const historicalAnomaly = isValid && nextPrice != null
             ? await detectHistoricalAnomaly(asset.assetId, nextPrice, comparisonCurrentPrice)
             : null;
-        if (historicalAnomaly?.isAnomaly) {
+        const blocksOnHistoricalAnomaly = historicalAnomaly?.isAnomaly === true &&
+            diffPct >= getReviewThresholdForAsset(asset.assetType);
+        if (blocksOnHistoricalAnomaly) {
             isValid = false;
         }
         const failureCategory = detectFailureCategory({
@@ -966,9 +964,9 @@ async function buildReviewResults(requestedAssets, marketResults, fxRates = DEFA
             staleQuote,
             diffPct,
             isValid,
-            historicalAnomaly: historicalAnomaly?.isAnomaly ?? false,
+            historicalAnomaly: blocksOnHistoricalAnomaly,
         });
-        const invalidReason = historicalAnomaly?.isAnomaly && historicalAnomaly.reason
+        const invalidReason = blocksOnHistoricalAnomaly && historicalAnomaly?.reason
             ? historicalAnomaly.reason
             : failureCategory
                 ? buildInvalidReason(failureCategory)

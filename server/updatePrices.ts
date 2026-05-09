@@ -1350,7 +1350,10 @@ async function buildReviewResults(
       isValid && nextPrice != null
         ? await detectHistoricalAnomaly(asset.assetId, nextPrice, comparisonCurrentPrice)
         : null;
-    if (historicalAnomaly?.isAnomaly) {
+    const blocksOnHistoricalAnomaly =
+      historicalAnomaly?.isAnomaly === true &&
+      diffPct >= getReviewThresholdForAsset(asset.assetType);
+    if (blocksOnHistoricalAnomaly) {
       isValid = false;
     }
     const failureCategory = detectFailureCategory({
@@ -1360,10 +1363,10 @@ async function buildReviewResults(
       staleQuote,
       diffPct,
       isValid,
-      historicalAnomaly: historicalAnomaly?.isAnomaly ?? false,
+      historicalAnomaly: blocksOnHistoricalAnomaly,
     });
     const invalidReason =
-      historicalAnomaly?.isAnomaly && historicalAnomaly.reason
+      blocksOnHistoricalAnomaly && historicalAnomaly?.reason
         ? historicalAnomaly.reason
         : failureCategory
           ? buildInvalidReason(failureCategory)
