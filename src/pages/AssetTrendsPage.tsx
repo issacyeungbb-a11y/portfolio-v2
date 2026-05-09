@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import {
@@ -58,6 +58,10 @@ function formatMonthChip(dateKey: string) {
   } catch {
     return dateKey;
   }
+}
+
+function getMonthKey(dateKey: string) {
+  return dateKey.slice(0, 7);
 }
 
 function buildTrendSeries(
@@ -126,6 +130,7 @@ function buildCalendarEntries(
     return {
       date: point.date,
       changeHKD,
+      totalValueHKD: point.totalValue,
     };
   });
 }
@@ -206,6 +211,7 @@ export function AssetTrendsPage() {
   const { entries: principals, error: principalsError } = useAccountPrincipals();
   const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
   const [selectedRange, setSelectedRange] = useState<TrendRange | null>('7d');
+  const [selectedCalendarMonth, setSelectedCalendarMonth] = useState<string | null>(null);
 
   const holdings = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -262,10 +268,21 @@ export function AssetTrendsPage() {
   );
   const calendarEntries = buildCalendarEntries(history, todaySnapshotExists ? currentPoint : null, cashFlows);
   const calendarMap = new Map(calendarEntries.map((entry) => [entry.date, entry]));
-  const calendarGrid = buildCalendarGrid(currentPoint.date);
+  const calendarMonthOptions = [...new Set([
+    getMonthKey(currentPoint.date),
+    ...calendarEntries.map((entry) => getMonthKey(entry.date)),
+  ])].sort((left, right) => right.localeCompare(left));
+  const activeCalendarMonth =
+    selectedCalendarMonth && calendarMonthOptions.includes(selectedCalendarMonth)
+      ? selectedCalendarMonth
+      : calendarMonthOptions[0] ?? getMonthKey(currentPoint.date);
+  const calendarGrid = buildCalendarGrid(`${activeCalendarMonth}-01`);
   const monthlyCalendarPnLHKD = calendarEntries
-    .filter((entry) => entry.date.startsWith(currentPoint.date.slice(0, 7)))
+    .filter((entry) => getMonthKey(entry.date) === activeCalendarMonth)
     .reduce((sum, entry) => sum + entry.changeHKD, 0);
+  const selectedCalendarMonthStartValueHKD =
+    calendarEntries.find((entry) => getMonthKey(entry.date) === activeCalendarMonth)?.totalValueHKD ??
+    currentPoint.totalValue;
   const latestSnapshot = [...history]
     .filter((point) => Boolean(point.capturedAt))
     .sort((left, right) => (left.capturedAt ?? '').localeCompare(right.capturedAt ?? ''))
@@ -288,6 +305,12 @@ export function AssetTrendsPage() {
   );
 
   useTopBar(topBarConfig);
+
+  useEffect(() => {
+    if (!selectedCalendarMonth || !calendarMonthOptions.includes(selectedCalendarMonth)) {
+      setSelectedCalendarMonth(activeCalendarMonth);
+    }
+  }, [activeCalendarMonth, calendarMonthOptions, selectedCalendarMonth]);
 
   return (
     <div className="page-stack">
@@ -444,7 +467,20 @@ export function AssetTrendsPage() {
             <p className="eyebrow">收益日曆</p>
             <h2>收益日曆</h2>
           </div>
-          <span className="chip chip-soft">{formatMonthChip(currentPoint.date.slice(0, 7))}</span>
+          <label className="trends-calendar-month-select">
+            <span className="visually-hidden">選擇收益日曆月份</span>
+            <select
+              value={activeCalendarMonth}
+              onChange={(event) => setSelectedCalendarMonth(event.target.value)}
+              aria-label="選擇收益日曆月份"
+            >
+              {calendarMonthOptions.map((monthKey) => (
+                <option key={monthKey} value={monthKey}>
+                  {formatMonthChip(monthKey)}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <p className="trends-calendar-summary">
@@ -455,7 +491,11 @@ export function AssetTrendsPage() {
               convertCurrency(monthlyCalendarPnLHKD, 'HKD', displayCurrency),
               displayCurrency,
             )}{' '}
-            ({formatPercent(monthStartValueHKD === 0 ? 0 : (monthlyCalendarPnLHKD / monthStartValueHKD) * 100)})
+            ({formatPercent(
+              selectedCalendarMonthStartValueHKD === 0
+                ? 0
+                : (monthlyCalendarPnLHKD / selectedCalendarMonthStartValueHKD) * 100,
+            )})
           </span>
         </p>
 
