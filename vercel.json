@@ -23,6 +23,12 @@
       "maxDuration": 120
     }
   },
+  "rewrites": [
+    {
+      "source": "/api/portfolio-public",
+      "destination": "/api/health?portfolioPublic=1"
+    }
+  ],
   "crons": [
     {
       "path": "/api/cron-daily-update",
