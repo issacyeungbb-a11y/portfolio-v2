@@ -1167,7 +1167,7 @@ h3 {
 .trends-calendar-card {
   display: flex;
   flex-direction: column;
-  gap: 0.8rem;
+  gap: 0.95rem;
 }
 
 .trends-toolbar {
@@ -1179,11 +1179,13 @@ h3 {
 .trends-hero-stat {
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
-  padding: 0.95rem;
+  gap: 0.42rem;
+  padding: 1rem;
   border-radius: 1.25rem;
   border: 1px solid rgba(118, 96, 77, 0.1);
-  background: rgba(255, 255, 255, 0.56);
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.08), transparent 54%),
+    rgba(255, 255, 255, 0.58);
 }
 
 .trends-hero-stat span,
@@ -1199,8 +1201,22 @@ h3 {
   line-height: 1;
 }
 
-.trends-hero-stat p {
+.trends-stat-label {
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.trends-today-return {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.42rem;
   font-size: 0.92rem;
+}
+
+.trends-today-return strong {
+  font-size: 1.02rem;
+  line-height: 1.15;
 }
 
 .trends-overview-grid {
@@ -1208,10 +1224,14 @@ h3 {
   gap: 0.72rem;
 }
 
+.trends-kpi-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .trends-overview-mini {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.28rem;
   padding: 0.88rem 0.92rem;
   border-radius: 1.15rem;
   border: 1px solid rgba(118, 96, 77, 0.1);
@@ -1249,7 +1269,16 @@ h3 {
 .trends-reveal-summary {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.22rem;
+  padding: 0.88rem 0.92rem;
+  border-radius: 1.15rem;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.trends-reveal-summary.primary {
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(255, 255, 255, 0.46));
 }
 
 .trends-reveal-summary strong {
@@ -1257,12 +1286,41 @@ h3 {
   line-height: 1.05;
 }
 
+.trends-performance-grid {
+  display: grid;
+  grid-template-columns: 1.2fr repeat(2, minmax(0, 1fr));
+  gap: 0.72rem;
+}
+
+.trends-period-bridge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  border-radius: 0.95rem;
+  background: rgba(255, 250, 244, 0.72);
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.trends-period-bridge strong {
+  color: var(--text-main);
+}
+
+.trends-period-bridge i {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 800;
+}
+
 .trends-chart-shell {
-  min-height: 11.5rem;
-  padding: 0.75rem 0.5rem 0.25rem;
+  min-height: 12.8rem;
+  padding: 0.85rem 0.6rem 0.35rem;
   border-radius: 1rem;
   background:
-    linear-gradient(180deg, rgba(124, 58, 237, 0.08), rgba(124, 58, 237, 0.02)),
+    linear-gradient(180deg, rgba(15, 118, 110, 0.08), rgba(15, 118, 110, 0.02)),
     rgba(255, 255, 255, 0.55);
 }
 
@@ -1274,35 +1332,124 @@ h3 {
 
 .trends-line-chart path {
   fill: none;
-  stroke: var(--accent-purple);
+  stroke: var(--accent);
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.trends-grid-line {
+  stroke: rgba(118, 96, 77, 0.14);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.trends-hit-point {
+  fill: transparent;
+  outline: none;
+}
+
+.trends-hit-point:focus-visible {
+  stroke: rgba(15, 118, 110, 0.35);
+  stroke-width: 2;
+}
+
+.trends-latest-point {
+  fill: var(--surface-strong);
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.trends-chart-tooltip {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  max-width: min(14rem, 72%);
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(118, 96, 77, 0.14);
+  border-radius: 0.78rem;
+  background: rgba(255, 252, 248, 0.94);
+  box-shadow: var(--shadow-card);
+  font-size: 0.78rem;
+  pointer-events: none;
+}
+
+.trends-chart-tooltip strong {
+  font-size: 0.95rem;
 }
 
 .trends-calendar-card {
   gap: 0.75rem;
 }
 
+.trends-calendar-month-select {
+  position: relative;
+}
+
 .trends-calendar-month-select select {
   min-height: 2.35rem;
   border: 1px solid rgba(118, 96, 77, 0.14);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.62);
+  background: var(--surface-strong);
   color: var(--text-main);
-  padding: 0.42rem 2rem 0.42rem 0.85rem;
+  padding: 0.42rem 2.15rem 0.42rem 0.9rem;
   font-size: 0.85rem;
   font-weight: 800;
+  box-shadow: var(--shadow-card);
+  appearance: none;
+}
+
+.trends-calendar-month-select::after {
+  content: "⌄";
+  position: absolute;
+  right: 0.85rem;
+  top: 50%;
+  color: var(--accent);
+  font-size: 0.95rem;
+  font-weight: 900;
+  pointer-events: none;
+  transform: translateY(-54%);
 }
 
 .trends-calendar-summary {
   font-size: 0.92rem;
 }
 
-.trends-snapshot-hint {
+.trends-snapshot-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.42rem;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  border-radius: 0.95rem;
+  background: rgba(255, 250, 244, 0.68);
   color: var(--text-muted);
   font-size: 0.82rem;
-  line-height: 1.55;
+  line-height: 1.4;
+}
+
+.trends-snapshot-status strong {
+  color: var(--text-main);
+}
+
+.trends-snapshot-status em {
+  padding: 0.18rem 0.42rem;
+  border-radius: var(--radius-pill);
+  background: var(--caution-soft);
+  color: var(--caution);
+  font-style: normal;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.trends-snapshot-status small {
+  flex-basis: 100%;
+  color: var(--text-subtle);
+  font-size: 0.76rem;
 }
 
 .trends-calendar-weekdays {
@@ -1321,25 +1468,30 @@ h3 {
 
 .trends-calendar-cell {
   min-height: 4.2rem;
-  padding: 0.55rem 0.35rem;
+  padding: 0.58rem 0.35rem;
   border-radius: 0.95rem;
   border: 1px solid rgba(118, 96, 77, 0.08);
   background: rgba(255, 255, 255, 0.44);
   display: flex;
   flex-direction: column;
-  gap: 0.24rem;
-  align-items: center;
+  gap: 0.34rem;
+  align-items: flex-start;
   justify-content: flex-start;
-  text-align: center;
+  text-align: left;
+  overflow: hidden;
 }
 
 .trends-calendar-cell strong {
   font-size: 0.84rem;
+  color: var(--text-muted);
 }
 
 .trends-calendar-cell span {
-  font-size: 0.72rem;
+  width: 100%;
+  font-size: 0.76rem;
+  font-weight: 850;
   line-height: 1.15;
+  word-break: keep-all;
 }
 
 .trends-calendar-cell.empty {
@@ -1349,14 +1501,56 @@ h3 {
 
 .trends-calendar-cell.positive {
   background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.18);
+  color: var(--positive);
 }
 
 .trends-calendar-cell.caution {
   background: rgba(166, 64, 36, 0.1);
+  border-color: rgba(166, 64, 36, 0.18);
+  color: var(--caution);
 }
 
 .trends-calendar-cell.neutral {
   background: rgba(255, 255, 255, 0.44);
+  color: var(--text-subtle);
+}
+
+.trends-calendar-no-data {
+  color: var(--text-subtle);
+  font-weight: 700;
+}
+
+.trends-alert-stack:empty {
+  display: none;
+}
+
+.trends-alert-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.trends-system-note {
+  padding: 0.72rem 0.85rem;
+  border: 1px solid rgba(118, 96, 77, 0.12);
+  border-radius: 0.95rem;
+  background: rgba(255, 250, 244, 0.76);
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.trends-system-note.warning {
+  border-color: rgba(217, 119, 6, 0.18);
+  background: var(--caution-soft);
+  color: var(--caution);
+}
+
+.trends-system-note.error {
+  border-color: rgba(166, 64, 36, 0.18);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .positive-text {
@@ -2843,6 +3037,10 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .trends-performance-grid {
+    grid-template-columns: 1fr;
+  }
+
   .trends-hero-stat {
     padding: 0.8rem;
   }
@@ -2863,6 +3061,15 @@ h3 {
 
   .trends-calendar-cell span {
     font-size: 0.62rem;
+  }
+
+  .trends-chart-annotated {
+    padding-left: 3.7rem;
+  }
+
+  .trends-chart-y-labels {
+    width: 3.25rem;
+    font-size: 0.64rem;
   }
 
   .assets-filter-block {
@@ -4028,6 +4235,11 @@ h3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .trends-kpi-grid,
+  .trends-performance-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .asset-change-layout {
     grid-template-columns: 1.05fr 1fr;
     align-items: start;
@@ -4275,8 +4487,9 @@ h3 {
 .trends-chart-annotated {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0.42rem;
   position: relative;
+  padding-left: 4.6rem;
 }
 
 .trends-chart-y-labels {
@@ -4285,16 +4498,33 @@ h3 {
   justify-content: space-between;
   position: absolute;
   left: 0;
-  top: 0;
-  bottom: 24px;
-  font-size: var(--text-xs, 0.75rem);
-  color: var(--color-text-soft, #8c8078);
+  top: 0.1rem;
+  bottom: 1.85rem;
+  width: 4.15rem;
+  font-size: 0.72rem;
+  color: var(--text-subtle);
   pointer-events: none;
+  text-align: right;
 }
 
 .trends-chart-x-labels {
-  display: flex;
-  justify-content: space-between;
-  font-size: var(--text-xs, 0.75rem);
-  color: var(--color-text-soft, #8c8078);
+  position: relative;
+  min-height: 1.15rem;
+  font-size: 0.72rem;
+  color: var(--text-subtle);
+}
+
+.trends-chart-x-labels span {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.trends-chart-x-labels span:first-child {
+  transform: translateX(0);
+}
+
+.trends-chart-x-labels span:last-child {
+  transform: translateX(-100%);
 }

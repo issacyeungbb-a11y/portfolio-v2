@@ -25,6 +25,9 @@ import type {
 
 type TrendRange = '1d' | '7d' | '30d';
 
+const chartWidth = 320;
+const chartHeight = 180;
+
 const trendRanges: Array<{ value: TrendRange; label: string }> = [
   { value: '1d', label: '今日' },
   { value: '7d', label: '7日' },
@@ -102,6 +105,51 @@ function buildLinePath(values: number[], width: number, height: number) {
       return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
     })
     .join(' ');
+}
+
+function buildTrendPoints(values: number[], width: number, height: number) {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  return values.map((value, index) => ({
+    x: values.length === 1 ? width / 2 : (index / (values.length - 1)) * width,
+    y: height - ((value - min) / range) * height,
+    value,
+  }));
+}
+
+function buildValueTicks(values: number[]) {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+
+  if (min === max) {
+    return [max, max, max];
+  }
+
+  return [max, (max + min) / 2, min];
+}
+
+function buildDateTicks(series: PortfolioPerformancePoint[]) {
+  if (series.length <= 1) {
+    return series.map((point, index) => ({ index, label: point.date.slice(5) }));
+  }
+
+  const tickCount = Math.min(series.length, series.length >= 7 ? 4 : 3);
+  const ticks = Array.from({ length: tickCount }, (_, tickIndex) => {
+    const index = Math.round((tickIndex / (tickCount - 1)) * (series.length - 1));
+    return { index, label: series[index].date.slice(5) };
+  });
+
+  return ticks.filter((tick, index, list) => list.findIndex((entry) => entry.index === tick.index) === index);
 }
 
 function buildCalendarEntries(
@@ -212,6 +260,7 @@ export function AssetTrendsPage() {
   const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
   const [selectedRange, setSelectedRange] = useState<TrendRange | null>('7d');
   const [selectedCalendarMonth, setSelectedCalendarMonth] = useState<string | null>(null);
+  const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
 
   const holdings = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -261,11 +310,23 @@ export function AssetTrendsPage() {
         )
       : null;
   const trendSeries = selectedRange ? buildTrendSeries(history, currentPoint, selectedRange) : [];
+  const trendValues = trendSeries.map((point) => convertCurrency(point.totalValue, 'HKD', displayCurrency));
   const linePath = buildLinePath(
-    trendSeries.map((point) => convertCurrency(point.totalValue, 'HKD', displayCurrency)),
-    320,
-    180,
+    trendValues,
+    chartWidth,
+    chartHeight,
   );
+  const trendPoints = buildTrendPoints(trendValues, chartWidth, chartHeight);
+  const yAxisTicks = buildValueTicks(trendValues);
+  const xAxisTicks = buildDateTicks(trendSeries);
+  const hoveredTrendPoint =
+    hoveredTrendIndex == null || hoveredTrendIndex >= trendSeries.length
+      ? null
+      : {
+          point: trendSeries[hoveredTrendIndex],
+          value: trendValues[hoveredTrendIndex],
+          change: trendValues[hoveredTrendIndex] - (trendValues[hoveredTrendIndex - 1] ?? trendValues[hoveredTrendIndex]),
+        };
   const calendarEntries = buildCalendarEntries(history, todaySnapshotExists ? currentPoint : null, cashFlows);
   const calendarMap = new Map(calendarEntries.map((entry) => [entry.date, entry]));
   const calendarMonthOptions = [...new Set([
@@ -314,11 +375,13 @@ export function AssetTrendsPage() {
 
   return (
     <div className="page-stack">
-      {error ? <p className="status-message status-message-error">{error}</p> : null}
-      {snapshotsError ? <p className="status-message status-message-error">{snapshotsError}</p> : null}
-      {todaySnapshotError ? <p className="status-message status-message-error">{todaySnapshotError}</p> : null}
-      {cashFlowsError ? <p className="status-message status-message-error">{cashFlowsError}</p> : null}
-      {principalsError ? <p className="status-message status-message-error">{principalsError}</p> : null}
+      <div className="trends-alert-stack" aria-live="polite">
+        {error ? <p className="trends-system-note error">{error}</p> : null}
+        {snapshotsError ? <p className="trends-system-note error">{snapshotsError}</p> : null}
+        {todaySnapshotError ? <p className="trends-system-note error">{todaySnapshotError}</p> : null}
+        {cashFlowsError ? <p className="trends-system-note error">{cashFlowsError}</p> : null}
+        {principalsError ? <p className="trends-system-note error">{principalsError}</p> : null}
+      </div>
 
       <section className="card trends-overview-card">
         <div className="trends-toolbar">
@@ -329,22 +392,22 @@ export function AssetTrendsPage() {
         </div>
 
         <div className="trends-hero-stat">
-          <span>總資產估值</span>
+          <span className="trends-stat-label">總資產估值</span>
           <strong>{formatCurrencyRounded(totalValue, displayCurrency)}</strong>
-          <p>
-            今日收益{' '}
-            <span className={todaySummary ? (todaySummary.totalChange >= 0 ? 'positive-text' : 'caution-text') : 'table-hint'}>
+          <p className="trends-today-return">
+            <span>今日收益</span>
+            <strong className={todaySummary ? (todaySummary.totalChange >= 0 ? 'positive-text' : 'caution-text') : 'table-hint'}>
               {todaySummary
                 ? `${todaySummary.totalChange >= 0 ? '+' : ''}${formatCurrencyRounded(
                     convertCurrency(todaySummary.totalChange, 'HKD', displayCurrency),
                     displayCurrency,
                   )} (${formatPercent(todaySummary.returnPct)})`
                 : '今日快照待生成，收益暫不可用'}
-            </span>
+            </strong>
           </p>
         </div>
 
-        <div className="trends-overview-grid">
+        <div className="trends-overview-grid trends-kpi-grid">
           <div className="trends-overview-mini">
             <span>本月收益</span>
             <strong className={monthlyReturnHKD >= 0 ? 'positive-text' : 'caution-text'}>
@@ -364,20 +427,24 @@ export function AssetTrendsPage() {
             </strong>
             <small>{formatPercent(historicalReturnPct)}</small>
           </div>
+          <div className="trends-overview-mini">
+            <span>額外投入/提取</span>
+            <strong className={netExternalFlowTotalHKD >= 0 ? 'positive-text' : 'caution-text'}>
+              {netExternalFlowTotalHKD >= 0 ? '+' : ''}
+              {formatCurrencyRounded(
+                convertCurrency(netExternalFlowTotalHKD, 'HKD', displayCurrency),
+                displayCurrency,
+              )}
+            </strong>
+            <small>累計資金流</small>
+          </div>
         </div>
-        <p className="trends-calendar-summary">
-          額外投入/提取{' '}
-          <span className={netExternalFlowTotalHKD >= 0 ? 'positive-text' : 'caution-text'}>
-            {netExternalFlowTotalHKD >= 0 ? '+' : ''}
-            {formatCurrencyRounded(
-              convertCurrency(netExternalFlowTotalHKD, 'HKD', displayCurrency),
-              displayCurrency,
-            )}
-          </span>
-        </p>
-        <p className="trends-snapshot-hint">
-          最新快照：{latestSnapshotLabel}{latestSnapshotIsFallback ? '（備援）' : ''}。資產走勢數據以該次快照為基準。
-        </p>
+        <div className="trends-snapshot-status">
+          <span>最新快照</span>
+          <strong>{latestSnapshotLabel}</strong>
+          {latestSnapshotIsFallback ? <em>備援快照</em> : null}
+          <small>資產走勢數據以該次快照為基準</small>
+        </div>
       </section>
 
       <section className="card trends-chart-card">
@@ -404,19 +471,18 @@ export function AssetTrendsPage() {
 
         {selectedRange && rangeSummary ? (
           <div className="trends-reveal-panel">
-            <div className="trends-reveal-summary">
-              <span>{trendRanges.find((entry) => entry.value === selectedRange)?.label}變動</span>
-              <strong className={rangeSummary.totalChange >= 0 ? 'positive-text' : 'caution-text'}>
-                {rangeSummary.totalChange >= 0 ? '+' : ''}
-                {formatCurrencyRounded(
-                  convertCurrency(rangeSummary.totalChange, 'HKD', displayCurrency),
-                  displayCurrency,
-                )}
-              </strong>
-              <small>{formatPercent(rangeSummary.returnPct)}</small>
-            </div>
-
-            <div className="trends-overview-grid">
+            <div className="trends-performance-grid">
+              <div className="trends-reveal-summary primary">
+                <span>{trendRanges.find((entry) => entry.value === selectedRange)?.label}區間變動</span>
+                <strong className={rangeSummary.totalChange >= 0 ? 'positive-text' : 'caution-text'}>
+                  {rangeSummary.totalChange >= 0 ? '+' : ''}
+                  {formatCurrencyRounded(
+                    convertCurrency(rangeSummary.totalChange, 'HKD', displayCurrency),
+                    displayCurrency,
+                  )}
+                </strong>
+                <small>{formatPercent(rangeSummary.returnPct)}</small>
+              </div>
               <div className="trends-overview-mini">
                 <span>市場變動</span>
                 <strong className={rangeSummary.marketChange >= 0 ? 'positive-text' : 'caution-text'}>
@@ -426,38 +492,103 @@ export function AssetTrendsPage() {
                     displayCurrency,
                   )}
                 </strong>
-                <small>
-                  額外投入/提取{' '}
-                  {`${rangeSummary.netExternalFlow >= 0 ? '+' : ''}${formatCurrencyRounded(
+                <small>價格及持倉估值影響</small>
+              </div>
+              <div className="trends-overview-mini">
+                <span>資金流影響</span>
+                <strong className={rangeSummary.netExternalFlow >= 0 ? 'positive-text' : 'caution-text'}>
+                  {rangeSummary.netExternalFlow >= 0 ? '+' : ''}
+                  {formatCurrencyRounded(
                     convertCurrency(rangeSummary.netExternalFlow, 'HKD', displayCurrency),
                     displayCurrency,
-                  )}`}
-                </small>
+                  )}
+                </strong>
+                <small>額外投入/提取</small>
               </div>
             </div>
+
+            {trendSeries.length > 1 ? (
+              <div className="trends-period-bridge">
+                <span>期初估值</span>
+                <strong>{formatCurrencyRounded(trendValues[0], displayCurrency)}</strong>
+                <i aria-hidden="true">→</i>
+                <span>期末估值</span>
+                <strong>{formatCurrencyRounded(trendValues[trendValues.length - 1], displayCurrency)}</strong>
+              </div>
+            ) : null}
 
             <div className="trends-chart-shell">
               {trendSeries.length > 1 ? (
                 <div className="trends-chart-annotated">
                   <div className="trends-chart-y-labels">
-                    <span>{formatCurrencyRounded(convertCurrency(Math.max(...trendSeries.map((point) => point.totalValue)), 'HKD', displayCurrency), displayCurrency)}</span>
-                    <span>{formatCurrencyRounded(convertCurrency(Math.min(...trendSeries.map((point) => point.totalValue)), 'HKD', displayCurrency), displayCurrency)}</span>
+                    {yAxisTicks.map((value, index) => (
+                      <span key={`${value}-${index}`}>{formatCurrencyRounded(value, displayCurrency)}</span>
+                    ))}
                   </div>
                   <svg viewBox="0 0 320 180" className="trends-line-chart" role="img" aria-label="資產走勢圖">
+                    {yAxisTicks.map((_, index) => {
+                      const y = (index / (yAxisTicks.length - 1)) * chartHeight;
+                      return <line key={index} className="trends-grid-line" x1="0" x2={chartWidth} y1={y} y2={y} />;
+                    })}
                     <path d={linePath} />
+                    {trendPoints.map((point, index) => (
+                      <circle
+                        key={trendSeries[index].date}
+                        className="trends-hit-point"
+                        cx={point.x}
+                        cy={point.y}
+                        r="9"
+                        onMouseEnter={() => setHoveredTrendIndex(index)}
+                        onMouseLeave={() => setHoveredTrendIndex(null)}
+                        onFocus={() => setHoveredTrendIndex(index)}
+                        onBlur={() => setHoveredTrendIndex(null)}
+                        tabIndex={0}
+                      >
+                        <title>
+                          {`${formatDateChip(trendSeries[index].date)}｜總資產 ${formatCurrencyRounded(
+                            point.value,
+                            displayCurrency,
+                          )}｜當日變化 ${formatCurrencyRounded(
+                            point.value - (trendValues[index - 1] ?? point.value),
+                            displayCurrency,
+                          )}`}
+                        </title>
+                      </circle>
+                    ))}
+                    {trendPoints.length > 0 ? (
+                      <circle
+                        className="trends-latest-point"
+                        cx={trendPoints[trendPoints.length - 1].x}
+                        cy={trendPoints[trendPoints.length - 1].y}
+                        r="4.5"
+                      />
+                    ) : null}
                   </svg>
+                  {hoveredTrendPoint ? (
+                    <div className="trends-chart-tooltip">
+                      <span>{formatDateChip(hoveredTrendPoint.point.date)}</span>
+                      <strong>{formatCurrencyRounded(hoveredTrendPoint.value, displayCurrency)}</strong>
+                      <small className={hoveredTrendPoint.change >= 0 ? 'positive-text' : 'caution-text'}>
+                        當日變化 {hoveredTrendPoint.change >= 0 ? '+' : ''}
+                        {formatCurrencyRounded(hoveredTrendPoint.change, displayCurrency)}
+                      </small>
+                    </div>
+                  ) : null}
                   <div className="trends-chart-x-labels">
-                    <span>{trendSeries[0].date.slice(5)}</span>
-                    <span>{trendSeries[trendSeries.length - 1].date.slice(5)}</span>
+                    {xAxisTicks.map((tick) => (
+                      <span key={`${tick.index}-${tick.label}`} style={{ left: `${(tick.index / (trendSeries.length - 1)) * 100}%` }}>
+                        {tick.label}
+                      </span>
+                    ))}
                   </div>
                 </div>
               ) : (
-                <p className="status-message">未有足夠快照資料</p>
+                <p className="trends-system-note">未有足夠快照資料</p>
               )}
             </div>
           </div>
         ) : selectedRange === '1d' ? (
-          <p className="status-message">今日快照待生成，收益暫不可用</p>
+          <p className="trends-system-note warning">今日快照待生成，收益暫不可用</p>
         ) : null}
       </section>
 
@@ -518,13 +649,13 @@ export function AssetTrendsPage() {
             return (
               <div key={cell.dateKey} className={`trends-calendar-cell ${tone}`}>
                 <strong>{cell.day}</strong>
-                {entry ? <span>{formatCalendarChange(change)}</span> : null}
+                {entry ? <span>{formatCalendarChange(change)}</span> : <span className="trends-calendar-no-data">無資料</span>}
               </div>
             );
           })}
         </div>
 
-        {status === 'loading' ? <p className="status-message">同步中</p> : null}
+        {status === 'loading' ? <p className="trends-system-note">同步中</p> : null}
       </section>
     </div>
   );
