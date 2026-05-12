@@ -926,22 +926,17 @@ function normalizeYahooTicker(asset: PriceUpdateRequestAsset) {
 function createYahooMarketResult(
   asset: PriceUpdateRequestAsset,
   symbol: string,
-  quote: {
-    regularMarketPrice?: unknown;
-    postMarketPrice?: unknown;
-    preMarketPrice?: unknown;
-    currency?: unknown;
-    regularMarketTime?: unknown;
-    postMarketTime?: unknown;
-    preMarketTime?: unknown;
-    marketState?: unknown;
-  } | null | undefined,
+  quote: unknown,
   sourceName = YAHOO_SOURCE_NAME,
 ): MarketPriceResult {
+  const quoteRecord =
+    typeof quote === 'object' && quote !== null
+      ? quote as Record<string, unknown>
+      : null;
   const price =
-    readPositiveNumber(quote?.regularMarketPrice) ??
-    readPositiveNumber(quote?.postMarketPrice) ??
-    readPositiveNumber(quote?.preMarketPrice);
+    readPositiveNumber(quoteRecord?.regularMarketPrice) ??
+    readPositiveNumber(quoteRecord?.postMarketPrice) ??
+    readPositiveNumber(quoteRecord?.preMarketPrice);
 
   if (price == null) {
     return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
@@ -953,14 +948,14 @@ function createYahooMarketResult(
     ticker: asset.ticker,
     assetType: asset.assetType,
     price,
-    currency: (readStringValue(quote?.currency) ?? asset.currency).toUpperCase(),
+    currency: (readStringValue(quoteRecord?.currency) ?? asset.currency).toUpperCase(),
     asOf:
-      readDateValue(quote?.regularMarketTime) ??
-      readDateValue(quote?.postMarketTime) ??
-      readDateValue(quote?.preMarketTime),
+      readDateValue(quoteRecord?.regularMarketTime) ??
+      readDateValue(quoteRecord?.postMarketTime) ??
+      readDateValue(quoteRecord?.preMarketTime),
     sourceName,
     sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
-    marketState: readStringValue(quote?.marketState),
+    marketState: readStringValue(quoteRecord?.marketState),
   };
 }
 
