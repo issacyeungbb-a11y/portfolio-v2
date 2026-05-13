@@ -693,12 +693,12 @@ async function fetchYahooSummaryFallback(symbol, asset) {
         return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL);
     }
 }
-async function fillMissingYahooResults(symbols, symbolToAsset, results) {
+async function fillMissingYahooResults(symbols, assets, results) {
     return Promise.all(results.map(async (result, index) => {
         if (result.price != null && result.price > 0)
             return result;
         const symbol = symbols[index];
-        const asset = symbol ? symbolToAsset.get(symbol) : undefined;
+        const asset = assets[index];
         if (!symbol || !asset)
             return result;
         return fetchYahooSummaryFallback(symbol, asset);
@@ -740,12 +740,7 @@ async function fetchYahooPriceBatch(assets) {
     if (assets.length === 0) {
         return [];
     }
-    const symbolToAsset = new Map();
-    const symbols = assets.map((asset) => {
-        const symbol = normalizeYahooTicker(asset);
-        symbolToAsset.set(symbol, asset);
-        return symbol;
-    });
+    const symbols = assets.map((asset) => normalizeYahooTicker(asset));
     try {
         const quotes = await yahooFinanceClient.quote(symbols, {
             fields: [
@@ -760,12 +755,12 @@ async function fetchYahooPriceBatch(assets) {
             fetchOptions: { signal: AbortSignal.timeout(YAHOO_PRICE_TIMEOUT_MS) },
         });
         const quoteBySymbol = new Map(quotes.map((quote) => [(readStringValue(quote.symbol) ?? '').toUpperCase(), quote]));
-        const results = symbols.map((symbol) => {
-            const asset = symbolToAsset.get(symbol);
+        const results = symbols.map((symbol, index) => {
+            const asset = assets[index];
             const quote = quoteBySymbol.get(symbol.toUpperCase());
             return createYahooMarketResult(asset, symbol, quote);
         });
-        return fillMissingYahooResults(symbols, symbolToAsset, results);
+        return fillMissingYahooResults(symbols, assets, results);
     }
     catch (error) {
         console.warn('Yahoo Finance batch quote failed, clearing crumb and retrying batch.', error);
@@ -790,19 +785,20 @@ async function fetchYahooPriceBatch(assets) {
                 fetchOptions: { signal: AbortSignal.timeout(YAHOO_PRICE_TIMEOUT_MS) },
             });
             const quoteBySymbol = new Map(retryQuotes.map((quote) => [(readStringValue(quote.symbol) ?? '').toUpperCase(), quote]));
-            const results = symbols.map((symbol) => {
-                const asset = symbolToAsset.get(symbol);
+            const results = symbols.map((symbol, index) => {
+                const asset = assets[index];
                 const quote = quoteBySymbol.get(symbol.toUpperCase());
                 return createYahooMarketResult(asset, symbol, quote);
             });
-            return fillMissingYahooResults(symbols, symbolToAsset, results);
+            return fillMissingYahooResults(symbols, assets, results);
         }
         catch (retryError) {
             console.warn('Yahoo Finance batch retry also failed, falling back to one-by-one.', retryError);
         }
         const singleQuotes = [];
-        for (const symbol of symbols) {
-            const asset = symbolToAsset.get(symbol);
+        for (let index = 0; index < symbols.length; index += 1) {
+            const symbol = symbols[index];
+            const asset = assets[index];
             try {
                 const singleQuoteResult = await yahooFinanceClient.quote([symbol], {
                     fields: ['symbol', 'currency', 'marketState', 'regularMarketPrice', 'regularMarketTime'],
@@ -814,7 +810,7 @@ async function fetchYahooPriceBatch(assets) {
                 singleQuotes.push(await fetchYahooSummaryFallback(symbol, asset));
             }
         }
-        return fillMissingYahooResults(symbols, symbolToAsset, singleQuotes);
+        return fillMissingYahooResults(symbols, assets, singleQuotes);
     }
 }
 async function fetchYahooPrice(assets) {
