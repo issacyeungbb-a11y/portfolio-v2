@@ -20,6 +20,12 @@ const COINGECKO_SEARCH_MIN_INTERVAL_MS = 2100;
 const YAHOO_PRICE_TIMEOUT_MS = 12000;
 const YAHOO_SINGLE_PRICE_TIMEOUT_MS = 8000;
 const YAHOO_FX_TIMEOUT_MS = 12000;
+const AI_PRICE_FALLBACK_TIMEOUT_MS = 10000;
+const AI_PRICE_FALLBACK_MAX_ASSETS_ENV = Number.parseInt(process.env.AI_PRICE_FALLBACK_MAX_ASSETS ?? '3', 10);
+const AI_PRICE_FALLBACK_MAX_ASSETS = Math.max(0, Number.isFinite(AI_PRICE_FALLBACK_MAX_ASSETS_ENV) ? AI_PRICE_FALLBACK_MAX_ASSETS_ENV : 3);
+const AI_PRICE_FALLBACK_MODEL = process.env.AI_PRICE_FALLBACK_MODEL?.trim() ||
+    process.env.GROUNDED_GEMINI_MODEL?.trim() ||
+    'gemini-2.5-flash';
 const yahooFinanceClient = new YahooFinance();
 const LEGACY_COIN_GECKO_ID_OVERRIDES = {
     ASTER: { coinId: 'aster-2' },
@@ -662,9 +668,12 @@ function normalizeYahooTicker(asset) {
     return normalizedTicker;
 }
 function createYahooMarketResult(asset, symbol, quote, sourceName = YAHOO_SOURCE_NAME) {
-    const price = readPositiveNumber(quote?.regularMarketPrice) ??
-        readPositiveNumber(quote?.postMarketPrice) ??
-        readPositiveNumber(quote?.preMarketPrice);
+    const quoteRecord = typeof quote === 'object' && quote !== null
+        ? quote
+        : null;
+    const price = readPositiveNumber(quoteRecord?.regularMarketPrice) ??
+        readPositiveNumber(quoteRecord?.postMarketPrice) ??
+        readPositiveNumber(quoteRecord?.preMarketPrice);
     if (price == null) {
         return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
     }
@@ -674,13 +683,13 @@ function createYahooMarketResult(asset, symbol, quote, sourceName = YAHOO_SOURCE
         ticker: asset.ticker,
         assetType: asset.assetType,
         price,
-        currency: (readStringValue(quote?.currency) ?? asset.currency).toUpperCase(),
-        asOf: readDateValue(quote?.regularMarketTime) ??
-            readDateValue(quote?.postMarketTime) ??
-            readDateValue(quote?.preMarketTime),
+        currency: (readStringValue(quoteRecord?.currency) ?? asset.currency).toUpperCase(),
+        asOf: readDateValue(quoteRecord?.regularMarketTime) ??
+            readDateValue(quoteRecord?.postMarketTime) ??
+            readDateValue(quoteRecord?.preMarketTime),
         sourceName,
         sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
-        marketState: readStringValue(quote?.marketState),
+        marketState: readStringValue(quoteRecord?.marketState),
     };
 }
 async function fetchYahooSummaryFallback(symbol, asset) {
@@ -703,6 +712,197 @@ async function fillMissingYahooResults(symbols, assets, results) {
             return result;
         return fetchYahooSummaryFallback(symbol, asset);
     }));
+}
+function getGeminiApiKeyOptional() {
+    return process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim() || null;
+}
+function isAiPriceFallbackEnabled() {
+    return process.env.AI_PRICE_FALLBACK_ENABLED?.trim() !== '0' && AI_PRICE_FALLBACK_MAX_ASSETS > 0;
+}
+function extractJsonObject(raw) {
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (fenced?.[1])
+        return fenced[1];
+    const objectMatch = raw.match(/(\{[\s\S]*\})/);
+    return objectMatch?.[1] ?? raw;
+}
+function getGeminiResponseText(response) {
+    if (typeof response?.text === 'string') {
+        return response.text.trim();
+    }
+    const candidates = response?.candidates;
+    if (!Array.isArray(candidates) || candidates.length === 0)
+        return '';
+    const content = candidates[0]?.content;
+    const parts = content?.parts;
+    if (!Array.isArray(parts))
+        return '';
+    return parts
+        .map((part) => {
+        if (typeof part !== 'object' || part === null)
+            return '';
+        const text = part.text;
+        return typeof text === 'string' ? text : '';
+    })
+        .join('\n')
+        .trim();
+}
+function getFirstGroundingSourceUrl(response) {
+    const candidates = response?.candidates;
+    if (!Array.isArray(candidates) || candidates.length === 0)
+        return null;
+    const meta = candidates[0]?.groundingMetadata;
+    const chunks = meta?.groundingChunks;
+    if (!Array.isArray(chunks))
+        return null;
+    for (const chunk of chunks) {
+        const web = typeof chunk === 'object' && chunk !== null
+            ? chunk.web
+            : undefined;
+        const uri = typeof web?.uri === 'string' ? web.uri.trim() : '';
+        if (/^https?:\/\//i.test(uri))
+            return uri;
+    }
+    return null;
+}
+async function generateGroundedGeminiJson(prompt, apiKey) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(AI_PRICE_FALLBACK_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+                responseMimeType: 'application/json',
+                maxOutputTokens: 1200,
+            },
+            tools: [{ googleSearch: {} }],
+        }),
+        signal: AbortSignal.timeout(AI_PRICE_FALLBACK_TIMEOUT_MS),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+        const message = typeof payload === 'object' &&
+            payload !== null &&
+            'error' in payload &&
+            typeof payload.error?.message === 'string'
+            ? payload.error.message
+            : `Gemini price fallback failed with status ${response.status}`;
+        throw new Error(message);
+    }
+    return payload;
+}
+function buildAiPriceFallbackPrompt(asset, symbol) {
+    const retrievedAt = new Date().toISOString();
+    return [
+        'Use Google Search to find the latest reliable market price for this portfolio asset.',
+        'Do not guess. Use only a source that clearly identifies the same tradable security.',
+        'Prefer official exchange pages, issuer pages, Nasdaq/NYSE pages, Yahoo Finance, Google Finance, or other reputable market-data pages.',
+        'Return only valid JSON. Do not include markdown.',
+        `Retrieved at: ${retrievedAt}`,
+        `Asset name: ${asset.assetName}`,
+        `Ticker used by system: ${asset.ticker}`,
+        `Normalized market symbol: ${symbol}`,
+        `Asset type: ${asset.assetType}`,
+        `Expected currency: ${asset.currency}`,
+        `Account source: ${asset.accountSource ?? 'unknown'}`,
+        'The JSON shape must be:',
+        `{
+  "matched": true,
+  "symbol": "${symbol}",
+  "price": 0,
+  "currency": "${asset.currency}",
+  "asOf": "${retrievedAt}",
+  "sourceName": "source name",
+  "sourceUrl": "https://...",
+  "confidence": 0.0,
+  "reason": "short reason"
+}`,
+        'Rules: matched must be false if the source may refer to a different company, fund, exchange, share class, or currency.',
+        'confidence must be between 0 and 1. Use confidence below 0.75 if the source is ambiguous.',
+    ].join('\n');
+}
+function normalizeAiPriceFallback(asset, symbol, payloadText, groundingSourceUrl) {
+    try {
+        const parsed = JSON.parse(extractJsonObject(payloadText).trim());
+        const matched = parsed.matched === true;
+        const price = readPositiveNumber(parsed.price);
+        const currency = normalizeCurrencyCode(readStringValue(parsed.currency) || asset.currency);
+        const confidence = typeof parsed.confidence === 'number' && Number.isFinite(parsed.confidence)
+            ? parsed.confidence
+            : 0;
+        const sourceUrl = readStringValue(parsed.sourceUrl)?.trim() || groundingSourceUrl || '';
+        const sourceName = readStringValue(parsed.sourceName)?.trim() || 'Grounded AI price fallback';
+        const asOf = readDateValue(parsed.asOf) ?? new Date().toISOString();
+        if (!matched ||
+            price == null ||
+            confidence < 0.75 ||
+            !currency ||
+            !/^https?:\/\//i.test(sourceUrl)) {
+            return null;
+        }
+        return {
+            assetId: asset.assetId,
+            assetName: asset.assetName,
+            ticker: asset.ticker,
+            assetType: asset.assetType,
+            price,
+            currency,
+            asOf,
+            sourceName: `AI price fallback (${sourceName})`,
+            sourceUrl,
+            marketState: `AI_FALLBACK:${symbol}`,
+        };
+    }
+    catch (error) {
+        console.warn(`AI price fallback parse failed for ${asset.ticker}.`, error);
+        return null;
+    }
+}
+async function fetchAiPriceFallback(asset) {
+    const apiKey = getGeminiApiKeyOptional();
+    if (!apiKey || !isAiPriceFallbackEnabled()) {
+        return null;
+    }
+    const symbol = normalizeYahooTicker(asset);
+    try {
+        const response = await generateGroundedGeminiJson(buildAiPriceFallbackPrompt(asset, symbol), apiKey);
+        const rawText = getGeminiResponseText(response);
+        if (!rawText) {
+            return null;
+        }
+        return normalizeAiPriceFallback(asset, symbol, rawText, getFirstGroundingSourceUrl(response));
+    }
+    catch (error) {
+        console.warn(`AI price fallback failed for ${asset.ticker}.`, error);
+        return null;
+    }
+}
+async function applyAiPriceFallbackForMissingYahooResults(assets, results) {
+    if (!isAiPriceFallbackEnabled() || assets.length === 0 || results.length === 0) {
+        return results;
+    }
+    const assetById = new Map(assets.map((asset) => [asset.assetId, asset]));
+    const missingResults = results
+        .filter((result) => result.price == null || result.price <= 0)
+        .map((result) => assetById.get(result.assetId))
+        .filter((asset) => Boolean(asset))
+        .filter((asset) => asset.assetType === 'stock' || asset.assetType === 'etf' || asset.assetType === 'bond')
+        .slice(0, AI_PRICE_FALLBACK_MAX_ASSETS);
+    if (missingResults.length === 0) {
+        return results;
+    }
+    const fallbackByAssetId = new Map();
+    for (const asset of missingResults) {
+        const fallback = await fetchAiPriceFallback(asset);
+        if (fallback) {
+            fallbackByAssetId.set(asset.assetId, fallback);
+        }
+    }
+    if (fallbackByAssetId.size === 0) {
+        return results;
+    }
+    return results.map((result) => fallbackByAssetId.get(result.assetId) ?? result);
 }
 export async function fetchLiveFxRates() {
     const result = await fetchLiveFxRatesWithStatus();
@@ -1046,7 +1246,8 @@ export async function generatePriceUpdates(payload) {
         fetchYahooPrice(yahooAssets),
         fetchCoinGeckoPrice(cryptoAssets),
     ]);
-    const results = await buildReviewResults(request.assets, [...yahooResults, ...cryptoResults], DEFAULT_FX_RATES);
+    const protectedYahooResults = await applyAiPriceFallbackForMissingYahooResults(yahooAssets, yahooResults);
+    const results = await buildReviewResults(request.assets, [...protectedYahooResults, ...cryptoResults], DEFAULT_FX_RATES);
     return {
         ok: true,
         route: UPDATE_PRICES_ROUTE,
