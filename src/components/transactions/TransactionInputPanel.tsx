@@ -522,11 +522,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
     <section className="card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">輸入</p>
           <h2>輸入交易</h2>
-          <p className="table-hint">
-            所有交易現金結算固定使用 USD。你可以用 AI 文字輸入快速整理交易，或者直接手動填入每筆交易，再選新增資產交易或現有資產交易。
-          </p>
         </div>
         <button className="button button-secondary" type="button" onClick={onClose}>
           關閉
@@ -554,14 +550,11 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
 
       {inputMode === 'ai' ? (
         <div className="prompt-box import-command-box">
-          <strong>貼入交易描述，AI 自動拆分</strong>
-          <p className="table-hint">
-            例如：今日買入 TSLA 5 股，240 美元，手續費 1.5；再新增 SOL 10 粒，成本 132 美元。交易會統一用 USD 結算現金。
-          </p>
+          <strong>貼入交易描述</strong>
           <textarea
             value={commandText}
             onChange={(event) => setCommandText(event.target.value)}
-            placeholder="輸入內容後，AI 會逐筆拆開，再由你揀每筆係新增資產交易定現有資產交易。"
+            placeholder="例如：買入 TSLA 5 股，240 美元，手續費 1.5"
           />
           <div className="button-row">
             <button className="button button-primary" type="button" onClick={handleParseCommand}>
@@ -583,10 +576,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
         </div>
       ) : (
         <div className="prompt-box import-command-box">
-          <strong>{presetHolding ? `為 ${presetHolding.symbol} 輸入交易` : '手動輸入每筆交易，之後再選「新增資產交易」或者「現有資產交易」'}</strong>
-          <p className="table-hint">
-            儲存後會自動對應 USD 現金帳戶，並按交易方向加減 IB、富途或穩定幣現金資產。
-          </p>
+          <strong>{presetHolding ? `為 ${presetHolding.symbol} 輸入交易` : '手動輸入交易'}</strong>
           <div className="button-row">
             {!presetHolding ? (
               <button className="button button-secondary" type="button" onClick={handleAddManualItem}>
@@ -619,7 +609,6 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
           items={previewItems}
           existingAssetOptions={existingAssetOptions}
           cashAccountSources={availableCashAccountSources}
-          settlementCurrency={SETTLEMENT_CURRENCY}
           onChangeItem={handleChangeItem}
           onRemoveItem={handleRemoveItem}
           onConfirm={handleConfirm}
@@ -627,13 +616,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
           confirmError={confirmError}
           confirmSuccess={confirmSuccess}
         />
-      ) : (
-        <p className="status-message">
-          {inputMode === 'ai'
-            ? '未有 AI 解析結果。'
-            : '未有交易草稿，請先新增一筆交易。'}
-        </p>
-      )}
+      ) : null}
     </section>
   );
 }

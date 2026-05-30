@@ -21,7 +21,6 @@ interface ImportPreviewEditorProps {
   items: ImportPreviewItem[];
   existingAssetOptions: ExistingAssetOption[];
   cashAccountSources: AccountSource[];
-  settlementCurrency: string;
   onChangeItem: (
     itemId: string,
     field: keyof ImportPreviewItem,
@@ -88,7 +87,6 @@ export function ImportPreviewEditor({
   items,
   existingAssetOptions,
   cashAccountSources,
-  settlementCurrency,
   onChangeItem,
   onRemoveItem,
   onConfirm,
@@ -103,11 +101,7 @@ export function ImportPreviewEditor({
     <section className="card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Preview</p>
           <h2>逐筆交易預覽</h2>
-          <p className="table-hint">
-            每筆資料都可以改為新增資產或原有資產交易，儲存時會按你選擇的現金帳戶更新對應 {settlementCurrency} 現金資產。
-          </p>
         </div>
         <span className={hasMissingFields ? 'chip chip-strong' : 'chip chip-soft'}>
           {hasMissingFields ? `仍有 ${missingFieldCount} 個待補欄位` : `可確認 ${items.length} 筆`}
@@ -127,9 +121,6 @@ export function ImportPreviewEditor({
                 </div>
                 <div className="button-row">
                   <span className="chip chip-soft">{getClassificationLabel(item.classification)}</span>
-                  <span className={missingFields.length > 0 ? 'chip chip-strong' : 'chip chip-soft'}>
-                    {missingFields.length > 0 ? '需要補資料' : '資料完整'}
-                  </span>
                   <button
                     className="button button-secondary button-danger-text"
                     type="button"
@@ -199,7 +190,7 @@ export function ImportPreviewEditor({
                 </label>
 
                 <label className={!item.settlementAccountSource ? 'form-field form-field-missing' : 'form-field'}>
-                  <span>現金帳戶（{settlementCurrency}）</span>
+                  <span>現金帳戶</span>
                   <select
                     value={item.settlementAccountSource}
                     onChange={(event) =>
@@ -273,15 +264,6 @@ export function ImportPreviewEditor({
                     value={item.quantity}
                     onChange={(event) => onChangeItem(item.id, 'quantity', event.target.value)}
                     disabled={isConfirming}
-                  />
-                </label>
-
-                <label className={!item.currency.trim() ? 'form-field form-field-missing' : 'form-field'}>
-                  <span>幣別</span>
-                  <input
-                    value={item.currency}
-                    onChange={(event) => onChangeItem(item.id, 'currency', event.target.value)}
-                    disabled
                   />
                 </label>
 

@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import {
-  formatCurrency,
   formatCurrencyRounded,
   formatPercent,
   getAccountSourceLabel,
@@ -136,9 +135,7 @@ export function AssetInputForm({
     <section className="asset-form-panel">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Manual Input</p>
           <h2>{title}</h2>
-          <p className="table-hint">填好核心資料後，市值、損益與配置比重會由前端即時計算。</p>
         </div>
         <button className="button button-secondary" type="button" onClick={onCancel}>
           {cancelLabel}
@@ -154,7 +151,6 @@ export function AssetInputForm({
               disabled={isSubmitting}
               value={form.name}
               onChange={(event) => updateField('name', event.target.value)}
-              placeholder="例如 Apple"
             />
           </label>
 
@@ -165,7 +161,6 @@ export function AssetInputForm({
               disabled={isSubmitting}
               value={form.symbol}
               onChange={(event) => updateField('symbol', event.target.value)}
-              placeholder="例如 AAPL"
             />
           </label>
 
@@ -208,7 +203,6 @@ export function AssetInputForm({
               disabled={isSubmitting}
               value={form.currency}
               onChange={(event) => updateField('currency', event.target.value)}
-              placeholder="例如 HKD / USD"
             />
           </label>
 
@@ -227,7 +221,6 @@ export function AssetInputForm({
                   updateField('averageCost', event.target.value);
                   updateField('quantity', '1');
                 }}
-                placeholder="例如 5000"
               />
             </label>
           ) : (
@@ -240,10 +233,9 @@ export function AssetInputForm({
                   min="0"
                   step="any"
                   type="number"
-                  value={form.quantity}
-                  onChange={(event) => updateField('quantity', event.target.value)}
-                  placeholder="例如 10"
-                />
+	                  value={form.quantity}
+	                  onChange={(event) => updateField('quantity', event.target.value)}
+	                />
               </label>
 
               <label className="form-field">
@@ -254,10 +246,9 @@ export function AssetInputForm({
                   min="0"
                   step="any"
                   type="number"
-                  value={form.averageCost}
-                  onChange={(event) => updateField('averageCost', event.target.value)}
-                  placeholder="例如 184.9"
-                />
+	                  value={form.averageCost}
+	                  onChange={(event) => updateField('averageCost', event.target.value)}
+	                />
               </label>
 
               <label className="form-field">
@@ -268,10 +259,9 @@ export function AssetInputForm({
                   min="0"
                   step="any"
                   type="number"
-                  value={form.currentPrice}
-                  onChange={(event) => updateField('currentPrice', event.target.value)}
-                  placeholder="例如 198.4"
-                />
+	                  value={form.currentPrice}
+	                  onChange={(event) => updateField('currentPrice', event.target.value)}
+	                />
               </label>
             </>
           )}
@@ -289,13 +279,6 @@ export function AssetInputForm({
               {isCashAsset ? '現金資產' : formatCurrencyRounded(unrealizedPnl, displayCurrency)}
             </strong>
             <small>{isCashAsset ? '不計持倉成本與股數' : formatPercent(unrealizedPct)}</small>
-          </div>
-          <div className="derived-card">
-            <span>資料預覽</span>
-            <strong>
-              {getAssetTypeLabel(form.assetType)} · {getAccountSourceLabel(form.accountSource)}
-            </strong>
-            <small>{displayCurrency}</small>
           </div>
         </div>
 

@@ -104,7 +104,6 @@ export function AssetTransactionForm({
     <section className="asset-form-panel">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Trade Entry</p>
           <h2>{title ?? `交易 ${holding.symbol}`}</h2>
           <p className="table-hint">
             {holding.name} · {getAssetTypeLabel(holding.assetType)} · {getAccountSourceLabel(holding.accountSource)}
@@ -140,7 +139,7 @@ export function AssetTransactionForm({
           </label>
 
           <label className="form-field">
-            <span>現金去向賬戶（{settlementCurrency}）</span>
+            <span>現金帳戶</span>
             <select
               value={settlementAccountSource}
               onChange={(event) => setSettlementAccountSource(event.target.value as AccountSource)}
@@ -163,7 +162,6 @@ export function AssetTransactionForm({
               value={quantity}
               onChange={(event) => setQuantity(event.target.value)}
               disabled={isSubmitting}
-              placeholder="例如 10"
               required
             />
           </label>
@@ -177,7 +175,6 @@ export function AssetTransactionForm({
               value={price}
               onChange={(event) => setPrice(event.target.value)}
               disabled={isSubmitting}
-              placeholder="例如 198.4"
               required
             />
           </label>
@@ -191,7 +188,6 @@ export function AssetTransactionForm({
               value={fees}
               onChange={(event) => setFees(event.target.value)}
               disabled={isSubmitting}
-              placeholder="例如 15"
             />
           </label>
 
@@ -201,14 +197,13 @@ export function AssetTransactionForm({
               value={note}
               onChange={(event) => setNote(event.target.value)}
               disabled={isSubmitting}
-              placeholder="例如 加倉 / 止賺"
             />
           </label>
         </div>
 
         <div className="derived-preview">
           <div className="derived-card">
-            <span>預估交易總額</span>
+            <span>交易總額</span>
             <strong>{formatCurrencyRounded(netAmount, holding.currency)}</strong>
             <small>
               毛額 {formatCurrencyRounded(grossAmount, holding.currency)} · 手續費 {formatCurrencyRounded(feesValue, holding.currency)}
