@@ -8,6 +8,7 @@ import { StatusMessages } from '../components/ui/StatusMessages';
 import { SystemDiagnosticsPanel } from '../components/ui/SystemDiagnosticsPanel';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
+import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
@@ -32,6 +33,7 @@ import {
 import type {
   AccountCashFlowEntry,
   AccountSource,
+  AssetTransactionEntry,
   AssetType,
   DisplayCurrency,
   Holding,
@@ -41,6 +43,19 @@ import type { PendingPriceUpdateReview, PriceUpdateRequest, PriceUpdateResponse 
 
 const MANUAL_PRICE_UPDATE_BATCH_SIZE = 3;
 const MANUAL_PRICE_UPDATE_RETRY_DELAY_MS = 2000;
+const CASH_LEDGER_ACCOUNTS: AccountSource[] = ['IB', 'Futu', 'Crypto'];
+
+interface CashLedgerEntry {
+  id: string;
+  accountSource: AccountSource;
+  date: string;
+  createdAt?: string;
+  label: string;
+  detail: string;
+  amount: number;
+  currency: string;
+  source: 'trade' | 'cash_flow';
+}
 
 const assetFilterOptions: Array<{ value: AssetType | 'all'; label: string }> = [
   { value: 'all', label: '全部' },
@@ -97,6 +112,101 @@ function formatSnapshotCapturedAt(value?: string) {
   } catch {
     return value;
   }
+}
+
+function formatDateLabel(value: string) {
+  if (!value) {
+    return '未有日期';
+  }
+
+  try {
+    return new Intl.DateTimeFormat('zh-HK', {
+      dateStyle: 'medium',
+    }).format(new Date(`${value}T00:00:00`));
+  } catch {
+    return value;
+  }
+}
+
+function formatLedgerAmount(value: number, currency: string) {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+  const amount = new Intl.NumberFormat('zh-HK', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 3,
+  }).format(Math.abs(value));
+
+  return `${sign}${currency} ${amount}`;
+}
+
+function getCashFlowTypeLabel(type: AccountCashFlowEntry['type']) {
+  if (type === 'deposit') return '入金';
+  if (type === 'withdrawal') return '提款';
+  return '調整';
+}
+
+function getTransactionSettlementAccountSource(entry: AssetTransactionEntry) {
+  return entry.settlementAccountSource ?? entry.accountSource;
+}
+
+function getAssetTransactionCashDelta(entry: AssetTransactionEntry) {
+  if ((entry.recordType ?? 'trade') !== 'trade') {
+    return 0;
+  }
+
+  const grossAmount = entry.quantity * entry.price;
+  return entry.transactionType === 'buy'
+    ? -(grossAmount + entry.fees)
+    : grossAmount - entry.fees;
+}
+
+function buildCashLedgerEntries(
+  accountSource: AccountSource,
+  transactions: AssetTransactionEntry[],
+  cashFlows: AccountCashFlowEntry[],
+) {
+  const tradeEntries: CashLedgerEntry[] = transactions
+    .filter((entry) => getTransactionSettlementAccountSource(entry) === accountSource)
+    .flatMap((entry) => {
+      const amount = getAssetTransactionCashDelta(entry);
+      if (Math.abs(amount) < 1e-9) {
+        return [];
+      }
+
+      const action = entry.transactionType === 'buy' ? '買入' : '賣出';
+
+      return [{
+        id: `trade-${entry.id}`,
+        accountSource,
+        date: entry.date,
+        createdAt: entry.createdAt,
+        label: `${entry.symbol} · ${action}`,
+        detail: `${entry.quantity} @ ${formatLedgerAmount(entry.price, entry.currency).replace(/^[+-]/, '')} · 手續費 ${formatLedgerAmount(entry.fees, entry.currency).replace(/^[+-]/, '')}`,
+        amount,
+        currency: entry.currency,
+        source: 'trade' as const,
+      }];
+    });
+
+  const externalFlowEntries: CashLedgerEntry[] = cashFlows
+    .filter((entry) => entry.accountSource === accountSource)
+    .map((entry) => ({
+      id: `cash-flow-${entry.id}`,
+      accountSource,
+      date: entry.date,
+      createdAt: entry.createdAt,
+      label: getCashFlowTypeLabel(entry.type),
+      detail: entry.note || '外部資金流水',
+      amount: getCashFlowSignedAmount(entry),
+      currency: entry.currency,
+      source: 'cash_flow' as const,
+    }));
+
+  return [...tradeEntries, ...externalFlowEntries].sort((left, right) => {
+    const dateDiff = right.date.localeCompare(left.date);
+    if (dateDiff !== 0) return dateDiff;
+
+    return (right.createdAt ?? '').localeCompare(left.createdAt ?? '');
+  });
 }
 
 function getPendingPriceUpdateReason(review: PendingPriceUpdateReview) {
@@ -159,6 +269,7 @@ export function AssetsPage() {
   } = usePortfolioAssets();
   const { entries: accountPrincipals, error: accountPrincipalsError } = useAccountPrincipals();
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
+  const { entries: assetTransactions, error: assetTransactionsError } = useAssetTransactions();
   const {
     todaySnapshot,
     status: todaySnapshotStatus,
@@ -181,6 +292,7 @@ export function AssetsPage() {
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [tradingHolding, setTradingHolding] = useState<Holding | null>(null);
+  const [cashLedgerAccount, setCashLedgerAccount] = useState<AccountSource | null>(null);
   const [isEditingAsset, setIsEditingAsset] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
@@ -321,6 +433,36 @@ export function AssetsPage() {
       pendingPriceCount,
     ],
   );
+  const cashLedgerByAccount = useMemo(
+    () =>
+      CASH_LEDGER_ACCOUNTS.reduce<Record<AccountSource, CashLedgerEntry[]>>(
+        (accumulator, accountSource) => {
+          accumulator[accountSource] = buildCashLedgerEntries(
+            accountSource,
+            assetTransactions,
+            accountCashFlows,
+          );
+          return accumulator;
+        },
+        {
+          IB: [],
+          Futu: [],
+          Crypto: [],
+          Other: [],
+        },
+      ),
+    [accountCashFlows, assetTransactions],
+  );
+  const cashHoldingsByAccount = useMemo(
+    () =>
+      new Map(
+        holdings
+          .filter((holding) => holding.assetType === 'cash' && holding.currency === 'USD')
+          .map((holding) => [holding.accountSource, holding]),
+      ),
+    [holdings],
+  );
+  const activeCashLedgerAccount = cashLedgerAccount ?? 'Futu';
 
   useTopBar(topBarConfig);
 
@@ -707,10 +849,91 @@ export function AssetsPage() {
             setTradingHolding(holding);
           }}
           onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
+          onViewCashLedger={(holding) => {
+            setCashLedgerAccount(
+              CASH_LEDGER_ACCOUNTS.includes(holding.accountSource)
+                ? holding.accountSource
+                : 'Futu',
+            );
+          }}
           updatingAssetIds={updatingAssetIds}
           pendingPriceUpdateReasons={pendingPriceUpdateReasons}
         />
       </section>
+
+      {cashLedgerAccount ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card modal-card-wide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cash-ledger-title"
+          >
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">現金流水</p>
+                <h2 id="cash-ledger-title">三個現金帳戶流水</h2>
+                <p className="table-hint">
+                  顯示交易買賣造成的現金加減，以及資金頁記錄的入金、提款或調整。
+                </p>
+              </div>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setCashLedgerAccount(null)}
+              >
+                關閉
+              </button>
+            </div>
+
+            <div className="filter-row" role="tablist" aria-label="現金帳戶">
+              {CASH_LEDGER_ACCOUNTS.map((accountSource) => {
+                const cashHolding = cashHoldingsByAccount.get(accountSource);
+                return (
+                  <button
+                    key={accountSource}
+                    className={activeCashLedgerAccount === accountSource ? 'filter-chip active' : 'filter-chip'}
+                    type="button"
+                    onClick={() => setCashLedgerAccount(accountSource)}
+                  >
+                    {getAccountSourceLabel(accountSource)}
+                    {' · '}
+                    {cashHolding ? formatLedgerAmount(cashHolding.currentPrice, cashHolding.currency) : '未設定'}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="settings-list">
+              {cashLedgerByAccount[activeCashLedgerAccount].length > 0 ? (
+                cashLedgerByAccount[activeCashLedgerAccount].map((entry) => (
+                  <div key={entry.id} className="setting-row setting-row-wide">
+                    <div>
+                      <strong>{entry.label}</strong>
+                      <p>
+                        {formatDateLabel(entry.date)}
+                        {' · '}
+                        {entry.source === 'trade' ? '交易現金變動' : '外部資金流水'}
+                      </p>
+                      <p className="table-hint">{entry.detail}</p>
+                    </div>
+                    <div className="table-metric">
+                      <strong
+                        className="table-metric-primary"
+                        data-tone={entry.amount >= 0 ? 'positive' : 'caution'}
+                      >
+                        {formatLedgerAmount(entry.amount, entry.currency)}
+                      </strong>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="status-message">暫時未有 {getAccountSourceLabel(activeCashLedgerAccount)} 現金流水。</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isBulkUpdateConfirmOpen ? (
         <div className="modal-backdrop" role="presentation">
@@ -833,6 +1056,7 @@ export function AssetsPage() {
           priceUpdateError,
           accountPrincipalsError,
           accountCashFlowsError,
+          assetTransactionsError,
           reviewsError,
           todaySnapshotError,
           manualSnapshotError,

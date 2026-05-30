@@ -19,6 +19,7 @@ interface HoldingsTableProps {
   onUpdatePrice?: (holding: Holding) => Promise<void> | void;
   onEdit?: (holding: Holding) => void;
   onTrade?: (holding: Holding) => void;
+  onViewCashLedger?: (holding: Holding) => void;
   updatingAssetIds?: string[];
   pendingPriceUpdateReasons?: Record<string, string>;
 }
@@ -40,6 +41,7 @@ export function HoldingsTable({
   onUpdatePrice,
   onEdit,
   onTrade,
+  onViewCashLedger,
   updatingAssetIds = [],
   pendingPriceUpdateReasons = {},
 }: HoldingsTableProps) {
@@ -283,10 +285,20 @@ export function HoldingsTable({
                       <button
                         className="button button-secondary table-action-button"
                         type="button"
-                        onClick={() => onUpdatePrice?.(holding)}
-                        disabled={!onUpdatePrice || isUpdating || isCashHolding}
+                        onClick={() => {
+                          if (isCashHolding) {
+                            onViewCashLedger?.(holding);
+                            return;
+                          }
+
+                          onUpdatePrice?.(holding);
+                        }}
+                        disabled={
+                          isUpdating ||
+                          (isCashHolding ? !onViewCashLedger : !onUpdatePrice)
+                        }
                       >
-                        {isUpdating ? '更新中...' : '更新價格'}
+                        {isCashHolding ? '現金流水' : isUpdating ? '更新中...' : '更新價格'}
                       </button>
                       <button
                         className="button button-secondary table-action-button"
