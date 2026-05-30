@@ -16,7 +16,15 @@ import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
-import type { AssetTransactionEntry, Holding } from '../types/portfolio';
+import type { AccountSource, AssetTransactionEntry, Holding } from '../types/portfolio';
+
+const transactionAccountFilterOptions: Array<{ value: AccountSource | 'all'; label: string }> = [
+  { value: 'all', label: '全部帳戶' },
+  { value: 'Futu', label: 'Futu' },
+  { value: 'IB', label: 'IB' },
+  { value: 'Crypto', label: 'Crypto' },
+  { value: 'Other', label: '其他' },
+];
 
 function formatTradeDate(value: string) {
   try {
@@ -61,12 +69,27 @@ export function TransactionsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isTransactionInputOpen, setIsTransactionInputOpen] = useState(false);
+  const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
+  const [dateFromFilter, setDateFromFilter] = useState('');
+  const [dateToFilter, setDateToFilter] = useState('');
   const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
 
   const visibleEntries = entries.filter(
     (entry) => !(entry.recordType === 'seed' && entry.note === '歷史持倉基線'),
   );
-  const totalTradeAmountDisplay = visibleEntries.reduce(
+  const filteredEntries = visibleEntries.filter((entry) => {
+    const settlementAccount = entry.settlementAccountSource ?? entry.accountSource;
+    const matchesAccount =
+      accountFilter === 'all' ||
+      entry.accountSource === accountFilter ||
+      settlementAccount === accountFilter;
+    const matchesDateFrom = !dateFromFilter || entry.date >= dateFromFilter;
+    const matchesDateTo = !dateToFilter || entry.date <= dateToFilter;
+
+    return matchesAccount && matchesDateFrom && matchesDateTo;
+  });
+  const hasActiveFilters = accountFilter !== 'all' || Boolean(dateFromFilter) || Boolean(dateToFilter);
+  const totalTradeAmountDisplay = filteredEntries.reduce(
     (sum, entry) => sum + convertCurrency(entry.quantity * entry.price, entry.currency, displayCurrency),
     0,
   );
@@ -75,7 +98,7 @@ export function TransactionsPage() {
     [holdings],
   );
   const latestTradeDate =
-    [...visibleEntries]
+    [...filteredEntries]
       .map((entry) => entry.date)
       .filter(Boolean)
       .sort((left, right) => right.localeCompare(left))[0] ?? null;
@@ -85,8 +108,8 @@ export function TransactionsPage() {
       title: '交易記錄',
       subtitle: '檢視買賣、轉帳與截圖匯入紀錄。',
       primaryStatus: {
-        label: visibleEntries.length > 0 ? `最近交易 ${latestTradeLabel}` : '尚未有交易',
-        tone: visibleEntries.length > 0 ? 'success' : 'neutral',
+        label: filteredEntries.length > 0 ? `最近交易 ${latestTradeLabel}` : '尚未有交易',
+        tone: filteredEntries.length > 0 ? 'success' : 'neutral',
       },
       actions: (
         <button
@@ -101,7 +124,7 @@ export function TransactionsPage() {
     [
       isTransactionInputOpen,
       latestTradeLabel,
-      visibleEntries.length,
+      filteredEntries.length,
     ],
   );
 
@@ -169,8 +192,10 @@ export function TransactionsPage() {
         <div className="summary-grid">
           <article className="summary-card">
             <p className="summary-label">記錄總數</p>
-            <strong className="summary-value">{visibleEntries.length}</strong>
-            <p className="summary-hint">包括建倉記錄與買入 / 賣出交易</p>
+            <strong className="summary-value">{filteredEntries.length}</strong>
+            <p className="summary-hint">
+              {hasActiveFilters ? `已篩選自 ${visibleEntries.length} 筆記錄` : '包括建倉記錄與買入 / 賣出交易'}
+            </p>
           </article>
           <article className="summary-card">
             <p className="summary-label">累計交易金額</p>
@@ -184,7 +209,7 @@ export function TransactionsPage() {
             <strong className="summary-value">
               {formatCurrencyRounded(
                 convertCurrency(
-                  visibleEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
+                  filteredEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
                   'HKD',
                   displayCurrency,
                 ),
@@ -206,13 +231,69 @@ export function TransactionsPage() {
             <h2>交易記錄</h2>
           </div>
           <span className={status === 'loading' ? 'chip chip-soft' : 'chip chip-strong'}>
-            {status === 'loading' ? '同步中' : `${visibleEntries.length} 筆`}
+            {status === 'loading' ? '同步中' : `${filteredEntries.length} 筆`}
           </span>
         </div>
 
+        <div className="assets-filter-panel">
+          <div className="assets-filter-block">
+            <span className="assets-filter-label">帳戶</span>
+            <div className="filter-row">
+              {transactionAccountFilterOptions.map((option) => (
+                <button
+                  key={option.value}
+                  className={accountFilter === option.value ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  onClick={() => setAccountFilter(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="filter-total">
+              {getAccountSourceLabel(accountFilter)} · {filteredEntries.length} 筆
+            </p>
+          </div>
+
+          <div className="assets-filter-block">
+            <span className="assets-filter-label">交易日期</span>
+            <div className="asset-form-grid">
+              <label className="form-field">
+                <span>由</span>
+                <input
+                  type="date"
+                  value={dateFromFilter}
+                  onChange={(event) => setDateFromFilter(event.target.value)}
+                />
+              </label>
+              <label className="form-field">
+                <span>至</span>
+                <input
+                  type="date"
+                  value={dateToFilter}
+                  onChange={(event) => setDateToFilter(event.target.value)}
+                />
+              </label>
+            </div>
+            {hasActiveFilters ? (
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => {
+                  setAccountFilter('all');
+                  setDateFromFilter('');
+                  setDateToFilter('');
+                }}
+              >
+                清除篩選
+              </button>
+            ) : null}
+          </div>
+        </div>
+
         <div className="settings-list">
-          {visibleEntries.length > 0 ? (
-            visibleEntries.map((entry) => {
+          {filteredEntries.length > 0 ? (
+            filteredEntries.map((entry) => {
               const grossAmount = entry.quantity * entry.price;
               const grossAmountDisplay = convertCurrency(grossAmount, entry.currency, displayCurrency);
               const feesDisplay = convertCurrency(entry.fees, entry.currency, displayCurrency);
@@ -300,7 +381,7 @@ export function TransactionsPage() {
           ) : (
             <EmptyState
               title="尚未有交易記錄"
-              reason="可以新增第一筆交易，或者用 AI 文字快速整理多筆交易。"
+              reason={hasActiveFilters ? '目前篩選條件下未有交易，可以放寬帳戶或日期範圍。' : '可以新增第一筆交易，或者用 AI 文字快速整理多筆交易。'}
               primaryAction={
                 <button
                   className="button button-secondary"
