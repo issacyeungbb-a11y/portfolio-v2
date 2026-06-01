@@ -1,6 +1,6 @@
 import type { DisplayCurrency } from '../../types/portfolio';
 
-const currencyOrder: DisplayCurrency[] = ['HKD', 'USD', 'JPY'];
+const currencyOrder: DisplayCurrency[] = ['USD', 'HKD', 'JPY'];
 
 interface CurrencyToggleProps {
   value: DisplayCurrency;
