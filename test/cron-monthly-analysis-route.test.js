@@ -20,7 +20,7 @@ test('analyze route has enough Vercel duration for grounded earnings analysis', 
     await readFile(new URL('../vercel.json', import.meta.url), 'utf8'),
   );
 
-  assert.equal(config.functions['api/analyze.ts'].maxDuration, 120);
+  assert.equal(config.functions['api/analyze.ts'].maxDuration, 300);
 });
 
 test('analyze route runtime JS imports exist for Vercel serverless', async () => {
