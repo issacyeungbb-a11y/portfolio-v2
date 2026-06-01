@@ -43,6 +43,7 @@ import type { PendingPriceUpdateReview, PriceUpdateRequest, PriceUpdateResponse 
 
 const MANUAL_PRICE_UPDATE_BATCH_SIZE = 3;
 const MANUAL_PRICE_UPDATE_RETRY_DELAY_MS = 2000;
+const ASSET_ARCHIVE_TRANSACTION_LIMIT = 1000;
 const CASH_LEDGER_ACCOUNTS: AccountSource[] = ['IB', 'Futu', 'Crypto'];
 
 interface CashLedgerEntry {
@@ -55,6 +56,23 @@ interface CashLedgerEntry {
   amount: number;
   currency: string;
   source: 'trade' | 'cash_flow';
+}
+
+interface ClosedAssetArchiveEntry {
+  assetId: string;
+  assetName: string;
+  symbol: string;
+  assetType: AssetType;
+  accountSource: AccountSource;
+  currency: string;
+  totalSoldQuantity: number;
+  totalSaleProceeds: number;
+  totalFees: number;
+  realizedPnlHKD: number;
+  lastExitDate: string;
+  lastExitCreatedAt?: string;
+  averageExitPrice: number;
+  transactions: AssetTransactionEntry[];
 }
 
 const assetFilterOptions: Array<{ value: AssetType | 'all'; label: string }> = [
@@ -209,6 +227,80 @@ function buildCashLedgerEntries(
   });
 }
 
+function buildClosedAssetArchiveEntries(transactions: AssetTransactionEntry[]) {
+  const groupedTransactions = transactions.reduce<Record<string, AssetTransactionEntry[]>>(
+    (accumulator, entry) => {
+      if (!entry.assetId || entry.assetType === 'cash') {
+        return accumulator;
+      }
+
+      accumulator[entry.assetId] = [...(accumulator[entry.assetId] ?? []), entry];
+      return accumulator;
+    },
+    {},
+  );
+
+  return Object.entries(groupedTransactions)
+    .flatMap<ClosedAssetArchiveEntry>(([assetId, assetTransactionsForAsset]) => {
+      const sortedTransactions = [...assetTransactionsForAsset].sort((left, right) => {
+        const dateDiff = left.date.localeCompare(right.date);
+        if (dateDiff !== 0) return dateDiff;
+
+        const createdDiff = (left.createdAt ?? '').localeCompare(right.createdAt ?? '');
+        if (createdDiff !== 0) return createdDiff;
+
+        return left.id.localeCompare(right.id);
+      });
+      const latestTransaction = sortedTransactions[sortedTransactions.length - 1];
+
+      if (!latestTransaction || (latestTransaction.quantityAfter ?? 0) > 1e-8) {
+        return [];
+      }
+
+      const sellTransactions = sortedTransactions.filter(
+        (entry) => (entry.recordType ?? 'trade') === 'trade' && entry.transactionType === 'sell',
+      );
+
+      if (sellTransactions.length === 0) {
+        return [];
+      }
+
+      const totalSoldQuantity = sellTransactions.reduce((sum, entry) => sum + entry.quantity, 0);
+      const totalSaleProceeds = sellTransactions.reduce(
+        (sum, entry) => sum + (entry.quantity * entry.price - entry.fees),
+        0,
+      );
+      const totalFees = sellTransactions.reduce((sum, entry) => sum + entry.fees, 0);
+      const realizedPnlHKD = sortedTransactions.reduce(
+        (sum, entry) => sum + (entry.realizedPnlHKD || 0),
+        0,
+      );
+
+      return [{
+        assetId,
+        assetName: latestTransaction.assetName,
+        symbol: latestTransaction.symbol,
+        assetType: latestTransaction.assetType,
+        accountSource: latestTransaction.accountSource,
+        currency: latestTransaction.currency,
+        totalSoldQuantity,
+        totalSaleProceeds,
+        totalFees,
+        realizedPnlHKD,
+        lastExitDate: latestTransaction.date,
+        lastExitCreatedAt: latestTransaction.createdAt,
+        averageExitPrice: totalSoldQuantity === 0 ? 0 : totalSaleProceeds / totalSoldQuantity,
+        transactions: sortedTransactions,
+      }];
+    })
+    .sort((left, right) => {
+      const dateDiff = right.lastExitDate.localeCompare(left.lastExitDate);
+      if (dateDiff !== 0) return dateDiff;
+
+      return (right.lastExitCreatedAt ?? '').localeCompare(left.lastExitCreatedAt ?? '');
+    });
+}
+
 function getPendingPriceUpdateReason(review: PendingPriceUpdateReview) {
   if (review.invalidReason) {
     const trimmedReason = review.invalidReason.trim();
@@ -269,7 +361,9 @@ export function AssetsPage() {
   } = usePortfolioAssets();
   const { entries: accountPrincipals, error: accountPrincipalsError } = useAccountPrincipals();
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
-  const { entries: assetTransactions, error: assetTransactionsError } = useAssetTransactions();
+  const { entries: assetTransactions, error: assetTransactionsError } = useAssetTransactions({
+    limitCount: ASSET_ARCHIVE_TRANSACTION_LIMIT,
+  });
   const {
     todaySnapshot,
     status: todaySnapshotStatus,
@@ -293,6 +387,7 @@ export function AssetsPage() {
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [tradingHolding, setTradingHolding] = useState<Holding | null>(null);
   const [cashLedgerAccount, setCashLedgerAccount] = useState<AccountSource | null>(null);
+  const [selectedClosedAssetId, setSelectedClosedAssetId] = useState<string | null>(null);
   const [isEditingAsset, setIsEditingAsset] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
@@ -463,6 +558,21 @@ export function AssetsPage() {
     [holdings],
   );
   const activeCashLedgerAccount = cashLedgerAccount ?? 'Futu';
+  const closedAssetArchiveEntries = useMemo(
+    () => buildClosedAssetArchiveEntries(assetTransactions),
+    [assetTransactions],
+  );
+  const selectedClosedAsset = selectedClosedAssetId
+    ? closedAssetArchiveEntries.find((entry) => entry.assetId === selectedClosedAssetId) ?? null
+    : null;
+  const closedArchivePnl = closedAssetArchiveEntries.reduce(
+    (sum, entry) => sum + entry.realizedPnlHKD,
+    0,
+  );
+  const closedArchiveSaleProceeds = closedAssetArchiveEntries.reduce(
+    (sum, entry) => sum + convertCurrency(entry.totalSaleProceeds, entry.currency, displayCurrency),
+    0,
+  );
 
   useTopBar(topBarConfig);
 
@@ -860,6 +970,161 @@ export function AssetsPage() {
           pendingPriceUpdateReasons={pendingPriceUpdateReasons}
         />
       </section>
+
+      <section className="card">
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">清倉檔案</p>
+            <h2>已清倉資產</h2>
+            <p className="table-hint">
+              從最近 {ASSET_ARCHIVE_TRANSACTION_LIMIT} 筆交易自動找出最後持倉數量為 0 的資產，方便翻查賣出金額及已實現盈虧。
+            </p>
+          </div>
+          <span className="chip chip-soft">
+            {closedAssetArchiveEntries.length} 項
+          </span>
+        </div>
+
+        {closedAssetArchiveEntries.length > 0 ? (
+          <>
+            <div className="summary-grid summary-grid-secondary">
+              <SummaryCard
+                label={`清倉賣出總額 ${displayCurrency}`}
+                value={formatCurrencyRounded(closedArchiveSaleProceeds, displayCurrency)}
+                hint="按每項交易原幣轉換作估算"
+              />
+              <SummaryCard
+                label={`已實現盈虧 ${displayCurrency}`}
+                value={formatCurrencyRounded(convertCurrency(closedArchivePnl, 'HKD', displayCurrency), displayCurrency)}
+                hint="由交易紀錄 realizedPnlHKD 匯總"
+                tone={closedArchivePnl > 0 ? 'positive' : closedArchivePnl < 0 ? 'caution' : 'default'}
+              />
+            </div>
+
+            <div className="closed-asset-grid">
+              {closedAssetArchiveEntries.map((entry) => (
+                <button
+                  key={entry.assetId}
+                  className="closed-asset-card"
+                  type="button"
+                  onClick={() => setSelectedClosedAssetId(entry.assetId)}
+                >
+                  <span className="closed-asset-card-topline">
+                    <span className="table-chip">{getAssetTypeLabel(entry.assetType)}</span>
+                    <span className="table-chip table-chip-strong">{getAccountSourceLabel(entry.accountSource)}</span>
+                  </span>
+                  <strong>{entry.assetName}</strong>
+                  <span className="table-hint">{entry.symbol} · 清倉於 {formatDateLabel(entry.lastExitDate)}</span>
+                  <span className="closed-asset-card-metrics">
+                    <span>
+                      <small>賣出</small>
+                      {formatCurrencyRounded(convertCurrency(entry.totalSaleProceeds, entry.currency, displayCurrency), displayCurrency)}
+                    </span>
+                    <span>
+                      <small>盈虧</small>
+                      <strong data-tone={entry.realizedPnlHKD >= 0 ? 'positive' : 'caution'}>
+                        {formatCurrencyRounded(convertCurrency(entry.realizedPnlHKD, 'HKD', displayCurrency), displayCurrency)}
+                      </strong>
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        ) : (
+          <p className="status-message">
+            暫時未搵到已清倉資產；之後有資產賣出至 0 股/單位，就會自動出現在這裡。
+          </p>
+        )}
+      </section>
+
+      {selectedClosedAsset ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card modal-card-wide"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="closed-asset-title"
+          >
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">清倉詳情</p>
+                <h2 id="closed-asset-title">{selectedClosedAsset.assetName}</h2>
+                <p className="table-hint">
+                  {selectedClosedAsset.symbol}
+                  {' · '}
+                  {getAccountSourceLabel(selectedClosedAsset.accountSource)}
+                  {' · '}
+                  清倉於 {formatDateLabel(selectedClosedAsset.lastExitDate)}
+                </p>
+              </div>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setSelectedClosedAssetId(null)}
+              >
+                關閉
+              </button>
+            </div>
+
+            <div className="summary-grid summary-grid-secondary">
+              <SummaryCard
+                label="賣出數量"
+                value={new Intl.NumberFormat('zh-HK', {
+                  maximumFractionDigits: 8,
+                }).format(selectedClosedAsset.totalSoldQuantity)}
+                hint={`平均賣出價 ${formatCurrency(selectedClosedAsset.averageExitPrice, selectedClosedAsset.currency)}`}
+              />
+              <SummaryCard
+                label={`賣出所得 ${selectedClosedAsset.currency}`}
+                value={formatCurrencyRounded(selectedClosedAsset.totalSaleProceeds, selectedClosedAsset.currency)}
+                hint={`手續費 ${formatCurrency(selectedClosedAsset.totalFees, selectedClosedAsset.currency)}`}
+              />
+              <SummaryCard
+                label={`已實現盈虧 ${displayCurrency}`}
+                value={formatCurrencyRounded(convertCurrency(selectedClosedAsset.realizedPnlHKD, 'HKD', displayCurrency), displayCurrency)}
+                hint="清倉前所有交易盈虧合計"
+                tone={selectedClosedAsset.realizedPnlHKD > 0 ? 'positive' : selectedClosedAsset.realizedPnlHKD < 0 ? 'caution' : 'default'}
+              />
+            </div>
+
+            <div className="settings-list">
+              {selectedClosedAsset.transactions.map((entry) => (
+                <div key={entry.id} className="setting-row setting-row-wide">
+                  <div>
+                    <strong>
+                      {entry.recordType === 'seed'
+                        ? '歷史基線'
+                        : entry.transactionType === 'buy'
+                          ? '買入'
+                          : '賣出'}
+                      {' · '}
+                      {formatDateLabel(entry.date)}
+                    </strong>
+                    <p>
+                      {entry.quantity} @ {formatCurrency(entry.price, entry.currency)}
+                      {' · '}
+                      手續費 {formatCurrency(entry.fees, entry.currency)}
+                    </p>
+                    {entry.note ? <p className="table-hint">{entry.note}</p> : null}
+                  </div>
+                  <div className="table-metric">
+                    <strong
+                      className="table-metric-primary"
+                      data-tone={entry.realizedPnlHKD >= 0 ? 'positive' : 'caution'}
+                    >
+                      {formatCurrencyRounded(convertCurrency(entry.realizedPnlHKD, 'HKD', displayCurrency), displayCurrency)}
+                    </strong>
+                    <span className="table-metric-secondary">
+                      餘下 {entry.quantityAfter ?? 0}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {cashLedgerAccount ? (
         <div className="modal-backdrop" role="presentation">

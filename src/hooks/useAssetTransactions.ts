@@ -18,7 +18,7 @@ interface AssetTransactionsState {
   error: string | null;
 }
 
-export function useAssetTransactions() {
+export function useAssetTransactions(options: { limitCount?: number } = {}) {
   const [state, setState] = useState<AssetTransactionsState>({
     status: 'loading',
     entries: [],
@@ -47,10 +47,11 @@ export function useAssetTransactions() {
           error: getAssetTransactionsErrorMessage(error),
         });
       },
+      options,
     );
 
     return unsubscribe;
-  }, []);
+  }, [options.limitCount]);
 
   async function addTransaction(
     entry: Omit<AssetTransactionEntry, 'id' | 'createdAt' | 'updatedAt' | 'realizedPnlHKD'>,
