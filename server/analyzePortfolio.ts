@@ -64,7 +64,7 @@ function getGeminiAnalyzeModel(requestedModel: PortfolioAnalysisModel) {
 
 function getClaudeAnalyzeModel() {
   const model = process.env.CLAUDE_ANALYZE_MODEL?.trim() || CLAUDE_ANALYZE_MODEL;
-  return model === 'claude-opus-4-7' ? model : CLAUDE_ANALYZE_MODEL;
+  return model === 'claude-opus-4-8' ? model : CLAUDE_ANALYZE_MODEL;
 }
 
 function getGeminiApiKey() {
@@ -1858,7 +1858,7 @@ async function analyzeWithGemini(
 async function analyzeWithClaude(
   systemPrompt: string,
   userPrompt: string,
-  model: Extract<PortfolioAnalysisModel, 'claude-opus-4-7'>,
+  model: Extract<PortfolioAnalysisModel, 'claude-opus-4-8'>,
   maxTokens = 1800,
   timeoutMs = CLAUDE_ANALYSIS_TIMEOUT_MS,
 ) {
@@ -2252,7 +2252,7 @@ export async function runPortfolioAnalysisRequest(
       ? getGeneralQuestionMaxTokens(intent)
       : getDefaultAnalysisMaxTokens(request.category));
   const resolvedModel =
-    request.analysisModel === 'claude-opus-4-7'
+    request.analysisModel === 'claude-opus-4-8'
       ? getClaudeAnalyzeModel()
       : getGeminiAnalyzeModel(request.analysisModel);
 
@@ -2264,7 +2264,7 @@ export async function runPortfolioAnalysisRequest(
         ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
             systemPrompt,
             userPrompt,
-            resolvedModel as 'claude-opus-4-7',
+            resolvedModel as 'claude-opus-4-8',
             resolvedMaxTokens,
           )
         : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
@@ -2303,7 +2303,7 @@ export async function runPortfolioAnalysisRequest(
             ? await (options?.testHooks?.analyzeWithClaude ?? analyzeWithClaude)(
                 systemPrompt,
                 rewritePrompt,
-                resolvedModel as 'claude-opus-4-7',
+                resolvedModel as 'claude-opus-4-8',
                 resolvedMaxTokens,
                 QUALITY_REWRITE_TIMEOUT_MS,
               )

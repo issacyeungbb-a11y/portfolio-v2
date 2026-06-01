@@ -109,9 +109,9 @@ const analysisModelOptions: Array<{
   hint: string;
 }> = [
   {
-    value: 'claude-opus-4-7',
+    value: 'claude-opus-4-8',
     label: 'Claude Opus',
-    hint: '4.7 · 最佳分析',
+    hint: '4.8 · 最佳分析',
   },
   {
     value: 'gemini-3.1-pro-preview',
@@ -283,7 +283,7 @@ export function AnalysisPage() {
   const [analysisCacheKeyStatus, setAnalysisCacheKeyStatus] = useState<SnapshotHashStatus>('idle');
   const [snapshotHashError, setSnapshotHashError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<AnalysisCategory>('general_question');
-  const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('claude-opus-4-7');
+  const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('claude-opus-4-8');
   const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
   const [lastGeneralQuestionMeta, setLastGeneralQuestionMeta] = useState<GeneralQuestionDataFreshness | null>(null);
   const [lastGeneralQuestionSources, setLastGeneralQuestionSources] = useState<string[]>([]);
@@ -931,7 +931,7 @@ export function AnalysisPage() {
 
     try {
       const conversationContext = buildQuarterlyReportContext(selectedReport);
-      const followUpModel: PortfolioAnalysisModel = 'claude-opus-4-7';
+      const followUpModel: PortfolioAnalysisModel = 'claude-opus-4-8';
       const followUpCacheKey = await createPortfolioAnalysisCacheKey(
         snapshotHash ?? selectedReport.currentSnapshotHash ?? '',
         'general_question',
@@ -1185,7 +1185,7 @@ export function AnalysisPage() {
           <label className="form-field analysis-inline-model">
             <span>模型</span>
             <select
-              value={isQuarterlyCategory || isPortfolioAnalysisCategory ? 'claude-opus-4-7' : selectedModel}
+              value={isQuarterlyCategory || isPortfolioAnalysisCategory ? 'claude-opus-4-8' : selectedModel}
               onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
               disabled={isAnalyzing || !isInteractiveCategory}
             >

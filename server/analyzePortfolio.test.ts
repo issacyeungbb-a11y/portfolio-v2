@@ -40,7 +40,7 @@ function buildAnalysisRequestFromAssets({
   category: 'asset_analysis' | 'general_question' | 'asset_report';
   analysisQuestion: string;
   analysisBackground: string;
-  analysisModel: 'gemini-3.1-pro-preview' | 'claude-opus-4-7';
+  analysisModel: 'gemini-3.1-pro-preview' | 'claude-opus-4-8';
 }): PortfolioAnalysisRequest {
   const holdings = assets.map((asset) => {
     const marketValue = asset.quantity * asset.currentPrice;
@@ -96,7 +96,7 @@ function buildGoogGeneralRequest(question = '根據 Google 最新財報，係咩
     category: 'general_question',
     analysisQuestion: question,
     analysisBackground: '請用專業投資角度回答一般問題。',
-    analysisModel: 'claude-opus-4-7',
+    analysisModel: 'claude-opus-4-8',
   });
 }
 
@@ -196,7 +196,7 @@ test('general question prompt expects grounded macro context and structured answ
     category: 'general_question',
     analysisQuestion: '根據 Google 最新財報，係咩水平？背後有咩說明？',
     analysisBackground: '請用專業投資角度回答一般問題。',
-    analysisModel: 'claude-opus-4-7',
+    analysisModel: 'claude-opus-4-8',
   });
 
   const prompt = buildPrompt(

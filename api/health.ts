@@ -560,7 +560,7 @@ async function probeAllAiModels(): Promise<AiProbeResult[]> {
   const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim();
 
   const geminiModels = ['gemini-2.0-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-pro-preview'];
-  const anthropicModels = ['claude-haiku-4-5-20251001', 'claude-opus-4-7'];
+  const anthropicModels = ['claude-haiku-4-5-20251001', 'claude-opus-4-8'];
 
   const geminiProbes = geminiModels.map((modelId) =>
     geminiApiKey
