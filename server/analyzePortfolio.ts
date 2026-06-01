@@ -2204,6 +2204,7 @@ export async function runPortfolioAnalysisRequest(
   options?: {
     delivery?: 'manual' | 'scheduled';
     maxTokens?: number;
+    modelTimeoutMs?: number;
     testHooks?: AnalyzePortfolioTestHooks;
   },
 ): Promise<PortfolioAnalysisResponse> {
@@ -2266,12 +2267,14 @@ export async function runPortfolioAnalysisRequest(
             userPrompt,
             resolvedModel as 'claude-opus-4-8',
             resolvedMaxTokens,
+            options?.modelTimeoutMs,
           )
         : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
             `${systemPrompt}\n\n${userPrompt}`,
             resolvedModel as 'gemini-3.1-pro-preview',
             resolvedMaxTokens,
             isGeneralQuestion,
+            options?.modelTimeoutMs,
           );
   } catch (error) {
     if (isGeneralQuestion && isAbortTimeoutError(error)) {

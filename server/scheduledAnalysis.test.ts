@@ -15,6 +15,7 @@ import {
   normalizeSnapshotDocument,
   sanitizeForFirestore,
   selectNearestSnapshotToDate,
+  buildScheduledAnalysisTimeoutFallback,
 } from './scheduledAnalysis.js';
 
 test('getPreviousMonthStartDate uses previous month start in Hong Kong time', () => {
@@ -92,6 +93,43 @@ test('buildAnalysisRequestFromAssets calculates JPY holdings in HKD for prompt c
   assert.equal(request.holdings[0]?.marketValue, 180000);
   assert.equal(request.holdings[0]?.marketValueHKD, 9360);
   assert.equal(request.totalValueHKD, 9360);
+});
+
+test('buildScheduledAnalysisTimeoutFallback returns savable partial monthly analysis', () => {
+  const request = buildAnalysisRequestFromAssets({
+    assets: [
+      {
+        id: 'goog',
+        name: 'Alphabet',
+        symbol: 'GOOG',
+        assetType: 'stock',
+        accountSource: 'IB',
+        currency: 'USD',
+        quantity: 10,
+        averageCost: 100,
+        currentPrice: 150,
+      },
+    ],
+    category: 'asset_analysis',
+    analysisQuestion: 'monthly question',
+    analysisBackground: 'monthly background',
+    analysisModel: 'claude-opus-4-8',
+  });
+  const error = new Error('The operation was aborted due to timeout');
+  error.name = 'AbortError';
+
+  const response = buildScheduledAnalysisTimeoutFallback(request, {
+    title: '2026年6月每月資產分析',
+    model: 'claude-opus-4-8',
+    category: 'asset_analysis',
+    error,
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.enrichmentStatus, 'partial');
+  assert.equal(response.provider, 'anthropic');
+  assert.match(response.answer, /分析模型今次回應超時/);
+  assert.ok(response.uncertainty?.some((item) => item.includes('回應超時')));
 });
 
 test('buildReportFactsPayload includes netExternalFlowCoveragePct and cashFlowWarningMessage', () => {

@@ -23,6 +23,7 @@ const DEFAULT_DIAGNOSTIC_MODEL = "claude-opus-4-8";
 const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = "gemini-3.1-pro-preview";
 const PREFERRED_GROUNDED_SEARCH_MODEL = "gemini-2.5-flash";
 const GROUNDED_SEARCH_FALLBACK_MODELS = ["gemini-2.5-pro", "gemini-3.1-pro-preview"];
+const SCHEDULED_MODEL_TIMEOUT_MS = 75e3;
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
 const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
 const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
@@ -48,6 +49,78 @@ function getGeminiApiKey() {
 }
 function getScheduledAnalysisModel() {
   return process.env.ANTHROPIC_API_KEY?.trim() ? DEFAULT_DIAGNOSTIC_MODEL : DEFAULT_DIAGNOSTIC_FALLBACK_MODEL;
+}
+function resolveScheduledModelProvider(model) {
+  return model.startsWith("claude-") ? "anthropic" : "google";
+}
+function isAbortTimeoutError(error) {
+  if (!(error instanceof Error)) return false;
+  return /abort|timeout|aborted/i.test(`${error.name} ${error.message}`);
+}
+function formatHKD(value) {
+  return `${value.toLocaleString("en-HK", {
+    maximumFractionDigits: 0
+  })} HKD`;
+}
+function buildScheduledAnalysisTimeoutFallback(request, params) {
+  const sortedHoldings = [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+  const totalValueHKD = request.totalValueHKD || sortedHoldings.reduce((sum, holding) => sum + holding.marketValueHKD, 0);
+  const topHoldings = sortedHoldings.slice(0, 8);
+  const topHoldingLines = topHoldings.map((holding, index) => {
+    const weight = totalValueHKD > 0 ? holding.marketValueHKD / totalValueHKD * 100 : 0;
+    const gainLossHKD = holding.marketValueHKD - holding.costValueHKD;
+    return `${index + 1}. ${holding.ticker}\uFF5C${holding.name}\uFF5C\u5E02\u503C ${formatHKD(holding.marketValueHKD)}\uFF5C\u4F54\u6BD4 ${weight.toFixed(1)}%\uFF5C\u5E33\u9762 ${gainLossHKD >= 0 ? "+" : ""}${formatHKD(gainLossHKD)}`;
+  });
+  const assetTypeLines = request.allocationsByType.slice(0, 8).map((item) => `- ${item.assetType}\uFF1A${item.percentage.toFixed(1)}%\uFF0C${formatHKD(item.totalValueHKD)}`);
+  const currencyLines = request.allocationsByCurrency.slice(0, 8).map((item) => `- ${item.currency}\uFF1A${item.percentage.toFixed(1)}%\uFF0C${formatHKD(item.totalValueHKD)}`);
+  const errorMessage = params.error instanceof Error ? params.error.message : "model_timeout";
+  const answer = [
+    `\u3010${params.title}\u3011`,
+    "\u4E00\u53E5\u8A71\u7D50\u8AD6\uFF1A\u5206\u6790\u6A21\u578B\u4ECA\u6B21\u56DE\u61C9\u8D85\u6642\uFF0C\u7CFB\u7D71\u5DF2\u5148\u7528\u5DF2\u540C\u6B65\u6301\u5009\u3001\u914D\u7F6E\u8207\u5FEB\u7167\u8CC7\u6599\u751F\u6210\u53EF\u7528\u7248\u672C\uFF0C\u907F\u514D\u6708\u5831\u5B8C\u5168\u5931\u6557\u3002",
+    "",
+    "\u3010\u672C\u6708\u8CC7\u7522\u6982\u6CC1\u3011",
+    `- \u7E3D\u5E02\u503C\uFF1A\u7D04 ${formatHKD(totalValueHKD)}`,
+    `- \u8CC7\u7522\u6578\u91CF\uFF1A${request.assetCount} \u9805`,
+    ...assetTypeLines,
+    "",
+    "\u3010\u4E3B\u8981\u6301\u5009\u3011",
+    ...topHoldingLines,
+    sortedHoldings.length > topHoldings.length ? `- \u5176\u9918 ${sortedHoldings.length - topHoldings.length} \u9805\u5408\u8A08\u7D04 ${formatHKD(sortedHoldings.slice(topHoldings.length).reduce((sum, holding) => sum + holding.marketValueHKD, 0))}` : "",
+    "",
+    "\u3010\u5E63\u5225\u66DD\u96AA\u3011",
+    ...currencyLines,
+    "",
+    "\u3010\u4E0B\u6708\u8DDF\u9032\u3011",
+    "1. \u512A\u5148\u6AA2\u67E5\u6700\u5927\u6301\u5009\u8207\u6700\u5927\u5E33\u9762\u8667\u640D\u9805\u76EE\uFF0C\u78BA\u8A8D\u662F\u5426\u9700\u8981\u8ABF\u6574\u96C6\u4E2D\u5EA6\u3002",
+    "2. \u7559\u610F\u5E63\u5225\u66DD\u96AA\u662F\u5426\u96C6\u4E2D\u65BC\u55AE\u4E00\u8CA8\u5E63\uFF0C\u5C24\u5176\u662F\u73FE\u91D1\u6D41\u8207\u6295\u8CC7\u8CA8\u5E63\u4E0D\u4E00\u81F4\u7684\u90E8\u5206\u3002",
+    "3. \u5F85\u6A21\u578B\u56DE\u61C9\u7A69\u5B9A\u5F8C\uFF0C\u53EF\u91CD\u65B0\u751F\u6210\u4E00\u6B21\u6708\u5831\u53D6\u5F97\u5B8C\u6574\u5B8F\u89C0\u9023\u7D50\u8207\u884C\u52D5\u5EFA\u8B70\u3002"
+  ].filter(Boolean).join("\n");
+  return {
+    ok: true,
+    route: "/api/analyze",
+    mode: "live",
+    cacheKey: request.cacheKey,
+    category: params.category,
+    provider: resolveScheduledModelProvider(params.model),
+    model: params.model,
+    snapshotHash: request.snapshotHash,
+    enrichmentStatus: "partial",
+    analysisQuestion: request.analysisQuestion ?? "",
+    analysisBackground: request.analysisBackground ?? "",
+    delivery: "scheduled",
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    answer,
+    usedPortfolioFacts: [
+      `\u7E3D\u5E02\u503C\u7D04 ${formatHKD(totalValueHKD)}`,
+      `\u6301\u5009\u6578\u91CF ${request.assetCount} \u9805`,
+      topHoldings[0] ? `\u6700\u5927\u6301\u5009 ${topHoldings[0].ticker}` : ""
+    ].filter(Boolean),
+    uncertainty: [
+      `\u5206\u6790\u6A21\u578B\u56DE\u61C9\u8D85\u6642\uFF0C\u5DF2\u6539\u7528\u6301\u5009\u8CC7\u6599\u751F\u6210\u81E8\u6642\u6708\u5831\u3002\u539F\u59CB\u932F\u8AA4\uFF1A${errorMessage}`,
+      "\u6B64\u7248\u672C\u672A\u5B8C\u6210\u6A21\u578B\u6DF1\u5EA6\u63A8\u7406\uFF1B\u5982\u9700\u8981\u5B8C\u6574\u5B8F\u89C0\u9023\u7D50\uFF0C\u53EF\u7A0D\u5F8C\u91CD\u65B0\u751F\u6210\u3002"
+    ],
+    suggestedActions: ["\u7A0D\u5F8C\u91CD\u65B0\u751F\u6210\u5B8C\u6574\u6708\u5831\u3002", "\u5148\u6AA2\u67E5\u4E3B\u8981\u6301\u5009\u3001\u8CC7\u7522\u985E\u5225\u8207\u5E63\u5225\u96C6\u4E2D\u5EA6\u3002"]
+  };
 }
 function getAssetMarketValueHKD(asset) {
   return convertToHKDValue(asset.quantity * asset.currentPrice, asset.currency);
@@ -911,10 +984,24 @@ async function runScheduledCategoryAnalysis(params) {
     analysisModel: getScheduledAnalysisModel(),
     conversationContext: params.conversationContext
   });
-  const response = await runPortfolioAnalysisRequest(request, {
-    delivery: "scheduled",
-    maxTokens: params.maxTokens
-  });
+  let response;
+  try {
+    response = await runPortfolioAnalysisRequest(request, {
+      delivery: "scheduled",
+      maxTokens: params.maxTokens,
+      modelTimeoutMs: SCHEDULED_MODEL_TIMEOUT_MS
+    });
+  } catch (error) {
+    if (!isAbortTimeoutError(error)) {
+      throw error;
+    }
+    response = buildScheduledAnalysisTimeoutFallback(request, {
+      title: params.title,
+      model: request.analysisModel,
+      category: params.category,
+      error
+    });
+  }
   const payload = {
     ...response,
     assetCount: request.assetCount
@@ -1225,6 +1312,7 @@ export {
   SCHEDULED_ANALYSIS_LOGIC_VERSION,
   buildAnalysisRequestFromAssets,
   buildAnalysisSessionWritePayload,
+  buildScheduledAnalysisTimeoutFallback,
   buildMonthlyAnalysisQuestion,
   buildQuarterlyReportWritePayload,
   buildReportDataQualitySummary,

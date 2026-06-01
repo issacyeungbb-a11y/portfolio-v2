@@ -1576,14 +1576,16 @@ async function runPortfolioAnalysisRequest(request, options) {
       systemPrompt,
       userPrompt,
       resolvedModel,
-      resolvedMaxTokens
+      resolvedMaxTokens,
+      options?.modelTimeoutMs
     ) : await (options?.testHooks?.analyzeWithGemini ?? analyzeWithGemini)(
       `${systemPrompt}
 
 ${userPrompt}`,
       resolvedModel,
       resolvedMaxTokens,
-      isGeneralQuestion
+      isGeneralQuestion,
+      options?.modelTimeoutMs
     );
   } catch (error) {
     if (isGeneralQuestion && isAbortTimeoutError(error)) {

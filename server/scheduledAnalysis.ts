@@ -33,6 +33,7 @@ import type {
 } from '../src/types/portfolio';
 import type {
   PortfolioAnalysisModel,
+  PortfolioAnalysisProvider,
   PortfolioAnalysisRequest,
   PortfolioAnalysisResponse,
 } from '../src/types/portfolioAnalysis.js';
@@ -45,6 +46,7 @@ const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-8' as const;
 const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = 'gemini-3.1-pro-preview' as const;
 const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
 const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'] as const;
+const SCHEDULED_MODEL_TIMEOUT_MS = 75_000;
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
 const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
 const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
@@ -95,6 +97,106 @@ function getScheduledAnalysisModel(): PortfolioAnalysisModel {
   return process.env.ANTHROPIC_API_KEY?.trim()
     ? DEFAULT_DIAGNOSTIC_MODEL
     : DEFAULT_DIAGNOSTIC_FALLBACK_MODEL;
+}
+
+function resolveScheduledModelProvider(model: PortfolioAnalysisModel): PortfolioAnalysisProvider {
+  return model.startsWith('claude-') ? 'anthropic' : 'google';
+}
+
+function isAbortTimeoutError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  return /abort|timeout|aborted/i.test(`${error.name} ${error.message}`);
+}
+
+function formatHKD(value: number) {
+  return `${value.toLocaleString('en-HK', {
+    maximumFractionDigits: 0,
+  })} HKD`;
+}
+
+export function buildScheduledAnalysisTimeoutFallback(
+  request: PortfolioAnalysisRequest,
+  params: {
+    title: string;
+    model: PortfolioAnalysisModel;
+    category: ScheduledCategory;
+    error?: unknown;
+  },
+): PortfolioAnalysisResponse {
+  const sortedHoldings = [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+  const totalValueHKD =
+    request.totalValueHKD || sortedHoldings.reduce((sum, holding) => sum + holding.marketValueHKD, 0);
+  const topHoldings = sortedHoldings.slice(0, 8);
+  const topHoldingLines = topHoldings.map((holding, index) => {
+    const weight = totalValueHKD > 0 ? (holding.marketValueHKD / totalValueHKD) * 100 : 0;
+    const gainLossHKD = holding.marketValueHKD - holding.costValueHKD;
+
+    return `${index + 1}. ${holding.ticker}｜${holding.name}｜市值 ${formatHKD(
+      holding.marketValueHKD,
+    )}｜佔比 ${weight.toFixed(1)}%｜帳面 ${gainLossHKD >= 0 ? '+' : ''}${formatHKD(gainLossHKD)}`;
+  });
+  const assetTypeLines = request.allocationsByType
+    .slice(0, 8)
+    .map((item) => `- ${item.assetType}：${item.percentage.toFixed(1)}%，${formatHKD(item.totalValueHKD)}`);
+  const currencyLines = request.allocationsByCurrency
+    .slice(0, 8)
+    .map((item) => `- ${item.currency}：${item.percentage.toFixed(1)}%，${formatHKD(item.totalValueHKD)}`);
+  const errorMessage = params.error instanceof Error ? params.error.message : 'model_timeout';
+
+  const answer = [
+    `【${params.title}】`,
+    '一句話結論：分析模型今次回應超時，系統已先用已同步持倉、配置與快照資料生成可用版本，避免月報完全失敗。',
+    '',
+    '【本月資產概況】',
+    `- 總市值：約 ${formatHKD(totalValueHKD)}`,
+    `- 資產數量：${request.assetCount} 項`,
+    ...assetTypeLines,
+    '',
+    '【主要持倉】',
+    ...topHoldingLines,
+    sortedHoldings.length > topHoldings.length
+      ? `- 其餘 ${sortedHoldings.length - topHoldings.length} 項合計約 ${formatHKD(
+          sortedHoldings.slice(topHoldings.length).reduce((sum, holding) => sum + holding.marketValueHKD, 0),
+        )}`
+      : '',
+    '',
+    '【幣別曝險】',
+    ...currencyLines,
+    '',
+    '【下月跟進】',
+    '1. 優先檢查最大持倉與最大帳面虧損項目，確認是否需要調整集中度。',
+    '2. 留意幣別曝險是否集中於單一貨幣，尤其是現金流與投資貨幣不一致的部分。',
+    '3. 待模型回應穩定後，可重新生成一次月報取得完整宏觀連結與行動建議。',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  return {
+    ok: true,
+    route: '/api/analyze',
+    mode: 'live',
+    cacheKey: request.cacheKey,
+    category: params.category,
+    provider: resolveScheduledModelProvider(params.model),
+    model: params.model,
+    snapshotHash: request.snapshotHash,
+    enrichmentStatus: 'partial',
+    analysisQuestion: request.analysisQuestion ?? '',
+    analysisBackground: request.analysisBackground ?? '',
+    delivery: 'scheduled',
+    generatedAt: new Date().toISOString(),
+    answer,
+    usedPortfolioFacts: [
+      `總市值約 ${formatHKD(totalValueHKD)}`,
+      `持倉數量 ${request.assetCount} 項`,
+      topHoldings[0] ? `最大持倉 ${topHoldings[0].ticker}` : '',
+    ].filter(Boolean),
+    uncertainty: [
+      `分析模型回應超時，已改用持倉資料生成臨時月報。原始錯誤：${errorMessage}`,
+      '此版本未完成模型深度推理；如需要完整宏觀連結，可稍後重新生成。',
+    ],
+    suggestedActions: ['稍後重新生成完整月報。', '先檢查主要持倉、資產類別與幣別集中度。'],
+  };
 }
 
 function getAssetMarketValueHKD(asset: Pick<AdminAsset, 'quantity' | 'currentPrice' | 'currency'>) {
@@ -1376,10 +1478,25 @@ async function runScheduledCategoryAnalysis(params: {
     analysisModel: getScheduledAnalysisModel(),
     conversationContext: params.conversationContext,
   });
-  const response = await runPortfolioAnalysisRequest(request, {
-    delivery: 'scheduled',
-    maxTokens: params.maxTokens,
-  });
+  let response: PortfolioAnalysisResponse;
+  try {
+    response = await runPortfolioAnalysisRequest(request, {
+      delivery: 'scheduled',
+      maxTokens: params.maxTokens,
+      modelTimeoutMs: SCHEDULED_MODEL_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (!isAbortTimeoutError(error)) {
+      throw error;
+    }
+
+    response = buildScheduledAnalysisTimeoutFallback(request, {
+      title: params.title,
+      model: request.analysisModel,
+      category: params.category,
+      error,
+    });
+  }
 
   const payload = {
     ...response,
