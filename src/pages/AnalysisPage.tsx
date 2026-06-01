@@ -518,6 +518,15 @@ export function AnalysisPage() {
     () => canGenerateMonthlyAnalysisNow(currentTime) && !hasCurrentMonthAnalysis,
     [currentTime, hasCurrentMonthAnalysis],
   );
+
+  useEffect(() => {
+    if (!reportActionError || !currentMonthAnalysis) {
+      return;
+    }
+
+    setReportActionError(null);
+    setReportActionMessage('本月每月資產分析已生成；剛才只是瀏覽器等待回應期間連線中斷。');
+  }, [currentMonthAnalysis, reportActionError]);
   useEffect(() => {
     if (monthlyAnalysisSessions.length === 0) {
       setSelectedMonthlyAnalysisId(null);
