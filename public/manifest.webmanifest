@@ -1,0 +1,18 @@
+{
+  "name": "投資組合管理系統",
+  "short_name": "Portfolio",
+  "description": "集中管理資產、交易、資金與分析報告的個人理財系統。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f0e8",
+  "theme_color": "#f6f0e8",
+  "lang": "zh-Hant",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

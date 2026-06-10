@@ -145,6 +145,17 @@ export default defineConfig(({ mode }) => {
           'firebase-admin/firestore',
           'yahoo-finance2',
         ],
+        output: {
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+            'vendor-firebase': [
+              'firebase/app',
+              'firebase/auth',
+              'firebase/firestore',
+              'firebase/storage',
+            ],
+          },
+        },
       },
     },
   };

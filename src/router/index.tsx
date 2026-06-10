@@ -1,19 +1,14 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 
 import { AppShell } from '../layout/AppShell';
-import { AnalysisPage } from '../pages/AnalysisPage';
-import { AssetsPage } from '../pages/AssetsPage';
-import { DashboardPage } from '../pages/DashboardPage';
-import { FundsPage } from '../pages/FundsPage';
-import { AssetTrendsPage } from '../pages/AssetTrendsPage';
-import { TransactionsPage } from '../pages/TransactionsPage';
-import { SystemDiagnosticsPage } from '../pages/SystemDiagnosticsPage';
 
 export const router = createBrowserRouter([
   // Standalone tool route — outside AppShell, no sidebar/topbar/bottomnav
   {
     path: '/system/diagnostics',
-    element: <SystemDiagnosticsPage />,
+    lazy: async () => ({
+      Component: (await import('../pages/SystemDiagnosticsPage')).SystemDiagnosticsPage,
+    }),
   },
   {
     path: '/',
@@ -21,14 +16,18 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <DashboardPage />,
+        lazy: async () => ({
+          Component: (await import('../pages/DashboardPage')).DashboardPage,
+        }),
         handle: {
           title: '投資總覽',
         },
       },
       {
         path: 'assets',
-        element: <AssetsPage />,
+        lazy: async () => ({
+          Component: (await import('../pages/AssetsPage')).AssetsPage,
+        }),
         handle: {
           title: '資產管理',
         },
@@ -42,14 +41,18 @@ export const router = createBrowserRouter([
       },
       {
         path: 'funds',
-        element: <FundsPage />,
+        lazy: async () => ({
+          Component: (await import('../pages/FundsPage')).FundsPage,
+        }),
         handle: {
           title: '資金流水',
         },
       },
       {
         path: 'analysis',
-        element: <AnalysisPage />,
+        lazy: async () => ({
+          Component: (await import('../pages/AnalysisPage')).AnalysisPage,
+        }),
         handle: {
           title: '分析與報告',
         },
@@ -63,14 +66,18 @@ export const router = createBrowserRouter([
       },
       {
         path: 'trends',
-        element: <AssetTrendsPage />,
+        lazy: async () => ({
+          Component: (await import('../pages/AssetTrendsPage')).AssetTrendsPage,
+        }),
         handle: {
           title: '資產走勢',
         },
       },
       {
         path: 'transactions',
-        element: <TransactionsPage />,
+        lazy: async () => ({
+          Component: (await import('../pages/TransactionsPage')).TransactionsPage,
+        }),
         handle: {
           title: '交易記錄',
         },

@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useMatches } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useMatches } from 'react-router-dom';
 
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { BottomNav } from '../components/layout/BottomNav';
@@ -28,6 +28,7 @@ export function AppShell() {
 }
 
 function AppShellContent() {
+  const location = useLocation();
   const matches = useMatches();
   const currentHandle = matches[matches.length - 1]?.handle as RouteHandle | undefined;
   const { config: topBarConfig } = useTopBarState();
@@ -69,7 +70,8 @@ function AppShellContent() {
       <div className="shell-main">
         <TopBar {...resolvedTopBar} />
         <main className="page-content">
-          <ErrorBoundary>
+          {/* key 令換頁時自動重置錯誤狀態 */}
+          <ErrorBoundary key={location.pathname}>
             <Outlet />
           </ErrorBoundary>
         </main>
