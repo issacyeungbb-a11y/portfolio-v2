@@ -6,19 +6,13 @@ import { splitParagraphs, splitReportIntoSections } from '../../lib/portfolio/qu
 interface MonthlyReportPanelProps {
   monthlyAnalysisSessions: AnalysisSession[];
   selectedMonthlyAnalysisId: string | null;
-  expandedMonthlyAnalysisId: string | null;
   displayCurrency: DisplayCurrency;
   assetCount: number;
   baseCurrency: string;
   canGenerateCurrentMonthAnalysis: boolean;
-  generatingPeriodicReport: 'monthly' | 'quarterly' | null;
   deletingMonthlyAnalysisId: string | null;
-  onGenerateMonthlyAnalysisReport: () => void;
   onDeleteMonthlyAnalysisReport: (session: AnalysisSession) => void;
   onSelectedMonthlyAnalysisIdChange: (id: string) => void;
-  onExpandedMonthlyAnalysisIdChange: (id: string) => void;
-  onOpenSettings: () => void;
-  onSwitchToGeneralQuestion: () => void;
   onCopyReport: () => void;
   formatGeneratedAt: (value: string) => string;
   getAnalysisModelLabel: (model: string) => string;
@@ -31,14 +25,9 @@ export function MonthlyReportPanel({
   assetCount,
   baseCurrency,
   canGenerateCurrentMonthAnalysis,
-  generatingPeriodicReport,
   deletingMonthlyAnalysisId,
-  onGenerateMonthlyAnalysisReport,
   onDeleteMonthlyAnalysisReport,
   onSelectedMonthlyAnalysisIdChange,
-  onExpandedMonthlyAnalysisIdChange,
-  onOpenSettings,
-  onSwitchToGeneralQuestion,
   onCopyReport,
   formatGeneratedAt,
   getAnalysisModelLabel,
@@ -58,7 +47,6 @@ export function MonthlyReportPanel({
                 <p className="eyebrow">Monthly Analysis</p>
                 <h2>{selectedMonthlyAnalysis.title}</h2>
                 <div className="analysis-report-meta-strip" aria-label="月報摘要">
-                  <span>月份：{selectedMonthlyAnalysis.title.replace(/每月資產分析$/, '')}</span>
                   <span>生成：{formatGeneratedAt(selectedMonthlyAnalysis.updatedAt)}</span>
                   <span>模型：{getAnalysisModelLabel(selectedMonthlyAnalysis.model)}</span>
                   <span>資產：{assetCount} 項</span>
@@ -77,16 +65,6 @@ export function MonthlyReportPanel({
                 >
                   {deletingMonthlyAnalysisId === selectedMonthlyAnalysis.id ? '刪除中...' : '刪除'}
                 </button>
-                {canGenerateCurrentMonthAnalysis ? (
-                  <button
-                    className="button button-primary"
-                    type="button"
-                    onClick={onGenerateMonthlyAnalysisReport}
-                    disabled={generatingPeriodicReport === 'monthly'}
-                  >
-                    {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成本月分析'}
-                  </button>
-                ) : null}
               </div>
             </div>
 
@@ -115,33 +93,8 @@ export function MonthlyReportPanel({
             title="尚未生成每月分析"
             reason={
               canGenerateCurrentMonthAnalysis
-                ? '可以立即生成第一份每月資產分析。'
-                : '未到每月生成時段，暫時未有可用的月報。'
-            }
-            primaryAction={
-              canGenerateCurrentMonthAnalysis ? (
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={onGenerateMonthlyAnalysisReport}
-                  disabled={generatingPeriodicReport === 'monthly'}
-                >
-                  {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成本月分析'}
-                </button>
-              ) : (
-                <button className="button button-secondary" type="button" onClick={onOpenSettings}>
-                  檢視一般問題設定
-                </button>
-              )
-            }
-            secondaryAction={
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={onSwitchToGeneralQuestion}
-              >
-                切換至一般問題
-              </button>
+                ? '已進入可生成時段，可在上方按「生成月報」建立第一份每月資產分析。'
+                : '未到每月生成時段（每月 1 號香港時間上午 8:00 後），暫時未有可用的月報。'
             }
           />
         )}
@@ -170,10 +123,7 @@ export function MonthlyReportPanel({
                   <button
                     type="button"
                     className="quarterly-report-row-main"
-                    onClick={() => {
-                      onSelectedMonthlyAnalysisIdChange(session.id);
-                      onExpandedMonthlyAnalysisIdChange(session.id);
-                    }}
+                    onClick={() => onSelectedMonthlyAnalysisIdChange(session.id)}
                   >
                     <div>
                       <strong>{session.title}</strong>
@@ -194,15 +144,7 @@ export function MonthlyReportPanel({
             })}
           </div>
         ) : (
-          <div className="button-row">
-            <button
-              className="button button-secondary"
-              type="button"
-              onClick={onSwitchToGeneralQuestion}
-            >
-              切換至一般問題
-            </button>
-          </div>
+          <p className="table-hint">生成月報後，歷史記錄會在這裡列出。</p>
         )}
       </aside>
     </div>

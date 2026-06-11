@@ -1,8 +1,6 @@
-import type { Dispatch, SetStateAction } from 'react';
-
 import { EmptyState } from '../ui/EmptyState';
 import { ReportAllocationSummaryCard } from '../portfolio/ReportAllocationSummaryCard';
-import type { AnalysisCategory, DisplayCurrency } from '../../types/portfolio';
+import type { DisplayCurrency } from '../../types/portfolio';
 import type { QuarterlyReport } from '../../lib/firebase/quarterlyReports';
 import { splitParagraphs, type ReportSection } from '../../lib/portfolio/quarterlyReportPdf';
 
@@ -20,21 +18,17 @@ interface QuarterlyReportPanelProps {
   selectedReportId: string | null;
   selectedSections: ReportSection[];
   displayCurrency: DisplayCurrency;
-  canGenerateCurrentQuarterReport: boolean;
-  generatingPeriodicReport: 'monthly' | 'quarterly' | null;
   generatingReportId: string | null;
   selectedQuarterlyReportThreadExists: boolean;
   selectedQuarterlyThreadTurnsStatus: string;
   quarterlyActiveConversationTurns: ConversationTurn[];
   followUpQuestion: string;
   isAnalyzing: boolean;
-  onGenerateQuarterlyReport: () => void;
+  canGenerateCurrentQuarterReport: boolean;
   onGeneratePdf: (report: QuarterlyReport) => void;
   onSelectedReportIdChange: (id: string) => void;
-  onOpenSettings: () => void;
-  onSwitchToMonthly: () => void;
   onCopyReport: () => void;
-  onFollowUpQuestionChange: Dispatch<SetStateAction<Record<AnalysisCategory, string>>>;
+  onFollowUpQuestionChange: (value: string) => void;
   onQuarterlyReportFollowUp: () => void;
   formatGeneratedAt: (value: string) => string;
   formatAnalysisTime: (value: string) => string;
@@ -48,19 +42,15 @@ export function QuarterlyReportPanel({
   selectedReportId,
   selectedSections,
   displayCurrency,
-  canGenerateCurrentQuarterReport,
-  generatingPeriodicReport,
   generatingReportId,
   selectedQuarterlyReportThreadExists,
   selectedQuarterlyThreadTurnsStatus,
   quarterlyActiveConversationTurns,
   followUpQuestion,
   isAnalyzing,
-  onGenerateQuarterlyReport,
+  canGenerateCurrentQuarterReport,
   onGeneratePdf,
   onSelectedReportIdChange,
-  onOpenSettings,
-  onSwitchToMonthly,
   onCopyReport,
   onFollowUpQuestionChange,
   onQuarterlyReportFollowUp,
@@ -84,35 +74,10 @@ export function QuarterlyReportPanel({
         {reportsStatus === 'ready' && reports.length === 0 ? (
           <EmptyState
             title="尚未生成季度報告"
-            reason="生成第一份季度報告後，這裡會列出歷史版本同 PDF 下載入口。"
-            primaryAction={
-              canGenerateCurrentQuarterReport ? (
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={onGenerateQuarterlyReport}
-                  disabled={generatingPeriodicReport === 'quarterly'}
-                >
-                  {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成今季報告'}
-                </button>
-              ) : (
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  onClick={onOpenSettings}
-                >
-                  檢視一般問題設定
-                </button>
-              )
-            }
-            secondaryAction={
-              <button
-                className="button button-secondary"
-                type="button"
-                onClick={onSwitchToMonthly}
-              >
-                切換至每月分析
-              </button>
+            reason={
+              canGenerateCurrentQuarterReport
+                ? '已進入可生成時段，可在上方按「生成季報」建立第一份季度報告。'
+                : '生成第一份季度報告後，這裡會列出歷史版本同 PDF 下載入口。'
             }
           />
         ) : null}
@@ -175,7 +140,6 @@ export function QuarterlyReportPanel({
               <p className="eyebrow">Quarterly Report</p>
               <h2>{selectedReport.quarter}</h2>
               <div className="analysis-report-meta-strip" aria-label="季報摘要">
-                <span>季度：{selectedReport.quarter}</span>
                 <span>生成：{formatGeneratedAt(selectedReport.generatedAt)}</span>
                 <span>模型：{getAnalysisModelLabel(selectedReport.model)}</span>
                 <span>PDF：{selectedReport.pdfUrl ? '已生成' : '未生成'}</span>
@@ -204,16 +168,6 @@ export function QuarterlyReportPanel({
               <button className="button button-secondary" type="button" onClick={onCopyReport}>
                 複製內容
               </button>
-              {canGenerateCurrentQuarterReport ? (
-                <button
-                  className="button button-primary"
-                  type="button"
-                  onClick={onGenerateQuarterlyReport}
-                  disabled={generatingPeriodicReport === 'quarterly'}
-                >
-                  {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成今季報告'}
-                </button>
-              ) : null}
             </div>
           </div>
 
@@ -237,16 +191,16 @@ export function QuarterlyReportPanel({
                 <h3>報告內容</h3>
               </div>
             </div>
-          <div className="quarterly-report-body">
-            {selectedSections.map((section, index) => (
-              <section key={`${selectedReport.id}-${index}`} className="quarterly-report-section">
-                {section.title ? <h3>{section.title}</h3> : null}
-                {splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
-                  <p key={`${selectedReport.id}-${index}-${paragraphIndex}`}>{paragraph}</p>
-                ))}
-              </section>
-            ))}
-          </div>
+            <div className="quarterly-report-body">
+              {selectedSections.map((section, index) => (
+                <section key={`${selectedReport.id}-${index}`} className="quarterly-report-section">
+                  {section.title ? <h3>{section.title}</h3> : null}
+                  {splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
+                    <p key={`${selectedReport.id}-${index}-${paragraphIndex}`}>{paragraph}</p>
+                  ))}
+                </section>
+              ))}
+            </div>
           </section>
         </main>
       ) : null}
@@ -294,12 +248,7 @@ export function QuarterlyReportPanel({
               <span>追問</span>
               <textarea
                 value={followUpQuestion}
-                onChange={(event) =>
-                  onFollowUpQuestionChange((current) => ({
-                    ...current,
-                    asset_report: event.target.value,
-                  }))
-                }
+                onChange={(event) => onFollowUpQuestionChange(event.target.value)}
                 placeholder="例如：本季為何現金比例上升？哪一項持倉最值得減持？"
                 rows={4}
                 disabled={isAnalyzing}

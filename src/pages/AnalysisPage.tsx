@@ -2,12 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
-import { AnalysisConversationPanel } from '../components/analysis/AnalysisConversationPanel';
-import { AnalysisSettingsModal } from '../components/analysis/AnalysisSettingsModal';
 import { MonthlyReportPanel } from '../components/analysis/MonthlyReportPanel';
 import { QuarterlyReportPanel } from '../components/analysis/QuarterlyReportPanel';
 import { getHoldingValueInCurrency, mockPortfolio } from '../data/mockPortfolio';
-import { useAnalysisCache } from '../hooks/useAnalysisCache';
 import { useAnalysisSessions } from '../hooks/useAnalysisSessions';
 import { useAnalysisThreadTurns, useAnalysisThreads } from '../hooks/useAnalysisThreads';
 import { useAnalysisSettings } from '../hooks/useAnalysisSettings';
@@ -38,85 +35,29 @@ import {
   splitReportIntoSections,
 } from '../lib/portfolio/quarterlyReportPdf';
 import { StatusMessages } from '../components/ui/StatusMessages';
-import type { AnalysisCategory, AnalysisSession, Holding } from '../types/portfolio';
+import type { AnalysisSession, Holding } from '../types/portfolio';
 import type {
-  CachedPortfolioAnalysis,
-  ExternalEvidenceSource,
-  GeneralQuestionDataFreshness,
   PortfolioAnalysisModel,
   PortfolioAnalysisResponse,
 } from '../types/portfolioAnalysis';
 
 type SnapshotHashStatus = 'idle' | 'loading' | 'ready' | 'error';
-type ConversationTurn = {
-  question: string;
-  answer: string;
-  generatedAt: string;
-  model: string;
-};
+type ReportTab = 'asset_analysis' | 'asset_report';
 
-type ConversationArchiveItem = {
-  id: string;
-  title: string;
-  updatedAt: string;
-  turnCount: number;
-  source: 'thread' | 'legacy';
-};
-
-const LEGACY_THREAD_PREFIX = 'legacy:';
-
-function makeLegacyConversationId(sessionId: string) {
-  return `${LEGACY_THREAD_PREFIX}${sessionId}`;
-}
-
-function isLegacyConversationId(value: string) {
-  return value.startsWith(LEGACY_THREAD_PREFIX);
-}
-
-function getLegacyConversationSessionId(value: string) {
-  return value.slice(LEGACY_THREAD_PREFIX.length);
-}
-
-const analysisCategoryOptions: Array<{
-  value: AnalysisCategory;
+const reportTabOptions: Array<{
+  value: ReportTab;
   label: string;
   helper: string;
-  questionPlaceholder: string;
 }> = [
-  {
-    value: 'general_question',
-    label: '一般問題',
-    helper: '即時對話',
-    questionPlaceholder: '輸入問題後送出',
-  },
   {
     value: 'asset_analysis',
     label: '每月資產分析',
-    helper: '按月手動生成',
-    questionPlaceholder: '例如：根據目前資產配置，請分析當前最值得留意的重點。',
+    helper: '按月生成',
   },
   {
     value: 'asset_report',
     label: '季度投資報告',
-    helper: '按季手動生成',
-    questionPlaceholder: '',
-  },
-];
-
-const analysisModelOptions: Array<{
-  value: PortfolioAnalysisModel;
-  label: string;
-  hint: string;
-}> = [
-  {
-    value: 'claude-opus-4-8',
-    label: 'Claude Opus',
-    hint: '4.8 · 最佳分析',
-  },
-  {
-    value: 'gemini-3.1-pro-preview',
-    label: 'Google Gemini',
-    hint: '3.1 Pro Preview',
+    helper: '按季生成',
   },
 ];
 
@@ -220,35 +161,8 @@ function isMonthlyAnalysisRecord(title: string) {
   return /^\d{4}年.+(每月)?資產分析$/.test(normalized);
 }
 
-function createAnalysisTitle(question: string) {
-  const trimmed = question.trim();
-
-  if (!trimmed) {
-    return '投資組合分析';
-  }
-
-  return trimmed.length > 26 ? `${trimmed.slice(0, 26)}...` : trimmed;
-}
-
 function getAnalysisModelLabel(model: string) {
   return model || '未指定模型';
-}
-
-function buildConversationTurnFromSession(session: AnalysisSession): ConversationTurn {
-  return {
-    question: session.question,
-    answer: session.result,
-    generatedAt: session.updatedAt,
-    model: session.model,
-  };
-}
-
-function formatConversationContext(turns: ConversationTurn[]) {
-  return turns
-    .map(
-      (turn, index) => `第 ${index + 1} 輪\n使用者：${turn.question}\nAI：${turn.answer}`,
-    )
-    .join('\n\n');
 }
 
 function buildQuarterlyReportContext(report: QuarterlyReport) {
@@ -275,43 +189,17 @@ export function AnalysisPage() {
   const {
     settings: savedPromptSettings,
     error: analysisSettingsError,
-    persistSettings,
   } = useAnalysisSettings();
   const [snapshotHash, setSnapshotHash] = useState<string | null>(null);
   const [snapshotHashStatus, setSnapshotHashStatus] = useState<SnapshotHashStatus>('idle');
-  const [analysisCacheKey, setAnalysisCacheKey] = useState<string | null>(null);
-  const [analysisCacheKeyStatus, setAnalysisCacheKeyStatus] = useState<SnapshotHashStatus>('idle');
   const [snapshotHashError, setSnapshotHashError] = useState<string | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<AnalysisCategory>('general_question');
-  const [selectedModel, setSelectedModel] = useState<PortfolioAnalysisModel>('claude-opus-4-8');
-  const [localAnalysis, setLocalAnalysis] = useState<CachedPortfolioAnalysis | null>(null);
-  const [lastGeneralQuestionMeta, setLastGeneralQuestionMeta] = useState<GeneralQuestionDataFreshness | null>(null);
-  const [lastGeneralQuestionSources, setLastGeneralQuestionSources] = useState<string[]>([]);
-  const [lastGeneralQuestionSourcesDetailed, setLastGeneralQuestionSourcesDetailed] = useState<ExternalEvidenceSource[]>([]);
-  const [lastGeneralQuestionUncertainty, setLastGeneralQuestionUncertainty] = useState<string[]>([]);
-  const [lastGeneralQuestionActions, setLastGeneralQuestionActions] = useState<string[]>([]);
+  const [selectedTab, setSelectedTab] = useState<ReportTab>('asset_analysis');
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisSuccess, setAnalysisSuccess] = useState<string | null>(null);
-  const [promptSettingsSuccess, setPromptSettingsSuccess] = useState<string | null>(null);
+  const [enrichmentWarning, setEnrichmentWarning] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isSavingPromptSettings, setIsSavingPromptSettings] = useState(false);
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [selectedMonthlyAnalysisId, setSelectedMonthlyAnalysisId] = useState<string | null>(null);
-  const [expandedMonthlyAnalysisId, setExpandedMonthlyAnalysisId] = useState<string | null>(null);
-  const [isPromptSettingsOpen, setIsPromptSettingsOpen] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(10);
-  const [generalQuestionSeedContext, setGeneralQuestionSeedContext] = useState<string>('');
-  const [analysisQuestionByCategory, setAnalysisQuestionByCategory] = useState<Record<AnalysisCategory, string>>({
-    asset_analysis: '',
-    general_question: '',
-    asset_report: '',
-  });
-  const [followUpQuestionByCategory, setFollowUpQuestionByCategory] = useState<Record<AnalysisCategory, string>>({
-    asset_analysis: '',
-    general_question: '',
-    asset_report: '',
-  });
-  const [promptDrafts, setPromptDrafts] = useState(savedPromptSettings);
+  const [followUpQuestion, setFollowUpQuestion] = useState('');
   const [reports, setReports] = useState<QuarterlyReport[]>([]);
   const [reportsStatus, setReportsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [reportsError, setReportsError] = useState<string | null>(null);
@@ -329,33 +217,14 @@ export function AnalysisPage() {
     (holding) => getHoldingValueInCurrency(holding, mockPortfolio.baseCurrency),
   );
   const snapshotSignature = holdings.length > 0 ? createPortfolioSnapshotSignature(holdings) : '';
-  const analysisQuestion = analysisQuestionByCategory[selectedCategory];
-  const followUpQuestion = followUpQuestionByCategory[selectedCategory];
-  const analysisBackground = savedPromptSettings[selectedCategory];
   const currentTime = useMemo(() => new Date(currentTimeMs), [currentTimeMs]);
-  const isInteractiveCategory = selectedCategory === 'general_question';
-  const isPortfolioAnalysisCategory = selectedCategory === 'asset_analysis';
-  const isQuarterlyCategory = selectedCategory === 'asset_report';
-  const selectedCategoryOption = useMemo(
-    () =>
-      analysisCategoryOptions.find((option) => option.value === selectedCategory) ??
-      analysisCategoryOptions[0],
-    [selectedCategory],
-  );
+  const isMonthlyTab = selectedTab === 'asset_analysis';
+  const isQuarterlyTab = selectedTab === 'asset_report';
   const currentMonthLabel = useMemo(
     () => `${getHongKongYearMonthLabel(currentTime)}每月資產分析`,
     [currentTime],
   );
   const currentQuarterLabel = useMemo(() => getHongKongQuarterLabel(currentTime), [currentTime]);
-  useEffect(() => {
-    setLocalAnalysis(null);
-    setAnalysisError(null);
-    setAnalysisSuccess(null);
-  }, [snapshotSignature, selectedModel, selectedCategory, analysisQuestion, analysisBackground]);
-
-  useEffect(() => {
-    setPromptDrafts(savedPromptSettings);
-  }, [savedPromptSettings]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -364,11 +233,6 @@ export function AnalysisPage() {
 
     return () => window.clearInterval(timer);
   }, []);
-
-  useEffect(() => {
-    setSelectedSessionId(null);
-    setVisibleCount(10);
-  }, [selectedCategory]);
 
   useEffect(() => {
     setReportsStatus('loading');
@@ -399,12 +263,6 @@ export function AnalysisPage() {
       current && reports.some((report) => report.id === current) ? current : reports[0].id,
     );
   }, [reports]);
-
-  useEffect(() => {
-    if (selectedCategory !== 'general_question') {
-      setGeneralQuestionSeedContext('');
-    }
-  }, [selectedCategory]);
 
   useEffect(() => {
     if (!snapshotSignature) {
@@ -444,55 +302,9 @@ export function AnalysisPage() {
     };
   }, [snapshotSignature, holdings.length]);
 
-  useEffect(() => {
-    if (!snapshotHash) {
-      setAnalysisCacheKey(null);
-      setAnalysisCacheKeyStatus('idle');
-      return;
-    }
-
-    let isActive = true;
-    setAnalysisCacheKeyStatus('loading');
-
-    createPortfolioAnalysisCacheKey(
-      snapshotHash,
-      selectedCategory,
-      selectedModel,
-      analysisQuestion,
-      analysisBackground,
-    )
-      .then((cacheKey) => {
-        if (!isActive) {
-          return;
-        }
-
-        setAnalysisCacheKey(cacheKey);
-        setAnalysisCacheKeyStatus('ready');
-      })
-      .catch(() => {
-        if (!isActive) {
-          return;
-        }
-
-        setAnalysisCacheKey(null);
-        setAnalysisCacheKeyStatus('error');
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [snapshotHash, selectedCategory, selectedModel, analysisQuestion, analysisBackground]);
-
-  const {
-    analysis: cachedAnalysis,
-    error: cacheError,
-    hasCachedAnalysis,
-    persistAnalysis,
-  } = useAnalysisCache(analysisCacheKey);
   const {
     entries: analysisSessions,
     error: analysisSessionsError,
-    addAnalysisSession,
     removeAnalysisSession,
   } = useAnalysisSessions();
   const {
@@ -527,10 +339,10 @@ export function AnalysisPage() {
     setReportActionError(null);
     setReportActionMessage('本月每月資產分析已生成；剛才只是瀏覽器等待回應期間連線中斷。');
   }, [currentMonthAnalysis, reportActionError]);
+
   useEffect(() => {
     if (monthlyAnalysisSessions.length === 0) {
       setSelectedMonthlyAnalysisId(null);
-      setExpandedMonthlyAnalysisId(null);
       return;
     }
 
@@ -539,46 +351,8 @@ export function AnalysisPage() {
         ? current
         : monthlyAnalysisSessions[0].id,
     );
-    setExpandedMonthlyAnalysisId((current) =>
-      current && monthlyAnalysisSessions.some((session) => session.id === current)
-        ? current
-        : monthlyAnalysisSessions[0].id,
-    );
   }, [monthlyAnalysisSessions]);
-  const conversationArchiveSessions: ConversationArchiveItem[] =
-    selectedCategory === 'general_question'
-      ? [
-          ...analysisThreads
-            .filter((thread) => !thread.sourceReportId)
-            .map(
-              (thread): ConversationArchiveItem => ({
-                id: thread.id,
-                title: thread.title,
-                updatedAt: thread.updatedAt,
-                turnCount: thread.turnCount,
-                source: 'thread',
-              }),
-            ),
-          ...analysisSessions
-            .filter((session) => session.category === 'general_question')
-            .map(
-              (session): ConversationArchiveItem => ({
-                id: makeLegacyConversationId(session.id),
-                title: session.title || createAnalysisTitle(session.question),
-                updatedAt: session.updatedAt,
-                turnCount: 1,
-                source: 'legacy',
-              }),
-            ),
-        ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      : [];
-  const canAnalyze =
-    assetsStatus === 'ready' &&
-    holdings.length > 0 &&
-    snapshotHashStatus === 'ready' &&
-    analysisCacheKeyStatus === 'ready' &&
-    !isAnalyzing &&
-    !isQuarterlyCategory;
+
   const selectedReport = useMemo(
     () => reports.find((report) => report.id === selectedReportId) ?? null,
     [reports, selectedReportId],
@@ -602,45 +376,11 @@ export function AnalysisPage() {
     () => splitReportIntoSections(selectedReport?.report ?? ''),
     [selectedReport],
   );
-  const activeAnalysis = localAnalysis ?? cachedAnalysis;
-  const enrichmentWarning =
-    activeAnalysis?.enrichmentStatus && activeAnalysis.enrichmentStatus !== 'ok'
-      ? '部分歷史數據載入失敗，AI 內容可能不完整'
-      : null;
-  const selectedLegacyConversationSession = useMemo(() => {
-    if (!selectedSessionId || !isLegacyConversationId(selectedSessionId)) {
-      return null;
-    }
-
-    const sessionId = getLegacyConversationSessionId(selectedSessionId);
-    return analysisSessions.find((session) => session.id === sessionId && session.category === 'general_question') ?? null;
-  }, [analysisSessions, selectedSessionId]);
-  const selectedAnalysisThreadId =
-    selectedCategory === 'general_question' &&
-    selectedSessionId &&
-    !isLegacyConversationId(selectedSessionId)
-      ? selectedSessionId
-      : null;
   const selectedQuarterlyReportThreadId = selectedQuarterlyReportThread?.id ?? null;
-  const {
-    entries: selectedThreadTurns,
-  } = useAnalysisThreadTurns(selectedAnalysisThreadId);
   const {
     entries: selectedQuarterlyThreadTurns,
     status: selectedQuarterlyThreadTurnsStatus,
   } = useAnalysisThreadTurns(selectedQuarterlyReportThreadId);
-  const activeConversationTurns = useMemo(() => {
-    if (selectedLegacyConversationSession) {
-      return [buildConversationTurnFromSession(selectedLegacyConversationSession)];
-    }
-
-    return selectedThreadTurns.map((turn) => ({
-      question: turn.question,
-      answer: turn.answer,
-      generatedAt: turn.generatedAt,
-      model: turn.model,
-    }));
-  }, [selectedLegacyConversationSession, selectedThreadTurns]);
   const quarterlyActiveConversationTurns = useMemo(
     () =>
       selectedQuarterlyThreadTurns.map((turn) => ({
@@ -654,7 +394,7 @@ export function AnalysisPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '分析與報告',
-      subtitle: '向 AI 提問、生成月報或查看季度報告。',
+      subtitle: '生成每月資產分析與季度投資報告。',
       primaryStatus: {
         label:
           isAnalyzing || generatingPeriodicReport
@@ -663,7 +403,7 @@ export function AnalysisPage() {
               ? '生成失敗'
               : canGenerateCurrentMonthAnalysis || canGenerateCurrentQuarterReport
                 ? '可生成'
-                : '可提問',
+                : '已就緒',
         tone:
           analysisError || reportActionError || snapshotHashStatus === 'error'
             ? 'danger'
@@ -671,15 +411,6 @@ export function AnalysisPage() {
               ? 'warning'
               : 'success',
       },
-      actions: (
-        <button
-          className="button button-secondary"
-          type="button"
-          onClick={() => setIsPromptSettingsOpen(true)}
-        >
-          一般問題設定
-        </button>
-      ),
     }),
     [
       analysisError,
@@ -689,253 +420,23 @@ export function AnalysisPage() {
       isAnalyzing,
       reportActionError,
       snapshotHashStatus,
-      setIsPromptSettingsOpen,
     ],
   );
   useTopBar(topBarConfig);
 
-  async function handleAnalyzePortfolio(quickQuestion?: string) {
-    if (!snapshotHash || holdings.length === 0 || isQuarterlyCategory) {
-      setAnalysisError('目前沒有完整的資產快照可供分析。');
-      return;
-    }
-
-    const effectiveAnalysisQuestion = (quickQuestion ?? analysisQuestion).trim();
-    if (!effectiveAnalysisQuestion) {
-      return;
-    }
-
-    setAnalysisError(null);
-    setAnalysisSuccess(null);
-    setPromptSettingsSuccess(null);
-    setIsAnalyzing(true);
-
-    try {
-      const resolvedCacheKey = await createPortfolioAnalysisCacheKey(
-        snapshotHash,
-        selectedCategory,
-        selectedModel,
-        effectiveAnalysisQuestion,
-        analysisBackground,
-      );
-      const conversationContext =
-        isInteractiveCategory && activeConversationTurns.length === 0
-          ? generalQuestionSeedContext
-          : isInteractiveCategory
-            ? formatConversationContext(activeConversationTurns)
-            : '';
-      const request = await buildPortfolioAnalysisRequest(
-        holdings,
-        snapshotHash,
-        resolvedCacheKey,
-        selectedCategory,
-        selectedModel,
-        effectiveAnalysisQuestion,
-        analysisBackground,
-        conversationContext,
-      );
-      const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
-
-      const cachedResult: CachedPortfolioAnalysis = {
-        cacheKey: response.cacheKey,
-        snapshotHash: response.snapshotHash,
-        category: response.category,
-        provider: response.provider,
-        model: response.model,
-        enrichmentStatus: response.enrichmentStatus,
-        analysisQuestion: response.analysisQuestion,
-        analysisBackground: response.analysisBackground,
-        delivery: response.delivery ?? 'manual',
-        generatedAt: response.generatedAt,
-        assetCount: holdings.length,
-        answer: response.answer,
-      };
-
-      setLocalAnalysis(cachedResult);
-      if (isInteractiveCategory && response.dataFreshness) {
-        setLastGeneralQuestionMeta(response.dataFreshness);
-        setLastGeneralQuestionSources(response.usedExternalSources ?? []);
-        setLastGeneralQuestionSourcesDetailed(response.usedExternalSourcesDetailed ?? []);
-        setLastGeneralQuestionUncertainty(response.uncertainty ?? []);
-        setLastGeneralQuestionActions(response.suggestedActions ?? []);
-      }
-      setAnalysisQuestionByCategory((current) => ({
-        ...current,
-        [selectedCategory]: '',
-      }));
-      setFollowUpQuestionByCategory((current) => ({
-        ...current,
-        [selectedCategory]: '',
-      }));
-      await persistAnalysis(cachedResult);
-      if (isInteractiveCategory) {
-        const usedSeedContext = activeConversationTurns.length === 0 && generalQuestionSeedContext.trim().length > 0;
-        if (!selectedSessionId || isLegacyConversationId(selectedSessionId)) {
-          const threadId = await createAnalysisThreadWithTurn({
-            title: createAnalysisTitle(response.analysisQuestion),
-            question: response.analysisQuestion,
-            answer: response.answer,
-            model: response.model,
-            provider: response.provider,
-            snapshotHash: response.snapshotHash,
-            generatedAt: response.generatedAt,
-          });
-          setSelectedSessionId(threadId);
-        } else {
-          await appendAnalysisThreadTurn(selectedSessionId, {
-            question: response.analysisQuestion,
-            answer: response.answer,
-            model: response.model,
-            provider: response.provider,
-            snapshotHash: response.snapshotHash,
-            generatedAt: response.generatedAt,
-          });
-        }
-        setAnalysisSuccess(
-          !selectedSessionId || isLegacyConversationId(selectedSessionId)
-            ? '已開啟新對話。'
-            : '已加入追問。',
-        );
-        if (usedSeedContext) {
-          setGeneralQuestionSeedContext('');
-        }
-        return;
-      }
-
-      const savedSession: Omit<AnalysisSession, 'id' | 'updatedAt' | 'createdAt'> = {
-        category: response.category,
-        title: createAnalysisTitle(response.analysisQuestion),
-        question: response.analysisQuestion,
-        result: response.answer,
-        model: response.model,
-        provider: response.provider,
-        snapshotHash: response.snapshotHash,
-        delivery: 'manual',
-      };
-      await addAnalysisSession(savedSession);
-      setAnalysisSuccess('每月資產分析已完成。');
-    } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : '投資組合分析失敗，請稍後再試。');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }
-
-  async function handleFollowUp(quickQuestion?: string) {
-    if (
-      !snapshotHash ||
-      !holdings.length ||
-      !isInteractiveCategory
-    ) {
-      return;
-    }
-
-    const effectiveFollowUpQuestion = (quickQuestion ?? followUpQuestion).trim();
-    if (!effectiveFollowUpQuestion) {
-      return;
-    }
-
-    const conversationContext = formatConversationContext(activeConversationTurns);
-
-    setAnalysisError(null);
-    setAnalysisSuccess(null);
-    setPromptSettingsSuccess(null);
-    setIsAnalyzing(true);
-
-    try {
-      const resolvedCacheKey = await createPortfolioAnalysisCacheKey(
-        snapshotHash,
-        selectedCategory,
-        selectedModel,
-        effectiveFollowUpQuestion,
-        analysisBackground,
-      );
-      const request = await buildPortfolioAnalysisRequest(
-        holdings,
-        snapshotHash,
-        resolvedCacheKey,
-        selectedCategory,
-        selectedModel,
-        effectiveFollowUpQuestion,
-        analysisBackground,
-        conversationContext,
-      );
-      const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
-
-      const cachedResult: CachedPortfolioAnalysis = {
-        cacheKey: response.cacheKey,
-        snapshotHash: response.snapshotHash,
-        category: response.category,
-        provider: response.provider,
-        model: response.model,
-        enrichmentStatus: response.enrichmentStatus,
-        analysisQuestion: response.analysisQuestion,
-        analysisBackground: response.analysisBackground,
-        delivery: response.delivery ?? 'manual',
-        generatedAt: response.generatedAt,
-        assetCount: holdings.length,
-        answer: response.answer,
-      };
-
-      setLocalAnalysis(cachedResult);
-      if (response.dataFreshness) {
-        setLastGeneralQuestionMeta(response.dataFreshness);
-        setLastGeneralQuestionSources(response.usedExternalSources ?? []);
-        setLastGeneralQuestionSourcesDetailed(response.usedExternalSourcesDetailed ?? []);
-        setLastGeneralQuestionUncertainty(response.uncertainty ?? []);
-        setLastGeneralQuestionActions(response.suggestedActions ?? []);
-      }
-      setAnalysisQuestionByCategory((current) => ({
-        ...current,
-        [selectedCategory]: '',
-      }));
-      setFollowUpQuestionByCategory((current) => ({
-        ...current,
-        [selectedCategory]: '',
-      }));
-      await persistAnalysis(cachedResult);
-      if (!selectedSessionId || isLegacyConversationId(selectedSessionId)) {
-        const threadId = await createAnalysisThreadWithTurn({
-          title: createAnalysisTitle(response.analysisQuestion),
-          question: response.analysisQuestion,
-          answer: response.answer,
-          model: response.model,
-          provider: response.provider,
-          snapshotHash: response.snapshotHash,
-          generatedAt: response.generatedAt,
-        });
-        setSelectedSessionId(threadId);
-      } else {
-        await appendAnalysisThreadTurn(selectedSessionId, {
-          question: response.analysisQuestion,
-          answer: response.answer,
-          model: response.model,
-          provider: response.provider,
-          snapshotHash: response.snapshotHash,
-          generatedAt: response.generatedAt,
-        });
-      }
-      setAnalysisSuccess('已加入追問。');
-    } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : '追問分析失敗，請稍後再試。');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  }
-
-  async function handleQuarterlyReportFollowUp(quickQuestion?: string) {
+  async function handleQuarterlyReportFollowUp() {
     if (!selectedReport) {
       return;
     }
 
-    const effectiveFollowUpQuestion = (quickQuestion ?? followUpQuestionByCategory.asset_report).trim();
+    const effectiveFollowUpQuestion = followUpQuestion.trim();
     if (!effectiveFollowUpQuestion) {
       return;
     }
 
     setAnalysisError(null);
     setAnalysisSuccess(null);
-    setPromptSettingsSuccess(null);
+    setEnrichmentWarning(null);
     setIsAnalyzing(true);
 
     try {
@@ -960,27 +461,11 @@ export function AnalysisPage() {
       );
       const response = (await callPortfolioFunction('analyze', request)) as PortfolioAnalysisResponse;
 
-      const cachedResult: CachedPortfolioAnalysis = {
-        cacheKey: response.cacheKey,
-        snapshotHash: response.snapshotHash,
-        category: response.category,
-        provider: response.provider,
-        model: response.model,
-        enrichmentStatus: response.enrichmentStatus,
-        analysisQuestion: response.analysisQuestion,
-        analysisBackground: response.analysisBackground,
-        delivery: response.delivery ?? 'manual',
-        generatedAt: response.generatedAt,
-        assetCount: holdings.length,
-        answer: response.answer,
-      };
+      if (response.enrichmentStatus && response.enrichmentStatus !== 'ok') {
+        setEnrichmentWarning('部分歷史數據載入失敗，AI 內容可能不完整');
+      }
 
-      setLocalAnalysis(cachedResult);
-      setFollowUpQuestionByCategory((current) => ({
-        ...current,
-        asset_report: '',
-      }));
-      await persistAnalysis(cachedResult);
+      setFollowUpQuestion('');
       if (selectedQuarterlyReportThread) {
         await appendAnalysisThreadTurn(selectedQuarterlyReportThread.id, {
           question: response.analysisQuestion,
@@ -991,7 +476,7 @@ export function AnalysisPage() {
           generatedAt: response.generatedAt,
         });
       } else {
-        const threadId = await createAnalysisThreadWithTurn({
+        await createAnalysisThreadWithTurn({
           title: `${selectedReport.quarter} 追問`,
           question: response.analysisQuestion,
           answer: response.answer,
@@ -1001,32 +486,12 @@ export function AnalysisPage() {
           generatedAt: response.generatedAt,
           sourceReportId: selectedReport.id,
         });
-        void threadId;
       }
       setAnalysisSuccess('已向季度報告追問。');
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : '追問分析失敗，請稍後再試。');
     } finally {
       setIsAnalyzing(false);
-    }
-  }
-
-  async function handleSavePromptSettings() {
-    setPromptSettingsSuccess(null);
-    setAnalysisError(null);
-    setIsSavingPromptSettings(true);
-
-    try {
-      await persistSettings({
-        asset_analysis: savedPromptSettings.asset_analysis,
-        general_question: promptDrafts.general_question,
-        asset_report: savedPromptSettings.asset_report,
-      });
-      setPromptSettingsSuccess('設定已儲存。');
-    } catch (error) {
-      setAnalysisError(error instanceof Error ? error.message : '儲存設定失敗，請稍後再試。');
-    } finally {
-      setIsSavingPromptSettings(false);
     }
   }
 
@@ -1129,59 +594,49 @@ export function AnalysisPage() {
     }
   }
 
-  const latestConversationTurn = activeConversationTurns[activeConversationTurns.length - 1] ?? null;
   const latestMonthlyAnalysis = currentMonthAnalysis ?? monthlyAnalysisSessions[0] ?? null;
   const selectedMonthlyAnalysisForResponse =
     monthlyAnalysisSessions.find((session) => session.id === selectedMonthlyAnalysisId) ??
     latestMonthlyAnalysis;
-  const currentResponse =
-    isInteractiveCategory
-      ? latestConversationTurn
-      : isPortfolioAnalysisCategory && selectedMonthlyAnalysisForResponse
-        ? {
-            question: selectedMonthlyAnalysisForResponse.title || '每月資產分析',
-            answer: selectedMonthlyAnalysisForResponse.result,
-            generatedAt: selectedMonthlyAnalysisForResponse.updatedAt,
-            model: selectedMonthlyAnalysisForResponse.model,
-          }
-        : isQuarterlyCategory && selectedReport
-          ? {
-              question: selectedReport.quarter,
-              answer: selectedReport.report,
-              generatedAt: selectedReport.generatedAt,
-              model: selectedReport.model,
-            }
-          : null;
+  const currentResponse = isMonthlyTab
+    ? selectedMonthlyAnalysisForResponse?.result ?? null
+    : selectedReport?.report ?? null;
 
   function handleCopyCurrentResponse() {
-    if (!currentResponse?.answer) {
+    if (!currentResponse) {
       return;
     }
 
-    void navigator.clipboard.writeText(currentResponse.answer);
-    setAnalysisSuccess('已複製目前回覆。');
+    void navigator.clipboard.writeText(currentResponse);
+    setAnalysisSuccess('已複製目前內容。');
   }
+
+  const monthlyStatusText = canGenerateMonthlyAnalysisNow(currentTime)
+    ? hasCurrentMonthAnalysis
+      ? '本月每月資產分析已經生成。'
+      : '已進入本月可生成時段。'
+    : '未到每月 1 號香港時間上午 8:00。';
+  const quarterlyStatusText = canGenerateQuarterlyReportNow(currentTime)
+    ? currentQuarterReport
+      ? '本季季度報告已經生成。'
+      : '已進入本季可生成時段。'
+    : '未到季度報告可生成時段。';
 
   return (
     <div className="page-stack analysis-page">
       <section className="card analysis-action-panel">
-        <div className="analysis-page-header">
-          <div className="analysis-page-heading">
-            <h2>分析工作台</h2>
-            <p className="table-hint">{selectedCategoryOption.label} · {selectedCategoryOption.helper}</p>
-          </div>
-        </div>
-
-        <div className="analysis-tab-grid" role="tablist" aria-label="分析分類">
-          {analysisCategoryOptions.map((option) => {
-            const isActive = selectedCategory === option.value;
+        <div className="analysis-tab-grid" role="tablist" aria-label="報告類型">
+          {reportTabOptions.map((option) => {
+            const isActive = selectedTab === option.value;
 
             return (
               <button
                 key={option.value}
                 type="button"
+                role="tab"
+                aria-selected={isActive}
                 className={isActive ? 'analysis-tab-card active' : 'analysis-tab-card'}
-                onClick={() => setSelectedCategory(option.value)}
+                onClick={() => setSelectedTab(option.value)}
               >
                 <strong>{option.label}</strong>
                 <span>{option.helper}</span>
@@ -1190,32 +645,11 @@ export function AnalysisPage() {
           })}
         </div>
 
-        <div className="analysis-category-row">
-          <label className="form-field analysis-inline-model">
-            <span>模型</span>
-            <select
-              value={isQuarterlyCategory || isPortfolioAnalysisCategory ? 'claude-opus-4-8' : selectedModel}
-              onChange={(event) => setSelectedModel(event.target.value as PortfolioAnalysisModel)}
-              disabled={isAnalyzing || !isInteractiveCategory}
-            >
-              {analysisModelOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label} · {option.hint}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {isPortfolioAnalysisCategory ? (
-          <div className="analysis-scheduled-actions">
-            <p className="status-message">
-              {canGenerateMonthlyAnalysisNow(currentTime)
-                ? hasCurrentMonthAnalysis
-                  ? '本月每月資產分析已經生成。'
-                  : '已進入本月可生成時段。'
-                : '未到每月 1 號香港時間上午 8:00。'}
-            </p>
+        <div className="analysis-generate-strip">
+          <p className="status-message">
+            {isMonthlyTab ? monthlyStatusText : quarterlyStatusText}
+          </p>
+          {isMonthlyTab ? (
             <button
               className="button button-primary"
               type="button"
@@ -1224,18 +658,7 @@ export function AnalysisPage() {
             >
               {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成月報'}
             </button>
-          </div>
-        ) : null}
-
-        {isQuarterlyCategory ? (
-          <div className="analysis-scheduled-actions">
-            <p className="status-message">
-              {canGenerateQuarterlyReportNow(currentTime)
-                ? currentQuarterReport
-                  ? '本季季度報告已經生成。'
-                  : '已進入本季可生成時段。'
-                : '未到季度報告可生成時段。'}
-            </p>
+          ) : (
             <button
               className="button button-primary"
               type="button"
@@ -1244,25 +667,14 @@ export function AnalysisPage() {
             >
               {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成季報'}
             </button>
-          </div>
-        ) : null}
+          )}
+        </div>
       </section>
-
-      {isPromptSettingsOpen ? (
-        <AnalysisSettingsModal
-          promptDrafts={promptDrafts}
-          isSavingPromptSettings={isSavingPromptSettings}
-          onClose={() => setIsPromptSettingsOpen(false)}
-          onPromptDraftsChange={setPromptDrafts}
-          onSave={handleSavePromptSettings}
-        />
-      ) : null}
 
       <StatusMessages
         errors={[
           assetsError,
           snapshotHashError,
-          cacheError,
           analysisSessionsError,
           analysisThreadsError,
           analysisSettingsError,
@@ -1270,67 +682,32 @@ export function AnalysisPage() {
           reportsError,
           reportActionError,
         ]}
-        successes={[analysisSuccess, promptSettingsSuccess, reportActionMessage]}
+        successes={[analysisSuccess, reportActionMessage]}
       />
       {enrichmentWarning ? (
         <p className="status-message status-message-warning">{enrichmentWarning}</p>
       ) : null}
-      {hasCachedAnalysis && !analysisSuccess && !isQuarterlyCategory ? (
-        <p className="status-message">最近分析：{formatAnalysisTime(cachedAnalysis?.generatedAt ?? '')}</p>
+      {assetsStatus === 'loading' && isMonthlyTab ? (
+        <p className="status-message">同步中</p>
       ) : null}
-      {assetsStatus === 'loading' && !isQuarterlyCategory ? <p className="status-message">同步中</p> : null}
-      {isEmpty && !isQuarterlyCategory ? <p className="status-message">尚未有可分析資產</p> : null}
+      {isEmpty && isMonthlyTab ? <p className="status-message">尚未有可分析資產</p> : null}
 
-      {isInteractiveCategory ? (
-        <AnalysisConversationPanel
-          analysisQuestion={analysisQuestion}
-          selectedSessionId={selectedSessionId}
-          activeConversationTurns={activeConversationTurns}
-          conversationArchiveSessions={conversationArchiveSessions}
-          visibleCount={visibleCount}
-          isAnalyzing={isAnalyzing}
-          canAnalyze={canAnalyze}
-          onAnalysisQuestionChange={setAnalysisQuestionByCategory}
-          onFollowUpQuestionChange={setFollowUpQuestionByCategory}
-          onSelectedSessionIdChange={setSelectedSessionId}
-          onVisibleCountChange={setVisibleCount}
-          onAnalyze={() => void handleAnalyzePortfolio()}
-          onFollowUp={() => void handleFollowUp()}
-          onCopyLatestResponse={handleCopyCurrentResponse}
-          formatAnalysisTime={formatAnalysisTime}
-          getAnalysisModelLabel={getAnalysisModelLabel}
-          lastResponseMeta={lastGeneralQuestionMeta}
-          lastResponseSources={lastGeneralQuestionSources}
-          lastResponseSourcesDetailed={lastGeneralQuestionSourcesDetailed}
-          lastResponseUncertainty={lastGeneralQuestionUncertainty}
-          lastResponseActions={lastGeneralQuestionActions}
-        />
-      ) : null}
-
-      {isPortfolioAnalysisCategory ? (
+      {isMonthlyTab ? (
         <MonthlyReportPanel
           monthlyAnalysisSessions={monthlyAnalysisSessions}
           selectedMonthlyAnalysisId={selectedMonthlyAnalysisId}
-          expandedMonthlyAnalysisId={expandedMonthlyAnalysisId}
           displayCurrency={displayCurrency}
           assetCount={holdings.length}
           baseCurrency={mockPortfolio.baseCurrency}
           canGenerateCurrentMonthAnalysis={canGenerateCurrentMonthAnalysis}
-          generatingPeriodicReport={generatingPeriodicReport}
           deletingMonthlyAnalysisId={deletingMonthlyAnalysisId}
-          onGenerateMonthlyAnalysisReport={() => void handleGenerateMonthlyAnalysisReport()}
           onDeleteMonthlyAnalysisReport={(session) => void handleDeleteMonthlyAnalysisReport(session)}
           onSelectedMonthlyAnalysisIdChange={setSelectedMonthlyAnalysisId}
-          onExpandedMonthlyAnalysisIdChange={setExpandedMonthlyAnalysisId}
-          onOpenSettings={() => setIsPromptSettingsOpen(true)}
-          onSwitchToGeneralQuestion={() => setSelectedCategory('general_question')}
           onCopyReport={handleCopyCurrentResponse}
           formatGeneratedAt={formatGeneratedAt}
           getAnalysisModelLabel={getAnalysisModelLabel}
         />
-      ) : null}
-
-      {isQuarterlyCategory ? (
+      ) : (
         <QuarterlyReportPanel
           reports={reports}
           reportsStatus={reportsStatus}
@@ -1338,27 +715,23 @@ export function AnalysisPage() {
           selectedReportId={selectedReportId}
           selectedSections={selectedSections}
           displayCurrency={displayCurrency}
-          canGenerateCurrentQuarterReport={canGenerateCurrentQuarterReport}
-          generatingPeriodicReport={generatingPeriodicReport}
           generatingReportId={generatingReportId}
           selectedQuarterlyReportThreadExists={Boolean(selectedQuarterlyReportThread)}
           selectedQuarterlyThreadTurnsStatus={selectedQuarterlyThreadTurnsStatus}
           quarterlyActiveConversationTurns={quarterlyActiveConversationTurns}
-          followUpQuestion={followUpQuestionByCategory.asset_report}
+          followUpQuestion={followUpQuestion}
           isAnalyzing={isAnalyzing}
-          onGenerateQuarterlyReport={() => void handleGenerateQuarterlyReport()}
+          canGenerateCurrentQuarterReport={canGenerateCurrentQuarterReport}
           onGeneratePdf={(report) => void handleGeneratePdf(report)}
           onSelectedReportIdChange={setSelectedReportId}
-          onOpenSettings={() => setIsPromptSettingsOpen(true)}
-          onSwitchToMonthly={() => setSelectedCategory('asset_analysis')}
           onCopyReport={handleCopyCurrentResponse}
-          onFollowUpQuestionChange={setFollowUpQuestionByCategory}
+          onFollowUpQuestionChange={setFollowUpQuestion}
           onQuarterlyReportFollowUp={() => void handleQuarterlyReportFollowUp()}
           formatGeneratedAt={formatGeneratedAt}
           formatAnalysisTime={formatAnalysisTime}
           getAnalysisModelLabel={getAnalysisModelLabel}
         />
-      ) : null}
+      )}
     </div>
   );
 }
