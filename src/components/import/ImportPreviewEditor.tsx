@@ -31,6 +31,9 @@ interface ImportPreviewEditorProps {
   isConfirming: boolean;
   confirmError: string | null;
   confirmSuccess: string | null;
+  // When the asset is already chosen (e.g. trading from a holding), the asset
+  // identity fields are pre-filled and hidden — only the trade details remain.
+  lockedAsset?: boolean;
 }
 
 const assetTypeOptions: AssetType[] = ['stock', 'etf', 'bond', 'crypto'];
@@ -93,6 +96,7 @@ export function ImportPreviewEditor({
   isConfirming,
   confirmError,
   confirmSuccess,
+  lockedAsset = false,
 }: ImportPreviewEditorProps) {
   const missingFieldCount = items.reduce((sum, item) => sum + getMissingFields(item).length, 0);
   const hasMissingFields = missingFieldCount > 0;
@@ -116,130 +120,136 @@ export function ImportPreviewEditor({
             <article key={item.id} className="extract-preview-card">
               <div className="extract-preview-header">
                 <div>
-                  <p className="holding-symbol">Item {index + 1}</p>
-                  <h3>{item.ticker || item.name || '待補資料的交易'}</h3>
+                  <p className="holding-symbol">{lockedAsset ? item.ticker : `Item ${index + 1}`}</p>
+                  <h3>{lockedAsset ? item.name || item.ticker : item.ticker || item.name || '待補資料的交易'}</h3>
                 </div>
-                <div className="button-row">
-                  <span className="chip chip-soft">{getClassificationLabel(item.classification)}</span>
-                  <button
-                    className="button button-secondary button-danger-text"
-                    type="button"
-                    onClick={() => onRemoveItem(item.id)}
-                    disabled={isConfirming}
-                  >
-                    刪除
-                  </button>
-                </div>
+                {lockedAsset ? null : (
+                  <div className="button-row">
+                    <span className="chip chip-soft">{getClassificationLabel(item.classification)}</span>
+                    <button
+                      className="button button-secondary button-danger-text"
+                      type="button"
+                      onClick={() => onRemoveItem(item.id)}
+                      disabled={isConfirming}
+                    >
+                      刪除
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {missingFields.length > 0 ? (
+              {!lockedAsset && missingFields.length > 0 ? (
                 <p className="extract-missing-hint">缺少欄位: {missingFields.join('、')}</p>
               ) : null}
 
               <div className="asset-form-grid">
-                <label className="form-field">
-                  <span>預覽分類</span>
-                  <select
-                    value={item.classification}
-                    onChange={(event) =>
-                      onChangeItem(item.id, 'classification', event.target.value)
-                    }
-                    disabled={isConfirming}
-                  >
-                    <option value="new_asset">新增資產</option>
-                    <option value="existing_transaction">原有資產交易</option>
-                  </select>
-                </label>
+                {!lockedAsset ? (
+                  <>
+                    <label className="form-field">
+                      <span>預覽分類</span>
+                      <select
+                        value={item.classification}
+                        onChange={(event) =>
+                          onChangeItem(item.id, 'classification', event.target.value)
+                        }
+                        disabled={isConfirming}
+                      >
+                        <option value="new_asset">新增資產</option>
+                        <option value="existing_transaction">原有資產交易</option>
+                      </select>
+                    </label>
 
-                {item.classification === 'existing_transaction' ? (
-                  <label className={!item.existingAssetId ? 'form-field form-field-missing' : 'form-field'}>
-                    <span>對應資產</span>
-                    <select
-                      value={item.existingAssetId}
-                      onChange={(event) =>
-                        onChangeItem(item.id, 'existingAssetId', event.target.value)
-                      }
-                      disabled={isConfirming}
-                    >
-                      <option value="">請選擇現有資產</option>
-                      {existingAssetOptions.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    {item.classification === 'existing_transaction' ? (
+                      <label className={!item.existingAssetId ? 'form-field form-field-missing' : 'form-field'}>
+                        <span>對應資產</span>
+                        <select
+                          value={item.existingAssetId}
+                          onChange={(event) =>
+                            onChangeItem(item.id, 'existingAssetId', event.target.value)
+                          }
+                          disabled={isConfirming}
+                        >
+                          <option value="">請選擇現有資產</option>
+                          {existingAssetOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
+
+                    <label className="form-field">
+                      <span>資產帳戶</span>
+                      <select
+                        value={item.assetAccountSource}
+                        onChange={(event) =>
+                          onChangeItem(item.id, 'assetAccountSource', event.target.value)
+                        }
+                        disabled={isConfirming}
+                      >
+                        <option value="">請選擇帳戶</option>
+                        {accountSourceOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {getAccountSourceLabel(option)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className={!item.settlementAccountSource ? 'form-field form-field-missing' : 'form-field'}>
+                      <span>現金帳戶</span>
+                      <select
+                        value={item.settlementAccountSource}
+                        onChange={(event) =>
+                          onChangeItem(item.id, 'settlementAccountSource', event.target.value)
+                        }
+                        disabled={isConfirming}
+                      >
+                        <option value="">請選擇現金帳戶</option>
+                        {cashAccountSources.map((option) => (
+                          <option key={option} value={option}>
+                            {getAccountSourceLabel(option)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="form-field">
+                      <span>名稱</span>
+                      <input
+                        value={item.name}
+                        onChange={(event) => onChangeItem(item.id, 'name', event.target.value)}
+                        disabled={isConfirming}
+                      />
+                    </label>
+
+                    <label className={!item.ticker.trim() ? 'form-field form-field-missing' : 'form-field'}>
+                      <span>Ticker</span>
+                      <input
+                        value={item.ticker}
+                        onChange={(event) => onChangeItem(item.id, 'ticker', event.target.value)}
+                        disabled={isConfirming}
+                      />
+                    </label>
+
+                    <label className={!item.type ? 'form-field form-field-missing' : 'form-field'}>
+                      <span>類型</span>
+                      <select
+                        value={item.type}
+                        onChange={(event) => onChangeItem(item.id, 'type', event.target.value)}
+                        disabled={isConfirming}
+                      >
+                        <option value="">請選擇類型</option>
+                        {assetTypeOptions.map((option) => (
+                          <option key={option} value={option}>
+                            {getAssetTypeLabel(option)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
                 ) : null}
-
-                <label className="form-field">
-                  <span>資產帳戶</span>
-                  <select
-                    value={item.assetAccountSource}
-                    onChange={(event) =>
-                      onChangeItem(item.id, 'assetAccountSource', event.target.value)
-                    }
-                    disabled={isConfirming}
-                  >
-                    <option value="">請選擇帳戶</option>
-                    {accountSourceOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {getAccountSourceLabel(option)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className={!item.settlementAccountSource ? 'form-field form-field-missing' : 'form-field'}>
-                  <span>現金帳戶</span>
-                  <select
-                    value={item.settlementAccountSource}
-                    onChange={(event) =>
-                      onChangeItem(item.id, 'settlementAccountSource', event.target.value)
-                    }
-                    disabled={isConfirming}
-                  >
-                    <option value="">請選擇現金帳戶</option>
-                    {cashAccountSources.map((option) => (
-                      <option key={option} value={option}>
-                        {getAccountSourceLabel(option)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="form-field">
-                  <span>名稱</span>
-                  <input
-                    value={item.name}
-                    onChange={(event) => onChangeItem(item.id, 'name', event.target.value)}
-                    disabled={isConfirming}
-                  />
-                </label>
-
-                <label className={!item.ticker.trim() ? 'form-field form-field-missing' : 'form-field'}>
-                  <span>Ticker</span>
-                  <input
-                    value={item.ticker}
-                    onChange={(event) => onChangeItem(item.id, 'ticker', event.target.value)}
-                    disabled={isConfirming}
-                  />
-                </label>
-
-                <label className={!item.type ? 'form-field form-field-missing' : 'form-field'}>
-                  <span>類型</span>
-                  <select
-                    value={item.type}
-                    onChange={(event) => onChangeItem(item.id, 'type', event.target.value)}
-                    disabled={isConfirming}
-                  >
-                    <option value="">請選擇類型</option>
-                    {assetTypeOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {getAssetTypeLabel(option)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
 
                 <label className={!item.transactionType ? 'form-field form-field-missing' : 'form-field'}>
                   <span>交易類型</span>

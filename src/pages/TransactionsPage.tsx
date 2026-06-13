@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 
 import { AssetTransactionForm } from '../components/assets/AssetTransactionForm';
 import { TransactionInputPanel } from '../components/transactions/TransactionInputPanel';
-import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { EmptyState } from '../components/ui/EmptyState';
 import { PageSection } from '../components/ui/DesignSystem';
 import {
@@ -13,10 +12,12 @@ import {
   getAssetTypeLabel,
 } from '../data/mockPortfolio';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
-import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
-import type { AccountSource, AssetTransactionEntry, Holding } from '../types/portfolio';
+import type { AccountSource, AssetTransactionEntry, DisplayCurrency, Holding } from '../types/portfolio';
+
+// 交易一律以結算貨幣（美金）儲存，交易歷史固定用美金顯示，不跟隨總覽的顯示幣別。
+const TRANSACTION_DISPLAY_CURRENCY: DisplayCurrency = 'USD';
 
 const transactionAccountFilterOptions: Array<{ value: AccountSource | 'all'; label: string }> = [
   { value: 'all', label: '全部帳戶' },
@@ -72,7 +73,7 @@ export function TransactionsPage() {
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
   const [dateFromFilter, setDateFromFilter] = useState('');
   const [dateToFilter, setDateToFilter] = useState('');
-  const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
+  const displayCurrency = TRANSACTION_DISPLAY_CURRENCY;
 
   const visibleEntries = entries.filter(
     (entry) => !(entry.recordType === 'seed' && entry.note === '歷史持倉基線'),
@@ -186,8 +187,7 @@ export function TransactionsPage() {
 
       <PageSection
         title="交易摘要"
-        subtitle="交易、手續費、已實現盈虧都會按同一顯示幣別列示。"
-        actions={<CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />}
+        subtitle="交易、手續費、已實現盈虧一律以美金（USD）列示。"
       >
         <div className="summary-grid">
           <article className="summary-card">
@@ -202,7 +202,7 @@ export function TransactionsPage() {
             <strong className="summary-value">
               {formatCurrencyRounded(totalTradeAmountDisplay, displayCurrency)}
             </strong>
-            <p className="summary-hint">按各筆成交價 x 數量換算至顯示幣別</p>
+            <p className="summary-hint">按各筆成交價 x 數量累計（美金）</p>
           </article>
           <article className="summary-card">
             <p className="summary-label">已實現盈虧</p>

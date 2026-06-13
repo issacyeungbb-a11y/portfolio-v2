@@ -213,6 +213,15 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
     () => selectDefaultCashAccountSource(defaultAssetAccountSource, availableCashAccountSources),
     [availableCashAccountSources, defaultAssetAccountSource],
   );
+  // When trading from a preset holding the cash account is hidden, so settle
+  // against the holding's own account (e.g. a Futu holding → Futu cash).
+  const presetCashAccountSource = useMemo(
+    () =>
+      presetHolding
+        ? selectDefaultCashAccountSource(presetHolding.accountSource, availableCashAccountSources)
+        : defaultCashAccountSource,
+    [availableCashAccountSources, defaultCashAccountSource, presetHolding],
+  );
   const existingAssetOptions = useMemo(
     () =>
       tradeableHoldings.map((holding) => ({
@@ -235,7 +244,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
     if (presetHolding) {
       setInputMode('manual');
       setPreviewItems([
-        createPresetExistingTransactionItem(presetHolding, defaultCashAccountSource),
+        createPresetExistingTransactionItem(presetHolding, presetCashAccountSource),
       ]);
       setExtractStatus('idle');
       setExtractError(null);
@@ -261,7 +270,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
             ),
           ],
     );
-  }, [inputMode, defaultAssetAccountSource, defaultCashAccountSource, presetHolding]);
+  }, [inputMode, defaultAssetAccountSource, defaultCashAccountSource, presetCashAccountSource, presetHolding]);
 
   function findMatchedHolding(symbol: string, accountSource: AccountSource) {
     const normalizedSymbol = normalizeUppercase(symbol);
@@ -589,7 +598,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
               onClick={() =>
                 setPreviewItems(
                   presetHolding
-                    ? [createPresetExistingTransactionItem(presetHolding, defaultCashAccountSource)]
+                    ? [createPresetExistingTransactionItem(presetHolding, presetCashAccountSource)]
                     : [createBlankItem(0, defaultAssetAccountSource, defaultCashAccountSource)],
                 )
               }
@@ -615,6 +624,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
           isConfirming={confirmStatus === 'loading'}
           confirmError={confirmError}
           confirmSuccess={confirmSuccess}
+          lockedAsset={Boolean(presetHolding)}
         />
       ) : null}
     </section>

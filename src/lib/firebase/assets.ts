@@ -175,7 +175,17 @@ export function subscribeToPortfolioAssets(
       const holdings = snapshot.docs.map((document) =>
         buildHoldingFromInput(document.id, document.data() as PortfolioAssetInput),
       );
-      onData(holdings.filter((holding) => !holding.archivedAt));
+      // Hide closed positions: archived assets, plus any defensively-detected
+      // fully-sold non-cash holding (quantity ≤ 0) that lacks the archived flag.
+      // Sold-out assets still appear in the closed-asset archive, built from
+      // their transaction history.
+      onData(
+        holdings.filter(
+          (holding) =>
+            !holding.archivedAt &&
+            !(holding.assetType !== 'cash' && holding.quantity <= 0),
+        ),
+      );
     },
     onError,
   );
