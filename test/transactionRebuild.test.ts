@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runLedgerRebuild, validateLedgerEntry, computeValueWeightedRisk, sortLedgerForRebuild } from '../src/lib/portfolio/transactionRebuild.ts';
+import { runLedgerRebuild, validateLedgerEntry, computeValueWeightedRisk, sortLedgerForRebuild, computeOpeningBaselineQuantity } from '../src/lib/portfolio/transactionRebuild.ts';
 import type { LedgerEntryForRebuild, AssetValueWeight } from '../src/lib/portfolio/transactionRebuild.ts';
 
 function buyEntry(overrides: Partial<LedgerEntryForRebuild> = {}): LedgerEntryForRebuild {
@@ -207,6 +207,58 @@ test('sortLedgerForRebuild: same record type keeps date then id ordering', () =>
   const second = buyEntry({ id: 'b2', date: '2024-01-02' });
   const ordered = sortLedgerForRebuild([second, first]);
   assert.deepEqual(ordered.map((entry) => entry.id), ['b1', 'b2']);
+});
+
+// --- computeOpeningBaselineQuantity tests ---
+
+test('computeOpeningBaselineQuantity: empty ledger → opening equals current', () => {
+  assert.equal(computeOpeningBaselineQuantity(72, []), 72);
+});
+
+test('computeOpeningBaselineQuantity: lone historical sell implies larger opening', () => {
+  // Real case: Futu SGOV holds 72 now, the only record is a sell of 10 with no
+  // opening baseline → opening must have been 82.
+  const opening = computeOpeningBaselineQuantity(72, [
+    { recordType: 'trade', transactionType: 'sell', quantity: 10 },
+  ]);
+  assert.equal(opening, 82);
+});
+
+test('computeOpeningBaselineQuantity: position built purely from buys → zero opening', () => {
+  const opening = computeOpeningBaselineQuantity(100, [
+    { recordType: 'trade', transactionType: 'buy', quantity: 60 },
+    { recordType: 'trade', transactionType: 'buy', quantity: 40 },
+  ]);
+  assert.equal(opening, 0);
+});
+
+test('computeOpeningBaselineQuantity: ignores non-trade records', () => {
+  const opening = computeOpeningBaselineQuantity(72, [
+    { recordType: 'seed', transactionType: 'buy', quantity: 999 },
+    { recordType: 'trade', transactionType: 'sell', quantity: 10 },
+  ]);
+  assert.equal(opening, 82);
+});
+
+test('backfilled baseline lets a lone historical sell plus a new sell rebuild', () => {
+  // Reproduces the blocked Futu SGOV flow end to end: seed(82) → sell 10 → sell 5.
+  const seed: LedgerEntryForRebuild = {
+    id: 'seed',
+    transactionType: 'buy',
+    recordType: 'seed',
+    quantity: 82,
+    price: 100.534,
+    fees: 0,
+    currency: 'USD',
+    date: '2026-04-07',
+  };
+  const historicalSell = sellEntry({ id: 'old-sell', quantity: 10, price: 100.44, currency: 'USD', date: '2026-04-07' });
+  const newSell = sellEntry({ id: 'new-sell', quantity: 5, price: 100.49, currency: 'USD', date: '2026-06-11' });
+
+  const result = runLedgerRebuild(sortLedgerForRebuild([historicalSell, newSell, seed]));
+  assert.equal(result.finalQuantity, 67);
+  assert.equal(result.txResults.find((r) => r.id === 'old-sell')?.quantityAfter, 72);
+  assert.equal(result.txResults.find((r) => r.id === 'new-sell')?.quantityAfter, 67);
 });
 
 // --- computeValueWeightedRisk tests ---

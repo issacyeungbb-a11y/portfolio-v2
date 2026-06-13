@@ -50,6 +50,31 @@ function rebuildOrderRank(recordType: AssetTransactionRecordType) {
   return 2;
 }
 
+// The opening baseline is the position that must have existed before the first
+// recorded trade for the ledger to reconcile to the holding's current quantity:
+//   current = opening + Σ(buys) − Σ(sells)  ⇒  opening = current − netTradeDelta
+// Used to backfill a missing seed for legacy holdings whose earliest recorded
+// trade is a sell with no preceding buy/seed (otherwise the rebuild starts from
+// a zero position and wrongly rejects that historical sell).
+export function computeOpeningBaselineQuantity(
+  currentQuantity: number,
+  trades: Array<{
+    recordType: AssetTransactionRecordType;
+    transactionType: AssetTransactionType;
+    quantity: number;
+  }>,
+): number {
+  const netTradeDelta = trades.reduce((sum, trade) => {
+    if (trade.recordType !== 'trade') {
+      return sum;
+    }
+
+    return sum + (trade.transactionType === 'buy' ? trade.quantity : -trade.quantity);
+  }, 0);
+
+  return currentQuantity - netTradeDelta;
+}
+
 export function sortLedgerForRebuild<T extends LedgerSortable>(entries: T[]): T[] {
   return [...entries].sort((left, right) => {
     const rankDiff = rebuildOrderRank(left.recordType) - rebuildOrderRank(right.recordType);

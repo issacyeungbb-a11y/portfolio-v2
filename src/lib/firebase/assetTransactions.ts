@@ -29,7 +29,11 @@ import {
   getSharedAssetTransactionsCollectionRef,
   getSharedAssetsCollectionRef,
 } from './sharedPortfolio';
-import { runLedgerRebuild, sortLedgerForRebuild } from '../portfolio/transactionRebuild';
+import {
+  computeOpeningBaselineQuantity,
+  runLedgerRebuild,
+  sortLedgerForRebuild,
+} from '../portfolio/transactionRebuild';
 
 type AssetTransactionInput = Omit<
   AssetTransactionEntry,
@@ -154,10 +158,27 @@ function sortLedgerTransactions(entries: LedgerTransaction[]) {
   return sortLedgerForRebuild(entries);
 }
 
-function buildSeedPayload(holding: Holding): LedgerTransaction | null {
-  if (holding.quantity <= 0) {
+// Builds the "historical baseline" seed that represents the position held before
+// the first recorded trade. The opening quantity reconciles the ledger to the
+// holding's current quantity, so it also backfills legacy holdings whose only
+// records are sells with no preceding buy/seed. Returns null when no positive
+// opening position is implied (e.g. a position built purely from recorded buys).
+function buildSeedPayload(
+  holding: Holding,
+  existingTxs: LedgerTransaction[] = [],
+): LedgerTransaction | null {
+  const openingQuantity = computeOpeningBaselineQuantity(holding.quantity, existingTxs);
+
+  if (openingQuantity <= 0) {
     return null;
   }
+
+  const earliestTradeDate = existingTxs
+    .filter((tx) => tx.recordType === 'trade')
+    .reduce<string | null>(
+      (earliest, tx) => (earliest === null || tx.date < earliest ? tx.date : earliest),
+      null,
+    );
 
   return {
     assetId: holding.id,
@@ -166,11 +187,11 @@ function buildSeedPayload(holding: Holding): LedgerTransaction | null {
     assetType: holding.assetType,
     accountSource: holding.accountSource,
     transactionType: 'buy',
-    quantity: holding.quantity,
+    quantity: openingQuantity,
     price: holding.averageCost,
     fees: 0,
     currency: holding.currency,
-    date: new Date().toISOString().slice(0, 10),
+    date: earliestTradeDate ?? new Date().toISOString().slice(0, 10),
     note: '歷史持倉基線',
     recordType: 'seed',
   };
@@ -383,9 +404,13 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
   const txCollection = getSharedAssetTransactionsCollectionRef();
   const db = txCollection.firestore;
 
-  // Pre-generate refs before entering the transaction
+  // Pre-generate refs before entering the transaction. A baseline seed is
+  // (re)created whenever the ledger has no seed yet — covers both a brand-new
+  // ledger and legacy holdings whose only records are sells with no opening
+  // baseline, which would otherwise fail to rebuild.
+  const hasSeed = existingTxs.some((tx) => tx.recordType === 'seed');
   const newTxRef = doc(txCollection);
-  const seedRef = existingTxs.length === 0 ? doc(txCollection) : null;
+  const seedRef = !hasSeed ? doc(txCollection) : null;
   const cashRef = cashHolding ? doc(getSharedAssetsCollectionRef(), cashHolding.id) : null;
 
   const normalizedEntry: LedgerTransaction = {
@@ -424,10 +449,10 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
     const freshHolding = buildHoldingFromInput(assetSnap.id, assetSnap.data() as unknown as Holding);
     let allTransactions: LedgerTransaction[] = [...existingTxs];
 
-    if (existingTxs.length === 0 && seedRef) {
-      const seedPayload = buildSeedPayload(freshHolding);
+    if (seedRef) {
+      const seedPayload = buildSeedPayload(freshHolding, existingTxs);
       if (seedPayload) {
-        allTransactions = [{ ...seedPayload, id: seedRef.id }];
+        allTransactions = [{ ...seedPayload, id: seedRef.id }, ...existingTxs];
       }
     }
 
@@ -436,7 +461,7 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
 
     // Writes: seed first
     if (seedRef) {
-      const seedPayload = buildSeedPayload(freshHolding);
+      const seedPayload = buildSeedPayload(freshHolding, existingTxs);
       if (seedPayload) {
         const seedResult = rebuild.txResults.find((r) => r.id === seedRef.id);
         transaction.set(seedRef, {
