@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runLedgerRebuild, validateLedgerEntry, computeValueWeightedRisk } from '../src/lib/portfolio/transactionRebuild.ts';
+import { runLedgerRebuild, validateLedgerEntry, computeValueWeightedRisk, sortLedgerForRebuild } from '../src/lib/portfolio/transactionRebuild.ts';
 import type { LedgerEntryForRebuild, AssetValueWeight } from '../src/lib/portfolio/transactionRebuild.ts';
 
 function buyEntry(overrides: Partial<LedgerEntryForRebuild> = {}): LedgerEntryForRebuild {
@@ -149,6 +149,64 @@ test('full sell: quantity and avgCost reset to 0', () => {
   ]);
   assert.equal(result.finalQuantity, 0);
   assert.equal(result.finalAverageCost, 0);
+});
+
+// --- sortLedgerForRebuild tests ---
+
+test('sortLedgerForRebuild: seed baseline rebuilds before a back-dated trade', () => {
+  // The auto-captured baseline is dated "today", later than a back-dated sell.
+  const seed: LedgerEntryForRebuild = {
+    id: 'seed',
+    transactionType: 'buy',
+    recordType: 'seed',
+    quantity: 10,
+    price: 100,
+    fees: 0,
+    currency: 'USD',
+    date: '2026-06-12',
+  };
+  const backDatedSell = sellEntry({
+    id: 'tx-sell',
+    quantity: 5,
+    price: 100.49,
+    currency: 'USD',
+    date: '2026-06-11',
+  });
+
+  const ordered = sortLedgerForRebuild([backDatedSell, seed]);
+  assert.deepEqual(ordered.map((entry) => entry.id), ['seed', 'tx-sell']);
+});
+
+test('sortLedgerForRebuild: back-dated sell against sufficient seed does not throw', () => {
+  const seed: LedgerEntryForRebuild = {
+    id: 'seed',
+    transactionType: 'buy',
+    recordType: 'seed',
+    quantity: 10,
+    price: 100,
+    fees: 0,
+    currency: 'USD',
+    date: '2026-06-12',
+  };
+  const backDatedSell = sellEntry({
+    id: 'tx-sell',
+    quantity: 5,
+    price: 100.49,
+    currency: 'USD',
+    date: '2026-06-11',
+  });
+
+  const result = runLedgerRebuild(sortLedgerForRebuild([backDatedSell, seed]));
+  assert.equal(result.finalQuantity, 5);
+  const sellResult = result.txResults.find((r) => r.id === 'tx-sell');
+  assert.equal(sellResult?.quantityAfter, 5);
+});
+
+test('sortLedgerForRebuild: same record type keeps date then id ordering', () => {
+  const first = buyEntry({ id: 'b1', date: '2024-01-01' });
+  const second = buyEntry({ id: 'b2', date: '2024-01-02' });
+  const ordered = sortLedgerForRebuild([second, first]);
+  assert.deepEqual(ordered.map((entry) => entry.id), ['b1', 'b2']);
 });
 
 // --- computeValueWeightedRisk tests ---

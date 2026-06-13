@@ -29,7 +29,7 @@ import {
   getSharedAssetTransactionsCollectionRef,
   getSharedAssetsCollectionRef,
 } from './sharedPortfolio';
-import { runLedgerRebuild } from '../portfolio/transactionRebuild';
+import { runLedgerRebuild, sortLedgerForRebuild } from '../portfolio/transactionRebuild';
 
 type AssetTransactionInput = Omit<
   AssetTransactionEntry,
@@ -151,19 +151,7 @@ function toLedgerTransaction(entry: AssetTransactionEntry): LedgerTransaction {
 }
 
 function sortLedgerTransactions(entries: LedgerTransaction[]) {
-  return [...entries].sort((left, right) => {
-    const dateDiff = left.date.localeCompare(right.date);
-    if (dateDiff !== 0) {
-      return dateDiff;
-    }
-
-    const createdDiff = (left.createdAt ?? '').localeCompare(right.createdAt ?? '');
-    if (createdDiff !== 0) {
-      return createdDiff;
-    }
-
-    return (left.id ?? '').localeCompare(right.id ?? '');
-  });
+  return sortLedgerForRebuild(entries);
 }
 
 function buildSeedPayload(holding: Holding): LedgerTransaction | null {

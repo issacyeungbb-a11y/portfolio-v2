@@ -27,6 +27,50 @@ export interface TxRebuildResult {
   averageCostAfter: number;
 }
 
+export interface LedgerSortable {
+  recordType: AssetTransactionRecordType;
+  date: string;
+  createdAt?: string;
+  id?: string;
+}
+
+// Baseline records describe holdings that already existed before any trade was
+// recorded, so they must always rebuild before dated trades — otherwise a
+// back-dated sell (date earlier than the auto-captured baseline) would sort
+// ahead of the baseline and be measured against a zero opening position.
+function rebuildOrderRank(recordType: AssetTransactionRecordType) {
+  if (recordType === 'asset_created') {
+    return 0;
+  }
+
+  if (recordType === 'seed') {
+    return 1;
+  }
+
+  return 2;
+}
+
+export function sortLedgerForRebuild<T extends LedgerSortable>(entries: T[]): T[] {
+  return [...entries].sort((left, right) => {
+    const rankDiff = rebuildOrderRank(left.recordType) - rebuildOrderRank(right.recordType);
+    if (rankDiff !== 0) {
+      return rankDiff;
+    }
+
+    const dateDiff = left.date.localeCompare(right.date);
+    if (dateDiff !== 0) {
+      return dateDiff;
+    }
+
+    const createdDiff = (left.createdAt ?? '').localeCompare(right.createdAt ?? '');
+    if (createdDiff !== 0) {
+      return createdDiff;
+    }
+
+    return (left.id ?? '').localeCompare(right.id ?? '');
+  });
+}
+
 export interface LedgerRebuildResult {
   finalQuantity: number;
   finalAverageCost: number;
