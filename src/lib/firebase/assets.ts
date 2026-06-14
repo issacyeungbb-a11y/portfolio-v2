@@ -67,7 +67,25 @@ function formatTimestamp(value: unknown) {
     return value.toDate().toISOString();
   }
 
+  // Defensive: handle a serialized Firestore timestamp ({seconds, nanoseconds})
+  // in case a snapshot ever yields a plain object instead of a Timestamp
+  // instance — otherwise archivedAt would read as empty and closed positions
+  // would leak back into the active asset list.
+  if (
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { seconds?: unknown }).seconds === 'number'
+  ) {
+    return new Date((value as { seconds: number }).seconds * 1000).toISOString();
+  }
+
   return typeof value === 'string' ? value : '';
+}
+
+// A non-cash holding that has been fully sold (or otherwise has no positive
+// quantity) is a closed position and should not appear in the active list.
+function isClosedNonCashPosition(holding: Holding) {
+  return holding.assetType !== 'cash' && !(holding.quantity > 0);
 }
 
 function normalizeTickerList(values: string[]) {
@@ -175,15 +193,13 @@ export function subscribeToPortfolioAssets(
       const holdings = snapshot.docs.map((document) =>
         buildHoldingFromInput(document.id, document.data() as PortfolioAssetInput),
       );
-      // Hide closed positions: archived assets, plus any defensively-detected
-      // fully-sold non-cash holding (quantity ≤ 0) that lacks the archived flag.
-      // Sold-out assets still appear in the closed-asset archive, built from
-      // their transaction history.
+      // Hide closed positions: archived assets, plus any fully-sold non-cash
+      // holding (quantity ≤ 0) even if the archived flag is missing or failed
+      // to map. Sold-out assets still appear in the closed-asset archive, which
+      // is rebuilt independently from transaction history.
       onData(
         holdings.filter(
-          (holding) =>
-            !holding.archivedAt &&
-            !(holding.assetType !== 'cash' && holding.quantity <= 0),
+          (holding) => !holding.archivedAt && !isClosedNonCashPosition(holding),
         ),
       );
     },
