@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { access, readFile } from 'node:fs/promises';
+import { access, readdir, readFile } from 'node:fs/promises';
 
 test('monthly cron route still points to runtime scheduledAnalysis.js and sync version marker matches source', async () => {
   const [apiSource, tsSource, jsSource] = await Promise.all([
@@ -24,18 +24,16 @@ test('analyze route has enough Vercel duration for grounded earnings analysis', 
 });
 
 test('quarterly report is manual-only and not registered as a cron job', async () => {
-  const [disabledCronSource, manualSource, functionConfigSource, vercelConfigSource] =
+  const [apiFiles, manualSource, functionConfigSource, vercelConfigSource] =
     await Promise.all([
-      readFile(new URL('../api/cron-quarterly-report.ts', import.meta.url), 'utf8'),
+      readdir(new URL('../api/', import.meta.url)),
       readFile(new URL('../api/manual-quarterly-report.ts', import.meta.url), 'utf8'),
       readFile(new URL('../src/lib/api/vercelFunctions.ts', import.meta.url), 'utf8'),
       readFile(new URL('../vercel.json', import.meta.url), 'utf8'),
     ]);
   const vercelConfig = JSON.parse(vercelConfigSource);
 
-  assert.match(disabledCronSource, /410/);
-  assert.doesNotMatch(disabledCronSource, /verifyCronRequest/);
-  assert.doesNotMatch(disabledCronSource, /runQuarterlyAssetReport/);
+  assert.equal(apiFiles.includes('cron-quarterly-report.ts'), false);
   assert.match(manualSource, /runManualQuarterlyAssetReport/);
   assert.match(functionConfigSource, /\/api\/manual-quarterly-report/);
   assert.equal(vercelConfig.functions['api/manual-quarterly-report.ts'].maxDuration, 300);
