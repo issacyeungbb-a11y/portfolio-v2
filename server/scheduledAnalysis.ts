@@ -41,7 +41,7 @@ import type {
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
 const MONTHLY_ROUTE = '/api/cron-monthly-analysis' as const;
-const QUARTERLY_ROUTE = '/api/cron-quarterly-report' as const;
+const QUARTERLY_ROUTE = '/api/manual-quarterly-report' as const;
 const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-8' as const;
 const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = 'gemini-3.1-pro-preview' as const;
 const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
@@ -120,6 +120,7 @@ export function buildScheduledAnalysisTimeoutFallback(
     title: string;
     model: PortfolioAnalysisModel;
     category: ScheduledCategory;
+    delivery?: 'manual' | 'scheduled';
     error?: unknown;
   },
 ): PortfolioAnalysisResponse {
@@ -145,9 +146,9 @@ export function buildScheduledAnalysisTimeoutFallback(
 
   const answer = [
     `【${params.title}】`,
-    '一句話結論：分析模型今次回應超時，系統已先用已同步持倉、配置與快照資料生成可用版本，避免月報完全失敗。',
+    '一句話結論：分析模型今次回應超時，系統已先用已同步持倉、配置與快照資料生成可用版本，避免報告完全失敗。',
     '',
-    '【本月資產概況】',
+    '【資產概況】',
     `- 總市值：約 ${formatHKD(totalValueHKD)}`,
     `- 資產數量：${request.assetCount} 項`,
     ...assetTypeLines,
@@ -163,10 +164,10 @@ export function buildScheduledAnalysisTimeoutFallback(
     '【幣別曝險】',
     ...currencyLines,
     '',
-    '【下月跟進】',
+    '【後續跟進】',
     '1. 優先檢查最大持倉與最大帳面虧損項目，確認是否需要調整集中度。',
     '2. 留意幣別曝險是否集中於單一貨幣，尤其是現金流與投資貨幣不一致的部分。',
-    '3. 待模型回應穩定後，可重新生成一次月報取得完整宏觀連結與行動建議。',
+    '3. 待模型回應穩定後，可重新生成一次報告取得完整宏觀連結與行動建議。',
   ]
     .filter(Boolean)
     .join('\n');
@@ -183,7 +184,7 @@ export function buildScheduledAnalysisTimeoutFallback(
     enrichmentStatus: 'partial',
     analysisQuestion: request.analysisQuestion ?? '',
     analysisBackground: request.analysisBackground ?? '',
-    delivery: 'scheduled',
+    delivery: params.delivery ?? 'scheduled',
     generatedAt: new Date().toISOString(),
     answer,
     usedPortfolioFacts: [
@@ -1138,6 +1139,7 @@ export function buildAnalysisSessionWritePayload(params: {
   title: string;
   allocationSummary?: ReportAllocationSummary;
   reportFactsPayload?: ReportFactsPayload;
+  delivery?: 'manual' | 'scheduled';
 }) {
   const sanitizedReportFactsPayload = params.reportFactsPayload
     ? sanitizeForFirestore(params.reportFactsPayload)
@@ -1151,7 +1153,7 @@ export function buildAnalysisSessionWritePayload(params: {
     model: params.response.model,
     provider: params.response.provider,
     snapshotHash: params.response.snapshotHash,
-    delivery: 'scheduled',
+    delivery: params.delivery ?? 'scheduled',
     ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
     ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
     createdAt: FieldValue.serverTimestamp(),
@@ -1392,6 +1394,7 @@ async function saveScheduledAnalysis(
   allocationSummary?: ReportAllocationSummary,
   reportFactsPayload?: ReportFactsPayload,
   sessionDocId?: string,
+  delivery: 'manual' | 'scheduled' = 'scheduled',
 ) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -1408,7 +1411,7 @@ async function saveScheduledAnalysis(
       model: response.model,
       analysisQuestion: response.analysisQuestion,
       analysisBackground: response.analysisBackground,
-      delivery: 'scheduled',
+      delivery,
       generatedAt: response.generatedAt,
       assetCount: response.assetCount,
       answer: response.answer,
@@ -1424,6 +1427,7 @@ async function saveScheduledAnalysis(
     title,
     allocationSummary,
     reportFactsPayload: sanitizedReportFactsPayload,
+    delivery,
   });
 
   if (sessionDocId) {
@@ -1462,11 +1466,17 @@ async function runScheduledCategoryAnalysis(params: {
   conversationContext: string;
   maxTokens: number;
   assets?: AdminAsset[];
+  delivery?: 'manual' | 'scheduled';
 }) {
   const assets = params.assets ?? await readAdminPortfolioAssets();
 
   if (assets.length === 0) {
-    throw new ScheduledAnalysisError('目前沒有可分析的資產，已跳過自動分析。', 400);
+    throw new ScheduledAnalysisError(
+      params.delivery === 'manual'
+        ? '目前沒有可分析的資產，已跳過分析。'
+        : '目前沒有可分析的資產，已跳過自動分析。',
+      400,
+    );
   }
 
   const promptSettings = await readAnalysisPromptSettings();
@@ -1481,7 +1491,7 @@ async function runScheduledCategoryAnalysis(params: {
   let response: PortfolioAnalysisResponse;
   try {
     response = await runPortfolioAnalysisRequest(request, {
-      delivery: 'scheduled',
+      delivery: params.delivery ?? 'scheduled',
       maxTokens: params.maxTokens,
       modelTimeoutMs: SCHEDULED_MODEL_TIMEOUT_MS,
     });
@@ -1494,6 +1504,7 @@ async function runScheduledCategoryAnalysis(params: {
       title: params.title,
       model: request.analysisModel,
       category: params.category,
+      delivery: params.delivery ?? 'scheduled',
       error,
     });
   }
@@ -1740,6 +1751,7 @@ export async function runQuarterlyAssetReport() {
     conversationContext,
     maxTokens: 5000,
     assets,
+    delivery: 'manual',
   });
   const reportFactsPayload = buildReportFactsPayload({
     reportType: 'quarterly',
@@ -1760,7 +1772,14 @@ export async function runQuarterlyAssetReport() {
     fxSource: latestSnapshotMeta?.fxSource,
     fxRatesUsed: latestSnapshotMeta?.fxRatesUsed,
   });
-  await saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload);
+  await saveScheduledAnalysis(
+    response,
+    title,
+    allocationSummary,
+    reportFactsPayload,
+    undefined,
+    'manual',
+  );
 
   await saveQuarterlyReport({
     quarter: getHongKongQuarterLabel(),

@@ -18,7 +18,7 @@ import {
 const SHARED_PORTFOLIO_COLLECTION = "portfolio";
 const SHARED_PORTFOLIO_DOC_ID = "app";
 const MONTHLY_ROUTE = "/api/cron-monthly-analysis";
-const QUARTERLY_ROUTE = "/api/cron-quarterly-report";
+const QUARTERLY_ROUTE = "/api/manual-quarterly-report";
 const DEFAULT_DIAGNOSTIC_MODEL = "claude-opus-4-8";
 const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = "gemini-3.1-pro-preview";
 const PREFERRED_GROUNDED_SEARCH_MODEL = "gemini-2.5-flash";
@@ -76,9 +76,9 @@ function buildScheduledAnalysisTimeoutFallback(request, params) {
   const errorMessage = params.error instanceof Error ? params.error.message : "model_timeout";
   const answer = [
     `\u3010${params.title}\u3011`,
-    "\u4E00\u53E5\u8A71\u7D50\u8AD6\uFF1A\u5206\u6790\u6A21\u578B\u4ECA\u6B21\u56DE\u61C9\u8D85\u6642\uFF0C\u7CFB\u7D71\u5DF2\u5148\u7528\u5DF2\u540C\u6B65\u6301\u5009\u3001\u914D\u7F6E\u8207\u5FEB\u7167\u8CC7\u6599\u751F\u6210\u53EF\u7528\u7248\u672C\uFF0C\u907F\u514D\u6708\u5831\u5B8C\u5168\u5931\u6557\u3002",
+    "\u4E00\u53E5\u8A71\u7D50\u8AD6\uFF1A\u5206\u6790\u6A21\u578B\u4ECA\u6B21\u56DE\u61C9\u8D85\u6642\uFF0C\u7CFB\u7D71\u5DF2\u5148\u7528\u5DF2\u540C\u6B65\u6301\u5009\u3001\u914D\u7F6E\u8207\u5FEB\u7167\u8CC7\u6599\u751F\u6210\u53EF\u7528\u7248\u672C\uFF0C\u907F\u514D\u5831\u544A\u5B8C\u5168\u5931\u6557\u3002",
     "",
-    "\u3010\u672C\u6708\u8CC7\u7522\u6982\u6CC1\u3011",
+    "\u3010\u8CC7\u7522\u6982\u6CC1\u3011",
     `- \u7E3D\u5E02\u503C\uFF1A\u7D04 ${formatHKD(totalValueHKD)}`,
     `- \u8CC7\u7522\u6578\u91CF\uFF1A${request.assetCount} \u9805`,
     ...assetTypeLines,
@@ -90,10 +90,10 @@ function buildScheduledAnalysisTimeoutFallback(request, params) {
     "\u3010\u5E63\u5225\u66DD\u96AA\u3011",
     ...currencyLines,
     "",
-    "\u3010\u4E0B\u6708\u8DDF\u9032\u3011",
+    "\u3010\u5F8C\u7E8C\u8DDF\u9032\u3011",
     "1. \u512A\u5148\u6AA2\u67E5\u6700\u5927\u6301\u5009\u8207\u6700\u5927\u5E33\u9762\u8667\u640D\u9805\u76EE\uFF0C\u78BA\u8A8D\u662F\u5426\u9700\u8981\u8ABF\u6574\u96C6\u4E2D\u5EA6\u3002",
     "2. \u7559\u610F\u5E63\u5225\u66DD\u96AA\u662F\u5426\u96C6\u4E2D\u65BC\u55AE\u4E00\u8CA8\u5E63\uFF0C\u5C24\u5176\u662F\u73FE\u91D1\u6D41\u8207\u6295\u8CC7\u8CA8\u5E63\u4E0D\u4E00\u81F4\u7684\u90E8\u5206\u3002",
-    "3. \u5F85\u6A21\u578B\u56DE\u61C9\u7A69\u5B9A\u5F8C\uFF0C\u53EF\u91CD\u65B0\u751F\u6210\u4E00\u6B21\u6708\u5831\u53D6\u5F97\u5B8C\u6574\u5B8F\u89C0\u9023\u7D50\u8207\u884C\u52D5\u5EFA\u8B70\u3002"
+    "3. \u5F85\u6A21\u578B\u56DE\u61C9\u7A69\u5B9A\u5F8C\uFF0C\u53EF\u91CD\u65B0\u751F\u6210\u4E00\u6B21\u5831\u544A\u53D6\u5F97\u5B8C\u6574\u5B8F\u89C0\u9023\u7D50\u8207\u884C\u52D5\u5EFA\u8B70\u3002"
   ].filter(Boolean).join("\n");
   return {
     ok: true,
@@ -107,7 +107,7 @@ function buildScheduledAnalysisTimeoutFallback(request, params) {
     enrichmentStatus: "partial",
     analysisQuestion: request.analysisQuestion ?? "",
     analysisBackground: request.analysisBackground ?? "",
-    delivery: "scheduled",
+    delivery: params.delivery ?? "scheduled",
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     answer,
     usedPortfolioFacts: [
@@ -775,7 +775,7 @@ function buildAnalysisSessionWritePayload(params) {
     model: params.response.model,
     provider: params.response.provider,
     snapshotHash: params.response.snapshotHash,
-    delivery: "scheduled",
+    delivery: params.delivery ?? "scheduled",
     ...params.allocationSummary ? { allocationSummary: params.allocationSummary } : {},
     ...sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {},
     createdAt: FieldValue.serverTimestamp(),
@@ -931,7 +931,7 @@ function buildQuarterlyAnalysisQuestion(params) {
     trendSections || "\u672A\u6709\u8DB3\u5920\u4E09\u500B\u6708\u8DA8\u52E2\u8CC7\u6599\u3002"
   ].join("\n");
 }
-async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId) {
+async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId, delivery = "scheduled") {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
   const sanitizedReportFactsPayload = reportFactsPayload ? sanitizeForFirestore(reportFactsPayload) : void 0;
@@ -944,7 +944,7 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
       model: response.model,
       analysisQuestion: response.analysisQuestion,
       analysisBackground: response.analysisBackground,
-      delivery: "scheduled",
+      delivery,
       generatedAt: response.generatedAt,
       assetCount: response.assetCount,
       answer: response.answer,
@@ -958,7 +958,8 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
     response,
     title,
     allocationSummary,
-    reportFactsPayload: sanitizedReportFactsPayload
+    reportFactsPayload: sanitizedReportFactsPayload,
+    delivery
   });
   if (sessionDocId) {
     await portfolioRef.collection("analysisSessions").doc(sessionDocId).create(sessionPayload);
@@ -973,7 +974,7 @@ async function saveQuarterlyReport(params) {
 async function runScheduledCategoryAnalysis(params) {
   const assets = params.assets ?? await readAdminPortfolioAssets();
   if (assets.length === 0) {
-    throw new ScheduledAnalysisError("\u76EE\u524D\u6C92\u6709\u53EF\u5206\u6790\u7684\u8CC7\u7522\uFF0C\u5DF2\u8DF3\u904E\u81EA\u52D5\u5206\u6790\u3002", 400);
+    throw new ScheduledAnalysisError(params.delivery === "manual" ? "\u76EE\u524D\u6C92\u6709\u53EF\u5206\u6790\u7684\u8CC7\u7522\uFF0C\u5DF2\u8DF3\u904E\u5206\u6790\u3002" : "\u76EE\u524D\u6C92\u6709\u53EF\u5206\u6790\u7684\u8CC7\u7522\uFF0C\u5DF2\u8DF3\u904E\u81EA\u52D5\u5206\u6790\u3002", 400);
   }
   const promptSettings = await readAnalysisPromptSettings();
   const request = buildAnalysisRequestFromAssets({
@@ -987,7 +988,7 @@ async function runScheduledCategoryAnalysis(params) {
   let response;
   try {
     response = await runPortfolioAnalysisRequest(request, {
-      delivery: "scheduled",
+      delivery: params.delivery ?? "scheduled",
       maxTokens: params.maxTokens,
       modelTimeoutMs: SCHEDULED_MODEL_TIMEOUT_MS
     });
@@ -999,6 +1000,7 @@ async function runScheduledCategoryAnalysis(params) {
       title: params.title,
       model: request.analysisModel,
       category: params.category,
+      delivery: params.delivery ?? "scheduled",
       error
     });
   }
@@ -1215,7 +1217,8 @@ async function runQuarterlyAssetReport() {
     question,
     conversationContext,
     maxTokens: 5e3,
-    assets
+    assets,
+    delivery: "manual"
   });
   const reportFactsPayload = buildReportFactsPayload({
     reportType: "quarterly",
@@ -1236,7 +1239,14 @@ async function runQuarterlyAssetReport() {
     fxSource: latestSnapshotMeta?.fxSource,
     fxRatesUsed: latestSnapshotMeta?.fxRatesUsed
   });
-  await saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload);
+  await saveScheduledAnalysis(
+    response,
+    title,
+    allocationSummary,
+    reportFactsPayload,
+    void 0,
+    "manual"
+  );
   await saveQuarterlyReport({
     quarter: getHongKongQuarterLabel(),
     generatedAt: response.generatedAt,

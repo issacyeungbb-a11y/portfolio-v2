@@ -20,7 +20,7 @@ export const portfolioFunctionConfig: Record<
   'extract-assets': { path: '/api/extract-assets', method: 'POST' },
   'extract-transactions': { path: '/api/extract-transactions', method: 'POST' },
   'manual-monthly-analysis': { path: '/api/cron-monthly-analysis', method: 'POST' },
-  'manual-quarterly-report': { path: '/api/cron-quarterly-report', method: 'POST' },
+  'manual-quarterly-report': { path: '/api/manual-quarterly-report', method: 'POST' },
   'manual-capture-snapshot': { path: '/api/manual-capture-snapshot', method: 'POST' },
   'parse-assets-command': { path: '/api/parse-assets-command', method: 'POST' },
   'parse-transactions-command': { path: '/api/parse-transactions-command', method: 'POST' },

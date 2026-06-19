@@ -4,7 +4,7 @@
     "api/cron-monthly-analysis.ts": {
       "maxDuration": 300
     },
-    "api/cron-quarterly-report.ts": {
+    "api/manual-quarterly-report.ts": {
       "maxDuration": 300
     },
     "api/cron-daily-update.ts": {

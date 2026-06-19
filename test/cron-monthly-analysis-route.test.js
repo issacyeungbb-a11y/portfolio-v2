@@ -23,6 +23,30 @@ test('analyze route has enough Vercel duration for grounded earnings analysis', 
   assert.equal(config.functions['api/analyze.ts'].maxDuration, 300);
 });
 
+test('quarterly report is manual-only and not registered as a cron job', async () => {
+  const [disabledCronSource, manualSource, functionConfigSource, vercelConfigSource] =
+    await Promise.all([
+      readFile(new URL('../api/cron-quarterly-report.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../api/manual-quarterly-report.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../src/lib/api/vercelFunctions.ts', import.meta.url), 'utf8'),
+      readFile(new URL('../vercel.json', import.meta.url), 'utf8'),
+    ]);
+  const vercelConfig = JSON.parse(vercelConfigSource);
+
+  assert.match(disabledCronSource, /410/);
+  assert.doesNotMatch(disabledCronSource, /verifyCronRequest/);
+  assert.doesNotMatch(disabledCronSource, /runQuarterlyAssetReport/);
+  assert.match(manualSource, /runManualQuarterlyAssetReport/);
+  assert.match(functionConfigSource, /\/api\/manual-quarterly-report/);
+  assert.equal(vercelConfig.functions['api/manual-quarterly-report.ts'].maxDuration, 300);
+  assert.equal(vercelConfig.functions['api/cron-quarterly-report.ts'], undefined);
+  assert.ok(
+    vercelConfig.crons.every(
+      (entry) => !String(entry.path ?? '').includes('quarterly'),
+    ),
+  );
+});
+
 test('analyze route runtime JS imports exist for Vercel serverless', async () => {
   const apiSource = await readFile(new URL('../api/analyze.ts', import.meta.url), 'utf8');
 
