@@ -49,6 +49,50 @@ function formatGeneratedAt(value: string) {
   }
 }
 
+interface ReportHoldingSnapshotRow {
+  ticker: string;
+  name: string;
+  currency: string;
+  quantity?: number;
+  currentPrice?: number;
+  marketValueHKD: number;
+  marketValueLocal?: number;
+}
+
+function formatPdfNumber(value?: number, maximumFractionDigits = 4) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—';
+  }
+
+  return new Intl.NumberFormat('en-HK', {
+    maximumFractionDigits,
+  }).format(value);
+}
+
+function formatPdfMoney(value?: number, currency = 'HKD') {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—';
+  }
+
+  return `${currency} ${new Intl.NumberFormat('en-HK', {
+    maximumFractionDigits: currency === 'JPY' ? 0 : 2,
+  }).format(value)}`;
+}
+
+function getReportHoldingSnapshotRows(report: QuarterlyReport): ReportHoldingSnapshotRow[] {
+  const facts = report.reportFactsPayload;
+
+  if (!facts) {
+    return [];
+  }
+
+  if (Array.isArray(facts.currentHoldings) && facts.currentHoldings.length > 0) {
+    return [...facts.currentHoldings].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+  }
+
+  return [...facts.topHoldingsByHKD].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+}
+
 function extractBase64FontPayload(rawText: string) {
   const trimmed = rawText.trim();
 
@@ -359,6 +403,49 @@ function renderDirectTextPdf(report: QuarterlyReport, pdf: jsPDF, fontFamily: st
     cursorY += 3;
   });
 
+  const holdingRows = getReportHoldingSnapshotRows(report);
+  if (holdingRows.length > 0) {
+    ensureSpace(18);
+    pdf.setFont(fontFamily, 'bold');
+    pdf.setFontSize(12);
+    pdf.setTextColor(29, 26, 23);
+    pdf.text('當刻資產明細', margin, cursorY);
+    cursorY += 7;
+
+    pdf.setFont(fontFamily, 'normal');
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(98, 90, 81);
+    pdf.text(`截至 ${report.reportFactsPayload?.currentSnapshotDate ?? report.reportFactsPayload?.periodEndDate ?? '生成當刻'}`, margin, cursorY);
+    cursorY += 6;
+
+    pdf.setFont(fontFamily, 'bold');
+    pdf.setFontSize(8.5);
+    pdf.setTextColor(29, 26, 23);
+    pdf.text('資產', margin, cursorY);
+    pdf.text('持有數量', margin + 72, cursorY);
+    pdf.text('當時價格', margin + 110, cursorY);
+    pdf.text('總值', margin + 150, cursorY);
+    cursorY += 5;
+    pdf.setDrawColor(210, 198, 184);
+    pdf.line(margin, cursorY, margin + contentWidth, cursorY);
+    cursorY += 5;
+
+    pdf.setFont(fontFamily, 'normal');
+    pdf.setFontSize(8);
+    holdingRows.forEach((holding) => {
+      ensureSpace(7);
+      const assetLabel = `${holding.name} (${holding.ticker})`;
+      const assetLines = pdf.splitTextToSize(assetLabel, 66);
+      pdf.text(assetLines[0] ?? assetLabel, margin, cursorY);
+      pdf.text(formatPdfNumber(holding.quantity, 8), margin + 72, cursorY);
+      pdf.text(formatPdfMoney(holding.currentPrice, holding.currency), margin + 110, cursorY);
+      pdf.text(formatPdfMoney(holding.marketValueHKD, 'HKD'), margin + 150, cursorY);
+      cursorY += 5.5;
+    });
+
+    cursorY += 3;
+  }
+
   addTextPdfFooter(pdf, fontFamily);
   return pdf;
 }
@@ -567,6 +654,51 @@ function renderCanvasFallbackPdf(report: QuarterlyReport) {
 
     cursorY += 18;
   });
+
+  const holdingRows = getReportHoldingSnapshotRows(report);
+  if (holdingRows.length > 0) {
+    ensureSpace(120);
+    page.context.fillStyle = '#1d1a17';
+    page.context.font = '700 30px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+    page.context.fillText('當刻資產明細', marginPx, cursorY);
+    cursorY += 42;
+
+    page.context.fillStyle = '#625a51';
+    page.context.font = '400 20px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+    page.context.fillText(
+      `截至 ${report.reportFactsPayload?.currentSnapshotDate ?? report.reportFactsPayload?.periodEndDate ?? '生成當刻'}`,
+      marginPx,
+      cursorY,
+    );
+    cursorY += 36;
+
+    page.context.fillStyle = '#1d1a17';
+    page.context.font = '700 19px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+    page.context.fillText('資產', marginPx, cursorY);
+    page.context.fillText('持有數量', marginPx + 430, cursorY);
+    page.context.fillText('當時價格', marginPx + 650, cursorY);
+    page.context.fillText('總值', marginPx + 860, cursorY);
+    cursorY += 30;
+
+    page.context.strokeStyle = '#d2c6b8';
+    page.context.beginPath();
+    page.context.moveTo(marginPx, cursorY);
+    page.context.lineTo(marginPx + contentWidthPx, cursorY);
+    page.context.stroke();
+    cursorY += 30;
+
+    page.context.font = '400 18px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
+    holdingRows.forEach((holding) => {
+      ensureSpace(34);
+      page.context.fillText(`${holding.name} (${holding.ticker})`, marginPx, cursorY);
+      page.context.fillText(formatPdfNumber(holding.quantity, 8), marginPx + 430, cursorY);
+      page.context.fillText(formatPdfMoney(holding.currentPrice, holding.currency), marginPx + 650, cursorY);
+      page.context.fillText(formatPdfMoney(holding.marketValueHKD, 'HKD'), marginPx + 860, cursorY);
+      cursorY += 32;
+    });
+
+    cursorY += 18;
+  }
 
   pages.push(page);
 

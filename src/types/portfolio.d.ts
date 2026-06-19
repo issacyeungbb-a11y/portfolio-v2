@@ -185,6 +185,15 @@ export interface ReportFactsPayload {
         marketValueHKD: number;
         marketValueLocal?: number;
     }>;
+    currentHoldings?: Array<{
+        ticker: string;
+        name: string;
+        currency: string;
+        quantity: number;
+        currentPrice: number;
+        marketValueHKD: number;
+        marketValueLocal?: number;
+    }>;
     allocationByType: ReportAllocationSummary['slices'];
     allocationByCurrency: Array<{
         currency: string;

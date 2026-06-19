@@ -139,7 +139,22 @@ test('buildReportFactsPayload includes netExternalFlowCoveragePct and cashFlowWa
     periodStartDate: '2026-04-01',
     periodEndDate: '2026-05-01',
     baselineSnapshot: { id: 'baseline-1', date: '2026-04-01', totalValueHKD: 100000, holdings: [] } as never,
-    currentSnapshot: { date: '2026-05-01', totalValueHKD: 120000, holdings: [] },
+    currentSnapshot: {
+      date: '2026-05-01',
+      totalValueHKD: 120000,
+      holdings: [
+        {
+          assetId: 'asset-1',
+          ticker: 'VOO',
+          name: 'Vanguard S&P 500 ETF',
+          assetType: 'etf',
+          currency: 'USD',
+          quantity: 2,
+          currentPrice: 500,
+          marketValueHKD: 7800,
+        },
+      ],
+    },
     totalCostHKD: 100000,
     allocationSummary: {
       asOfDate: '2026-05-01',
@@ -176,6 +191,15 @@ test('buildReportFactsPayload includes netExternalFlowCoveragePct and cashFlowWa
 
   assert.equal(payload.netExternalFlowCoveragePct, 80);
   assert.equal(payload.cashFlowWarningMessage, '資金流資料未完全覆蓋（80%）');
+  assert.deepEqual(payload.currentHoldings?.[0], {
+    ticker: 'VOO',
+    name: 'Vanguard S&P 500 ETF',
+    currency: 'USD',
+    quantity: 2,
+    currentPrice: 500,
+    marketValueHKD: 7800,
+    marketValueLocal: 1000,
+  });
 });
 
 test('buildReportDataQualitySummary marks fallback assets as partial', () => {
@@ -325,6 +349,17 @@ test('buildAnalysisSessionWritePayload sanitizes reportFactsPayload before write
           marketValueLocal: undefined,
         },
       ],
+      currentHoldings: [
+        {
+          ticker: '3350',
+          name: 'Metaplanet',
+          currency: 'JPY',
+          quantity: 10,
+          currentPrice: 1200,
+          marketValueHKD: 600,
+          marketValueLocal: undefined,
+        },
+      ],
       allocationByType: [],
       allocationByCurrency: [],
       model: 'claude-opus-4-8',
@@ -337,11 +372,13 @@ test('buildAnalysisSessionWritePayload sanitizes reportFactsPayload before write
   const reportFactsPayload = writePayload.reportFactsPayload as unknown as Record<string, unknown>;
   const dataQualitySummary = reportFactsPayload.dataQualitySummary as Record<string, unknown>;
   const firstHolding = (reportFactsPayload.topHoldingsByHKD as Array<Record<string, unknown>>)[0];
+  const firstCurrentHolding = (reportFactsPayload.currentHoldings as Array<Record<string, unknown>>)[0];
 
   assert.ok(reportFactsPayload);
   assert.ok(!('netExternalFlowHKD' in reportFactsPayload));
   assert.ok(!('missingAssetCount' in dataQualitySummary));
   assert.ok(!('marketValueLocal' in firstHolding));
+  assert.ok(!('marketValueLocal' in firstCurrentHolding));
 });
 
 test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write', () => {
@@ -377,6 +414,17 @@ test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write
           marketValueLocal: undefined,
         },
       ],
+      currentHoldings: [
+        {
+          ticker: '3350',
+          name: 'Metaplanet',
+          currency: 'JPY',
+          quantity: 10,
+          currentPrice: 1200,
+          marketValueHKD: 600,
+          marketValueLocal: undefined,
+        },
+      ],
       allocationByType: [],
       allocationByCurrency: [],
       model: 'claude-opus-4-8',
@@ -389,10 +437,12 @@ test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write
   const reportFactsPayload = writePayload.reportFactsPayload as unknown as Record<string, unknown>;
   const dataQualitySummary = reportFactsPayload.dataQualitySummary as Record<string, unknown>;
   const firstHolding = (reportFactsPayload.topHoldingsByHKD as Array<Record<string, unknown>>)[0];
+  const firstCurrentHolding = (reportFactsPayload.currentHoldings as Array<Record<string, unknown>>)[0];
 
   assert.ok(!('cashFlowWarningMessage' in reportFactsPayload));
   assert.ok(!('fallbackAssetCount' in dataQualitySummary));
   assert.ok(!('marketValueLocal' in firstHolding));
+  assert.ok(!('marketValueLocal' in firstCurrentHolding));
 });
 
 test('monthly grounded search prompt keeps structured macro-only summary requirements', () => {

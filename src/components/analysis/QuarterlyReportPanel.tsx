@@ -3,6 +3,7 @@ import { ReportAllocationSummaryCard } from '../portfolio/ReportAllocationSummar
 import type { DisplayCurrency } from '../../types/portfolio';
 import type { QuarterlyReport } from '../../lib/firebase/quarterlyReports';
 import { splitParagraphs, type ReportSection } from '../../lib/portfolio/quarterlyReportPdf';
+import { ReportHoldingsSnapshotTable } from './ReportHoldingsSnapshotTable';
 
 interface ConversationTurn {
   question: string;
@@ -202,6 +203,11 @@ export function QuarterlyReportPanel({
               ))}
             </div>
           </section>
+
+          <ReportHoldingsSnapshotTable
+            reportFactsPayload={selectedReport.reportFactsPayload}
+            displayCurrency={displayCurrency}
+          />
         </main>
       ) : null}
 

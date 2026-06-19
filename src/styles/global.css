@@ -3580,6 +3580,61 @@ h3 {
   font-size: 1rem;
 }
 
+.report-holdings-snapshot {
+  margin-top: 18px;
+}
+
+.report-holdings-table-shell {
+  overflow-x: auto;
+  border: 1px solid rgba(127, 111, 93, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.report-holdings-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.report-holdings-table th,
+.report-holdings-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(127, 111, 93, 0.13);
+  text-align: left;
+  vertical-align: top;
+}
+
+.report-holdings-table th {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(242, 237, 229, 0.75);
+}
+
+.report-holdings-table td:not(:first-child),
+.report-holdings-table th:not(:first-child) {
+  text-align: right;
+}
+
+.report-holdings-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.report-holdings-table strong,
+.report-holdings-table span {
+  display: block;
+}
+
+.report-holdings-table td span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .report-allocation-summary-card-compact {
   box-shadow: none;
   background: var(--surface);

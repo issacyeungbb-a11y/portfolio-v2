@@ -2,6 +2,7 @@ import { EmptyState } from '../ui/EmptyState';
 import { ReportAllocationSummaryCard } from '../portfolio/ReportAllocationSummaryCard';
 import type { AnalysisSession, DisplayCurrency } from '../../types/portfolio';
 import { splitParagraphs, splitReportIntoSections } from '../../lib/portfolio/quarterlyReportPdf';
+import { ReportHoldingsSnapshotTable } from './ReportHoldingsSnapshotTable';
 
 interface MonthlyReportPanelProps {
   monthlyAnalysisSessions: AnalysisSession[];
@@ -87,6 +88,11 @@ export function MonthlyReportPanel({
                 </section>
               ))}
             </div>
+
+            <ReportHoldingsSnapshotTable
+              reportFactsPayload={selectedMonthlyAnalysis.reportFactsPayload}
+              displayCurrency={displayCurrency}
+            />
           </>
         ) : (
           <EmptyState
