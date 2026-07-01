@@ -453,6 +453,24 @@ export function TransactionsPage() {
                       : '未有現價'}
                 </p>
               </article>
+              <article className="summary-card">
+                <p className="summary-label">最大負面拖累交易</p>
+                <strong
+                  className="summary-value"
+                  data-tone={(maxNegativeComparison?.comparisonDisplay ?? 0) < 0 ? 'caution' : 'default'}
+                >
+                  {maxNegativeComparison
+                    ? formatCurrencyRounded(maxNegativeComparison.comparisonDisplay, displayCurrency)
+                    : '未有現價'}
+                </strong>
+                <p className="summary-hint">
+                  {maxNegativeComparison
+                    ? getContributionLabel(maxNegativeComparison)
+                    : validComparisons.length > 0
+                      ? '未有負面拖累'
+                      : '未有現價'}
+                </p>
+              </article>
             </div>
           </section>
           <section className="transaction-summary-panel transaction-summary-panel-sell">
@@ -487,24 +505,6 @@ export function TransactionsPage() {
                   )}
                 </strong>
                 <p className="summary-hint">賣出交易扣除手續費後累計</p>
-              </article>
-              <article className="summary-card">
-                <p className="summary-label">最大負面拖累交易</p>
-                <strong
-                  className="summary-value"
-                  data-tone={(maxNegativeComparison?.comparisonDisplay ?? 0) < 0 ? 'caution' : 'default'}
-                >
-                  {maxNegativeComparison
-                    ? formatCurrencyRounded(maxNegativeComparison.comparisonDisplay, displayCurrency)
-                    : '未有現價'}
-                </strong>
-                <p className="summary-hint">
-                  {maxNegativeComparison
-                    ? getContributionLabel(maxNegativeComparison)
-                    : validComparisons.length > 0
-                      ? '未有負面拖累'
-                      : '未有現價'}
-                </p>
               </article>
             </div>
           </section>
