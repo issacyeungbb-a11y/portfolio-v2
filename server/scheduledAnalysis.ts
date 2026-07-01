@@ -728,6 +728,10 @@ export function normalizeSnapshotDocument(
               holding.assetType === 'cash'
                 ? holding.assetType
                 : 'stock',
+            accountSource:
+              typeof holding.accountSource === 'string' && holding.accountSource.trim()
+                ? holding.accountSource.trim()
+                : undefined,
             currency:
               typeof holding.currency === 'string'
                 ? normalizeCurrencyCode(holding.currency)
@@ -1034,6 +1038,90 @@ function formatReportDataQualitySummaryForPrompt(
   return lines.join('\n');
 }
 
+function getAccountSourceLabel(accountSource: string) {
+  if (accountSource === 'Futu') return 'Futu';
+  if (accountSource === 'IB') return 'IB';
+  if (accountSource === 'Crypto') return 'Crypto';
+  if (accountSource === 'Other') return '其他';
+  return accountSource || '未記錄';
+}
+
+function getReportHoldingGroupKey(
+  holding: SnapshotComparisonSource['holdings'][number],
+) {
+  return [
+    holding.ticker.trim().toUpperCase(),
+    holding.name.trim().toLowerCase(),
+    String(holding.assetType || '').trim().toLowerCase(),
+    holding.currency.trim().toUpperCase(),
+  ].join('|');
+}
+
+function buildGroupedCurrentHoldings(
+  holdings: SnapshotComparisonSource['holdings'],
+): ReportFactsPayload['currentHoldings'] {
+  const groups = new Map<string, NonNullable<ReportFactsPayload['currentHoldings']>[number]>();
+
+  for (const holding of holdings) {
+    const groupKey = getReportHoldingGroupKey(holding);
+    const marketValueLocal = holding.quantity * holding.currentPrice;
+    const accountSource = holding.accountSource?.trim() || 'unknown';
+    const existing = groups.get(groupKey);
+
+    if (!existing) {
+      groups.set(groupKey, {
+        ticker: holding.ticker,
+        name: holding.name,
+        assetType: holding.assetType as AssetType,
+        currency: holding.currency,
+        quantity: holding.quantity,
+        currentPrice: holding.currentPrice,
+        marketValueHKD: holding.marketValueHKD,
+        marketValueLocal,
+        accountSources: [
+          {
+            accountSource,
+            label: getAccountSourceLabel(accountSource),
+            quantity: holding.quantity,
+            marketValueHKD: holding.marketValueHKD,
+            marketValueLocal,
+          },
+        ],
+      });
+      continue;
+    }
+
+    existing.quantity += holding.quantity;
+    existing.marketValueHKD += holding.marketValueHKD;
+    existing.marketValueLocal = (existing.marketValueLocal ?? 0) + marketValueLocal;
+    existing.currentPrice =
+      existing.quantity === 0 ? holding.currentPrice : (existing.marketValueLocal ?? 0) / existing.quantity;
+
+    const accountSources = existing.accountSources ?? [];
+    const accountEntry = accountSources.find((entry) => entry.accountSource === accountSource);
+
+    if (accountEntry) {
+      accountEntry.quantity += holding.quantity;
+      accountEntry.marketValueHKD += holding.marketValueHKD;
+      accountEntry.marketValueLocal = (accountEntry.marketValueLocal ?? 0) + marketValueLocal;
+    } else {
+      accountSources.push({
+        accountSource,
+        label: getAccountSourceLabel(accountSource),
+        quantity: holding.quantity,
+        marketValueHKD: holding.marketValueHKD,
+        marketValueLocal,
+      });
+    }
+
+    existing.accountSources = accountSources.sort((left, right) =>
+      right.marketValueHKD - left.marketValueHKD,
+    );
+  }
+
+  return [...groups.values()].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+}
+
 export function buildReportFactsPayload(params: {
   reportType: 'monthly' | 'quarterly';
   generatedAt: string;
@@ -1080,15 +1168,7 @@ export function buildReportFactsPayload(params: {
       marketValueHKD: holding.marketValueHKD,
       marketValueLocal: holding.marketValue,
     })),
-    currentHoldings: params.currentSnapshot.holdings.map((holding) => ({
-      ticker: holding.ticker,
-      name: holding.name,
-      currency: holding.currency,
-      quantity: holding.quantity,
-      currentPrice: holding.currentPrice,
-      marketValueHKD: holding.marketValueHKD,
-      marketValueLocal: holding.quantity * holding.currentPrice,
-    })),
+    currentHoldings: buildGroupedCurrentHoldings(params.currentSnapshot.holdings),
     allocationByType: params.allocationSummary.slices,
     allocationByCurrency: params.allocationsByCurrency,
     model: params.model,

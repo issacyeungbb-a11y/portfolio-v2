@@ -13,6 +13,7 @@ interface ReportHoldingRow {
   currentPrice?: number;
   marketValueHKD: number;
   marketValueLocal?: number;
+  accountSources?: NonNullable<ReportFactsPayload['currentHoldings']>[number]['accountSources'];
 }
 
 function formatNumber(value?: number, maximumFractionDigits = 4) {
@@ -53,6 +54,18 @@ function getHoldingRows(reportFactsPayload?: ReportFactsPayload): ReportHoldingR
   );
 }
 
+function formatAccountSources(holding: ReportHoldingRow) {
+  const accountSources = holding.accountSources?.filter((entry) => entry.marketValueHKD > 0) ?? [];
+
+  if (accountSources.length === 0) {
+    return '';
+  }
+
+  return accountSources
+    .map((entry) => entry.label || String(entry.accountSource || '未記錄'))
+    .join('、');
+}
+
 export function ReportHoldingsSnapshotTable({
   reportFactsPayload,
   displayCurrency,
@@ -80,6 +93,7 @@ export function ReportHoldingsSnapshotTable({
           <thead>
             <tr>
               <th>資產</th>
+              <th>來源帳戶</th>
               <th>持有數量</th>
               <th>當時價格</th>
               <th>總值</th>
@@ -92,6 +106,7 @@ export function ReportHoldingsSnapshotTable({
                   <strong>{holding.name}</strong>
                   <span>{holding.ticker}</span>
                 </td>
+                <td>{formatAccountSources(holding) || '—'}</td>
                 <td>{formatNumber(holding.quantity, 8)}</td>
                 <td>{formatMoney(holding.currentPrice, holding.currency)}</td>
                 <td>

@@ -57,6 +57,17 @@ interface ReportHoldingSnapshotRow {
   currentPrice?: number;
   marketValueHKD: number;
   marketValueLocal?: number;
+  accountSources?: Array<{
+    label: string;
+    marketValueHKD: number;
+  }>;
+}
+
+function formatHoldingAccountSources(holding: ReportHoldingSnapshotRow) {
+  return (holding.accountSources ?? [])
+    .filter((entry) => entry.marketValueHKD > 0)
+    .map((entry) => entry.label)
+    .join('、');
 }
 
 function formatPdfNumber(value?: number, maximumFractionDigits = 4) {
@@ -422,9 +433,10 @@ function renderDirectTextPdf(report: QuarterlyReport, pdf: jsPDF, fontFamily: st
     pdf.setFontSize(8.5);
     pdf.setTextColor(29, 26, 23);
     pdf.text('資產', margin, cursorY);
-    pdf.text('持有數量', margin + 72, cursorY);
-    pdf.text('當時價格', margin + 110, cursorY);
-    pdf.text('總值', margin + 150, cursorY);
+    pdf.text('來源', margin + 62, cursorY);
+    pdf.text('持有數量', margin + 94, cursorY);
+    pdf.text('當時價格', margin + 128, cursorY);
+    pdf.text('總值', margin + 164, cursorY);
     cursorY += 5;
     pdf.setDrawColor(210, 198, 184);
     pdf.line(margin, cursorY, margin + contentWidth, cursorY);
@@ -435,11 +447,13 @@ function renderDirectTextPdf(report: QuarterlyReport, pdf: jsPDF, fontFamily: st
     holdingRows.forEach((holding) => {
       ensureSpace(7);
       const assetLabel = `${holding.name} (${holding.ticker})`;
-      const assetLines = pdf.splitTextToSize(assetLabel, 66);
+      const accountSourceLabel = formatHoldingAccountSources(holding) || '—';
+      const assetLines = pdf.splitTextToSize(assetLabel, 58);
       pdf.text(assetLines[0] ?? assetLabel, margin, cursorY);
-      pdf.text(formatPdfNumber(holding.quantity, 8), margin + 72, cursorY);
-      pdf.text(formatPdfMoney(holding.currentPrice, holding.currency), margin + 110, cursorY);
-      pdf.text(formatPdfMoney(holding.marketValueHKD, 'HKD'), margin + 150, cursorY);
+      pdf.text(pdf.splitTextToSize(accountSourceLabel, 28)[0] ?? accountSourceLabel, margin + 62, cursorY);
+      pdf.text(formatPdfNumber(holding.quantity, 8), margin + 94, cursorY);
+      pdf.text(formatPdfMoney(holding.currentPrice, holding.currency), margin + 128, cursorY);
+      pdf.text(formatPdfMoney(holding.marketValueHKD, 'HKD'), margin + 164, cursorY);
       cursorY += 5.5;
     });
 
@@ -675,9 +689,10 @@ function renderCanvasFallbackPdf(report: QuarterlyReport) {
     page.context.fillStyle = '#1d1a17';
     page.context.font = '700 19px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif';
     page.context.fillText('資產', marginPx, cursorY);
-    page.context.fillText('持有數量', marginPx + 430, cursorY);
-    page.context.fillText('當時價格', marginPx + 650, cursorY);
-    page.context.fillText('總值', marginPx + 860, cursorY);
+    page.context.fillText('來源', marginPx + 360, cursorY);
+    page.context.fillText('持有數量', marginPx + 520, cursorY);
+    page.context.fillText('當時價格', marginPx + 700, cursorY);
+    page.context.fillText('總值', marginPx + 900, cursorY);
     cursorY += 30;
 
     page.context.strokeStyle = '#d2c6b8';
@@ -691,9 +706,10 @@ function renderCanvasFallbackPdf(report: QuarterlyReport) {
     holdingRows.forEach((holding) => {
       ensureSpace(34);
       page.context.fillText(`${holding.name} (${holding.ticker})`, marginPx, cursorY);
-      page.context.fillText(formatPdfNumber(holding.quantity, 8), marginPx + 430, cursorY);
-      page.context.fillText(formatPdfMoney(holding.currentPrice, holding.currency), marginPx + 650, cursorY);
-      page.context.fillText(formatPdfMoney(holding.marketValueHKD, 'HKD'), marginPx + 860, cursorY);
+      page.context.fillText(formatHoldingAccountSources(holding) || '—', marginPx + 360, cursorY);
+      page.context.fillText(formatPdfNumber(holding.quantity, 8), marginPx + 520, cursorY);
+      page.context.fillText(formatPdfMoney(holding.currentPrice, holding.currency), marginPx + 700, cursorY);
+      page.context.fillText(formatPdfMoney(holding.marketValueHKD, 'HKD'), marginPx + 900, cursorY);
       cursorY += 32;
     });
 

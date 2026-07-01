@@ -207,6 +207,14 @@ export interface ReportDataQualitySummary {
   warningMessages: string[];
 }
 
+export interface ReportHoldingAccountSource {
+  accountSource: AccountSource | 'unknown' | string;
+  label: string;
+  quantity: number;
+  marketValueHKD: number;
+  marketValueLocal?: number;
+}
+
 export interface ReportFactsPayload {
   generatedAt: string;
   reportType: 'monthly' | 'quarterly';
@@ -235,11 +243,13 @@ export interface ReportFactsPayload {
   currentHoldings?: Array<{
     ticker: string;
     name: string;
+    assetType?: AssetType;
     currency: string;
     quantity: number;
     currentPrice: number;
     marketValueHKD: number;
     marketValueLocal?: number;
+    accountSources?: ReportHoldingAccountSource[];
   }>;
   allocationByType: ReportAllocationSummary['slices'];
   allocationByCurrency: Array<{

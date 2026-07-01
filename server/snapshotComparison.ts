@@ -5,6 +5,7 @@ export interface SnapshotComparisonHolding {
   ticker: string;
   name: string;
   assetType: AssetType | string;
+  accountSource?: string;
   currency: string;
   quantity: number;
   currentPrice: number;

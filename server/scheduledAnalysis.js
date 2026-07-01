@@ -23,7 +23,7 @@ const DEFAULT_DIAGNOSTIC_MODEL = "claude-opus-4-8";
 const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = "gemini-3.1-pro-preview";
 const PREFERRED_GROUNDED_SEARCH_MODEL = "gemini-2.5-flash";
 const GROUNDED_SEARCH_FALLBACK_MODELS = ["gemini-2.5-pro", "gemini-3.1-pro-preview"];
-const SCHEDULED_MODEL_TIMEOUT_MS = 720000;
+const SCHEDULED_MODEL_TIMEOUT_MS = 72e4;
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
 const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
 const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
@@ -69,7 +69,9 @@ function buildScheduledAnalysisTimeoutFallback(request, params) {
   const topHoldingLines = topHoldings.map((holding, index) => {
     const weight = totalValueHKD > 0 ? holding.marketValueHKD / totalValueHKD * 100 : 0;
     const gainLossHKD = holding.marketValueHKD - holding.costValueHKD;
-    return `${index + 1}. ${holding.ticker}\uFF5C${holding.name}\uFF5C\u5E02\u503C ${formatHKD(holding.marketValueHKD)}\uFF5C\u4F54\u6BD4 ${weight.toFixed(1)}%\uFF5C\u5E33\u9762 ${gainLossHKD >= 0 ? "+" : ""}${formatHKD(gainLossHKD)}`;
+    return `${index + 1}. ${holding.ticker}\uFF5C${holding.name}\uFF5C\u5E02\u503C ${formatHKD(
+      holding.marketValueHKD
+    )}\uFF5C\u4F54\u6BD4 ${weight.toFixed(1)}%\uFF5C\u5E33\u9762 ${gainLossHKD >= 0 ? "+" : ""}${formatHKD(gainLossHKD)}`;
   });
   const assetTypeLines = request.allocationsByType.slice(0, 8).map((item) => `- ${item.assetType}\uFF1A${item.percentage.toFixed(1)}%\uFF0C${formatHKD(item.totalValueHKD)}`);
   const currencyLines = request.allocationsByCurrency.slice(0, 8).map((item) => `- ${item.currency}\uFF1A${item.percentage.toFixed(1)}%\uFF0C${formatHKD(item.totalValueHKD)}`);
@@ -85,7 +87,9 @@ function buildScheduledAnalysisTimeoutFallback(request, params) {
     "",
     "\u3010\u4E3B\u8981\u6301\u5009\u3011",
     ...topHoldingLines,
-    sortedHoldings.length > topHoldings.length ? `- \u5176\u9918 ${sortedHoldings.length - topHoldings.length} \u9805\u5408\u8A08\u7D04 ${formatHKD(sortedHoldings.slice(topHoldings.length).reduce((sum, holding) => sum + holding.marketValueHKD, 0))}` : "",
+    sortedHoldings.length > topHoldings.length ? `- \u5176\u9918 ${sortedHoldings.length - topHoldings.length} \u9805\u5408\u8A08\u7D04 ${formatHKD(
+      sortedHoldings.slice(topHoldings.length).reduce((sum, holding) => sum + holding.marketValueHKD, 0)
+    )}` : "",
     "",
     "\u3010\u5E63\u5225\u66DD\u96AA\u3011",
     ...currencyLines,
@@ -500,6 +504,7 @@ function normalizeSnapshotDocument(value, snapshotId) {
       ticker: typeof holding.symbol === "string" ? holding.symbol : typeof holding.ticker === "string" ? holding.ticker : "",
       name: typeof holding.name === "string" ? holding.name : typeof holding.assetName === "string" ? holding.assetName : "",
       assetType: holding.assetType === "stock" || holding.assetType === "etf" || holding.assetType === "bond" || holding.assetType === "crypto" || holding.assetType === "cash" ? holding.assetType : "stock",
+      accountSource: typeof holding.accountSource === "string" && holding.accountSource.trim() ? holding.accountSource.trim() : void 0,
       currency: typeof holding.currency === "string" ? normalizeCurrencyCode(holding.currency) : "HKD",
       quantity: typeof holding.quantity === "number" ? holding.quantity : 0,
       currentPrice: typeof holding.currentPrice === "number" ? holding.currentPrice : 0,
@@ -701,6 +706,75 @@ function formatReportDataQualitySummaryForPrompt(summary, title) {
   }
   return lines.join("\n");
 }
+function getAccountSourceLabel(accountSource) {
+  if (accountSource === "Futu") return "Futu";
+  if (accountSource === "IB") return "IB";
+  if (accountSource === "Crypto") return "Crypto";
+  if (accountSource === "Other") return "\u5176\u4ED6";
+  return accountSource || "\u672A\u8A18\u9304";
+}
+function getReportHoldingGroupKey(holding) {
+  return [
+    holding.ticker.trim().toUpperCase(),
+    holding.name.trim().toLowerCase(),
+    String(holding.assetType || "").trim().toLowerCase(),
+    holding.currency.trim().toUpperCase()
+  ].join("|");
+}
+function buildGroupedCurrentHoldings(holdings) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const holding of holdings) {
+    const groupKey = getReportHoldingGroupKey(holding);
+    const marketValueLocal = holding.quantity * holding.currentPrice;
+    const accountSource = holding.accountSource?.trim() || "unknown";
+    const existing = groups.get(groupKey);
+    if (!existing) {
+      groups.set(groupKey, {
+        ticker: holding.ticker,
+        name: holding.name,
+        assetType: holding.assetType,
+        currency: holding.currency,
+        quantity: holding.quantity,
+        currentPrice: holding.currentPrice,
+        marketValueHKD: holding.marketValueHKD,
+        marketValueLocal,
+        accountSources: [
+          {
+            accountSource,
+            label: getAccountSourceLabel(accountSource),
+            quantity: holding.quantity,
+            marketValueHKD: holding.marketValueHKD,
+            marketValueLocal
+          }
+        ]
+      });
+      continue;
+    }
+    existing.quantity += holding.quantity;
+    existing.marketValueHKD += holding.marketValueHKD;
+    existing.marketValueLocal = (existing.marketValueLocal ?? 0) + marketValueLocal;
+    existing.currentPrice = existing.quantity === 0 ? holding.currentPrice : (existing.marketValueLocal ?? 0) / existing.quantity;
+    const accountSources = existing.accountSources ?? [];
+    const accountEntry = accountSources.find((entry) => entry.accountSource === accountSource);
+    if (accountEntry) {
+      accountEntry.quantity += holding.quantity;
+      accountEntry.marketValueHKD += holding.marketValueHKD;
+      accountEntry.marketValueLocal = (accountEntry.marketValueLocal ?? 0) + marketValueLocal;
+    } else {
+      accountSources.push({
+        accountSource,
+        label: getAccountSourceLabel(accountSource),
+        quantity: holding.quantity,
+        marketValueHKD: holding.marketValueHKD,
+        marketValueLocal
+      });
+    }
+    existing.accountSources = accountSources.sort(
+      (left, right) => right.marketValueHKD - left.marketValueHKD
+    );
+  }
+  return [...groups.values()].sort((left, right) => right.marketValueHKD - left.marketValueHKD);
+}
 function buildReportFactsPayload(params) {
   const comparison = params.comparison ?? null;
   return {
@@ -728,15 +802,7 @@ function buildReportFactsPayload(params) {
       marketValueHKD: holding.marketValueHKD,
       marketValueLocal: holding.marketValue
     })),
-    currentHoldings: params.currentSnapshot.holdings.map((holding) => ({
-      ticker: holding.ticker,
-      name: holding.name,
-      currency: holding.currency,
-      quantity: holding.quantity,
-      currentPrice: holding.currentPrice,
-      marketValueHKD: holding.marketValueHKD,
-      marketValueLocal: holding.quantity * holding.currentPrice
-    })),
+    currentHoldings: buildGroupedCurrentHoldings(params.currentSnapshot.holdings),
     allocationByType: params.allocationSummary.slices,
     allocationByCurrency: params.allocationsByCurrency,
     model: params.model,
@@ -983,7 +1049,10 @@ async function saveQuarterlyReport(params) {
 async function runScheduledCategoryAnalysis(params) {
   const assets = params.assets ?? await readAdminPortfolioAssets();
   if (assets.length === 0) {
-    throw new ScheduledAnalysisError(params.delivery === "manual" ? "\u76EE\u524D\u6C92\u6709\u53EF\u5206\u6790\u7684\u8CC7\u7522\uFF0C\u5DF2\u8DF3\u904E\u5206\u6790\u3002" : "\u76EE\u524D\u6C92\u6709\u53EF\u5206\u6790\u7684\u8CC7\u7522\uFF0C\u5DF2\u8DF3\u904E\u81EA\u52D5\u5206\u6790\u3002", 400);
+    throw new ScheduledAnalysisError(
+      params.delivery === "manual" ? "\u76EE\u524D\u6C92\u6709\u53EF\u5206\u6790\u7684\u8CC7\u7522\uFF0C\u5DF2\u8DF3\u904E\u5206\u6790\u3002" : "\u76EE\u524D\u6C92\u6709\u53EF\u5206\u6790\u7684\u8CC7\u7522\uFF0C\u5DF2\u8DF3\u904E\u81EA\u52D5\u5206\u6790\u3002",
+      400
+    );
   }
   const promptSettings = await readAnalysisPromptSettings();
   const request = buildAnalysisRequestFromAssets({
@@ -1331,11 +1400,11 @@ export {
   SCHEDULED_ANALYSIS_LOGIC_VERSION,
   buildAnalysisRequestFromAssets,
   buildAnalysisSessionWritePayload,
-  buildScheduledAnalysisTimeoutFallback,
   buildMonthlyAnalysisQuestion,
   buildQuarterlyReportWritePayload,
   buildReportDataQualitySummary,
   buildReportFactsPayload,
+  buildScheduledAnalysisTimeoutFallback,
   getDefaultServerPromptSettings,
   getMonthlyAnalysisSessionDocId,
   getPreviousMonthStartDate,

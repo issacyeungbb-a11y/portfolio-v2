@@ -148,6 +148,7 @@ test('buildReportFactsPayload includes netExternalFlowCoveragePct and cashFlowWa
           ticker: 'VOO',
           name: 'Vanguard S&P 500 ETF',
           assetType: 'etf',
+          accountSource: 'IB',
           currency: 'USD',
           quantity: 2,
           currentPrice: 500,
@@ -194,12 +195,107 @@ test('buildReportFactsPayload includes netExternalFlowCoveragePct and cashFlowWa
   assert.deepEqual(payload.currentHoldings?.[0], {
     ticker: 'VOO',
     name: 'Vanguard S&P 500 ETF',
+    assetType: 'etf',
     currency: 'USD',
     quantity: 2,
     currentPrice: 500,
     marketValueHKD: 7800,
     marketValueLocal: 1000,
+    accountSources: [
+      {
+        accountSource: 'IB',
+        label: 'IB',
+        quantity: 2,
+        marketValueHKD: 7800,
+        marketValueLocal: 1000,
+      },
+    ],
   });
+});
+
+test('buildReportFactsPayload groups duplicate assets across accounts', () => {
+  const payload = buildReportFactsPayload({
+    reportType: 'monthly',
+    generatedAt: '2026-05-01T00:15:00.000Z',
+    periodStartDate: '2026-04-01',
+    periodEndDate: '2026-05-01',
+    currentSnapshot: {
+      date: '2026-05-01',
+      totalValueHKD: 23400,
+      holdings: [
+        {
+          assetId: 'voo-ib',
+          ticker: 'VOO',
+          name: 'Vanguard S&P 500 ETF',
+          assetType: 'etf',
+          accountSource: 'IB',
+          currency: 'USD',
+          quantity: 2,
+          currentPrice: 500,
+          marketValueHKD: 7800,
+        },
+        {
+          assetId: 'voo-futu',
+          ticker: 'VOO',
+          name: 'Vanguard S&P 500 ETF',
+          assetType: 'etf',
+          accountSource: 'Futu',
+          currency: 'USD',
+          quantity: 4,
+          currentPrice: 500,
+          marketValueHKD: 15600,
+        },
+      ],
+    },
+    totalCostHKD: 20000,
+    allocationSummary: {
+      asOfDate: '2026-05-01',
+      basis: 'snapshot',
+      styleTag: 'balanced',
+      warningTags: [],
+      slices: [],
+    } as never,
+    allocationsByCurrency: [],
+    model: 'claude-opus-4-8',
+    provider: 'anthropic',
+    snapshotHash: 'snapshot-hash',
+    dataQualitySummary: {
+      status: 'ok',
+      staleAssetCount: 0,
+      warningMessages: [],
+    },
+    topHoldingsByHKD: [],
+  });
+
+  assert.equal(payload.currentHoldings?.length, 1);
+  assert.equal(payload.currentHoldings?.[0]?.quantity, 6);
+  assert.equal(payload.currentHoldings?.[0]?.marketValueHKD, 23400);
+  assert.equal(payload.currentHoldings?.[0]?.marketValueLocal, 3000);
+  assert.deepEqual(
+    payload.currentHoldings?.[0]?.accountSources?.map((entry) => ({
+      accountSource: entry.accountSource,
+      label: entry.label,
+      quantity: entry.quantity,
+      marketValueHKD: entry.marketValueHKD,
+      marketValueLocal: entry.marketValueLocal,
+    })),
+    [
+      {
+        accountSource: 'Futu',
+        label: 'Futu',
+        quantity: 4,
+        marketValueHKD: 15600,
+        marketValueLocal: 2000,
+      },
+      {
+        accountSource: 'IB',
+        label: 'IB',
+        quantity: 2,
+        marketValueHKD: 7800,
+        marketValueLocal: 1000,
+      },
+    ],
+  );
 });
 
 test('buildReportDataQualitySummary marks fallback assets as partial', () => {
