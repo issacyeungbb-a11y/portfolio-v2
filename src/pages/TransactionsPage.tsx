@@ -16,7 +16,13 @@ import { useManualPriceUpdater } from '../hooks/useManualPriceUpdater';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
-import type { AccountSource, AssetTransactionEntry, DisplayCurrency, Holding } from '../types/portfolio';
+import type {
+  AccountSource,
+  AssetTransactionEntry,
+  AssetTransactionType,
+  DisplayCurrency,
+  Holding,
+} from '../types/portfolio';
 
 // 交易一律以結算貨幣（美金）儲存，交易歷史固定用美金顯示，不跟隨總覽的顯示幣別。
 const TRANSACTION_DISPLAY_CURRENCY: DisplayCurrency = 'USD';
@@ -27,6 +33,12 @@ const transactionAccountFilterOptions: Array<{ value: AccountSource | 'all'; lab
   { value: 'IB', label: 'IB' },
   { value: 'Crypto', label: 'Crypto' },
   { value: 'Other', label: '其他' },
+];
+
+const transactionTypeFilterOptions: Array<{ value: AssetTransactionType | 'all'; label: string }> = [
+  { value: 'all', label: '全部交易' },
+  { value: 'buy', label: '買入' },
+  { value: 'sell', label: '賣出' },
 ];
 
 function formatTradeDate(value: string) {
@@ -169,6 +181,7 @@ export function TransactionsPage() {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isTransactionInputOpen, setIsTransactionInputOpen] = useState(false);
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
+  const [transactionTypeFilter, setTransactionTypeFilter] = useState<AssetTransactionType | 'all'>('all');
   const [dateFromFilter, setDateFromFilter] = useState('');
   const [dateToFilter, setDateToFilter] = useState('');
   const displayCurrency = TRANSACTION_DISPLAY_CURRENCY;
@@ -192,16 +205,18 @@ export function TransactionsPage() {
       accountFilter === 'all' ||
       entry.accountSource === accountFilter ||
       settlementAccount === accountFilter;
+    const matchesTransactionType =
+      transactionTypeFilter === 'all' || entry.transactionType === transactionTypeFilter;
     const matchesDateFrom = !dateFromFilter || entry.date >= dateFromFilter;
     const matchesDateTo = !dateToFilter || entry.date <= dateToFilter;
 
-    return matchesAccount && matchesDateFrom && matchesDateTo;
+    return matchesAccount && matchesTransactionType && matchesDateFrom && matchesDateTo;
   });
-  const hasActiveFilters = accountFilter !== 'all' || Boolean(dateFromFilter) || Boolean(dateToFilter);
-  const totalTradeAmountDisplay = filteredEntries.reduce(
-    (sum, entry) => sum + convertCurrency(entry.quantity * entry.price, entry.currency, displayCurrency),
-    0,
-  );
+  const hasActiveFilters =
+    accountFilter !== 'all' ||
+    transactionTypeFilter !== 'all' ||
+    Boolean(dateFromFilter) ||
+    Boolean(dateToFilter);
   const holdingsById = useMemo(
     () => new Map(holdings.map((holding) => [holding.id, holding])),
     [holdings],
@@ -388,13 +403,6 @@ export function TransactionsPage() {
             </p>
           </article>
           <article className="summary-card">
-            <p className="summary-label">累計交易金額</p>
-            <strong className="summary-value">
-              {formatCurrencyRounded(totalTradeAmountDisplay, displayCurrency)}
-            </strong>
-            <p className="summary-hint">按各筆成交價 x 數量累計（美金）</p>
-          </article>
-          <article className="summary-card">
             <p className="summary-label">已實現盈虧</p>
             <strong className="summary-value">
               {formatCurrencyRounded(
@@ -514,6 +522,31 @@ export function TransactionsPage() {
           </div>
 
           <div className="assets-filter-block">
+            <span className="assets-filter-label">交易類型</span>
+            <div className="filter-row">
+              {transactionTypeFilterOptions.map((option) => (
+                <button
+                  key={option.value}
+                  className={transactionTypeFilter === option.value ? 'filter-chip active' : 'filter-chip'}
+                  type="button"
+                  onClick={() => setTransactionTypeFilter(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <p className="filter-total">
+              {transactionTypeFilter === 'all'
+                ? '全部買入 / 賣出'
+                : transactionTypeFilter === 'buy'
+                  ? '只顯示買入'
+                  : '只顯示賣出'}
+              {' · '}
+              {filteredEntries.length} 筆
+            </p>
+          </div>
+
+          <div className="assets-filter-block">
             <span className="assets-filter-label">交易日期</span>
             <div className="asset-form-grid">
               <label className="form-field">
@@ -539,6 +572,7 @@ export function TransactionsPage() {
                 type="button"
                 onClick={() => {
                   setAccountFilter('all');
+                  setTransactionTypeFilter('all');
                   setDateFromFilter('');
                   setDateToFilter('');
                 }}
