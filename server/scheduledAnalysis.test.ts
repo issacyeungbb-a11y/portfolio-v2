@@ -10,6 +10,7 @@ import {
   buildMonthlyAnalysisQuestion,
   getDefaultServerPromptSettings,
   getMonthlyAnalysisSessionDocId,
+  buildGroundingUnavailableSummary,
   getSearchSummaryPrompt,
   getPreviousMonthStartDate,
   normalizeSnapshotDocument,
@@ -17,6 +18,17 @@ import {
   selectNearestSnapshotToDate,
   buildScheduledAnalysisTimeoutFallback,
 } from './scheduledAnalysis.js';
+
+test('buildGroundingUnavailableSummary explains Gemini spending cap failures', () => {
+  const summary = buildGroundingUnavailableSummary({
+    mode: 'monthly',
+    error: new Error('Your project has exceeded its monthly spending cap.'),
+  });
+
+  assert.match(summary, /宏觀背景本月未能取得有效 Google Search 摘要/);
+  assert.match(summary, /Google AI Studio 專案已超出每月 spending cap/);
+  assert.match(summary, /提高或重設每月上限/);
+});
 
 test('getPreviousMonthStartDate uses previous month start in Hong Kong time', () => {
   const now = new Date('2026-05-01T08:43:00+08:00');

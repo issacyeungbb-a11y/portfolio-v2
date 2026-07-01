@@ -447,6 +447,47 @@ function getGeminiResponseText(response) {
     return typeof text === "string" ? text : "";
   }).join("\n").trim();
 }
+function getGroundingFailureReason(error) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (/spending cap/i.test(message)) {
+    return {
+      reason: "Google AI Studio \u5C08\u6848\u5DF2\u8D85\u51FA\u6BCF\u6708 spending cap\uFF0C\u56E0\u6B64 Gemini Google Search grounding \u88AB\u66AB\u505C\u3002",
+      followUp: "\u8ACB\u5230 AI Studio \u7684 Spend / Billing \u8A2D\u5B9A\u63D0\u9AD8\u6216\u91CD\u8A2D\u6BCF\u6708\u4E0A\u9650\uFF0C\u7136\u5F8C\u91CD\u65B0\u751F\u6210\u5831\u544A\u3002"
+    };
+  }
+  if (/quota|rate limit|resource exhausted|429/i.test(message)) {
+    return {
+      reason: "Google Gemini / Google Search grounding \u914D\u984D\u66AB\u6642\u7528\u76E1\u6216\u88AB\u9650\u6D41\u3002",
+      followUp: "\u8ACB\u7A0D\u5F8C\u518D\u8A66\uFF0C\u6216\u6AA2\u67E5 Google AI Studio / Google Cloud \u7684 API \u914D\u984D\u8A2D\u5B9A\u3002"
+    };
+  }
+  if (/api key|permission|forbidden|unauthorized|billing/i.test(message)) {
+    return {
+      reason: "Google API key\u3001\u6B0A\u9650\u6216\u5E33\u55AE\u8A2D\u5B9A\u672A\u80FD\u901A\u904E Google Search grounding \u8981\u6C42\u3002",
+      followUp: "\u8ACB\u6AA2\u67E5 Vercel \u74B0\u5883\u8B8A\u6578\u5167\u7684 GEMINI_API_KEY / GOOGLE_API_KEY\uFF0C\u4EE5\u53CA Google AI Studio \u5E33\u55AE\u8207\u6B0A\u9650\u8A2D\u5B9A\u3002"
+    };
+  }
+  if (isAbortTimeoutError(error)) {
+    return {
+      reason: "Google Search grounding \u8ACB\u6C42\u903E\u6642\uFF0C\u672A\u80FD\u5728\u9650\u5B9A\u6642\u9593\u5167\u56DE\u50B3\u6458\u8981\u3002",
+      followUp: "\u8ACB\u7A0D\u5F8C\u91CD\u65B0\u751F\u6210\uFF1B\u5982\u60C5\u6CC1\u6301\u7E8C\uFF0C\u53EF\u80FD\u9700\u8981\u5EF6\u9577 function timeout \u6216\u964D\u4F4E\u641C\u5C0B\u6458\u8981\u7BC4\u570D\u3002"
+    };
+  }
+  return {
+    reason: "Google Search grounding \u672A\u80FD\u56DE\u50B3\u6709\u6548\u6458\u8981\u3002",
+    followUp: "\u8ACB\u7A0D\u5F8C\u91CD\u65B0\u751F\u6210\uFF1B\u5982\u60C5\u6CC1\u6301\u7E8C\uFF0C\u8ACB\u6AA2\u67E5 Vercel runtime logs \u5167\u7684 Gemini grounding \u932F\u8AA4\u3002"
+  };
+}
+function buildGroundingUnavailableSummary(params) {
+  const periodLabel = params.mode === "monthly" ? "\u672C\u6708" : "\u672C\u5B63";
+  const { reason, followUp } = getGroundingFailureReason(params.error);
+  return [
+    `\u5B8F\u89C0\u80CC\u666F${periodLabel}\u672A\u80FD\u53D6\u5F97\u6709\u6548 Google Search \u6458\u8981\u3002`,
+    `\u539F\u56E0\uFF1A${reason}`,
+    `\u8DDF\u9032\uFF1A${followUp}`,
+    "\u5728\u91CD\u65B0\u751F\u6210\u524D\uFF0C\u5831\u544A\u53EA\u6703\u4EE5\u76EE\u524D\u6301\u5009\u3001\u8CC7\u7522\u5FEB\u7167\u3001\u8CC7\u7522\u5206\u4F48\u8207\u6708\u5EA6/\u5B63\u5EA6\u8B8A\u5316\u4F5C\u70BA\u4E3B\u8981\u5206\u6790\u57FA\u790E\uFF1B\u8ACB\u907F\u514D\u628A\u5B8F\u89C0\u5224\u8B80\u8996\u70BA\u5DF2\u5B8C\u6210\u7684\u5916\u90E8\u5E02\u5834\u6838\u5BE6\u3002"
+  ].join("\n");
+}
 async function generateGeminiContentViaRest(args) {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     args.model
@@ -504,7 +545,7 @@ async function generateGroundedSearchSummary(params) {
   return {
     provider: "google",
     model: candidates[0],
-    summary: "\u672A\u80FD\u53D6\u5F97\u6709\u6548\u7684 Google Search \u6458\u8981\uFF1B\u8ACB\u4EE5\u76EE\u524D\u6301\u5009\u8207\u5FEB\u7167\u8CC7\u6599\u70BA\u4E3B\u9032\u884C\u5206\u6790\u3002",
+    summary: buildGroundingUnavailableSummary({ mode: params.mode, error: lastError }),
     error: lastError instanceof Error ? lastError.message : "grounding_failed"
   };
 }
@@ -1413,6 +1454,7 @@ export {
   SCHEDULED_ANALYSIS_LOGIC_VERSION,
   buildAnalysisRequestFromAssets,
   buildAnalysisSessionWritePayload,
+  buildGroundingUnavailableSummary,
   buildMonthlyAnalysisQuestion,
   buildQuarterlyReportWritePayload,
   buildReportDataQualitySummary,

@@ -629,6 +629,58 @@ function getGeminiResponseText(response: unknown) {
     .trim();
 }
 
+function getGroundingFailureReason(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+
+  if (/spending cap/i.test(message)) {
+    return {
+      reason: 'Google AI Studio 專案已超出每月 spending cap，因此 Gemini Google Search grounding 被暫停。',
+      followUp: '請到 AI Studio 的 Spend / Billing 設定提高或重設每月上限，然後重新生成報告。',
+    };
+  }
+
+  if (/quota|rate limit|resource exhausted|429/i.test(message)) {
+    return {
+      reason: 'Google Gemini / Google Search grounding 配額暫時用盡或被限流。',
+      followUp: '請稍後再試，或檢查 Google AI Studio / Google Cloud 的 API 配額設定。',
+    };
+  }
+
+  if (/api key|permission|forbidden|unauthorized|billing/i.test(message)) {
+    return {
+      reason: 'Google API key、權限或帳單設定未能通過 Google Search grounding 要求。',
+      followUp: '請檢查 Vercel 環境變數內的 GEMINI_API_KEY / GOOGLE_API_KEY，以及 Google AI Studio 帳單與權限設定。',
+    };
+  }
+
+  if (isAbortTimeoutError(error)) {
+    return {
+      reason: 'Google Search grounding 請求逾時，未能在限定時間內回傳摘要。',
+      followUp: '請稍後重新生成；如情況持續，可能需要延長 function timeout 或降低搜尋摘要範圍。',
+    };
+  }
+
+  return {
+    reason: 'Google Search grounding 未能回傳有效摘要。',
+    followUp: '請稍後重新生成；如情況持續，請檢查 Vercel runtime logs 內的 Gemini grounding 錯誤。',
+  };
+}
+
+export function buildGroundingUnavailableSummary(params: {
+  mode: 'monthly' | 'quarterly';
+  error: unknown;
+}) {
+  const periodLabel = params.mode === 'monthly' ? '本月' : '本季';
+  const { reason, followUp } = getGroundingFailureReason(params.error);
+
+  return [
+    `宏觀背景${periodLabel}未能取得有效 Google Search 摘要。`,
+    `原因：${reason}`,
+    `跟進：${followUp}`,
+    '在重新生成前，報告只會以目前持倉、資產快照、資產分佈與月度/季度變化作為主要分析基礎；請避免把宏觀判讀視為已完成的外部市場核實。',
+  ].join('\n');
+}
+
 async function generateGeminiContentViaRest(args: {
   apiKey: string;
   model: string;
@@ -711,7 +763,7 @@ async function generateGroundedSearchSummary(params: {
   return {
     provider: 'google' as const,
     model: candidates[0],
-    summary: '未能取得有效的 Google Search 摘要；請以目前持倉與快照資料為主進行分析。',
+    summary: buildGroundingUnavailableSummary({ mode: params.mode, error: lastError }),
     error: lastError instanceof Error ? lastError.message : 'grounding_failed',
   };
 }
