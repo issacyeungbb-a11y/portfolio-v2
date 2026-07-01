@@ -394,7 +394,7 @@ export function TransactionsPage() {
             {isUpdatingTransactionPrices ? '更新中...' : '更新交易現價比較'}
           </button>
         </div>
-        <div className="summary-grid">
+        <div className="transaction-summary-overview">
           <article className="summary-card">
             <p className="summary-label">記錄總數</p>
             <strong className="summary-value">{filteredEntries.length}</strong>
@@ -402,52 +402,78 @@ export function TransactionsPage() {
               {hasActiveFilters ? `已篩選自 ${visibleEntries.length} 筆記錄` : '包括建倉記錄與買入 / 賣出交易'}
             </p>
           </article>
-          <article className="summary-card">
-            <p className="summary-label">已實現盈虧</p>
-            <strong className="summary-value">
-              {formatCurrencyRounded(
-                convertCurrency(
-                  filteredEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
-                  'HKD',
-                  displayCurrency,
-                ),
-                displayCurrency,
-              )}
-            </strong>
-            <p className="summary-hint">賣出交易扣除手續費後累計</p>
-          </article>
-          <article className="summary-card">
-            <p className="summary-label">買入至今合計</p>
-            <strong
-              className="summary-value"
-              data-tone={buyComparisonTotal >= 0 ? 'positive' : 'caution'}
-            >
-              {formatCurrencyRounded(buyComparisonTotal, displayCurrency)}
-            </strong>
-            <p className="summary-hint">
-              {buyComparisons.length} 筆有現價買入交易
-            </p>
-          </article>
-          <article className="summary-card">
-            <p className="summary-label">賣後比較合計</p>
-            <strong
-              className="summary-value"
-              data-tone={sellComparisonTotal >= 0 ? 'positive' : 'caution'}
-            >
-              {formatCurrencyRounded(sellComparisonTotal, displayCurrency)}
-            </strong>
-            <p className="summary-hint">正數代表賣得好，負數代表賣早咗</p>
-          </article>
-          <article className="summary-card">
-            <p className="summary-label">買入交易加權平均回報</p>
-            <strong
-              className="summary-value"
-              data-tone={(buyWeightedReturn ?? 0) >= 0 ? 'positive' : 'caution'}
-            >
-              {buyWeightedReturn == null ? '未有現價' : formatPercent(buyWeightedReturn)}
-            </strong>
-            <p className="summary-hint">按成交成本加權</p>
-          </article>
+        </div>
+        <div className="transaction-summary-split">
+          <section className="transaction-summary-panel transaction-summary-panel-buy">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">BUY</p>
+                <h3>買入交易</h3>
+              </div>
+              <span className="chip chip-soft">{buyComparisons.length} 筆有現價</span>
+            </div>
+            <div className="summary-grid">
+              <article className="summary-card">
+                <p className="summary-label">買入至今合計</p>
+                <strong
+                  className="summary-value"
+                  data-tone={buyComparisonTotal >= 0 ? 'positive' : 'caution'}
+                >
+                  {formatCurrencyRounded(buyComparisonTotal, displayCurrency)}
+                </strong>
+                <p className="summary-hint">
+                  現時價值 - 成交成本
+                </p>
+              </article>
+              <article className="summary-card">
+                <p className="summary-label">買入交易加權平均回報</p>
+                <strong
+                  className="summary-value"
+                  data-tone={(buyWeightedReturn ?? 0) >= 0 ? 'positive' : 'caution'}
+                >
+                  {buyWeightedReturn == null ? '未有現價' : formatPercent(buyWeightedReturn)}
+                </strong>
+                <p className="summary-hint">按成交成本加權</p>
+              </article>
+            </div>
+          </section>
+          <section className="transaction-summary-panel transaction-summary-panel-sell">
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">SELL</p>
+                <h3>賣出交易</h3>
+              </div>
+              <span className="chip chip-soft">{sellComparisons.length} 筆有現價</span>
+            </div>
+            <div className="summary-grid">
+              <article className="summary-card">
+                <p className="summary-label">賣後比較合計</p>
+                <strong
+                  className="summary-value"
+                  data-tone={sellComparisonTotal >= 0 ? 'positive' : 'caution'}
+                >
+                  {formatCurrencyRounded(sellComparisonTotal, displayCurrency)}
+                </strong>
+                <p className="summary-hint">正數代表賣得好，負數代表賣早咗</p>
+              </article>
+              <article className="summary-card">
+                <p className="summary-label">已實現盈虧</p>
+                <strong className="summary-value">
+                  {formatCurrencyRounded(
+                    convertCurrency(
+                      filteredEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
+                      'HKD',
+                      displayCurrency,
+                    ),
+                    displayCurrency,
+                  )}
+                </strong>
+                <p className="summary-hint">賣出交易扣除手續費後累計</p>
+              </article>
+            </div>
+          </section>
+        </div>
+        <div className="summary-grid transaction-summary-extremes">
           <article className="summary-card">
             <p className="summary-label">最大正面貢獻交易</p>
             <strong
