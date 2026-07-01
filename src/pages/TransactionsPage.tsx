@@ -69,6 +69,32 @@ function buildHoldingFallback(entry: AssetTransactionEntry): Holding {
   };
 }
 
+function normalizeAssetMatchValue(value: string | undefined) {
+  return (value ?? '').trim().toUpperCase();
+}
+
+function getHoldingMatchKeys(holding: Holding) {
+  const baseKey = `${holding.accountSource}|${holding.assetType}`;
+  const symbol = normalizeAssetMatchValue(holding.symbol);
+  const name = normalizeAssetMatchValue(holding.name);
+
+  return [
+    symbol ? `${baseKey}|symbol|${symbol}` : null,
+    name ? `${baseKey}|name|${name}` : null,
+  ].filter((key): key is string => Boolean(key));
+}
+
+function getEntryMatchKeys(entry: AssetTransactionEntry) {
+  const baseKey = `${entry.accountSource}|${entry.assetType}`;
+  const symbol = normalizeAssetMatchValue(entry.symbol);
+  const name = normalizeAssetMatchValue(entry.assetName);
+
+  return [
+    symbol ? `${baseKey}|symbol|${symbol}` : null,
+    name ? `${baseKey}|name|${name}` : null,
+  ].filter((key): key is string => Boolean(key));
+}
+
 function formatPercent(value: number) {
   return `${(value * 100).toLocaleString('zh-HK', {
     minimumFractionDigits: 1,
@@ -229,6 +255,33 @@ export function TransactionsPage() {
     () => new Map(allHoldings.map((holding) => [holding.id, holding])),
     [allHoldings],
   );
+  const comparisonHoldingsByTransactionId = useMemo(() => {
+    const holdingsByMatchKey = new Map<string, Holding[]>();
+
+    allHoldings.forEach((holding) => {
+      getHoldingMatchKeys(holding).forEach((key) => {
+        const current = holdingsByMatchKey.get(key) ?? [];
+        holdingsByMatchKey.set(key, [...current, holding]);
+      });
+    });
+
+    return new Map(
+      filteredEntries.map((entry) => {
+        const directMatch = comparisonHoldingsById.get(entry.assetId);
+
+        if (directMatch) {
+          return [entry.id, directMatch];
+        }
+
+        const fallbackMatch =
+          getEntryMatchKeys(entry)
+            .flatMap((key) => holdingsByMatchKey.get(key) ?? [])
+            .find((holding) => holding.accountSource === entry.accountSource);
+
+        return [entry.id, fallbackMatch];
+      }),
+    );
+  }, [allHoldings, comparisonHoldingsById, filteredEntries]);
   const comparisonsByTransactionId = useMemo(
     () =>
       new Map(
@@ -236,12 +289,12 @@ export function TransactionsPage() {
           entry.id,
           getTransactionPriceComparison(
             entry,
-            comparisonHoldingsById.get(entry.assetId),
+            comparisonHoldingsByTransactionId.get(entry.id),
             displayCurrency,
           ),
         ]),
       ),
-    [comparisonHoldingsById, displayCurrency, filteredEntries],
+    [comparisonHoldingsByTransactionId, displayCurrency, filteredEntries],
   );
   const validComparisons = useMemo(
     () =>
@@ -285,16 +338,20 @@ export function TransactionsPage() {
         )
       : null;
   const transactionPriceUpdateHoldings = useMemo(() => {
-    const involvedAssetIds = new Set(
-      filteredEntries
-        .filter((entry) => (entry.recordType ?? 'trade') === 'trade' && entry.assetType !== 'cash')
-        .map((entry) => entry.assetId),
-    );
+    const holdingsToUpdate = new Map<string, Holding>();
 
-    return allHoldings.filter(
-      (holding) => holding.assetType !== 'cash' && involvedAssetIds.has(holding.id),
-    );
-  }, [allHoldings, filteredEntries]);
+    filteredEntries
+      .filter((entry) => (entry.recordType ?? 'trade') === 'trade' && entry.assetType !== 'cash')
+      .forEach((entry) => {
+        const holding = comparisonHoldingsByTransactionId.get(entry.id);
+
+        if (holding) {
+          holdingsToUpdate.set(holding.id, holding);
+        }
+      });
+
+    return [...holdingsToUpdate.values()];
+  }, [comparisonHoldingsByTransactionId, filteredEntries]);
   const latestTradeDate =
     [...filteredEntries]
       .map((entry) => entry.date)
@@ -626,7 +683,7 @@ export function TransactionsPage() {
           {filteredEntries.length > 0 ? (
             filteredEntries.map((entry) => {
               const priceComparison = comparisonsByTransactionId.get(entry.id) ?? null;
-              const currentPriceHolding = comparisonHoldingsById.get(entry.assetId);
+              const currentPriceHolding = comparisonHoldingsByTransactionId.get(entry.id);
               const currentPriceDisplay =
                 currentPriceHolding &&
                 Number.isFinite(currentPriceHolding.currentPrice) &&
