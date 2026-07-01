@@ -20,6 +20,7 @@ interface QuarterlyReportPanelProps {
   selectedSections: ReportSection[];
   displayCurrency: DisplayCurrency;
   generatingReportId: string | null;
+  deletingReportId: string | null;
   selectedQuarterlyReportThreadExists: boolean;
   selectedQuarterlyThreadTurnsStatus: string;
   quarterlyActiveConversationTurns: ConversationTurn[];
@@ -27,6 +28,7 @@ interface QuarterlyReportPanelProps {
   isAnalyzing: boolean;
   canGenerateCurrentQuarterReport: boolean;
   onGeneratePdf: (report: QuarterlyReport) => void;
+  onDeleteReport: (report: QuarterlyReport) => void;
   onSelectedReportIdChange: (id: string) => void;
   onCopyReport: () => void;
   onFollowUpQuestionChange: (value: string) => void;
@@ -44,6 +46,7 @@ export function QuarterlyReportPanel({
   selectedSections,
   displayCurrency,
   generatingReportId,
+  deletingReportId,
   selectedQuarterlyReportThreadExists,
   selectedQuarterlyThreadTurnsStatus,
   quarterlyActiveConversationTurns,
@@ -51,6 +54,7 @@ export function QuarterlyReportPanel({
   isAnalyzing,
   canGenerateCurrentQuarterReport,
   onGeneratePdf,
+  onDeleteReport,
   onSelectedReportIdChange,
   onCopyReport,
   onFollowUpQuestionChange,
@@ -87,6 +91,7 @@ export function QuarterlyReportPanel({
           {reports.map((report) => {
             const isSelected = report.id === selectedReportId;
             const isGenerating = generatingReportId === report.id;
+            const isDeleting = deletingReportId === report.id;
 
             return (
               <article
@@ -127,6 +132,14 @@ export function QuarterlyReportPanel({
                       {isGenerating ? '生成中...' : '生成 PDF'}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => onDeleteReport(report)}
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? '刪除中...' : '刪除'}
+                  </button>
                 </div>
               </article>
             );
@@ -168,6 +181,14 @@ export function QuarterlyReportPanel({
               )}
               <button className="button button-secondary" type="button" onClick={onCopyReport}>
                 複製內容
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => onDeleteReport(selectedReport)}
+                disabled={deletingReportId === selectedReport.id}
+              >
+                {deletingReportId === selectedReport.id ? '刪除中...' : '刪除'}
               </button>
             </div>
           </div>

@@ -38,6 +38,16 @@ function formatMoney(value?: number, currency = 'HKD') {
   }).format(value);
 }
 
+function formatPercentage(value?: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '—';
+  }
+
+  return `${new Intl.NumberFormat('en-HK', {
+    maximumFractionDigits: 1,
+  }).format(value)}%`;
+}
+
 function getHoldingRows(reportFactsPayload?: ReportFactsPayload): ReportHoldingRow[] {
   if (!reportFactsPayload) {
     return [];
@@ -71,6 +81,10 @@ export function ReportHoldingsSnapshotTable({
   displayCurrency,
 }: ReportHoldingsSnapshotTableProps) {
   const rows = getHoldingRows(reportFactsPayload);
+  const totalValueHKD = reportFactsPayload?.totalValueHKD ?? rows.reduce(
+    (sum, holding) => sum + holding.marketValueHKD,
+    0,
+  );
 
   if (rows.length === 0) {
     return null;
@@ -97,26 +111,33 @@ export function ReportHoldingsSnapshotTable({
               <th>持有數量</th>
               <th>當時價格</th>
               <th>總值</th>
+              <th>佔比</th>
             </tr>
           </thead>
           <tbody>
-            {rows.map((holding) => (
-              <tr key={`${holding.ticker}-${holding.name}-${holding.currency}`}>
-                <td>
-                  <strong>{holding.name}</strong>
-                  <span>{holding.ticker}</span>
-                </td>
-                <td>{formatAccountSources(holding) || '—'}</td>
-                <td>{formatNumber(holding.quantity, 8)}</td>
-                <td>{formatMoney(holding.currentPrice, holding.currency)}</td>
-                <td>
-                  <strong>{formatMoney(holding.marketValueHKD, displayCurrency)}</strong>
-                  {holding.currency !== displayCurrency && typeof holding.marketValueLocal === 'number' ? (
-                    <span>{formatMoney(holding.marketValueLocal, holding.currency)}</span>
-                  ) : null}
-                </td>
-              </tr>
-            ))}
+            {rows.map((holding) => {
+              const holdingPercentage =
+                totalValueHKD > 0 ? (holding.marketValueHKD / totalValueHKD) * 100 : undefined;
+
+              return (
+                <tr key={`${holding.ticker}-${holding.name}-${holding.currency}`}>
+                  <td>
+                    <strong>{holding.name}</strong>
+                    <span>{holding.ticker}</span>
+                  </td>
+                  <td>{formatAccountSources(holding) || '—'}</td>
+                  <td>{formatNumber(holding.quantity, 8)}</td>
+                  <td>{formatMoney(holding.currentPrice, holding.currency)}</td>
+                  <td>
+                    <strong>{formatMoney(holding.marketValueHKD, displayCurrency)}</strong>
+                    {holding.currency !== displayCurrency && typeof holding.marketValueLocal === 'number' ? (
+                      <span>{formatMoney(holding.marketValueLocal, holding.currency)}</span>
+                    ) : null}
+                  </td>
+                  <td>{formatPercentage(holdingPercentage)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

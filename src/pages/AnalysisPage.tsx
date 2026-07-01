@@ -18,6 +18,7 @@ import {
 } from '../lib/firebase/analysisThreads';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import {
+  deleteQuarterlyReport,
   getQuarterlyReportsErrorMessage,
   subscribeToQuarterlyReports,
   updateQuarterlyReportPdfUrl,
@@ -215,6 +216,7 @@ export function AnalysisPage() {
   const [generatingReportId, setGeneratingReportId] = useState<string | null>(null);
   const [generatingPeriodicReport, setGeneratingPeriodicReport] = useState<'monthly' | 'quarterly' | null>(null);
   const [deletingMonthlyAnalysisId, setDeletingMonthlyAnalysisId] = useState<string | null>(null);
+  const [deletingQuarterlyReportId, setDeletingQuarterlyReportId] = useState<string | null>(null);
   const [reportActionMessage, setReportActionMessage] = useState<string | null>(null);
   const [reportActionError, setReportActionError] = useState<string | null>(null);
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
@@ -609,6 +611,25 @@ export function AnalysisPage() {
     }
   }
 
+  async function handleDeleteQuarterlyReport(report: QuarterlyReport) {
+    if (!window.confirm(`是否確認刪除「${report.quarter}」季度報告？此操作無法復原。`)) {
+      return;
+    }
+
+    setReportActionMessage(null);
+    setReportActionError(null);
+    setDeletingQuarterlyReportId(report.id);
+
+    try {
+      await deleteQuarterlyReport(report.id);
+      setReportActionMessage(`已刪除「${report.quarter}」。`);
+    } catch (nextError) {
+      setReportActionError(getQuarterlyReportsErrorMessage(nextError));
+    } finally {
+      setDeletingQuarterlyReportId(null);
+    }
+  }
+
   const latestMonthlyAnalysis = currentMonthAnalysis ?? monthlyAnalysisSessions[0] ?? null;
   const selectedMonthlyAnalysisForResponse =
     monthlyAnalysisSessions.find((session) => session.id === selectedMonthlyAnalysisId) ??
@@ -731,6 +752,7 @@ export function AnalysisPage() {
           selectedSections={selectedSections}
           displayCurrency={displayCurrency}
           generatingReportId={generatingReportId}
+          deletingReportId={deletingQuarterlyReportId}
           selectedQuarterlyReportThreadExists={Boolean(selectedQuarterlyReportThread)}
           selectedQuarterlyThreadTurnsStatus={selectedQuarterlyThreadTurnsStatus}
           quarterlyActiveConversationTurns={quarterlyActiveConversationTurns}
@@ -738,6 +760,7 @@ export function AnalysisPage() {
           isAnalyzing={isAnalyzing}
           canGenerateCurrentQuarterReport={canGenerateCurrentQuarterReport}
           onGeneratePdf={(report) => void handleGeneratePdf(report)}
+          onDeleteReport={(report) => void handleDeleteQuarterlyReport(report)}
           onSelectedReportIdChange={setSelectedReportId}
           onCopyReport={handleCopyCurrentResponse}
           onFollowUpQuestionChange={setFollowUpQuestion}

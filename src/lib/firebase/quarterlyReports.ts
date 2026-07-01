@@ -1,4 +1,5 @@
 import {
+  deleteDoc,
   doc,
   onSnapshot,
   orderBy,
@@ -129,4 +130,12 @@ export async function updateQuarterlyReportPdfUrl(reportId: string, pdfUrl: stri
     pdfUrl: pdfUrl.trim(),
     updatedAt: serverTimestamp(),
   });
+}
+
+export async function deleteQuarterlyReport(reportId: string) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  await deleteDoc(doc(getSharedQuarterlyReportsCollectionRef(), reportId));
 }
