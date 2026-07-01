@@ -616,14 +616,24 @@ export function AnalysisPage() {
       return;
     }
 
+    const nextReports = reports.filter((entry) => entry.id !== report.id);
+
     setReportActionMessage(null);
     setReportActionError(null);
     setDeletingQuarterlyReportId(report.id);
+    setReports(nextReports);
+    setSelectedReportId((current) =>
+      current === report.id ? nextReports[0]?.id ?? null : current,
+    );
 
     try {
       await deleteQuarterlyReport(report.id);
       setReportActionMessage(`已刪除「${report.quarter}」。`);
     } catch (nextError) {
+      setReports((current) =>
+        current.some((entry) => entry.id === report.id) ? current : [report, ...current],
+      );
+      setSelectedReportId((current) => current ?? report.id);
       setReportActionError(getQuarterlyReportsErrorMessage(nextError));
     } finally {
       setDeletingQuarterlyReportId(null);
