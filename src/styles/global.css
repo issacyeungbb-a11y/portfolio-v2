@@ -971,6 +971,16 @@ h3 {
   line-height: 1;
 }
 
+.summary-value[data-tone="positive"],
+.transaction-price-comparison strong[data-tone="positive"] {
+  color: var(--positive);
+}
+
+.summary-value[data-tone="caution"],
+.transaction-price-comparison strong[data-tone="caution"] {
+  color: var(--caution);
+}
+
 .summary-hint {
   margin-top: 0.45rem;
   color: var(--text-muted);
@@ -1599,6 +1609,18 @@ h3 {
 .section-heading h3 {
   font-size: 0.98rem;
   margin-top: 0.08rem;
+}
+
+.section-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.72rem;
+}
+
+.section-toolbar .table-hint {
+  margin: 0;
 }
 
 .table-hint {

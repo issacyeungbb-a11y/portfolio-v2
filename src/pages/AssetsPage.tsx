@@ -12,9 +12,10 @@ import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
+import { useManualPriceUpdater } from '../hooks/useManualPriceUpdater';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
-import { callPortfolioFunction, triggerManualSnapshot } from '../lib/api/vercelFunctions';
+import { triggerManualSnapshot } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
 import { HoldingsTable } from '../components/portfolio/HoldingsTable';
@@ -39,10 +40,8 @@ import type {
   Holding,
   PortfolioAssetInput,
 } from '../types/portfolio';
-import type { PendingPriceUpdateReview, PriceUpdateRequest, PriceUpdateResponse } from '../types/priceUpdates';
+import type { PendingPriceUpdateReview } from '../types/priceUpdates';
 
-const MANUAL_PRICE_UPDATE_BATCH_SIZE = 3;
-const MANUAL_PRICE_UPDATE_RETRY_DELAY_MS = 2000;
 const ASSET_ARCHIVE_TRANSACTION_LIMIT = 1000;
 const CASH_LEDGER_ACCOUNTS: AccountSource[] = ['IB', 'Futu', 'Crypto'];
 
@@ -346,10 +345,6 @@ function hasPassedHongKongSnapshotDeadline(date = new Date()) {
   return currentMinutes >= 8 * 60;
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function AssetsPage() {
   const {
     holdings: firestoreHoldings,
@@ -392,11 +387,7 @@ export function AssetsPage() {
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [isDeletingAsset, setIsDeletingAsset] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [isUpdatingAllPrices, setIsUpdatingAllPrices] = useState(false);
   const [isBulkUpdateConfirmOpen, setIsBulkUpdateConfirmOpen] = useState(false);
-  const [updatingAssetIds, setUpdatingAssetIds] = useState<string[]>([]);
-  const [priceUpdateError, setPriceUpdateError] = useState<string | null>(null);
-  const [priceUpdateSuccess, setPriceUpdateSuccess] = useState<string | null>(null);
   const [confirmingAssetIds, setConfirmingAssetIds] = useState<string[]>([]);
   const [dismissingAssetIds, setDismissingAssetIds] = useState<string[]>([]);
   const [overridingAssetIds, setOverridingAssetIds] = useState<string[]>([]);
@@ -405,6 +396,16 @@ export function AssetsPage() {
   const [isGeneratingManualSnapshot, setIsGeneratingManualSnapshot] = useState(false);
   const [manualSnapshotError, setManualSnapshotError] = useState<string | null>(null);
   const [manualSnapshotSuccess, setManualSnapshotSuccess] = useState<string | null>(null);
+  const {
+    isUpdatingAllPrices,
+    updatingAssetIds,
+    priceUpdateError,
+    priceUpdateSuccess,
+    runPriceUpdates,
+  } = useManualPriceUpdater({
+    applyReviews,
+    saveReviews,
+  });
 
   const holdings: Holding[] = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -643,115 +644,10 @@ export function AssetsPage() {
     }
   }
 
-  function buildPriceUpdateRequest(targetHoldings: Holding[]): PriceUpdateRequest {
-    return {
-      assets: targetHoldings.map((holding) => ({
-        assetId: holding.id,
-        assetName: holding.name,
-        ticker: holding.symbol,
-        assetType: holding.assetType,
-        accountSource: holding.accountSource,
-        currentPrice: holding.currentPrice,
-        currency: holding.currency,
-      })),
-    };
-  }
-
-  function chunkHoldingsForManualUpdate(targetHoldings: Holding[]) {
-    const chunks: Holding[][] = [];
-
-    for (let index = 0; index < targetHoldings.length; index += MANUAL_PRICE_UPDATE_BATCH_SIZE) {
-      chunks.push(targetHoldings.slice(index, index + MANUAL_PRICE_UPDATE_BATCH_SIZE));
-    }
-
-    return chunks;
-  }
-
-  async function callPriceUpdateChunkWithRetry(chunk: Holding[]) {
-    try {
-      return (await callPortfolioFunction(
-        'update-prices',
-        buildPriceUpdateRequest(chunk),
-      )) as PriceUpdateResponse;
-    } catch (error) {
-      await sleep(MANUAL_PRICE_UPDATE_RETRY_DELAY_MS);
-      return (await callPortfolioFunction(
-        'update-prices',
-        buildPriceUpdateRequest(chunk),
-      )) as PriceUpdateResponse;
-    }
-  }
-
   async function handleRunPriceUpdates(targetHoldings: Holding[]) {
-    // 現金資產不走價格更新流程，餘額只由交易調整
-    const updatableHoldings = targetHoldings.filter((h) => h.assetType !== 'cash');
-
-    if (updatableHoldings.length === 0) {
-      setPriceUpdateError('目前沒有可更新的資產。');
-      return;
-    }
-
-    // Rebind target to filtered list for the rest of the function
-    targetHoldings = updatableHoldings;
-
-    const targetIds = targetHoldings.map((holding) => holding.id);
-    const isBulkUpdate = targetHoldings.length > 1;
-
-    setPriceUpdateError(null);
-    setPriceUpdateSuccess(null);
     setReviewActionError(null);
     setReviewActionSuccess(null);
-
-    if (isBulkUpdate) {
-      setIsUpdatingAllPrices(true);
-    } else {
-      setUpdatingAssetIds((current) => [...new Set([...current, ...targetIds])]);
-    }
-
-    try {
-      const chunks = chunkHoldingsForManualUpdate(targetHoldings);
-      const responses: PriceUpdateResponse[] = [];
-
-      for (const chunk of chunks) {
-        const response = await callPriceUpdateChunkWithRetry(chunk);
-        responses.push(response);
-      }
-
-      const mergedResults = responses.flatMap((response) => response.results);
-      const validResults = mergedResults.filter(
-        (review) => review.price != null && review.price > 0 && !review.invalidReason,
-      );
-      const invalidResults = mergedResults.filter(
-        (review) => review.price == null || review.price <= 0 || Boolean(review.invalidReason),
-      );
-
-      if (validResults.length > 0) {
-        await applyReviews(validResults);
-      }
-
-      await saveReviews(invalidResults);
-
-      if (validResults.length > 0 && invalidResults.length > 0) {
-        setPriceUpdateSuccess(
-          `已自動更新 ${validResults.length} 項資產；${invalidResults.length} 項需要人工確認。`,
-        );
-      } else if (validResults.length > 0) {
-        setPriceUpdateSuccess(`已自動更新 ${validResults.length} 項資產價格。`);
-      } else if (invalidResults.length > 0) {
-        setPriceUpdateSuccess(`現有 ${invalidResults.length} 項需要人工確認。`);
-      } else {
-        setPriceUpdateSuccess('本次沒有可套用的價格更新。');
-      }
-    } catch (error) {
-      setPriceUpdateError(
-        error instanceof Error ? error.message : '價格更新失敗，請稍後再試。',
-      );
-    } finally {
-      if (isBulkUpdate) {
-        setIsUpdatingAllPrices(false);
-      }
-      setUpdatingAssetIds((current) => current.filter((id) => !targetIds.includes(id)));
-    }
+    await runPriceUpdates(targetHoldings);
   }
 
   async function handleConfirmBulkPriceUpdate() {

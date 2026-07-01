@@ -12,7 +12,9 @@ import {
   getAssetTypeLabel,
 } from '../data/mockPortfolio';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
+import { useManualPriceUpdater } from '../hooks/useManualPriceUpdater';
 import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
+import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import type { AccountSource, AssetTransactionEntry, DisplayCurrency, Holding } from '../types/portfolio';
 
@@ -55,6 +57,97 @@ function buildHoldingFallback(entry: AssetTransactionEntry): Holding {
   };
 }
 
+function formatPercent(value: number) {
+  return `${(value * 100).toLocaleString('zh-HK', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
+}
+
+interface TransactionPriceComparison {
+  entry: AssetTransactionEntry;
+  kind: 'buy' | 'sell';
+  label: '買入至今' | '賣後比較';
+  currentPrice: number;
+  currentValueDisplay: number;
+  basisDisplay: number;
+  comparisonDisplay: number;
+  returnRate?: number;
+}
+
+function getTransactionPriceComparison(
+  entry: AssetTransactionEntry,
+  holding: Holding | undefined,
+  displayCurrency: DisplayCurrency,
+): TransactionPriceComparison | null {
+  if ((entry.recordType ?? 'trade') !== 'trade' || entry.assetType === 'cash') {
+    return null;
+  }
+
+  if (!holding || !Number.isFinite(holding.currentPrice) || holding.currentPrice <= 0) {
+    return null;
+  }
+
+  const currentValueDisplay = convertCurrency(
+    entry.quantity * holding.currentPrice,
+    holding.currency,
+    displayCurrency,
+  );
+
+  if (entry.transactionType === 'buy') {
+    const costDisplay = convertCurrency(
+      entry.quantity * entry.price + entry.fees,
+      entry.currency,
+      displayCurrency,
+    );
+    const comparisonDisplay = currentValueDisplay - costDisplay;
+
+    return {
+      entry,
+      kind: 'buy',
+      label: '買入至今',
+      currentPrice: holding.currentPrice,
+      currentValueDisplay,
+      basisDisplay: costDisplay,
+      comparisonDisplay,
+      returnRate: costDisplay > 0 ? comparisonDisplay / costDisplay : undefined,
+    };
+  }
+
+  const proceedsDisplay = convertCurrency(
+    entry.quantity * entry.price - entry.fees,
+    entry.currency,
+    displayCurrency,
+  );
+
+  return {
+    entry,
+    kind: 'sell',
+    label: '賣後比較',
+    currentPrice: holding.currentPrice,
+    currentValueDisplay,
+    basisDisplay: proceedsDisplay,
+    comparisonDisplay: proceedsDisplay - currentValueDisplay,
+  };
+}
+
+function getContributionLabel(comparison: TransactionPriceComparison | null) {
+  if (!comparison) {
+    return '未有現價';
+  }
+
+  const direction =
+    comparison.kind === 'sell'
+      ? comparison.comparisonDisplay >= 0
+        ? '賣得好'
+        : '賣早咗'
+      : comparison.comparisonDisplay >= 0
+        ? '賺'
+        : '蝕';
+
+  return `${comparison.entry.symbol} · ${comparison.label} · ${direction}`;
+}
+
 export function TransactionsPage() {
   const { holdings } = usePortfolioAssets();
   const {
@@ -64,6 +157,11 @@ export function TransactionsPage() {
     editTransaction,
     removeTransaction,
   } = useAssetTransactions();
+  const {
+    error: priceReviewsError,
+    saveReviews,
+    applyReviews,
+  } = usePriceUpdateReviews();
   const [editingEntry, setEditingEntry] = useState<AssetTransactionEntry | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -74,6 +172,16 @@ export function TransactionsPage() {
   const [dateFromFilter, setDateFromFilter] = useState('');
   const [dateToFilter, setDateToFilter] = useState('');
   const displayCurrency = TRANSACTION_DISPLAY_CURRENCY;
+  const {
+    isUpdating: isUpdatingTransactionPrices,
+    priceUpdateError,
+    priceUpdateSuccess,
+    runPriceUpdates,
+  } = useManualPriceUpdater({
+    applyReviews,
+    saveReviews,
+    emptyTargetMessage: '目前交易紀錄未有可更新現價的非現金資產。',
+  });
 
   const visibleEntries = entries.filter(
     (entry) => !(entry.recordType === 'seed' && entry.note === '歷史持倉基線'),
@@ -98,6 +206,66 @@ export function TransactionsPage() {
     () => new Map(holdings.map((holding) => [holding.id, holding])),
     [holdings],
   );
+  const comparisonsByTransactionId = useMemo(
+    () =>
+      new Map(
+        filteredEntries.map((entry) => [
+          entry.id,
+          getTransactionPriceComparison(entry, holdingsById.get(entry.assetId), displayCurrency),
+        ]),
+      ),
+    [displayCurrency, filteredEntries, holdingsById],
+  );
+  const validComparisons = useMemo(
+    () =>
+      [...comparisonsByTransactionId.values()].filter(
+        (comparison): comparison is TransactionPriceComparison => comparison != null,
+      ),
+    [comparisonsByTransactionId],
+  );
+  const buyComparisons = validComparisons.filter((comparison) => comparison.kind === 'buy');
+  const sellComparisons = validComparisons.filter((comparison) => comparison.kind === 'sell');
+  const buyComparisonTotal = buyComparisons.reduce(
+    (sum, comparison) => sum + comparison.comparisonDisplay,
+    0,
+  );
+  const sellComparisonTotal = sellComparisons.reduce(
+    (sum, comparison) => sum + comparison.comparisonDisplay,
+    0,
+  );
+  const buyComparisonBasisTotal = buyComparisons.reduce(
+    (sum, comparison) => sum + comparison.basisDisplay,
+    0,
+  );
+  const buyWeightedReturn =
+    buyComparisonBasisTotal > 0 ? buyComparisonTotal / buyComparisonBasisTotal : null;
+  const positiveComparisons = validComparisons.filter(
+    (comparison) => comparison.comparisonDisplay > 0,
+  );
+  const negativeComparisons = validComparisons.filter(
+    (comparison) => comparison.comparisonDisplay < 0,
+  );
+  const maxPositiveComparison =
+    positiveComparisons.length > 0
+      ? positiveComparisons.reduce((best, comparison) =>
+          comparison.comparisonDisplay > best.comparisonDisplay ? comparison : best,
+        )
+      : null;
+  const maxNegativeComparison =
+    negativeComparisons.length > 0
+      ? negativeComparisons.reduce((worst, comparison) =>
+          comparison.comparisonDisplay < worst.comparisonDisplay ? comparison : worst,
+        )
+      : null;
+  const transactionPriceUpdateHoldings = useMemo(() => {
+    const involvedAssetIds = new Set(
+      filteredEntries
+        .filter((entry) => (entry.recordType ?? 'trade') === 'trade' && entry.assetType !== 'cash')
+        .map((entry) => entry.assetId),
+    );
+
+    return holdings.filter((holding) => holding.assetType !== 'cash' && involvedAssetIds.has(holding.id));
+  }, [filteredEntries, holdings]);
   const latestTradeDate =
     [...filteredEntries]
       .map((entry) => entry.date)
@@ -179,16 +347,38 @@ export function TransactionsPage() {
     }
   }
 
+  async function handleUpdateTransactionPriceComparisons() {
+    setActionError(null);
+    setActionSuccess(null);
+    await runPriceUpdates(transactionPriceUpdateHoldings);
+  }
+
   return (
     <div className="page-stack">
       {error ? <p className="status-message status-message-error">{error}</p> : null}
+      {priceReviewsError ? <p className="status-message status-message-error">{priceReviewsError}</p> : null}
+      {priceUpdateError ? <p className="status-message status-message-error">{priceUpdateError}</p> : null}
       {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}
+      {priceUpdateSuccess ? <p className="status-message status-message-success">{priceUpdateSuccess}</p> : null}
       {actionSuccess ? <p className="status-message status-message-success">{actionSuccess}</p> : null}
 
       <PageSection
         title="交易摘要"
-        subtitle="交易、手續費、已實現盈虧一律以美金（USD）列示。"
+        subtitle="交易、手續費、已實現盈虧與現價比較一律以美金（USD）列示。"
       >
+        <div className="section-toolbar">
+          <p className="table-hint">
+            現價比較只會即時計算，不會寫入 transaction document。
+          </p>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={() => void handleUpdateTransactionPriceComparisons()}
+            disabled={isUpdatingTransactionPrices || transactionPriceUpdateHoldings.length === 0}
+          >
+            {isUpdatingTransactionPrices ? '更新中...' : '更新交易現價比較'}
+          </button>
+        </div>
         <div className="summary-grid">
           <article className="summary-card">
             <p className="summary-label">記錄總數</p>
@@ -217,6 +407,74 @@ export function TransactionsPage() {
               )}
             </strong>
             <p className="summary-hint">賣出交易扣除手續費後累計</p>
+          </article>
+          <article className="summary-card">
+            <p className="summary-label">買入至今合計</p>
+            <strong
+              className="summary-value"
+              data-tone={buyComparisonTotal >= 0 ? 'positive' : 'caution'}
+            >
+              {formatCurrencyRounded(buyComparisonTotal, displayCurrency)}
+            </strong>
+            <p className="summary-hint">
+              {buyComparisons.length} 筆有現價買入交易
+            </p>
+          </article>
+          <article className="summary-card">
+            <p className="summary-label">賣後比較合計</p>
+            <strong
+              className="summary-value"
+              data-tone={sellComparisonTotal >= 0 ? 'positive' : 'caution'}
+            >
+              {formatCurrencyRounded(sellComparisonTotal, displayCurrency)}
+            </strong>
+            <p className="summary-hint">正數代表賣得好，負數代表賣早咗</p>
+          </article>
+          <article className="summary-card">
+            <p className="summary-label">買入交易加權平均回報</p>
+            <strong
+              className="summary-value"
+              data-tone={(buyWeightedReturn ?? 0) >= 0 ? 'positive' : 'caution'}
+            >
+              {buyWeightedReturn == null ? '未有現價' : formatPercent(buyWeightedReturn)}
+            </strong>
+            <p className="summary-hint">按成交成本加權</p>
+          </article>
+          <article className="summary-card">
+            <p className="summary-label">最大正面貢獻交易</p>
+            <strong
+              className="summary-value"
+              data-tone={(maxPositiveComparison?.comparisonDisplay ?? 0) >= 0 ? 'positive' : 'default'}
+            >
+              {maxPositiveComparison
+                ? formatCurrencyRounded(maxPositiveComparison.comparisonDisplay, displayCurrency)
+                : '未有現價'}
+            </strong>
+            <p className="summary-hint">
+              {maxPositiveComparison
+                ? getContributionLabel(maxPositiveComparison)
+                : validComparisons.length > 0
+                  ? '未有正面貢獻'
+                  : '未有現價'}
+            </p>
+          </article>
+          <article className="summary-card">
+            <p className="summary-label">最大負面拖累交易</p>
+            <strong
+              className="summary-value"
+              data-tone={(maxNegativeComparison?.comparisonDisplay ?? 0) < 0 ? 'caution' : 'default'}
+            >
+              {maxNegativeComparison
+                ? formatCurrencyRounded(maxNegativeComparison.comparisonDisplay, displayCurrency)
+                : '未有現價'}
+            </strong>
+            <p className="summary-hint">
+              {maxNegativeComparison
+                ? getContributionLabel(maxNegativeComparison)
+                : validComparisons.length > 0
+                  ? '未有負面拖累'
+                  : '未有現價'}
+            </p>
           </article>
         </div>
       </PageSection>
@@ -294,6 +552,9 @@ export function TransactionsPage() {
         <div className="settings-list">
           {filteredEntries.length > 0 ? (
             filteredEntries.map((entry) => {
+              const priceComparison = comparisonsByTransactionId.get(entry.id) ?? null;
+              const shouldShowPriceComparison =
+                (entry.recordType ?? 'trade') === 'trade' && entry.assetType !== 'cash';
               const grossAmount = entry.quantity * entry.price;
               const grossAmountDisplay = convertCurrency(grossAmount, entry.currency, displayCurrency);
               const feesDisplay = convertCurrency(entry.fees, entry.currency, displayCurrency);
@@ -341,6 +602,29 @@ export function TransactionsPage() {
                     <span className="table-metric-secondary">
                       已實現 {formatCurrency(realizedPnlDisplay, displayCurrency)}
                     </span>
+                    {shouldShowPriceComparison ? (
+                      priceComparison ? (
+                        <span className="table-metric-secondary transaction-price-comparison">
+                          <span>{priceComparison.label}</span>
+                          {' '}
+                          <strong data-tone={priceComparison.comparisonDisplay >= 0 ? 'positive' : 'caution'}>
+                            {formatCurrency(priceComparison.comparisonDisplay, displayCurrency)}
+                          </strong>
+                          {priceComparison.kind === 'buy' && priceComparison.returnRate != null ? (
+                            <>
+                              {' · '}
+                              {formatPercent(priceComparison.returnRate)}
+                            </>
+                          ) : null}
+                          {' · '}
+                          現值 {formatCurrency(priceComparison.currentValueDisplay, displayCurrency)}
+                        </span>
+                      ) : (
+                        <span className="table-metric-secondary transaction-price-comparison">
+                          現價比較：未有現價
+                        </span>
+                      )
+                    ) : null}
                     <div className="table-action-stack">
                       <button
                         className="button button-secondary table-action-button"
