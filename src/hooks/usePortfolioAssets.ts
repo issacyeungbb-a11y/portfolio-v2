@@ -5,6 +5,7 @@ import {
   createPortfolioAsset,
   deletePortfolioAsset,
   getFirebaseAssetsErrorMessage,
+  subscribeToAllPortfolioAssets,
   subscribeToPortfolioAssets,
   updatePortfolioAsset,
 } from '../lib/firebase/assets';
@@ -96,5 +97,45 @@ export function usePortfolioAssets() {
     addAsset,
     editAsset,
     removeAsset,
+  };
+}
+
+export function useAllPortfolioAssets() {
+  const [state, setState] = useState<PortfolioAssetsState>({
+    status: 'loading',
+    holdings: [],
+    error: null,
+  });
+
+  useEffect(() => {
+    setState((current) => ({
+      status: 'loading',
+      holdings: current.holdings,
+      error: null,
+    }));
+
+    const unsubscribe = subscribeToAllPortfolioAssets(
+      (holdings) => {
+        setState({
+          status: 'ready',
+          holdings,
+          error: null,
+        });
+      },
+      (error) => {
+        setState({
+          status: 'error',
+          holdings: [],
+          error: getFirebaseAssetsErrorMessage(error),
+        });
+      },
+    );
+
+    return unsubscribe;
+  }, []);
+
+  return {
+    ...state,
+    isEmpty: state.status === 'ready' && state.holdings.length === 0,
   };
 }

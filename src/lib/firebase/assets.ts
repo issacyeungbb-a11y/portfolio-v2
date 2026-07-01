@@ -207,6 +207,30 @@ export function subscribeToPortfolioAssets(
   );
 }
 
+export function subscribeToAllPortfolioAssets(
+  onData: (holdings: Holding[]) => void,
+  onError: (error: unknown) => void,
+) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const assetsRef = getSharedAssetsCollectionRef();
+  const assetsQuery = query(assetsRef, orderBy('updatedAt', 'desc'));
+
+  return onSnapshot(
+    assetsQuery,
+    (snapshot) => {
+      onData(
+        snapshot.docs.map((document) =>
+          buildHoldingFromInput(document.id, document.data() as PortfolioAssetInput),
+        ),
+      );
+    },
+    onError,
+  );
+}
+
 export async function createPortfolioAsset(payload: PortfolioAssetInput) {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();

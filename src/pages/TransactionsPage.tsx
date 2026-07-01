@@ -13,7 +13,7 @@ import {
 } from '../data/mockPortfolio';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
 import { useManualPriceUpdater } from '../hooks/useManualPriceUpdater';
-import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
+import { useAllPortfolioAssets, usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import type {
@@ -163,6 +163,10 @@ function getContributionLabel(comparison: TransactionPriceComparison | null) {
 export function TransactionsPage() {
   const { holdings } = usePortfolioAssets();
   const {
+    holdings: allHoldings,
+    error: allHoldingsError,
+  } = useAllPortfolioAssets();
+  const {
     entries,
     status,
     error,
@@ -221,15 +225,23 @@ export function TransactionsPage() {
     () => new Map(holdings.map((holding) => [holding.id, holding])),
     [holdings],
   );
+  const comparisonHoldingsById = useMemo(
+    () => new Map(allHoldings.map((holding) => [holding.id, holding])),
+    [allHoldings],
+  );
   const comparisonsByTransactionId = useMemo(
     () =>
       new Map(
         filteredEntries.map((entry) => [
           entry.id,
-          getTransactionPriceComparison(entry, holdingsById.get(entry.assetId), displayCurrency),
+          getTransactionPriceComparison(
+            entry,
+            comparisonHoldingsById.get(entry.assetId),
+            displayCurrency,
+          ),
         ]),
       ),
-    [displayCurrency, filteredEntries, holdingsById],
+    [comparisonHoldingsById, displayCurrency, filteredEntries],
   );
   const validComparisons = useMemo(
     () =>
@@ -279,8 +291,10 @@ export function TransactionsPage() {
         .map((entry) => entry.assetId),
     );
 
-    return holdings.filter((holding) => holding.assetType !== 'cash' && involvedAssetIds.has(holding.id));
-  }, [filteredEntries, holdings]);
+    return allHoldings.filter(
+      (holding) => holding.assetType !== 'cash' && involvedAssetIds.has(holding.id),
+    );
+  }, [allHoldings, filteredEntries]);
   const latestTradeDate =
     [...filteredEntries]
       .map((entry) => entry.date)
@@ -371,6 +385,7 @@ export function TransactionsPage() {
   return (
     <div className="page-stack">
       {error ? <p className="status-message status-message-error">{error}</p> : null}
+      {allHoldingsError ? <p className="status-message status-message-error">{allHoldingsError}</p> : null}
       {priceReviewsError ? <p className="status-message status-message-error">{priceReviewsError}</p> : null}
       {priceUpdateError ? <p className="status-message status-message-error">{priceUpdateError}</p> : null}
       {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}
