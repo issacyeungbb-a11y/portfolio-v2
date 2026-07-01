@@ -61,6 +61,7 @@ For the shared portfolio path now in use, asset delete also requires published r
 
 - `portfolio/app/assets/{assetId}` -> `delete`
 - `portfolio/app/analysisSessions/{sessionId}` -> `delete`
+- `portfolio/app/quarterlyReports/{reportId}` -> `delete`
 
 ## 6. Still to add later
 
