@@ -1019,7 +1019,7 @@ function buildQuarterlyAnalysisQuestion(params) {
     trendSections || "\u672A\u6709\u8DB3\u5920\u4E09\u500B\u6708\u8DA8\u52E2\u8CC7\u6599\u3002"
   ].join("\n");
 }
-async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId, delivery = "scheduled") {
+async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId, delivery = "scheduled", overwriteSession = false) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
   const sanitizedReportFactsPayload = reportFactsPayload ? sanitizeForFirestore(reportFactsPayload) : void 0;
@@ -1050,7 +1050,12 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
     delivery
   });
   if (sessionDocId) {
-    await portfolioRef.collection("analysisSessions").doc(sessionDocId).create(sessionPayload);
+    const sessionRef = portfolioRef.collection("analysisSessions").doc(sessionDocId);
+    if (overwriteSession) {
+      await sessionRef.set(sessionPayload);
+    } else {
+      await sessionRef.create(sessionPayload);
+    }
     return;
   }
   await portfolioRef.collection("analysisSessions").add(sessionPayload);
@@ -1104,14 +1109,15 @@ async function runScheduledCategoryAnalysis(params) {
     request
   };
 }
-async function runMonthlyAssetAnalysis() {
+async function runMonthlyAssetAnalysis(options = {}) {
   const assets = await readAdminPortfolioAssets();
   const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
   const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
   const recentSnapshotHistory = await readRecentSnapshotHistory(120);
   const previousMonthSnapshot = await readPreviousMonthSnapshot();
   const title = `${getHongKongYearMonthLabel()}\u6BCF\u6708\u8CC7\u7522\u5206\u6790`;
-  if (await hasExistingMonthlyAnalysis({ title, dateKey: currentSnapshot.date })) {
+  const existingMonthlyAnalysis = await hasExistingMonthlyAnalysis({ title, dateKey: currentSnapshot.date });
+  if (!options.overwriteExisting && existingMonthlyAnalysis) {
     return {
       ok: true,
       skipped: true,
@@ -1164,7 +1170,8 @@ async function runMonthlyAssetAnalysis() {
     question,
     conversationContext,
     maxTokens: 3500,
-    assets
+    assets,
+    delivery: options.delivery ?? "scheduled"
   });
   const reportFactsPayload = buildReportFactsPayload({
     reportType: "monthly",
@@ -1191,10 +1198,12 @@ async function runMonthlyAssetAnalysis() {
       title,
       allocationSummary,
       reportFactsPayload,
-      getMonthlyAnalysisSessionDocId(currentSnapshot.date)
+      getMonthlyAnalysisSessionDocId(currentSnapshot.date),
+      options.delivery ?? "scheduled",
+      options.overwriteExisting === true
     );
   } catch (error) {
-    if (isFirestoreAlreadyExistsError(error)) {
+    if (!options.overwriteExisting && isFirestoreAlreadyExistsError(error)) {
       return {
         ok: true,
         skipped: true,
@@ -1216,33 +1225,22 @@ async function runMonthlyAssetAnalysis() {
     searchProvider: searchSummary.provider,
     generatedAt: response.generatedAt,
     snapshotHash: response.snapshotHash,
-    cacheKey: response.cacheKey
+    cacheKey: response.cacheKey,
+    replacedExisting: existingMonthlyAnalysis && options.overwriteExisting === true
   };
 }
 async function runManualMonthlyAssetAnalysis() {
-  const dateKey = getHongKongDate();
-  const title = `${getHongKongYearMonthLabel()}\u6BCF\u6708\u8CC7\u7522\u5206\u6790`;
   if (!canGenerateMonthlyAnalysisNow()) {
     throw new ScheduledAnalysisError(
       `\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u6703\u55BA\u6BCF\u6708 1 \u865F\u9999\u6E2F\u6642\u9593 ${String(MONTHLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, "0")}:00 \u4E4B\u5F8C\u5148\u53EF\u624B\u52D5\u751F\u6210\u3002`,
       400
     );
   }
-  if (await hasExistingMonthlyAnalysis({ title, dateKey })) {
-    return {
-      ok: true,
-      skipped: true,
-      category: "asset_analysis",
-      title,
-      route: MONTHLY_ROUTE,
-      message: "\u4ECA\u500B\u6708\u5605\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u5DF2\u7D93\u751F\u6210\uFF0C\u6BCB\u9808\u91CD\u8907\u5EFA\u7ACB\u3002"
-    };
-  }
-  const result = await runMonthlyAssetAnalysis();
+  const result = await runMonthlyAssetAnalysis({ overwriteExisting: true, delivery: "manual" });
   return {
     ...result,
     route: MONTHLY_ROUTE,
-    message: "\u5DF2\u5B8C\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002"
+    message: result.replacedExisting ? "\u5DF2\u91CD\u65B0\u751F\u6210\u4E26\u8986\u84CB\u672C\u6708\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002" : "\u5DF2\u5B8C\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002"
   };
 }
 async function runQuarterlyAssetReport() {

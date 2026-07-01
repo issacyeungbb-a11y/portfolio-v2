@@ -1505,6 +1505,7 @@ async function saveScheduledAnalysis(
   reportFactsPayload?: ReportFactsPayload,
   sessionDocId?: string,
   delivery: 'manual' | 'scheduled' = 'scheduled',
+  overwriteSession = false,
 ) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -1541,7 +1542,13 @@ async function saveScheduledAnalysis(
   });
 
   if (sessionDocId) {
-    await portfolioRef.collection('analysisSessions').doc(sessionDocId).create(sessionPayload);
+    const sessionRef = portfolioRef.collection('analysisSessions').doc(sessionDocId);
+
+    if (overwriteSession) {
+      await sessionRef.set(sessionPayload);
+    } else {
+      await sessionRef.create(sessionPayload);
+    }
     return;
   }
 
@@ -1630,15 +1637,18 @@ async function runScheduledCategoryAnalysis(params: {
   };
 }
 
-export async function runMonthlyAssetAnalysis() {
+export async function runMonthlyAssetAnalysis(
+  options: { overwriteExisting?: boolean; delivery?: 'manual' | 'scheduled' } = {},
+) {
   const assets = await readAdminPortfolioAssets();
   const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
   const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
   const recentSnapshotHistory = await readRecentSnapshotHistory(120);
   const previousMonthSnapshot = await readPreviousMonthSnapshot();
   const title = `${getHongKongYearMonthLabel()}每月資產分析`;
+  const existingMonthlyAnalysis = await hasExistingMonthlyAnalysis({ title, dateKey: currentSnapshot.date });
 
-  if (await hasExistingMonthlyAnalysis({ title, dateKey: currentSnapshot.date })) {
+  if (!options.overwriteExisting && existingMonthlyAnalysis) {
     return {
       ok: true,
       skipped: true,
@@ -1697,6 +1707,7 @@ export async function runMonthlyAssetAnalysis() {
     conversationContext,
     maxTokens: 3500,
     assets,
+    delivery: options.delivery ?? 'scheduled',
   });
   const reportFactsPayload = buildReportFactsPayload({
     reportType: 'monthly',
@@ -1724,9 +1735,11 @@ export async function runMonthlyAssetAnalysis() {
       allocationSummary,
       reportFactsPayload,
       getMonthlyAnalysisSessionDocId(currentSnapshot.date),
+      options.delivery ?? 'scheduled',
+      options.overwriteExisting === true,
     );
   } catch (error) {
-    if (isFirestoreAlreadyExistsError(error)) {
+    if (!options.overwriteExisting && isFirestoreAlreadyExistsError(error)) {
       return {
         ok: true,
         skipped: true,
@@ -1751,13 +1764,11 @@ export async function runMonthlyAssetAnalysis() {
     generatedAt: response.generatedAt,
     snapshotHash: response.snapshotHash,
     cacheKey: response.cacheKey,
+    replacedExisting: existingMonthlyAnalysis && options.overwriteExisting === true,
   };
 }
 
 export async function runManualMonthlyAssetAnalysis() {
-  const dateKey = getHongKongDate();
-  const title = `${getHongKongYearMonthLabel()}每月資產分析`;
-
   if (!canGenerateMonthlyAnalysisNow()) {
     throw new ScheduledAnalysisError(
       `每月資產分析會喺每月 1 號香港時間 ${String(MONTHLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, '0')}:00 之後先可手動生成。`,
@@ -1765,22 +1776,13 @@ export async function runManualMonthlyAssetAnalysis() {
     );
   }
 
-  if (await hasExistingMonthlyAnalysis({ title, dateKey })) {
-    return {
-      ok: true,
-      skipped: true,
-      category: 'asset_analysis' as const,
-      title,
-      route: MONTHLY_ROUTE,
-      message: '今個月嘅每月資產分析已經生成，毋須重複建立。',
-    };
-  }
-
-  const result = await runMonthlyAssetAnalysis();
+  const result = await runMonthlyAssetAnalysis({ overwriteExisting: true, delivery: 'manual' });
   return {
     ...result,
     route: MONTHLY_ROUTE,
-    message: '已完成每月資產分析。',
+    message: result.replacedExisting
+      ? '已重新生成並覆蓋本月每月資產分析。'
+      : '已完成每月資產分析。',
   };
 }
 

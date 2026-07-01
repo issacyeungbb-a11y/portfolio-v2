@@ -344,18 +344,9 @@ export function AnalysisPage() {
   );
   const hasCurrentMonthAnalysis = currentMonthAnalysis != null;
   const canGenerateCurrentMonthAnalysis = useMemo(
-    () => canGenerateMonthlyAnalysisNow(currentTime) && !hasCurrentMonthAnalysis,
-    [currentTime, hasCurrentMonthAnalysis],
+    () => canGenerateMonthlyAnalysisNow(currentTime),
+    [currentTime],
   );
-
-  useEffect(() => {
-    if (!reportActionError || !currentMonthAnalysis) {
-      return;
-    }
-
-    setReportActionError(null);
-    setReportActionMessage('本月每月資產分析已生成；剛才只是瀏覽器等待回應期間連線中斷。');
-  }, [currentMonthAnalysis, reportActionError]);
 
   useEffect(() => {
     if (monthlyAnalysisSessions.length === 0) {
@@ -659,7 +650,7 @@ export function AnalysisPage() {
 
   const monthlyStatusText = canGenerateMonthlyAnalysisNow(currentTime)
     ? hasCurrentMonthAnalysis
-      ? '本月每月資產分析已經生成。'
+      ? '本月每月資產分析已經生成，可重新生成覆蓋。'
       : '已進入本月可生成時段。'
     : '未到每月 1 號香港時間上午 8:00。';
   const quarterlyStatusText = canGenerateQuarterlyReportNow(currentTime)
@@ -702,7 +693,11 @@ export function AnalysisPage() {
               onClick={() => void handleGenerateMonthlyAnalysisReport()}
               disabled={!canGenerateCurrentMonthAnalysis || generatingPeriodicReport === 'monthly'}
             >
-              {generatingPeriodicReport === 'monthly' ? '生成中...' : '生成月報'}
+              {generatingPeriodicReport === 'monthly'
+                ? '生成中...'
+                : hasCurrentMonthAnalysis
+                  ? '重新生成月報'
+                  : '生成月報'}
             </button>
           ) : (
             <button
