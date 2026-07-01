@@ -1017,10 +1017,6 @@ h3 {
   border-left: 1px solid var(--border);
 }
 
-.transaction-summary-extremes {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .performance-range-row {
   display: flex;
   flex-wrap: wrap;
@@ -3002,8 +2998,7 @@ h3 {
     justify-content: flex-start;
   }
 
-  .transaction-summary-split,
-  .transaction-summary-extremes {
+  .transaction-summary-split {
     grid-template-columns: 1fr;
   }
 
