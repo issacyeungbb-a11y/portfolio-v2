@@ -165,6 +165,13 @@ function getHongKongQuarterLabel(date = /* @__PURE__ */ new Date()) {
     year: "numeric"
   }).format(date)}\u5E74Q${getCurrentQuarterNumber(date)}`;
 }
+function getPreviousCompletedQuarterLabel(date = /* @__PURE__ */ new Date()) {
+  const { year } = getHongKongDateParts(date);
+  const currentQuarterNumber = getCurrentQuarterNumber(date);
+  const previousQuarterNumber = currentQuarterNumber === 1 ? 4 : currentQuarterNumber - 1;
+  const previousQuarterYear = currentQuarterNumber === 1 ? year - 1 : year;
+  return `${previousQuarterYear}\u5E74Q${previousQuarterNumber}`;
+}
 function getHongKongDateParts(date = /* @__PURE__ */ new Date()) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Hong_Kong",
@@ -193,7 +200,7 @@ function canGenerateQuarterlyReportNow(date = /* @__PURE__ */ new Date()) {
   const { month, day, hour } = getHongKongDateParts(date);
   const quarterStartMonth = getQuarterStartMonth(month);
   const isQuarterOpeningMonth = month === quarterStartMonth;
-  return !isQuarterOpeningMonth || day > 1 || day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT;
+  return isQuarterOpeningMonth && (day > 1 || day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT);
 }
 async function hasExistingMonthlyAnalysis(params) {
   const db = getFirebaseAdminDb();
@@ -1268,7 +1275,8 @@ async function runQuarterlyAssetReport() {
     assets,
     mode: "quarterly"
   });
-  const title = `${getHongKongQuarterLabel()}\u8CC7\u7522\u5831\u544A`;
+  const quarter = getPreviousCompletedQuarterLabel();
+  const title = `${quarter}\u8CC7\u7522\u5831\u544A`;
   const currentComparison = previousQuarterSnapshot ? compareSnapshots(currentSnapshot, previousQuarterSnapshot, {
     periodSnapshots: recentSnapshotHistory
   }) : null;
@@ -1333,7 +1341,7 @@ async function runQuarterlyAssetReport() {
     "manual"
   );
   await saveQuarterlyReport({
-    quarter: getHongKongQuarterLabel(),
+    quarter,
     generatedAt: response.generatedAt,
     report: response.answer,
     currentSnapshotHash,
@@ -1359,10 +1367,10 @@ async function runQuarterlyAssetReport() {
   };
 }
 async function runManualQuarterlyAssetReport() {
-  const quarter = getHongKongQuarterLabel();
+  const quarter = getPreviousCompletedQuarterLabel();
   if (!canGenerateQuarterlyReportNow()) {
     throw new ScheduledAnalysisError(
-      `\u5B63\u5EA6\u5831\u544A\u6703\u55BA\u5B63\u5EA6\u9996\u65E5\u9999\u6E2F\u6642\u9593 ${String(QUARTERLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, "0")}:00 \u4E4B\u5F8C\u5148\u53EF\u624B\u52D5\u751F\u6210\u3002`,
+      `\u5B63\u5EA6\u5831\u544A\u53EA\u6703\u55BA\u6BCF\u5B63\u5B8C\u7D50\u5F8C\u4E0B\u4E00\u5B63\u9996\u6708\uFF081\u30014\u30017\u300110 \u6708\uFF09\u9999\u6E2F\u6642\u9593 ${String(QUARTERLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, "0")}:00 \u4E4B\u5F8C\u5148\u53EF\u624B\u52D5\u751F\u6210\u3002`,
       400
     );
   }

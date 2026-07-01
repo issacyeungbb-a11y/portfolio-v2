@@ -139,6 +139,14 @@ function getHongKongQuarterLabel(date = new Date()) {
   }).format(date)}年Q${getCurrentQuarterNumber(date)}`;
 }
 
+function getPreviousCompletedQuarterLabel(date = new Date()) {
+  const { year } = getHongKongDateParts(date);
+  const currentQuarterNumber = getCurrentQuarterNumber(date);
+  const previousQuarterNumber = currentQuarterNumber === 1 ? 4 : currentQuarterNumber - 1;
+  const previousQuarterYear = currentQuarterNumber === 1 ? year - 1 : year;
+  return `${previousQuarterYear}年Q${previousQuarterNumber}`;
+}
+
 function canGenerateMonthlyAnalysisNow(date = new Date()) {
   const { day, hour } = getHongKongDateParts(date);
   return day > 1 || (day === 1 && hour >= 8);
@@ -148,7 +156,7 @@ function canGenerateQuarterlyReportNow(date = new Date()) {
   const { month, day, hour } = getHongKongDateParts(date);
   const quarterStartMonth = Math.floor((month - 1) / 3) * 3 + 1;
   const isQuarterOpeningMonth = month === quarterStartMonth;
-  return !isQuarterOpeningMonth || day > 1 || (day === 1 && hour >= 9);
+  return isQuarterOpeningMonth && (day > 1 || (day === 1 && hour >= 9));
 }
 
 function isMonthlyAnalysisRecord(title: string) {
@@ -224,7 +232,7 @@ export function AnalysisPage() {
     () => `${getHongKongYearMonthLabel(currentTime)}每月資產分析`,
     [currentTime],
   );
-  const currentQuarterLabel = useMemo(() => getHongKongQuarterLabel(currentTime), [currentTime]);
+  const currentQuarterLabel = useMemo(() => getPreviousCompletedQuarterLabel(currentTime), [currentTime]);
 
   useEffect(() => {
     const timer = window.setInterval(() => {

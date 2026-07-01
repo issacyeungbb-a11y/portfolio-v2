@@ -246,6 +246,14 @@ function getHongKongQuarterLabel(date = new Date()) {
   }).format(date)}年Q${getCurrentQuarterNumber(date)}`;
 }
 
+function getPreviousCompletedQuarterLabel(date = new Date()) {
+  const { year } = getHongKongDateParts(date);
+  const currentQuarterNumber = getCurrentQuarterNumber(date);
+  const previousQuarterNumber = currentQuarterNumber === 1 ? 4 : currentQuarterNumber - 1;
+  const previousQuarterYear = currentQuarterNumber === 1 ? year - 1 : year;
+  return `${previousQuarterYear}年Q${previousQuarterNumber}`;
+}
+
 function getHongKongDateParts(date = new Date()) {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Asia/Hong_Kong',
@@ -279,7 +287,7 @@ function canGenerateQuarterlyReportNow(date = new Date()) {
   const { month, day, hour } = getHongKongDateParts(date);
   const quarterStartMonth = getQuarterStartMonth(month);
   const isQuarterOpeningMonth = month === quarterStartMonth;
-  return !isQuarterOpeningMonth || day > 1 || (day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT);
+  return isQuarterOpeningMonth && (day > 1 || (day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT));
 }
 
 async function hasExistingMonthlyAnalysis(params: { title: string; dateKey: string }) {
@@ -1811,7 +1819,8 @@ export async function runQuarterlyAssetReport() {
     assets,
     mode: 'quarterly',
   });
-  const title = `${getHongKongQuarterLabel()}資產報告`;
+  const quarter = getPreviousCompletedQuarterLabel();
+  const title = `${quarter}資產報告`;
   const currentComparison = previousQuarterSnapshot
     ? compareSnapshots(currentSnapshot, previousQuarterSnapshot, {
         periodSnapshots: recentSnapshotHistory,
@@ -1885,7 +1894,7 @@ export async function runQuarterlyAssetReport() {
   );
 
   await saveQuarterlyReport({
-    quarter: getHongKongQuarterLabel(),
+    quarter,
     generatedAt: response.generatedAt,
     report: response.answer,
     currentSnapshotHash,
@@ -1913,11 +1922,11 @@ export async function runQuarterlyAssetReport() {
 }
 
 export async function runManualQuarterlyAssetReport() {
-  const quarter = getHongKongQuarterLabel();
+  const quarter = getPreviousCompletedQuarterLabel();
 
   if (!canGenerateQuarterlyReportNow()) {
     throw new ScheduledAnalysisError(
-      `季度報告會喺季度首日香港時間 ${String(QUARTERLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, '0')}:00 之後先可手動生成。`,
+      `季度報告只會喺每季完結後下一季首月（1、4、7、10 月）香港時間 ${String(QUARTERLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, '0')}:00 之後先可手動生成。`,
       400,
     );
   }
