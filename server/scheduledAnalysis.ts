@@ -46,7 +46,7 @@ const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-4-8' as const;
 const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = 'gemini-3.1-pro-preview' as const;
 const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
 const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'] as const;
-const SCHEDULED_MODEL_TIMEOUT_MS = 720_000;
+const SCHEDULED_MODEL_TIMEOUT_MS = 120_000;
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
 const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
 const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
@@ -225,7 +225,7 @@ function getHongKongYearMonthLabel(date = new Date()) {
   }).formatToParts(date);
   const year = parts.find((part) => part.type === 'year')?.value ?? '';
   const month = parts.find((part) => part.type === 'month')?.value ?? '';
-  return `${year}年${month}`;
+  return `${year}年${month.endsWith('月') ? month : `${month}月`}`;
 }
 
 function getCurrentQuarterNumber(date = new Date()) {
@@ -282,13 +282,25 @@ function canGenerateQuarterlyReportNow(date = new Date()) {
   return !isQuarterOpeningMonth || day > 1 || (day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT);
 }
 
-async function hasExistingMonthlyAnalysis(title: string) {
-  const snapshot = await getFirebaseAdminDb()
+async function hasExistingMonthlyAnalysis(params: { title: string; dateKey: string }) {
+  const db = getFirebaseAdminDb();
+  const monthlyDoc = await db
+    .collection(SHARED_PORTFOLIO_COLLECTION)
+    .doc(SHARED_PORTFOLIO_DOC_ID)
+    .collection('analysisSessions')
+    .doc(getMonthlyAnalysisSessionDocId(params.dateKey))
+    .get();
+
+  if (monthlyDoc.exists) {
+    return true;
+  }
+
+  const snapshot = await db
     .collection(SHARED_PORTFOLIO_COLLECTION)
     .doc(SHARED_PORTFOLIO_DOC_ID)
     .collection('analysisSessions')
     .where('category', '==', 'asset_analysis')
-    .where('title', '==', title)
+    .where('title', '==', params.title)
     .limit(1)
     .get();
 
@@ -820,6 +832,7 @@ function buildSnapshotFromAssets(
         ticker: asset.symbol,
         name: asset.name,
         assetType: asset.assetType,
+        accountSource: asset.accountSource,
         currency: asset.currency,
         quantity: asset.quantity,
         currentPrice: asset.currentPrice,
@@ -1617,7 +1630,7 @@ export async function runMonthlyAssetAnalysis() {
   const previousMonthSnapshot = await readPreviousMonthSnapshot();
   const title = `${getHongKongYearMonthLabel()}每月資產分析`;
 
-  if (await hasExistingMonthlyAnalysis(title)) {
+  if (await hasExistingMonthlyAnalysis({ title, dateKey: currentSnapshot.date })) {
     return {
       ok: true,
       skipped: true,
@@ -1734,6 +1747,7 @@ export async function runMonthlyAssetAnalysis() {
 }
 
 export async function runManualMonthlyAssetAnalysis() {
+  const dateKey = getHongKongDate();
   const title = `${getHongKongYearMonthLabel()}每月資產分析`;
 
   if (!canGenerateMonthlyAnalysisNow()) {
@@ -1743,7 +1757,7 @@ export async function runManualMonthlyAssetAnalysis() {
     );
   }
 
-  if (await hasExistingMonthlyAnalysis(title)) {
+  if (await hasExistingMonthlyAnalysis({ title, dateKey })) {
     return {
       ok: true,
       skipped: true,

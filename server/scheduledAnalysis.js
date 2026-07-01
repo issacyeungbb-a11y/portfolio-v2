@@ -23,7 +23,7 @@ const DEFAULT_DIAGNOSTIC_MODEL = "claude-opus-4-8";
 const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = "gemini-3.1-pro-preview";
 const PREFERRED_GROUNDED_SEARCH_MODEL = "gemini-2.5-flash";
 const GROUNDED_SEARCH_FALLBACK_MODELS = ["gemini-2.5-pro", "gemini-3.1-pro-preview"];
-const SCHEDULED_MODEL_TIMEOUT_MS = 72e4;
+const SCHEDULED_MODEL_TIMEOUT_MS = 12e4;
 const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
 const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
 const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
@@ -148,7 +148,7 @@ function getHongKongYearMonthLabel(date = /* @__PURE__ */ new Date()) {
   }).formatToParts(date);
   const year = parts.find((part) => part.type === "year")?.value ?? "";
   const month = parts.find((part) => part.type === "month")?.value ?? "";
-  return `${year}\u5E74${month}`;
+  return `${year}\u5E74${month.endsWith("\u6708") ? month : `${month}\u6708`}`;
 }
 function getCurrentQuarterNumber(date = /* @__PURE__ */ new Date()) {
   const month = Number(
@@ -195,8 +195,13 @@ function canGenerateQuarterlyReportNow(date = /* @__PURE__ */ new Date()) {
   const isQuarterOpeningMonth = month === quarterStartMonth;
   return !isQuarterOpeningMonth || day > 1 || day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT;
 }
-async function hasExistingMonthlyAnalysis(title) {
-  const snapshot = await getFirebaseAdminDb().collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("analysisSessions").where("category", "==", "asset_analysis").where("title", "==", title).limit(1).get();
+async function hasExistingMonthlyAnalysis(params) {
+  const db = getFirebaseAdminDb();
+  const monthlyDoc = await db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("analysisSessions").doc(getMonthlyAnalysisSessionDocId(params.dateKey)).get();
+  if (monthlyDoc.exists) {
+    return true;
+  }
+  const snapshot = await db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("analysisSessions").where("category", "==", "asset_analysis").where("title", "==", params.title).limit(1).get();
   return !snapshot.empty;
 }
 async function hasExistingQuarterlyReport(quarter) {
@@ -554,6 +559,7 @@ function buildSnapshotFromAssets(assets, date) {
       ticker: asset.symbol,
       name: asset.name,
       assetType: asset.assetType,
+      accountSource: asset.accountSource,
       currency: asset.currency,
       quantity: asset.quantity,
       currentPrice: asset.currentPrice,
@@ -1098,7 +1104,7 @@ async function runMonthlyAssetAnalysis() {
   const recentSnapshotHistory = await readRecentSnapshotHistory(120);
   const previousMonthSnapshot = await readPreviousMonthSnapshot();
   const title = `${getHongKongYearMonthLabel()}\u6BCF\u6708\u8CC7\u7522\u5206\u6790`;
-  if (await hasExistingMonthlyAnalysis(title)) {
+  if (await hasExistingMonthlyAnalysis({ title, dateKey: currentSnapshot.date })) {
     return {
       ok: true,
       skipped: true,
@@ -1207,6 +1213,7 @@ async function runMonthlyAssetAnalysis() {
   };
 }
 async function runManualMonthlyAssetAnalysis() {
+  const dateKey = getHongKongDate();
   const title = `${getHongKongYearMonthLabel()}\u6BCF\u6708\u8CC7\u7522\u5206\u6790`;
   if (!canGenerateMonthlyAnalysisNow()) {
     throw new ScheduledAnalysisError(
@@ -1214,7 +1221,7 @@ async function runManualMonthlyAssetAnalysis() {
       400
     );
   }
-  if (await hasExistingMonthlyAnalysis(title)) {
+  if (await hasExistingMonthlyAnalysis({ title, dateKey })) {
     return {
       ok: true,
       skipped: true,

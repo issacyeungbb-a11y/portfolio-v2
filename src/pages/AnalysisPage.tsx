@@ -124,7 +124,7 @@ function getHongKongYearMonthLabel(date = new Date()) {
   }).formatToParts(date);
   const year = parts.find((part) => part.type === 'year')?.value ?? '';
   const month = parts.find((part) => part.type === 'month')?.value ?? '';
-  return `${year}年${month}`;
+  return `${year}年${month.endsWith('月') ? month : `${month}月`}`;
 }
 
 function getCurrentQuarterNumber(date = new Date()) {
@@ -322,8 +322,15 @@ export function AnalysisPage() {
     [analysisSessions],
   );
   const currentMonthAnalysis = useMemo(
-    () => monthlyAnalysisSessions.find((session) => session.title === currentMonthLabel) ?? null,
-    [currentMonthLabel, monthlyAnalysisSessions],
+    () => {
+      const { year, month } = getHongKongDateParts(currentTime);
+      const currentMonthDocId = `monthly-${year}-${String(month).padStart(2, '0')}`;
+
+      return monthlyAnalysisSessions.find(
+        (session) => session.id === currentMonthDocId || session.title === currentMonthLabel,
+      ) ?? null;
+    },
+    [currentMonthLabel, currentTime, monthlyAnalysisSessions],
   );
   const hasCurrentMonthAnalysis = currentMonthAnalysis != null;
   const canGenerateCurrentMonthAnalysis = useMemo(
@@ -499,7 +506,7 @@ export function AnalysisPage() {
     setAnalysisError(null);
     setAnalysisSuccess(null);
     setReportActionError(null);
-    setReportActionMessage(null);
+    setReportActionMessage('正在生成每月資產分析，通常需要 1-3 分鐘；若模型逾時，系統會自動保存一份簡化月報。');
     setGeneratingPeriodicReport('monthly');
 
     try {
