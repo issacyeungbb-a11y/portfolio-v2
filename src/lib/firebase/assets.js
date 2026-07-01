@@ -73,7 +73,7 @@ function queueCoinGeckoSync(tickers) {
     console.warn("\u80CC\u666F CoinGecko \u4EE3\u865F\u540C\u6B65\u5931\u6557\u3002", error);
   });
 }
-function buildHoldingFromInput(id, payload) {
+function buildHoldingFromInput(id, payload, options = {}) {
   const normalized = normalizePortfolioAssetInput(payload);
   const effectiveCurrentPrice = getEffectiveHoldingPrice({
     id,
@@ -85,14 +85,15 @@ function buildHoldingFromInput(id, payload) {
     priceAsOf: formatTimestamp(payload.priceAsOf),
     lastPriceUpdatedAt: formatTimestamp(payload.lastPriceUpdatedAt)
   });
-  const marketValue = normalized.assetType === "cash" ? effectiveCurrentPrice : normalized.quantity * effectiveCurrentPrice;
+  const currentPrice = options.useRawCurrentPrice ? normalized.currentPrice : effectiveCurrentPrice;
+  const marketValue = normalized.assetType === "cash" ? currentPrice : normalized.quantity * currentPrice;
   const costBasis = normalized.assetType === "cash" ? normalized.averageCost : normalized.quantity * normalized.averageCost;
   const unrealizedPnl = marketValue - costBasis;
   const unrealizedPct = costBasis === 0 ? 0 : unrealizedPnl / costBasis * 100;
   return {
     id,
     ...normalized,
-    currentPrice: effectiveCurrentPrice,
+    currentPrice,
     marketValue,
     unrealizedPnl,
     unrealizedPct,
@@ -153,7 +154,11 @@ function subscribeToAllPortfolioAssets(onData, onError) {
     (snapshot) => {
       onData(
         snapshot.docs.map(
-          (document) => buildHoldingFromInput(document.id, document.data())
+          (document) => buildHoldingFromInput(
+            document.id,
+            document.data(),
+            { useRawCurrentPrice: true }
+          )
         )
       );
     },

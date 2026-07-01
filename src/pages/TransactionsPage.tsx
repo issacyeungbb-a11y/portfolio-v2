@@ -626,6 +626,20 @@ export function TransactionsPage() {
           {filteredEntries.length > 0 ? (
             filteredEntries.map((entry) => {
               const priceComparison = comparisonsByTransactionId.get(entry.id) ?? null;
+              const currentPriceHolding = comparisonHoldingsById.get(entry.assetId);
+              const currentPriceDisplay =
+                currentPriceHolding &&
+                Number.isFinite(currentPriceHolding.currentPrice) &&
+                currentPriceHolding.currentPrice > 0
+                  ? formatCurrency(
+                      convertCurrency(
+                        currentPriceHolding.currentPrice,
+                        currentPriceHolding.currency,
+                        displayCurrency,
+                      ),
+                      displayCurrency,
+                    )
+                  : null;
               const shouldShowPriceComparison =
                 (entry.recordType ?? 'trade') === 'trade' && entry.assetType !== 'cash';
               const grossAmount = entry.quantity * entry.price;
@@ -671,6 +685,9 @@ export function TransactionsPage() {
                     </strong>
                     <span className="table-metric-secondary">
                       總額 {formatCurrency(grossAmountDisplay, displayCurrency)} · 手續費 {formatCurrency(feesDisplay, displayCurrency)}
+                    </span>
+                    <span className="table-metric-secondary">
+                      現價 {entry.assetType === 'cash' ? '不適用' : currentPriceDisplay ?? '未有現價'}
                     </span>
                     <span className="table-metric-secondary">
                       已實現 {formatCurrency(realizedPnlDisplay, displayCurrency)}

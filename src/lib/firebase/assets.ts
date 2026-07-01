@@ -111,6 +111,7 @@ export function buildHoldingFromInput(
     lastPriceUpdatedAt?: unknown;
     archivedAt?: unknown;
   },
+  options: { useRawCurrentPrice?: boolean } = {},
 ): Holding {
   const normalized = normalizePortfolioAssetInput(payload);
   const effectiveCurrentPrice = getEffectiveHoldingPrice({
@@ -123,10 +124,13 @@ export function buildHoldingFromInput(
     priceAsOf: formatTimestamp(payload.priceAsOf),
     lastPriceUpdatedAt: formatTimestamp(payload.lastPriceUpdatedAt),
   });
+  const currentPrice = options.useRawCurrentPrice
+    ? normalized.currentPrice
+    : effectiveCurrentPrice;
   const marketValue =
     normalized.assetType === 'cash'
-      ? effectiveCurrentPrice
-      : normalized.quantity * effectiveCurrentPrice;
+      ? currentPrice
+      : normalized.quantity * currentPrice;
   const costBasis =
     normalized.assetType === 'cash'
       ? normalized.averageCost
@@ -137,7 +141,7 @@ export function buildHoldingFromInput(
   return {
     id,
     ...normalized,
-    currentPrice: effectiveCurrentPrice,
+    currentPrice,
     marketValue,
     unrealizedPnl,
     unrealizedPct,
@@ -223,7 +227,11 @@ export function subscribeToAllPortfolioAssets(
     (snapshot) => {
       onData(
         snapshot.docs.map((document) =>
-          buildHoldingFromInput(document.id, document.data() as PortfolioAssetInput),
+          buildHoldingFromInput(
+            document.id,
+            document.data() as PortfolioAssetInput,
+            { useRawCurrentPrice: true },
+          ),
         ),
       );
     },
