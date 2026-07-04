@@ -78,11 +78,14 @@ export interface SnapshotComparison {
     quantityChange: number;
     priceChangePercent: number;
     contributionToPortfolioChange: number;
+    priceEffectHKD: number;
+    flowEffectHKD: number;
   }>;
   topMovers: {
     gainers: Array<{ ticker: string; changePercent: number; contributionHKD: number }>;
     losers: Array<{ ticker: string; changePercent: number; contributionHKD: number }>;
   };
+  newHoldings: Array<{ ticker: string; valueHKD: number }>;
 }
 
 function toFiniteNumber(value: unknown) {
@@ -157,7 +160,7 @@ export function summarizePeriodExternalFlow(
   const availableDates = expectedDates.filter((date) => snapshotsByDate.has(date));
   const missingDates = expectedDates.filter((date) => !snapshotsByDate.has(date));
   const netExternalFlowCoveragePct =
-    expectedDates.length > 0 ? Math.round((availableDates.length / expectedDates.length) * 100) : 100;
+    expectedDates.length > 0 ? Math.floor((availableDates.length / expectedDates.length) * 100) : 100;
 
   if (netExternalFlowCoveragePct < 80) {
     return {
@@ -234,6 +237,8 @@ function buildHoldingChange(
       ? ((getHoldingPrice(current) - getHoldingPrice(previous)) / getHoldingPrice(previous)) * 100
       : 0;
   const contributionToPortfolioChange = currentValue - previousValue;
+  const priceEffectHKD = previousValue * (priceChangePercent / 100);
+  const flowEffectHKD = contributionToPortfolioChange - priceEffectHKD;
 
   let status: SnapshotComparison['holdingChanges'][number]['status'] = 'unchanged';
 
@@ -256,6 +261,8 @@ function buildHoldingChange(
     quantityChange,
     priceChangePercent,
     contributionToPortfolioChange,
+    priceEffectHKD,
+    flowEffectHKD,
   };
 }
 
@@ -305,35 +312,33 @@ export function compareSnapshots(
     .sort((left, right) => Math.abs(right.contributionToPortfolioChange) - Math.abs(left.contributionToPortfolioChange));
 
   const gainers = holdingChanges
-    .filter((item) => item.contributionToPortfolioChange > 0)
+    .filter((item) => item.status !== 'new' && item.priceEffectHKD > 0)
     .slice()
-    .sort((left, right) => right.contributionToPortfolioChange - left.contributionToPortfolioChange)
+    .sort((left, right) => right.priceEffectHKD - left.priceEffectHKD)
     .slice(0, 3)
     .map((item) => ({
       ticker: item.ticker,
-      changePercent:
-        item.previousValue > 0
-          ? (item.contributionToPortfolioChange / item.previousValue) * 100
-          : item.currentValue > 0
-            ? 100
-            : 0,
-      contributionHKD: item.contributionToPortfolioChange,
+      changePercent: item.priceChangePercent,
+      contributionHKD: item.priceEffectHKD,
     }));
 
   const losers = holdingChanges
-    .filter((item) => item.contributionToPortfolioChange < 0)
+    .filter((item) => item.status !== 'new' && item.priceEffectHKD < 0)
     .slice()
-    .sort((left, right) => left.contributionToPortfolioChange - right.contributionToPortfolioChange)
+    .sort((left, right) => left.priceEffectHKD - right.priceEffectHKD)
     .slice(0, 3)
     .map((item) => ({
       ticker: item.ticker,
-      changePercent:
-        item.previousValue > 0
-          ? (item.contributionToPortfolioChange / item.previousValue) * 100
-          : item.currentValue > 0
-            ? 100
-            : -100,
-      contributionHKD: item.contributionToPortfolioChange,
+      changePercent: item.priceChangePercent,
+      contributionHKD: item.priceEffectHKD,
+    }));
+  const newHoldings = holdingChanges
+    .filter((item) => item.status === 'new' && item.currentValue > 0)
+    .sort((left, right) => right.currentValue - left.currentValue)
+    .slice(0, 8)
+    .map((item) => ({
+      ticker: item.ticker,
+      valueHKD: item.currentValue,
     }));
 
   const totalValueChangeHKD = current.totalValueHKD - previous.totalValueHKD;
@@ -403,6 +408,7 @@ export function compareSnapshots(
       gainers,
       losers,
     },
+    newHoldings,
   };
 }
 
@@ -428,6 +434,52 @@ export function selectRecentDistinctMonthlySnapshots<T extends SnapshotCompariso
   }
 
   return result;
+}
+
+function formatUtcDateKey(year: number, month: number, day: number) {
+  return [
+    String(year).padStart(4, '0'),
+    String(month).padStart(2, '0'),
+    String(day).padStart(2, '0'),
+  ].join('-');
+}
+
+function getQuarterMonthEnds(quarterEndDate: string) {
+  const normalized = normalizeDateKey(quarterEndDate);
+  const year = Number(normalized.slice(0, 4));
+  const endMonth = Number(normalized.slice(5, 7));
+  const startMonth = endMonth - 2;
+
+  return [startMonth, startMonth + 1, startMonth + 2].map((month) => {
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    return formatUtcDateKey(year, month, lastDay);
+  });
+}
+
+export function selectQuarterMonthEndSnapshots<T extends SnapshotComparisonSource>(
+  snapshots: T[],
+  quarterEndDate: string,
+  baselineDate: string,
+) {
+  const normalizedSnapshots = [...snapshots].sort((left, right) => left.date.localeCompare(right.date));
+  const selectOnOrBefore = (targetDate: string) =>
+    normalizedSnapshots
+      .filter((snapshot) => normalizeDateKey(snapshot.date) <= normalizeDateKey(targetDate))
+      .sort((left, right) => right.date.localeCompare(left.date))[0] ?? null;
+
+  const points = [
+    { label: baselineDate.slice(0, 7), targetDate: normalizeDateKey(baselineDate), snapshot: selectOnOrBefore(baselineDate) },
+    ...getQuarterMonthEnds(quarterEndDate).map((targetDate) => ({
+      label: targetDate.slice(0, 7),
+      targetDate,
+      snapshot: selectOnOrBefore(targetDate),
+    })),
+  ];
+
+  return {
+    points,
+    missingLabels: points.filter((point) => !point.snapshot).map((point) => point.label),
+  };
 }
 
 function formatMoney(value: number) {
@@ -459,6 +511,7 @@ export function formatSnapshotComparisonForPrompt(comparison: SnapshotComparison
         `- ${change.ticker} ${formatHoldingStatus(change.status)}：` +
         `現值 ${formatMoney(change.currentValue)} HKD，前值 ${formatMoney(change.previousValue)} HKD，` +
         `倉位變化 ${formatMoney(change.quantityChange)}，價格變化 ${formatSignedPercent(change.priceChangePercent)}，` +
+        `價格效應 ${formatMoney(change.priceEffectHKD)} HKD，買賣效應 ${formatMoney(change.flowEffectHKD)} HKD，` +
         `組合貢獻 ${formatSignedPercent((change.contributionToPortfolioChange / (comparison.totalValue.previous || 1)) * 100)} / ${formatMoney(change.contributionToPortfolioChange)} HKD`,
     );
 
@@ -505,6 +558,8 @@ export function formatSnapshotComparisonForPrompt(comparison: SnapshotComparison
     positiveMovers || '- 無正貢獻持倉',
     `【最大拖累者】`,
     negativeMovers || '- 無負貢獻持倉',
+    `【期內新增持倉】`,
+    comparison.newHoldings.map((item) => `- ${item.ticker}：${formatMoney(item.valueHKD)} HKD`).join('\n') || '- 無新增持倉',
   ]
     .filter(Boolean)
     .join('\n');

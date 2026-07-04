@@ -29,6 +29,7 @@ interface QuarterlyReportPanelProps {
   canGenerateCurrentQuarterReport: boolean;
   onGeneratePdf: (report: QuarterlyReport) => void;
   onDeleteReport: (report: QuarterlyReport) => void;
+  onRegenerateFullReport: () => void;
   onSelectedReportIdChange: (id: string) => void;
   onCopyReport: () => void;
   onFollowUpQuestionChange: (value: string) => void;
@@ -55,6 +56,7 @@ export function QuarterlyReportPanel({
   canGenerateCurrentQuarterReport,
   onGeneratePdf,
   onDeleteReport,
+  onRegenerateFullReport,
   onSelectedReportIdChange,
   onCopyReport,
   onFollowUpQuestionChange,
@@ -157,9 +159,19 @@ export function QuarterlyReportPanel({
                 <span>生成：{formatGeneratedAt(selectedReport.generatedAt)}</span>
                 <span>模型：{getAnalysisModelLabel(selectedReport.model)}</span>
                 <span>PDF：{selectedReport.pdfUrl ? '已生成' : '未生成'}</span>
+                {selectedReport.isTimeoutFallback ? <span>超時降級版本</span> : null}
               </div>
             </div>
             <div className="analysis-report-actions">
+              {selectedReport.isTimeoutFallback ? (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={onRegenerateFullReport}
+                >
+                  重新生成完整報告
+                </button>
+              ) : null}
               {selectedReport.pdfUrl ? (
                 <a
                   className="button button-secondary"

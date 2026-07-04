@@ -203,6 +203,7 @@ export interface PortfolioAnalysisResponse extends PortfolioAnalysisResult {
   analysisBackground: string;
   delivery?: 'manual' | 'scheduled';
   generatedAt: string;
+  isTimeoutFallback?: boolean;
   intent?: AnalysisIntent;
   dataFreshness?: GeneralQuestionDataFreshness;
   macroContext?: MacroContext;

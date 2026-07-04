@@ -1,4 +1,4 @@
-import { sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
+import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
 import {
   getScheduledAnalysisErrorResponse,
   runManualQuarterlyAssetReport,
@@ -22,8 +22,13 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   try {
+    const body = await readJsonBody(request);
+    const overwrite =
+      typeof body === 'object' &&
+      body !== null &&
+      (body as Record<string, unknown>).overwrite === true;
     const result = await requirePortfolioAccess(request, route).then(() =>
-      runManualQuarterlyAssetReport(),
+      runManualQuarterlyAssetReport({ overwriteExisting: overwrite }),
     );
     sendJson(response, 200, {
       ...result,

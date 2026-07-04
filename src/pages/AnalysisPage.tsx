@@ -370,7 +370,7 @@ export function AnalysisPage() {
     [currentQuarterLabel, reports],
   );
   const canGenerateCurrentQuarterReport = useMemo(
-    () => canGenerateQuarterlyReportNow(currentTime) && currentQuarterReport == null,
+    () => canGenerateQuarterlyReportNow(currentTime) && (currentQuarterReport == null || currentQuarterReport.isTimeoutFallback === true),
     [currentQuarterReport, currentTime],
   );
   const selectedQuarterlyReportThread = useMemo(
@@ -522,7 +522,7 @@ export function AnalysisPage() {
     }
   }
 
-  async function handleGenerateQuarterlyReport() {
+  async function handleGenerateQuarterlyReport(overwrite = false) {
     setAnalysisError(null);
     setAnalysisSuccess(null);
     setReportActionError(null);
@@ -530,7 +530,10 @@ export function AnalysisPage() {
     setGeneratingPeriodicReport('quarterly');
 
     try {
-      const response = (await callPortfolioFunction('manual-quarterly-report')) as {
+      const response = (await callPortfolioFunction(
+        'manual-quarterly-report',
+        overwrite ? { overwrite: true } : {},
+      )) as {
         message?: string;
       };
       setReportActionMessage(response.message ?? '已開始生成季度報告。');
@@ -655,7 +658,9 @@ export function AnalysisPage() {
     : '未到每月 1 號香港時間上午 8:00。';
   const quarterlyStatusText = canGenerateQuarterlyReportNow(currentTime)
     ? currentQuarterReport
-      ? '本季季度報告已經生成。'
+      ? currentQuarterReport.isTimeoutFallback
+        ? '本季季度報告是超時降級版本，可重新生成完整報告。'
+        : '本季季度報告已經生成。'
       : '已進入本季可生成時段。'
     : '未到季度報告可生成時段。';
 
@@ -703,10 +708,14 @@ export function AnalysisPage() {
             <button
               className="button button-primary"
               type="button"
-              onClick={() => void handleGenerateQuarterlyReport()}
+              onClick={() => void handleGenerateQuarterlyReport(currentQuarterReport?.isTimeoutFallback === true)}
               disabled={!canGenerateCurrentQuarterReport || generatingPeriodicReport === 'quarterly'}
             >
-              {generatingPeriodicReport === 'quarterly' ? '生成中...' : '生成季報'}
+              {generatingPeriodicReport === 'quarterly'
+                ? '生成中...'
+                : currentQuarterReport?.isTimeoutFallback
+                  ? '重新生成完整報告'
+                  : '生成季報'}
             </button>
           )}
         </div>
@@ -766,6 +775,7 @@ export function AnalysisPage() {
           canGenerateCurrentQuarterReport={canGenerateCurrentQuarterReport}
           onGeneratePdf={(report) => void handleGeneratePdf(report)}
           onDeleteReport={(report) => void handleDeleteQuarterlyReport(report)}
+          onRegenerateFullReport={() => void handleGenerateQuarterlyReport(true)}
           onSelectedReportIdChange={setSelectedReportId}
           onCopyReport={handleCopyCurrentResponse}
           onFollowUpQuestionChange={setFollowUpQuestion}

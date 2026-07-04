@@ -6,6 +6,7 @@ import {
   formatSnapshotComparisonForPrompt,
   getMonthKey,
   normalizeDateKey,
+  selectQuarterMonthEndSnapshots,
   selectRecentDistinctMonthlySnapshots,
   summarizePeriodExternalFlow,
 } from './snapshotComparison.js';
@@ -118,8 +119,38 @@ test('compareSnapshots calculates allocation changes and movers', () => {
 
   assert.ok(stockChange);
   assert.ok(cashChange);
-  assert.ok(comparison.topMovers.gainers.some((entry) => entry.ticker === 'NVDA'));
-  assert.ok(comparison.topMovers.losers.some((entry) => entry.ticker === 'VOO'));
+  assert.ok(!comparison.topMovers.gainers.some((entry) => entry.ticker === 'NVDA'));
+  assert.ok(comparison.newHoldings.some((entry) => entry.ticker === 'NVDA'));
+  assert.ok(!comparison.topMovers.losers.some((entry) => entry.ticker === 'VOO'));
+});
+
+test('compareSnapshots splits price effect and flow effect for attribution', () => {
+  const comparison = compareSnapshots(currentSnapshot, previousSnapshot);
+  const aapl = comparison.holdingChanges.find((entry) => entry.ticker === 'AAPL');
+
+  assert.ok(aapl);
+  assert.equal(aapl.priceEffectHKD, 100);
+  assert.equal(aapl.flowEffectHKD, 120);
+  assert.equal(aapl.contributionToPortfolioChange, 220);
+});
+
+test('selectQuarterMonthEndSnapshots keeps baseline and quarter month ends only', () => {
+  const selected = selectQuarterMonthEndSnapshots(
+    [
+      { date: '2026-03-31', totalValueHKD: 1, holdings: [] },
+      { date: '2026-04-30', totalValueHKD: 2, holdings: [] },
+      { date: '2026-05-31', totalValueHKD: 3, holdings: [] },
+      { date: '2026-06-30', totalValueHKD: 4, holdings: [] },
+      { date: '2026-07-02', totalValueHKD: 5, holdings: [] },
+    ],
+    '2026-06-30',
+    '2026-03-31',
+  );
+
+  assert.deepEqual(
+    selected.points.map((point) => point.snapshot?.date),
+    ['2026-03-31', '2026-04-30', '2026-05-31', '2026-06-30'],
+  );
 });
 
 test('selectRecentDistinctMonthlySnapshots keeps the latest snapshot for each month', () => {
