@@ -1,5 +1,4 @@
 import { sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
-import { verifyCronRequest } from '../server/cronAuth.js';
 // Runtime note:
 // This API route executes `../server/scheduledAnalysis.js` on Vercel today.
 // Keep `server/scheduledAnalysis.ts` and `server/scheduledAnalysis.js` fully in sync
@@ -7,7 +6,6 @@ import { verifyCronRequest } from '../server/cronAuth.js';
 import {
   getScheduledAnalysisErrorResponse,
   runManualMonthlyAssetAnalysis,
-  runMonthlyAssetAnalysis,
 } from '../server/scheduledAnalysis.js';
 import {
   getPortfolioAccessErrorResponse,
@@ -18,7 +16,7 @@ import {
 export default async function handler(request: ApiRequest, response: ApiResponse) {
   const route = '/api/cron-monthly-analysis';
 
-  if (request.method !== 'GET' && request.method !== 'POST') {
+  if (request.method !== 'POST') {
     sendJson(response, 405, {
       ok: false,
       route,
@@ -28,15 +26,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   try {
-    const result =
-      request.method === 'GET'
-        ? (() => {
-            verifyCronRequest(request.headers.authorization);
-            return runMonthlyAssetAnalysis();
-          })()
-        : (() => {
-            return requirePortfolioAccess(request, route).then(() => runManualMonthlyAssetAnalysis());
-          })();
+    const result = requirePortfolioAccess(request, route).then(() => runManualMonthlyAssetAnalysis());
     const payload = await result;
     sendJson(response, 200, {
       ...payload,
@@ -44,9 +34,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       message:
         typeof payload.message === 'string'
           ? payload.message
-          : request.method === 'GET'
-            ? '已完成每月資產分析。'
-            : undefined,
+          : undefined,
     });
   } catch (error) {
     if (isPortfolioAccessError(error)) {

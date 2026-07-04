@@ -7,7 +7,8 @@ import {
 } from "./analyzePortfolio.js";
 import {
   compareSnapshots,
-  selectRecentDistinctMonthlySnapshots
+  selectRecentDistinctMonthlySnapshots,
+  selectQuarterMonthEndSnapshots
 } from "./snapshotComparison.js";
 import { readAdminPortfolioAssets } from "./portfolioSnapshotAdmin.js";
 import { buildReportAllocationSummaryFromHoldings } from "../src/lib/portfolio/reportAllocationSummary.js";
@@ -123,7 +124,8 @@ function buildScheduledAnalysisTimeoutFallback(request, params) {
       `\u5206\u6790\u6A21\u578B\u56DE\u61C9\u8D85\u6642\uFF0C\u5DF2\u6539\u7528\u6301\u5009\u8CC7\u6599\u751F\u6210\u81E8\u6642\u6708\u5831\u3002\u539F\u59CB\u932F\u8AA4\uFF1A${errorMessage}`,
       "\u6B64\u7248\u672C\u672A\u5B8C\u6210\u6A21\u578B\u6DF1\u5EA6\u63A8\u7406\uFF1B\u5982\u9700\u8981\u5B8C\u6574\u5B8F\u89C0\u9023\u7D50\uFF0C\u53EF\u7A0D\u5F8C\u91CD\u65B0\u751F\u6210\u3002"
     ],
-    suggestedActions: ["\u7A0D\u5F8C\u91CD\u65B0\u751F\u6210\u5B8C\u6574\u6708\u5831\u3002", "\u5148\u6AA2\u67E5\u4E3B\u8981\u6301\u5009\u3001\u8CC7\u7522\u985E\u5225\u8207\u5E63\u5225\u96C6\u4E2D\u5EA6\u3002"]
+    suggestedActions: ["\u7A0D\u5F8C\u91CD\u65B0\u751F\u6210\u5B8C\u6574\u6708\u5831\u3002", "\u5148\u6AA2\u67E5\u4E3B\u8981\u6301\u5009\u3001\u8CC7\u7522\u985E\u5225\u8207\u5E63\u5225\u96C6\u4E2D\u5EA6\u3002"],
+    isTimeoutFallback: true
   };
 }
 function getAssetMarketValueHKD(asset) {
@@ -149,6 +151,20 @@ function getHongKongYearMonthLabel(date = /* @__PURE__ */ new Date()) {
   const year = parts.find((part) => part.type === "year")?.value ?? "";
   const month = parts.find((part) => part.type === "month")?.value ?? "";
   return `${year}\u5E74${month.endsWith("\u6708") ? month : `${month}\u6708`}`;
+}
+function getHongKongMonthKey(date = /* @__PURE__ */ new Date()) {
+  const { year, month } = getHongKongDateParts(date);
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+function getCoveredMonthKey(date = /* @__PURE__ */ new Date()) {
+  const { year, month } = getHongKongDateParts(date);
+  const coveredMonth = month === 1 ? 12 : month - 1;
+  const coveredYear = month === 1 ? year - 1 : year;
+  return `${coveredYear}-${String(coveredMonth).padStart(2, "0")}`;
+}
+function getCoveredMonthLabel(date = /* @__PURE__ */ new Date()) {
+  const [year, month] = getCoveredMonthKey(date).split("-");
+  return `${year}\u5E74${Number(month)}\u6708`;
 }
 function getCurrentQuarterNumber(date = /* @__PURE__ */ new Date()) {
   const month = Number(
@@ -202,18 +218,48 @@ function canGenerateQuarterlyReportNow(date = /* @__PURE__ */ new Date()) {
   const isQuarterOpeningMonth = month === quarterStartMonth;
   return isQuarterOpeningMonth && (day > 1 || day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT);
 }
+async function resolveMonthlyAnalysisSessionTarget(params) {
+  const db = getFirebaseAdminDb();
+  const docId = getCoveredMonthlyAnalysisSessionDocId(params.coveredMonthKey);
+  const monthlyDoc = await db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("analysisSessions").doc(docId).get();
+  if (!monthlyDoc.exists) {
+    return { docId, collisionWithLegacy: false };
+  }
+  const data = monthlyDoc.data();
+  const reportFactsPayload = data && typeof data.reportFactsPayload === "object" && data.reportFactsPayload !== null ? data.reportFactsPayload : null;
+  const periodStartDate = typeof reportFactsPayload?.periodStartDate === "string" ? reportFactsPayload.periodStartDate : typeof data?.periodStartDate === "string" ? data.periodStartDate : "";
+  const periodEndDate = typeof reportFactsPayload?.periodEndDate === "string" ? reportFactsPayload.periodEndDate : typeof data?.periodEndDate === "string" ? data.periodEndDate : "";
+  if (periodStartDate === params.periodStartDate && periodEndDate === params.periodEndDate) {
+    return { docId, collisionWithLegacy: false };
+  }
+  return { docId: `${docId}-v2`, collisionWithLegacy: true };
+}
 async function hasExistingMonthlyAnalysis(params) {
   const db = getFirebaseAdminDb();
-  const monthlyDoc = await db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("analysisSessions").doc(getMonthlyAnalysisSessionDocId(params.dateKey)).get();
+  const monthlyDoc = await db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("analysisSessions").doc(params.sessionDocId).get();
   if (monthlyDoc.exists) {
-    return true;
+    const data = monthlyDoc.data();
+    const reportFactsPayload = data && typeof data.reportFactsPayload === "object" && data.reportFactsPayload !== null ? data.reportFactsPayload : null;
+    const periodStartDate = typeof reportFactsPayload?.periodStartDate === "string" ? reportFactsPayload.periodStartDate : typeof data?.periodStartDate === "string" ? data.periodStartDate : "";
+    const periodEndDate = typeof reportFactsPayload?.periodEndDate === "string" ? reportFactsPayload.periodEndDate : typeof data?.periodEndDate === "string" ? data.periodEndDate : "";
+    return periodStartDate === params.periodStartDate && periodEndDate === params.periodEndDate;
   }
   const snapshot = await db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("analysisSessions").where("category", "==", "asset_analysis").where("title", "==", params.title).limit(1).get();
   return !snapshot.empty;
 }
 async function hasExistingQuarterlyReport(quarter) {
+  const doc = await getFirebaseAdminDb().collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("quarterlyReports").doc(getQuarterlyReportDocId(quarter)).get();
+  if (doc.exists) {
+    return {
+      exists: true,
+      isTimeoutFallback: doc.data()?.isTimeoutFallback === true
+    };
+  }
   const snapshot = await getFirebaseAdminDb().collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("quarterlyReports").where("quarter", "==", quarter).limit(1).get();
-  return !snapshot.empty;
+  return {
+    exists: !snapshot.empty,
+    isTimeoutFallback: snapshot.docs[0]?.data()?.isTimeoutFallback === true
+  };
 }
 function getPreviousQuarterEndDate(date = /* @__PURE__ */ new Date()) {
   const { year, month } = getHongKongDateParts(date);
@@ -225,12 +271,33 @@ function getPreviousQuarterEndDate(date = /* @__PURE__ */ new Date()) {
     String(previousQuarterEnd.getDate()).padStart(2, "0")
   ].join("-");
 }
+function getQuarterEndDateBefore(quarterEndDate) {
+  const normalized = quarterEndDate.trim().slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(normalized);
+  if (!match) {
+    throw new Error(`Invalid quarter end date: ${quarterEndDate}`);
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  if (month === 3) return `${year - 1}-12-31`;
+  if (month === 6) return `${year}-03-31`;
+  if (month === 9) return `${year}-06-30`;
+  if (month === 12) return `${year}-09-30`;
+  throw new Error(`Invalid quarter end month: ${quarterEndDate}`);
+}
 function getMonthlyAnalysisSessionDocId(dateKey) {
   const normalized = dateKey.trim();
   if (!normalized) {
     return "monthly-unknown";
   }
   return `monthly-${normalized.slice(0, 7)}`;
+}
+function getCoveredMonthlyAnalysisSessionDocId(coveredMonthKey) {
+  const normalized = coveredMonthKey.trim();
+  return normalized ? `monthly-${normalized.slice(0, 7)}` : "monthly-unknown";
+}
+function getQuarterlyReportDocId(quarter) {
+  return `quarterly-${quarter}`;
 }
 function isFirestoreAlreadyExistsError(error) {
   if (!error || typeof error !== "object") {
@@ -307,6 +374,28 @@ function normalizeHoldingForSignature(asset) {
 }
 function createSnapshotHashFromAssets(assets) {
   const normalized = [...assets].map(normalizeHoldingForSignature).sort((left, right) => left.id.localeCompare(right.id));
+  return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+}
+function createSnapshotHashFromSnapshot(snapshot) {
+  const normalized = {
+    date: snapshot.date,
+    totalValueHKD: Number(snapshot.totalValueHKD.toFixed(4)),
+    holdings: [...snapshot.holdings].map((holding) => ({
+      assetId: holding.assetId,
+      ticker: holding.ticker,
+      name: holding.name,
+      assetType: holding.assetType,
+      accountSource: holding.accountSource ?? "",
+      currency: holding.currency,
+      quantity: Number(holding.quantity.toFixed(8)),
+      currentPrice: Number(holding.currentPrice.toFixed(8)),
+      marketValueHKD: Number(holding.marketValueHKD.toFixed(4))
+    })).sort(
+      (left, right) => `${left.assetId}|${left.ticker}|${left.currency}`.localeCompare(
+        `${right.assetId}|${right.ticker}|${right.currency}`
+      )
+    )
+  };
   return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
 function createCacheKey(snapshotHash, category, analysisModel, analysisQuestion, analysisBackground) {
@@ -521,7 +610,7 @@ async function generateGroundedSearchSummary(params) {
         apiKey: getGeminiApiKey(),
         model,
         prompt,
-        maxOutputTokens: 1500,
+        maxOutputTokens: 2500,
         googleSearch: true
       });
       const summary = getGeminiResponseText(response);
@@ -615,6 +704,65 @@ function buildSnapshotFromAssets(assets, date) {
     }))
   };
 }
+function getSnapshotAssetLookupKey(value) {
+  return `${(value.symbol ?? value.ticker ?? "").trim().toUpperCase()}|${(value.currency ?? "").trim().toUpperCase()}`;
+}
+function buildAssetsFromSnapshot(snapshot, liveAssets) {
+  const assetsById = new Map(liveAssets.map((asset) => [asset.id, asset]));
+  const assetsByTickerCurrency = new Map(
+    liveAssets.map((asset) => [getSnapshotAssetLookupKey(asset), asset])
+  );
+  return snapshot.holdings.map((holding) => {
+    const matchedAsset = assetsById.get(holding.assetId) ?? assetsByTickerCurrency.get(getSnapshotAssetLookupKey(holding));
+    const averageCost = matchedAsset?.averageCost ?? 0;
+    return {
+      id: holding.assetId || getSnapshotAssetLookupKey(holding),
+      name: holding.name,
+      symbol: holding.ticker,
+      assetType: holding.assetType,
+      accountSource: holding.accountSource === "Futu" || holding.accountSource === "IB" || holding.accountSource === "Crypto" || holding.accountSource === "Other" ? holding.accountSource : matchedAsset?.accountSource ?? "Other",
+      currency: holding.currency,
+      quantity: holding.quantity,
+      averageCost,
+      currentPrice: holding.currentPrice
+    };
+  });
+}
+function buildSnapshotDataQualitySummary(params) {
+  const warningMessages = ["\u4EE5\u5B63\u672B\uFF0F\u6708\u521D\u6B78\u6A94\u5FEB\u7167\u54C1\u8CEA\u70BA\u6E96\uFF1B\u904E\u671F\u5373\u6642\u50F9\u683C\u6578\u91CF\u4E0D\u9069\u7528\u3002"];
+  const coveragePct = params.snapshotMeta.coveragePct;
+  const fallbackAssetCount = params.snapshotMeta.fallbackAssetCount;
+  const missingAssetCount = params.snapshotMeta.missingAssetCount;
+  if (params.snapshotMeta.snapshotQuality === "fallback") {
+    warningMessages.push("\u5FEB\u7167\u4F7F\u7528 fallback \u50F9\u683C\u6216\u964D\u7D1A\u8CC7\u6599\u3002");
+  }
+  if (typeof coveragePct === "number" && coveragePct < 100) {
+    warningMessages.push(`\u5FEB\u7167\u50F9\u683C\u8986\u84CB\u7387\u53EA\u6709 ${coveragePct}%\u3002`);
+  }
+  if (typeof fallbackAssetCount === "number" && fallbackAssetCount > 0) {
+    warningMessages.push(`\u5FEB\u7167\u6709 ${fallbackAssetCount} \u9805\u8CC7\u7522\u6CBF\u7528 fallback \u50F9\u683C\u3002`);
+  }
+  if (typeof missingAssetCount === "number" && missingAssetCount > 0) {
+    warningMessages.push(`\u5FEB\u7167\u6709 ${missingAssetCount} \u9805\u8CC7\u7522\u7F3A\u5C11\u50F9\u683C\u6216\u8CC7\u6599\u3002`);
+  }
+  let status = "ok";
+  if (typeof missingAssetCount === "number" && missingAssetCount > 0 || typeof coveragePct === "number" && coveragePct < 80) {
+    status = "warning";
+  } else if (params.snapshotMeta.snapshotQuality === "fallback" || typeof coveragePct === "number" && coveragePct < 100 || typeof fallbackAssetCount === "number" && fallbackAssetCount > 0) {
+    status = "partial";
+  }
+  return {
+    status,
+    coveragePct,
+    staleAssetCount: 0,
+    fallbackAssetCount,
+    missingAssetCount,
+    fxSource: params.snapshotMeta.fxSource ?? "unknown",
+    fxRatesUsed: params.snapshotMeta.fxRatesUsed,
+    oldestPriceAsOf: "",
+    warningMessages
+  };
+}
 async function readSnapshotOnOrBefore(targetDate) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -650,6 +798,10 @@ function getPreviousMonthStartDate(date = /* @__PURE__ */ new Date()) {
   const previousYear = month === 1 ? year - 1 : year;
   return `${previousYear}-${String(previousMonth).padStart(2, "0")}-01`;
 }
+function getCurrentMonthStartDate(date = /* @__PURE__ */ new Date()) {
+  const { year, month } = getHongKongDateParts(date);
+  return `${year}-${String(month).padStart(2, "0")}-01`;
+}
 function getDateDistanceInDays(leftDate, rightDate) {
   const left = /* @__PURE__ */ new Date(`${leftDate}T00:00:00Z`);
   const right = /* @__PURE__ */ new Date(`${rightDate}T00:00:00Z`);
@@ -675,6 +827,11 @@ async function readPreviousMonthSnapshot(date = /* @__PURE__ */ new Date()) {
   const targetDate = getPreviousMonthStartDate(date);
   const history = await readRecentSnapshotHistory(120);
   return selectNearestSnapshotToDate(history, targetDate);
+}
+async function readCurrentMonthStartSnapshot(date = /* @__PURE__ */ new Date()) {
+  const targetDate = getCurrentMonthStartDate(date);
+  const history = await readRecentSnapshotHistory(120);
+  return selectNearestSnapshotToDate(history, targetDate, MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS);
 }
 function getOldestPriceDate(assets) {
   return assets.map((asset) => asset.lastPriceUpdatedAt ?? asset.priceAsOf ?? "").filter(Boolean).sort()[0];
@@ -905,6 +1062,9 @@ function buildAnalysisSessionWritePayload(params) {
     provider: params.response.provider,
     snapshotHash: params.response.snapshotHash,
     delivery: params.delivery ?? "scheduled",
+    isTimeoutFallback: params.response.isTimeoutFallback === true,
+    ...params.periodStartDate ? { periodStartDate: params.periodStartDate } : {},
+    ...params.periodEndDate ? { periodEndDate: params.periodEndDate } : {},
     ...params.allocationSummary ? { allocationSummary: params.allocationSummary } : {},
     ...sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {},
     createdAt: FieldValue.serverTimestamp(),
@@ -922,6 +1082,7 @@ function buildQuarterlyReportWritePayload(params) {
     searchSummary: params.searchSummary,
     model: params.model,
     provider: params.provider,
+    isTimeoutFallback: params.isTimeoutFallback === true,
     ...params.allocationSummary ? { allocationSummary: params.allocationSummary } : {},
     ...sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {},
     pdfUrl: "",
@@ -935,7 +1096,7 @@ function buildMonthlyTrendSnapshots(snapshots) {
 function buildComparisonPromptSections(comparison, opts) {
   const limitHoldings = opts?.limitHoldings ?? 12;
   const holdingLines = comparison.holdingChanges.filter((change) => change.status !== "unchanged" || Math.abs(change.contributionToPortfolioChange) > 0.01).slice(0, limitHoldings).map(
-    (change) => `- ${change.ticker} ${change.name}\uFF5C${change.status}\uFF5C\u73FE\u503C ${change.currentValue.toFixed(2)} HKD\uFF5C\u524D\u503C ${change.previousValue.toFixed(2)} HKD\uFF5C\u5009\u4F4D\u8B8A\u5316 ${change.quantityChange.toFixed(2)}\uFF5C\u50F9\u683C\u8B8A\u5316 ${change.priceChangePercent.toFixed(1)}%\uFF5C\u7D44\u5408\u8CA2\u737B ${change.contributionToPortfolioChange.toFixed(2)} HKD`
+    (change) => `- ${change.ticker} ${change.name}\uFF5C${change.status}\uFF5C\u73FE\u503C ${change.currentValue.toFixed(2)} HKD\uFF5C\u524D\u503C ${change.previousValue.toFixed(2)} HKD\uFF5C\u5009\u4F4D\u8B8A\u5316 ${change.quantityChange.toFixed(2)}\uFF5C\u50F9\u683C\u8B8A\u5316 ${change.priceChangePercent.toFixed(1)}%\uFF5C\u50F9\u683C\u6548\u61C9 ${change.priceEffectHKD.toFixed(2)} HKD\uFF5C\u8CB7\u8CE3\u6548\u61C9 ${change.flowEffectHKD.toFixed(2)} HKD\uFF5C\u7D44\u5408\u8B8A\u5316 ${change.contributionToPortfolioChange.toFixed(2)} HKD`
   );
   const gainers = comparison.topMovers.gainers.map(
     (item) => `- ${item.ticker}\uFF1A${item.changePercent.toFixed(1)}%\uFF5C\u8CA2\u737B ${item.contributionHKD.toFixed(2)} HKD`
@@ -960,7 +1121,9 @@ function buildComparisonPromptSections(comparison, opts) {
     `\u3010\u6700\u5927\u8CA2\u737B\u8005\u3011`,
     gainers || "- \u7121\u6B63\u8CA2\u737B\u6301\u5009",
     `\u3010\u6700\u5927\u62D6\u7D2F\u8005\u3011`,
-    losers || "- \u7121\u8CA0\u8CA2\u737B\u6301\u5009"
+    losers || "- \u7121\u8CA0\u8CA2\u737B\u6301\u5009",
+    `\u3010\u671F\u5167\u65B0\u589E\u6301\u5009\u3011`,
+    comparison.newHoldings.map((item) => `- ${item.ticker}\uFF1A${item.valueHKD.toFixed(2)} HKD`).join("\n") || "- \u7121\u65B0\u589E\u6301\u5009"
   ].join("\n");
 }
 function formatReportAllocationSummaryForPrompt(summary) {
@@ -1027,10 +1190,16 @@ function buildMonthlyAnalysisQuestion(params) {
 }
 function buildQuarterlyAnalysisQuestion(params) {
   const { currentComparison, trendComparisons, allocationSummary, dataQualitySummary } = params;
-  const currentComparisonText = currentComparison ? buildComparisonPromptSections(currentComparison, { limitHoldings: 12 }) : "\u672A\u6709\u53EF\u6BD4\u8F03\u7684\u4E0A\u5B63\u5B63\u672B\u5FEB\u7167\uFF1B\u8ACB\u53EA\u6839\u64DA\u76EE\u524D\u6301\u5009\u3001\u7CFB\u7D71\u5206\u4F48\u7E3D\u89BD\u8207\u53EF\u7528\u8DA8\u52E2\u8CC7\u6599\u6B78\u6A94\uFF0C\u4E0D\u8981\u5047\u8A2D\u5B63\u5EA6\u8B8A\u5316\u3002";
+  const currentComparisonText = currentComparison ? buildComparisonPromptSections(currentComparison, { limitHoldings: 12 }) : "\u672A\u6709\u53EF\u6BD4\u8F03\u7684\u4E0A\u4E0A\u5B63\u672B\u5FEB\u7167\uFF1B\u8ACB\u53EA\u6839\u64DA\u5B63\u672B\u5FEB\u7167\u3001\u7CFB\u7D71\u5206\u4F48\u7E3D\u89BD\u8207\u53EF\u7528\u8DA8\u52E2\u8CC7\u6599\u6B78\u6A94\uFF0C\u4E0D\u8981\u5047\u8A2D\u5B63\u5EA6\u8B8A\u5316\u3002";
   const trendSections = trendComparisons.map(
     (comparison, index) => [`\u3010\u8DA8\u52E2 ${index + 1}\u3011`, buildComparisonPromptSections(comparison, { limitHoldings: 8 })].join("\n")
   ).join("\n\n");
+  const macroSummaryText = [
+    "\u3010\u672C\u5B63\u5B8F\u89C0\u8207\u5E02\u5834\u80CC\u666F\u6458\u8981\u3011",
+    params.searchSummary.trim() || "\u672A\u6709\u53EF\u7528\u7684\u5916\u90E8\u5E02\u5834\u80CC\u666F\u6458\u8981\uFF1B\u5982\u5F15\u7528\u5B8F\u89C0\u5224\u8B80\uFF0C\u8ACB\u660E\u78BA\u6307\u51FA\u8CC7\u6599\u9650\u5236\u3002",
+    "\u4F60\u5FC5\u9808\u5F15\u7528\u6B64\u6458\u8981\uFF0C\u4E26\u5C07\u5176\u8207\u5B63\u5EA6\u8CC7\u7522\u8B8A\u5316\u3001\u914D\u7F6E\u5206\u4F48\u3001\u5E63\u5225\u66DD\u96AA\u4E92\u76F8\u5C0D\u7167\uFF1B\u4E0D\u53EF\u53EA\u505A\u4E00\u822C\u914D\u7F6E\u8A3A\u65B7\u3002"
+  ].join("\n");
+  const trendMissingText = params.trendMissingLabels?.length ? `\u5B63\u5167\u6708\u5EA6\u8DA8\u52E2\u9650\u5236\uFF1A${params.trendMissingLabels.join("\u3001")} \u5FEB\u7167\u7F3A\u5931\uFF0C\u8DA8\u52E2\u6BB5\u4E0D\u5B8C\u6574\u3002` : "\u5B63\u5167\u6708\u5EA6\u8DA8\u52E2\u5FEB\u7167\u5B8C\u6574\u3002";
   return [
     "\u8ACB\u64B0\u5BEB\u4E00\u4EFD\u300C\u5B63\u5EA6\u8CC7\u7522\u5831\u544A\u300D\uFF0C\u5B9A\u4F4D\u4FC2\u7E3D\u7D50 / \u6B78\u56E0 / \u6B63\u5F0F\u6B78\u6A94\u3002",
     "\u8CC7\u7522\u5206\u4F48\u7E3D\u89BD\u5DF2\u7531\u7CFB\u7D71\u7528\u771F\u5BE6\u8CC7\u6599\u8A08\u7B97\u4E26\u986F\u793A\u5728\u6B63\u6587\u524D\uFF1B\u4E0D\u8981\u8F38\u51FA\u5716\u8868\u8CC7\u6599\u3001\u8868\u683C\uFF0C\u4EA6\u4E0D\u8981\u9010\u9805\u91CD\u8986\u767E\u5206\u6BD4\u5206\u5E03\u3002",
@@ -1044,8 +1213,17 @@ function buildQuarterlyAnalysisQuestion(params) {
     "\u3010\u4E3B\u8981\u98A8\u96AA\u8207\u96C6\u4E2D\u5EA6\u3011",
     "\u3010\u4E0B\u5B63\u89C0\u5BDF\u91CD\u9EDE\u3011",
     "",
+    macroSummaryText,
+    "",
     "\u898F\u5247\uFF1A",
     "\u6240\u6709\u7D50\u8AD6\u5FC5\u9808\u5F15\u7528 input \u5167\u7684\u8CC7\u6599\uFF1B\u4E0D\u8981\u865B\u69CB\u65B0\u805E\u3001\u4F30\u503C\u6216\u5B8F\u89C0\u8CC7\u6599\u3002",
+    "\u6700\u5927\u8CA2\u737B\u8005\uFF0F\u62D6\u7D2F\u8005\u6309\u50F9\u683C\u6548\u61C9\u6392\u5E8F\uFF1B\u8CB7\u8CE3\u6548\u61C9\u4EE3\u8868\u52A0\u6E1B\u5009\u884C\u70BA\uFF0C\u4E0D\u53EF\u8207\u6295\u8CC7\u56DE\u5831\u6DF7\u70BA\u4E00\u8AC7\u3002",
+    "\u5982\u679C\u67D0\u8CC7\u7522 costValue \u6216 averageCost \u70BA 0\uFF0C\u4E0D\u53EF\u5224\u65B7\u70BA\u5168\u70BA\u672A\u5BE6\u73FE\u5229\u6F64\uFF1B\u5FC5\u9808\u5BEB\u660E\u6210\u672C\u8CC7\u6599\u70BA 0 \u6216\u7F3A\u5931\uFF0C\u7121\u6CD5\u6E96\u78BA\u5224\u65B7\u5BE6\u969B\u76C8\u8667\uFF0C\u4E26\u628A\u88DC\u56DE\u6210\u672C\u8CC7\u6599\u5217\u70BA\u4E0B\u5B63\u89C0\u5BDF\u91CD\u9EDE\u3002",
+    "\u5982\u679C previousValue \u70BA 0 \u6216\u5927\u91CF new \u6301\u5009\uFF0C\u4E0D\u53EF\u76F4\u63A5\u89E3\u8B80\u70BA\u5B63\u5EA6\u50F9\u683C\u8CA2\u737B\uFF1B\u5FC5\u9808\u8AAA\u660E\u53EF\u80FD\u6DF7\u5408\u65B0\u5EFA\u5009\u3001\u8CC7\u6599\u88DC\u9304\u3001snapshot matching \u6216 baseline holdings \u7F3A\u5931\u3002",
+    "\u5E63\u5225\u66DD\u96AA\u5FC5\u9808\u5206\u6E05\u5831\u50F9\u8CA8\u5E63\u66DD\u96AA\u8207\u7D93\u6FDF\u98A8\u96AA\u66DD\u96AA\uFF1B\u52A0\u5BC6\u8CA8\u5E63\u4EE5 USD \u5831\u50F9\uFF0C\u4E0D\u7B49\u65BC\u5B8C\u5168\u7F8E\u5143\u8CC7\u7522\u3002",
+    "\u5982\u679C dataQualitySummary.status \u662F partial / warning\uFF0C\u7D50\u8AD6\u8981\u4FDD\u5B88\u5316\uFF0C\u4E26\u628A\u8CC7\u6599\u4FEE\u5FA9\u5217\u5165\u4E0B\u5B63\u89C0\u5BDF\u91CD\u9EDE\u3002",
+    "\u5982\u679C\u8CC7\u91D1\u6D41\u8986\u84CB\u7387\u5514\u4FC2 100%\uFF0C\u8981\u4FDD\u7559\u9650\u5236\u63D0\u793A\uFF0C\u907F\u514D\u628A\u6240\u6709\u5347\u8DCC\u90FD\u7576\u6210\u6295\u8CC7\u56DE\u5831\u3002",
+    "\u3010\u4E0B\u5B63\u89C0\u5BDF\u91CD\u9EDE\u3011\u6BCF\u9EDE\u9808\u5E36\u91CF\u5316\u89F8\u767C\u689D\u4EF6\uFF0C\u4F8B\u5982\u55AE\u4E00\u8CC7\u7522 > 20%\u3001\u52A0\u5BC6\u5408\u8A08 > 30%\u3001\u73FE\u91D1 < 3%\u3001SGOV + \u73FE\u91D1 < 10%\u3001BTC 7 \u65E5\u8DCC\u5E45 > 15%\u3001\u9AD8 beta \u80A1\u7968\u5408\u8A08\u8D85\u904E\u80A1\u7968\u90E8\u4F4D 60%\u3002",
     "\u4E0D\u8981\u91CD\u8986 summary card \u5DF2\u986F\u793A\u7684\u767E\u5206\u6BD4\u5206\u5E03\uFF0C\u53EA\u9700\u505A\u5224\u8B80\u3001\u6B78\u56E0\u548C\u6B78\u6A94\u6458\u8981\u3002",
     "\u77ED\u800C\u6E96\uFF0C\u7E41\u9AD4\u4E2D\u6587\u8F38\u51FA\uFF1B\u8CC7\u6599\u4E0D\u8DB3\u5C31\u76F4\u8AAA\u3002",
     "",
@@ -1056,11 +1234,12 @@ function buildQuarterlyAnalysisQuestion(params) {
     "\u4ECA\u5B63 vs \u4E0A\u5B63\u5C0D\u6BD4\u6578\u64DA\uFF1A",
     currentComparisonText,
     "",
-    "\u4E09\u500B\u6708\u8DA8\u52E2\u6578\u64DA\uFF1A",
+    "\u5B63\u5167\u6708\u5EA6\u8DA8\u52E2\u6578\u64DA\uFF1A",
+    trendMissingText,
     trendSections || "\u672A\u6709\u8DB3\u5920\u4E09\u500B\u6708\u8DA8\u52E2\u8CC7\u6599\u3002"
   ].join("\n");
 }
-async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId, delivery = "scheduled", overwriteSession = false) {
+async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId, delivery = "scheduled", overwriteSession = false, periodStartDate, periodEndDate) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
   const sanitizedReportFactsPayload = reportFactsPayload ? sanitizeForFirestore(reportFactsPayload) : void 0;
@@ -1077,6 +1256,7 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
       generatedAt: response.generatedAt,
       assetCount: response.assetCount,
       answer: response.answer,
+      isTimeoutFallback: response.isTimeoutFallback === true,
       ...allocationSummary ? { allocationSummary } : {},
       ...sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {},
       updatedAt: FieldValue.serverTimestamp()
@@ -1088,7 +1268,9 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
     title,
     allocationSummary,
     reportFactsPayload: sanitizedReportFactsPayload,
-    delivery
+    delivery,
+    periodStartDate,
+    periodEndDate
   });
   if (sessionDocId) {
     const sessionRef = portfolioRef.collection("analysisSessions").doc(sessionDocId);
@@ -1103,7 +1285,7 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
 }
 async function saveQuarterlyReport(params) {
   const db = getFirebaseAdminDb();
-  await db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("quarterlyReports").add(buildQuarterlyReportWritePayload(params));
+  await db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID).collection("quarterlyReports").doc(getQuarterlyReportDocId(params.quarter)).set(buildQuarterlyReportWritePayload(params));
 }
 async function runScheduledCategoryAnalysis(params) {
   const assets = params.assets ?? await readAdminPortfolioAssets();
@@ -1120,7 +1302,8 @@ async function runScheduledCategoryAnalysis(params) {
     analysisQuestion: params.question,
     analysisBackground: promptSettings[params.category],
     analysisModel: getScheduledAnalysisModel(),
-    conversationContext: params.conversationContext
+    conversationContext: params.conversationContext,
+    snapshotHashOverride: params.snapshotHashOverride
   });
   let response;
   try {
@@ -1151,13 +1334,28 @@ async function runScheduledCategoryAnalysis(params) {
   };
 }
 async function runMonthlyAssetAnalysis(options = {}) {
-  const assets = await readAdminPortfolioAssets();
-  const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
-  const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
+  const liveAssets = await readAdminPortfolioAssets();
+  const currentSnapshot = await readCurrentMonthStartSnapshot();
+  if (!currentSnapshot) {
+    throw new ScheduledAnalysisError("\u672A\u627E\u5230\u672C\u6708\u6708\u521D\u5FEB\u7167\uFF0C\u7121\u6CD5\u751F\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002", 400);
+  }
+  const assets = buildAssetsFromSnapshot(currentSnapshot, liveAssets);
+  const currentSnapshotHash = createSnapshotHashFromSnapshot(currentSnapshot);
   const recentSnapshotHistory = await readRecentSnapshotHistory(120);
   const previousMonthSnapshot = await readPreviousMonthSnapshot();
-  const title = `${getHongKongYearMonthLabel()}\u6BCF\u6708\u8CC7\u7522\u5206\u6790`;
-  const existingMonthlyAnalysis = await hasExistingMonthlyAnalysis({ title, dateKey: currentSnapshot.date });
+  const coveredMonthKey = getCoveredMonthKey();
+  const title = `${getCoveredMonthLabel()}\u6BCF\u6708\u8CC7\u7522\u5206\u6790`;
+  const monthlySessionTarget = await resolveMonthlyAnalysisSessionTarget({
+    coveredMonthKey,
+    periodStartDate: previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
+    periodEndDate: currentSnapshot.date
+  });
+  const existingMonthlyAnalysis = await hasExistingMonthlyAnalysis({
+    title,
+    sessionDocId: monthlySessionTarget.docId,
+    periodStartDate: previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
+    periodEndDate: currentSnapshot.date
+  });
   if (!options.overwriteExisting && existingMonthlyAnalysis) {
     return {
       ok: true,
@@ -1165,19 +1363,18 @@ async function runMonthlyAssetAnalysis(options = {}) {
       category: "asset_analysis",
       title,
       route: MONTHLY_ROUTE,
-      message: "\u4ECA\u500B\u6708\u5605\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u5DF2\u7D93\u751F\u6210\uFF0C\u6BCB\u9808\u91CD\u8907\u5EFA\u7ACB\u3002"
+      message: "\u8986\u84CB\u6708\u4EFD\u5605\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u5DF2\u7D93\u751F\u6210\uFF0C\u6BCB\u9808\u91CD\u8907\u5EFA\u7ACB\u3002"
     };
   }
-  const dataQualitySummary = buildReportDataQualitySummary({
-    assets,
-    snapshotMeta: latestSnapshotMeta
+  const dataQualitySummary = buildSnapshotDataQualitySummary({
+    snapshotMeta: currentSnapshot
   });
   const allocationSummary = buildReportAllocationSummaryFromHoldings({
     holdings: currentSnapshot.holdings,
     asOfDate: currentSnapshot.date,
     basis: "monthly",
     comparisonHoldings: previousMonthSnapshot?.holdings,
-    comparisonLabel: previousMonthSnapshot ? "\u8F03\u4E0A\u6708\u6708\u521D\u57FA\u6E96" : void 0
+    comparisonLabel: previousMonthSnapshot ? `\u8F03 ${previousMonthSnapshot.date} \u57FA\u6E96` : void 0
   });
   const searchSummary = await generateGroundedSearchSummary({
     assets,
@@ -1186,32 +1383,20 @@ async function runMonthlyAssetAnalysis(options = {}) {
   const comparison = previousMonthSnapshot ? compareSnapshots(currentSnapshot, previousMonthSnapshot, {
     periodSnapshots: recentSnapshotHistory
   }) : null;
-  const comparisonText = comparison ? buildComparisonPromptSections(comparison, { limitHoldings: 12 }) : `\u7F3A\u5C11\u57FA\u6E96 snapshot\uFF08\u76EE\u6A19 ${getPreviousMonthStartDate()}\uFF09\u3002`;
   const question = buildMonthlyAnalysisQuestion({
     comparison,
     allocationSummary,
     dataQualitySummary,
     searchSummary: searchSummary.summary
   });
-  const conversationContext = [
-    "\u3010\u904E\u53BB\u4E00\u500B\u6708\u5B8F\u89C0\u8207\u5E02\u5834\u80CC\u666F\u6458\u8981\u3011",
-    searchSummary.summary,
-    "\u4F60\u5FC5\u9808\u5F15\u7528\u6B64\u6458\u8981\uFF0C\u4E26\u5C07\u5176\u8207\u76EE\u524D\u8CC7\u7522\u914D\u7F6E\u3001\u6708\u5EA6\u8B8A\u5316\u3001\u5E63\u5225\u66DD\u96AA\u9010\u9805\u5C0D\u7167\uFF1B\u4E0D\u53EF\u53EA\u505A\u4E00\u822C\u914D\u7F6E\u8A3A\u65B7\u3002",
-    "",
-    formatReportAllocationSummaryForPrompt(allocationSummary),
-    "",
-    formatReportDataQualitySummaryForPrompt(dataQualitySummary, "\u3010\u8CC7\u6599\u54C1\u8CEA\u6AA2\u67E5\u3011"),
-    "",
-    "\u6708\u5EA6\u5C0D\u6BD4\u8CC7\u6599\uFF1A",
-    comparisonText
-  ].join("\n");
   const { response, request } = await runScheduledCategoryAnalysis({
     category: "asset_analysis",
     title,
     question,
-    conversationContext,
+    conversationContext: "",
     maxTokens: 3500,
     assets,
+    snapshotHashOverride: currentSnapshotHash,
     delivery: options.delivery ?? "scheduled"
   });
   const reportFactsPayload = buildReportFactsPayload({
@@ -1226,12 +1411,12 @@ async function runMonthlyAssetAnalysis(options = {}) {
     allocationsByCurrency: request.allocationsByCurrency,
     model: response.model,
     provider: response.provider,
-    snapshotHash: response.snapshotHash,
+    snapshotHash: currentSnapshotHash,
     dataQualitySummary,
     topHoldingsByHKD: [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD),
     comparison,
-    fxSource: latestSnapshotMeta?.fxSource,
-    fxRatesUsed: latestSnapshotMeta?.fxRatesUsed
+    fxSource: currentSnapshot.fxSource,
+    fxRatesUsed: currentSnapshot.fxRatesUsed
   });
   try {
     await saveScheduledAnalysis(
@@ -1239,9 +1424,11 @@ async function runMonthlyAssetAnalysis(options = {}) {
       title,
       allocationSummary,
       reportFactsPayload,
-      getMonthlyAnalysisSessionDocId(currentSnapshot.date),
+      monthlySessionTarget.docId,
       options.delivery ?? "scheduled",
-      options.overwriteExisting === true
+      options.overwriteExisting === true,
+      previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
+      currentSnapshot.date
     );
   } catch (error) {
     if (!options.overwriteExisting && isFirestoreAlreadyExistsError(error)) {
@@ -1251,7 +1438,7 @@ async function runMonthlyAssetAnalysis(options = {}) {
         category: "asset_analysis",
         title,
         route: MONTHLY_ROUTE,
-        message: "\u4ECA\u500B\u6708\u5605\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u5DF2\u7D93\u751F\u6210\uFF0C\u6BCB\u9808\u91CD\u8907\u5EFA\u7ACB\u3002"
+        message: "\u8986\u84CB\u6708\u4EFD\u5605\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u5DF2\u7D93\u751F\u6210\uFF0C\u6BCB\u9808\u91CD\u8907\u5EFA\u7ACB\u3002"
       };
     }
     throw error;
@@ -1267,7 +1454,9 @@ async function runMonthlyAssetAnalysis(options = {}) {
     generatedAt: response.generatedAt,
     snapshotHash: response.snapshotHash,
     cacheKey: response.cacheKey,
-    replacedExisting: existingMonthlyAnalysis && options.overwriteExisting === true
+    replacedExisting: existingMonthlyAnalysis && options.overwriteExisting === true,
+    legacyCollision: monthlySessionTarget.collisionWithLegacy,
+    message: monthlySessionTarget.collisionWithLegacy ? "\u5DF2\u751F\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\uFF1B\u5075\u6E2C\u5230\u820A\u5236\u540C\u540D\u6587\u4EF6\uFF0C\u4ECA\u6B21\u5DF2\u5BEB\u5165 v2 \u6587\u4EF6\uFF0C\u820A\u5236\u6587\u4EF6\u9700\u4EBA\u624B\u8655\u7406\u3002" : void 0
   };
 }
 async function runManualMonthlyAssetAnalysis() {
@@ -1281,35 +1470,47 @@ async function runManualMonthlyAssetAnalysis() {
   return {
     ...result,
     route: MONTHLY_ROUTE,
-    message: result.replacedExisting ? "\u5DF2\u91CD\u65B0\u751F\u6210\u4E26\u8986\u84CB\u672C\u6708\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002" : "\u5DF2\u5B8C\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002"
+    message: typeof result.message === "string" ? result.message : result.replacedExisting ? "\u5DF2\u91CD\u65B0\u751F\u6210\u4E26\u8986\u84CB\u672C\u6708\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002" : "\u5DF2\u5B8C\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002"
   };
 }
 async function runQuarterlyAssetReport() {
-  const assets = await readAdminPortfolioAssets();
-  const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
-  const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
-  const previousQuarterSnapshot = await readPreviousQuarterSnapshot();
+  const liveAssets = await readAdminPortfolioAssets();
+  const quarterEndDate = getPreviousQuarterEndDate();
+  const quarterStartBaselineDate = getQuarterEndDateBefore(quarterEndDate);
+  const currentSnapshot = await readSnapshotOnOrBefore(quarterEndDate);
+  if (!currentSnapshot) {
+    throw new ScheduledAnalysisError(`\u672A\u627E\u5230 ${quarterEndDate} \u6216\u4E4B\u524D\u7684\u5B63\u672B\u5FEB\u7167\uFF0C\u7121\u6CD5\u751F\u6210\u5B63\u5EA6\u5831\u544A\u3002`, 400);
+  }
+  const previousQuarterSnapshot = await readSnapshotOnOrBefore(quarterStartBaselineDate);
+  const assets = buildAssetsFromSnapshot(currentSnapshot, liveAssets);
+  const currentSnapshotHash = createSnapshotHashFromSnapshot(currentSnapshot);
   const recentSnapshotHistory = await readRecentSnapshotHistory(120);
-  const dataQualitySummary = buildReportDataQualitySummary({
-    assets,
-    snapshotMeta: latestSnapshotMeta
+  const dataQualitySummary = buildSnapshotDataQualitySummary({
+    snapshotMeta: currentSnapshot
   });
   const allocationSummary = buildReportAllocationSummaryFromHoldings({
     holdings: currentSnapshot.holdings,
     asOfDate: currentSnapshot.date,
     basis: "quarterly",
     comparisonHoldings: previousQuarterSnapshot?.holdings,
-    comparisonLabel: previousQuarterSnapshot ? "\u8F03\u4E0A\u5B63" : void 0
+    comparisonLabel: previousQuarterSnapshot ? `\u8F03 ${previousQuarterSnapshot.date} \u57FA\u6E96` : void 0
   });
-  const trendSnapshots = buildMonthlyTrendSnapshots([
-    currentSnapshot,
-    ...recentSnapshotHistory
-  ]);
-  const trendComparisons = trendSnapshots.length >= 2 ? trendSnapshots.slice(0, trendSnapshots.length - 1).map(
-    (snapshot, index) => compareSnapshots(snapshot, trendSnapshots[index + 1], {
-      periodSnapshots: recentSnapshotHistory
-    })
-  ) : [];
+  const quarterTrend = selectQuarterMonthEndSnapshots(
+    [currentSnapshot, ...recentSnapshotHistory],
+    quarterEndDate,
+    previousQuarterSnapshot?.date ?? quarterStartBaselineDate
+  );
+  const trendComparisons = quarterTrend.points.slice(1).flatMap((point, index) => {
+    const previousPoint = quarterTrend.points[index];
+    if (!point.snapshot || !previousPoint?.snapshot) {
+      return [];
+    }
+    return [
+      compareSnapshots(point.snapshot, previousPoint.snapshot, {
+        periodSnapshots: recentSnapshotHistory
+      })
+    ];
+  });
   const searchSummary = await generateGroundedSearchSummary({
     assets,
     mode: "quarterly"
@@ -1324,38 +1525,24 @@ async function runQuarterlyAssetReport() {
     currentComparison,
     trendComparisons,
     allocationSummary,
-    dataQualitySummary
+    dataQualitySummary,
+    searchSummary: searchSummary.summary,
+    trendMissingLabels: quarterTrend.missingLabels
   });
-  const currentSnapshotHash = createSnapshotHashFromAssets(assets);
-  const conversationContext = [
-    "Gemini Google Search \u6458\u8981\uFF1A",
-    searchSummary.summary,
-    "",
-    formatReportAllocationSummaryForPrompt(allocationSummary),
-    "",
-    formatReportDataQualitySummaryForPrompt(dataQualitySummary, "\u3010\u8CC7\u6599\u54C1\u8CEA\u8207\u9650\u5236\u3011"),
-    "",
-    "\u4ECA\u5B63 vs \u4E0A\u5B63\u5C0D\u6BD4\u8CC7\u6599\uFF1A",
-    currentComparisonText,
-    "",
-    "\u4E09\u500B\u6708\u8DA8\u52E2\u8CC7\u6599\uFF1A",
-    trendComparisons.length > 0 ? trendComparisons.map(
-      (comparison, index) => [`\u3010\u8DA8\u52E2 ${index + 1}\u3011`, buildComparisonPromptSections(comparison, { limitHoldings: 8 })].join("\n")
-    ).join("\n\n") : "\u672A\u6709\u8DB3\u5920\u4E09\u500B\u6708\u8DA8\u52E2\u8CC7\u6599\u3002"
-  ].join("\n");
   const { response, request } = await runScheduledCategoryAnalysis({
     category: "asset_report",
     title,
     question,
-    conversationContext,
+    conversationContext: "",
     maxTokens: 5e3,
     assets,
+    snapshotHashOverride: currentSnapshotHash,
     delivery: "manual"
   });
   const reportFactsPayload = buildReportFactsPayload({
     reportType: "quarterly",
     generatedAt: response.generatedAt,
-    periodStartDate: previousQuarterSnapshot?.date ?? getPreviousQuarterEndDate(),
+    periodStartDate: previousQuarterSnapshot?.date ?? quarterStartBaselineDate,
     periodEndDate: currentSnapshot.date,
     baselineSnapshot: previousQuarterSnapshot,
     currentSnapshot,
@@ -1368,8 +1555,8 @@ async function runQuarterlyAssetReport() {
     dataQualitySummary,
     topHoldingsByHKD: [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD),
     comparison: currentComparison,
-    fxSource: latestSnapshotMeta?.fxSource,
-    fxRatesUsed: latestSnapshotMeta?.fxRatesUsed
+    fxSource: currentSnapshot.fxSource,
+    fxRatesUsed: currentSnapshot.fxRatesUsed
   });
   await saveScheduledAnalysis(
     response,
@@ -1377,7 +1564,10 @@ async function runQuarterlyAssetReport() {
     allocationSummary,
     reportFactsPayload,
     void 0,
-    "manual"
+    "manual",
+    true,
+    previousQuarterSnapshot?.date ?? quarterStartBaselineDate,
+    currentSnapshot.date
   );
   await saveQuarterlyReport({
     quarter,
@@ -1388,6 +1578,7 @@ async function runQuarterlyAssetReport() {
     searchSummary: searchSummary.summary,
     model: response.model,
     provider: response.provider,
+    isTimeoutFallback: response.isTimeoutFallback === true,
     allocationSummary,
     reportFactsPayload
   });
@@ -1405,7 +1596,7 @@ async function runQuarterlyAssetReport() {
     previousQuarterSnapshotDate: previousQuarterSnapshot?.date ?? ""
   };
 }
-async function runManualQuarterlyAssetReport() {
+async function runManualQuarterlyAssetReport(options = {}) {
   const quarter = getPreviousCompletedQuarterLabel();
   if (!canGenerateQuarterlyReportNow()) {
     throw new ScheduledAnalysisError(
@@ -1413,21 +1604,22 @@ async function runManualQuarterlyAssetReport() {
       400
     );
   }
-  if (await hasExistingQuarterlyReport(quarter)) {
+  const existingQuarterlyReport = await hasExistingQuarterlyReport(quarter);
+  if (!options.overwriteExisting && existingQuarterlyReport.exists) {
     return {
       ok: true,
       skipped: true,
       category: "asset_report",
       title: `${quarter}\u8CC7\u7522\u5831\u544A`,
       route: QUARTERLY_ROUTE,
-      message: "\u4ECA\u5B63\u5B63\u5EA6\u5831\u544A\u5DF2\u7D93\u751F\u6210\uFF0C\u6BCB\u9808\u91CD\u8907\u5EFA\u7ACB\u3002"
+      message: existingQuarterlyReport.isTimeoutFallback ? "\u672C\u5B63\u73FE\u6709\u5831\u544A\u70BA\u8D85\u6642\u964D\u7D1A\u7248\u672C\uFF0C\u53EF\u7528\u8986\u84CB\u6A21\u5F0F\u91CD\u65B0\u751F\u6210\u3002" : "\u4ECA\u5B63\u5B63\u5EA6\u5831\u544A\u5DF2\u7D93\u751F\u6210\uFF0C\u6BCB\u9808\u91CD\u8907\u5EFA\u7ACB\u3002"
     };
   }
   const result = await runQuarterlyAssetReport();
   return {
     ...result,
     route: QUARTERLY_ROUTE,
-    message: "\u5DF2\u5B8C\u6210\u5B63\u5EA6\u5831\u544A\u3002"
+    message: options.overwriteExisting ? "\u5DF2\u91CD\u65B0\u751F\u6210\u4E26\u8986\u84CB\u5B63\u5EA6\u5831\u544A\u3002" : "\u5DF2\u5B8C\u6210\u5B63\u5EA6\u5831\u544A\u3002"
   };
 }
 function getScheduledAnalysisErrorResponse(error, route) {
@@ -1460,9 +1652,14 @@ export {
   buildReportDataQualitySummary,
   buildReportFactsPayload,
   buildScheduledAnalysisTimeoutFallback,
+  getCoveredMonthKey,
+  getCoveredMonthLabel,
+  getCoveredMonthlyAnalysisSessionDocId,
+  getCurrentMonthStartDate,
   getDefaultServerPromptSettings,
   getMonthlyAnalysisSessionDocId,
   getPreviousMonthStartDate,
+  getQuarterEndDateBefore,
   getScheduledAnalysisErrorResponse,
   getSearchSummaryPrompt,
   normalizeSnapshotDocument,

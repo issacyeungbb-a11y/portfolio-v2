@@ -14,6 +14,7 @@ import {
 import {
   compareSnapshots,
   selectRecentDistinctMonthlySnapshots,
+  selectQuarterMonthEndSnapshots,
   type SnapshotComparisonSource,
 } from './snapshotComparison.js';
 import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
@@ -68,6 +69,11 @@ interface SnapshotDocument {
   fxSource?: 'cron_pipeline' | 'persisted' | 'live' | 'unknown';
   fxRatesUsed?: SnapshotFxRatesUsed;
   holdings: SnapshotComparisonSource['holdings'];
+}
+
+interface ResolvedMonthlySessionTarget {
+  docId: string;
+  collisionWithLegacy: boolean;
 }
 
 class ScheduledAnalysisError extends Error {
@@ -197,6 +203,7 @@ export function buildScheduledAnalysisTimeoutFallback(
       '此版本未完成模型深度推理；如需要完整宏觀連結，可稍後重新生成。',
     ],
     suggestedActions: ['稍後重新生成完整月報。', '先檢查主要持倉、資產類別與幣別集中度。'],
+    isTimeoutFallback: true,
   };
 }
 
@@ -226,6 +233,23 @@ function getHongKongYearMonthLabel(date = new Date()) {
   const year = parts.find((part) => part.type === 'year')?.value ?? '';
   const month = parts.find((part) => part.type === 'month')?.value ?? '';
   return `${year}年${month.endsWith('月') ? month : `${month}月`}`;
+}
+
+function getHongKongMonthKey(date = new Date()) {
+  const { year, month } = getHongKongDateParts(date);
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+export function getCoveredMonthKey(date = new Date()) {
+  const { year, month } = getHongKongDateParts(date);
+  const coveredMonth = month === 1 ? 12 : month - 1;
+  const coveredYear = month === 1 ? year - 1 : year;
+  return `${coveredYear}-${String(coveredMonth).padStart(2, '0')}`;
+}
+
+export function getCoveredMonthLabel(date = new Date()) {
+  const [year, month] = getCoveredMonthKey(date).split('-');
+  return `${year}年${Number(month)}月`;
 }
 
 function getCurrentQuarterNumber(date = new Date()) {
@@ -290,17 +314,83 @@ function canGenerateQuarterlyReportNow(date = new Date()) {
   return isQuarterOpeningMonth && (day > 1 || (day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT));
 }
 
-async function hasExistingMonthlyAnalysis(params: { title: string; dateKey: string }) {
+async function resolveMonthlyAnalysisSessionTarget(params: {
+  coveredMonthKey: string;
+  periodStartDate: string;
+  periodEndDate: string;
+}): Promise<ResolvedMonthlySessionTarget> {
+  const db = getFirebaseAdminDb();
+  const docId = getCoveredMonthlyAnalysisSessionDocId(params.coveredMonthKey);
+  const monthlyDoc = await db
+    .collection(SHARED_PORTFOLIO_COLLECTION)
+    .doc(SHARED_PORTFOLIO_DOC_ID)
+    .collection('analysisSessions')
+    .doc(docId)
+    .get();
+
+  if (!monthlyDoc.exists) {
+    return { docId, collisionWithLegacy: false };
+  }
+
+  const data = monthlyDoc.data() as Record<string, unknown> | undefined;
+  const reportFactsPayload =
+    data && typeof data.reportFactsPayload === 'object' && data.reportFactsPayload !== null
+      ? (data.reportFactsPayload as Record<string, unknown>)
+      : null;
+  const periodStartDate =
+    typeof reportFactsPayload?.periodStartDate === 'string'
+      ? reportFactsPayload.periodStartDate
+      : typeof data?.periodStartDate === 'string'
+        ? data.periodStartDate
+        : '';
+  const periodEndDate =
+    typeof reportFactsPayload?.periodEndDate === 'string'
+      ? reportFactsPayload.periodEndDate
+      : typeof data?.periodEndDate === 'string'
+        ? data.periodEndDate
+        : '';
+
+  if (periodStartDate === params.periodStartDate && periodEndDate === params.periodEndDate) {
+    return { docId, collisionWithLegacy: false };
+  }
+
+  return { docId: `${docId}-v2`, collisionWithLegacy: true };
+}
+
+async function hasExistingMonthlyAnalysis(params: {
+  title: string;
+  sessionDocId: string;
+  periodStartDate: string;
+  periodEndDate: string;
+}) {
   const db = getFirebaseAdminDb();
   const monthlyDoc = await db
     .collection(SHARED_PORTFOLIO_COLLECTION)
     .doc(SHARED_PORTFOLIO_DOC_ID)
     .collection('analysisSessions')
-    .doc(getMonthlyAnalysisSessionDocId(params.dateKey))
+    .doc(params.sessionDocId)
     .get();
 
   if (monthlyDoc.exists) {
-    return true;
+    const data = monthlyDoc.data() as Record<string, unknown> | undefined;
+    const reportFactsPayload =
+      data && typeof data.reportFactsPayload === 'object' && data.reportFactsPayload !== null
+        ? (data.reportFactsPayload as Record<string, unknown>)
+        : null;
+    const periodStartDate =
+      typeof reportFactsPayload?.periodStartDate === 'string'
+        ? reportFactsPayload.periodStartDate
+        : typeof data?.periodStartDate === 'string'
+          ? data.periodStartDate
+          : '';
+    const periodEndDate =
+      typeof reportFactsPayload?.periodEndDate === 'string'
+        ? reportFactsPayload.periodEndDate
+        : typeof data?.periodEndDate === 'string'
+          ? data.periodEndDate
+          : '';
+
+    return periodStartDate === params.periodStartDate && periodEndDate === params.periodEndDate;
   }
 
   const snapshot = await db
@@ -316,6 +406,20 @@ async function hasExistingMonthlyAnalysis(params: { title: string; dateKey: stri
 }
 
 async function hasExistingQuarterlyReport(quarter: string) {
+  const doc = await getFirebaseAdminDb()
+    .collection(SHARED_PORTFOLIO_COLLECTION)
+    .doc(SHARED_PORTFOLIO_DOC_ID)
+    .collection('quarterlyReports')
+    .doc(getQuarterlyReportDocId(quarter))
+    .get();
+
+  if (doc.exists) {
+    return {
+      exists: true,
+      isTimeoutFallback: doc.data()?.isTimeoutFallback === true,
+    };
+  }
+
   const snapshot = await getFirebaseAdminDb()
     .collection(SHARED_PORTFOLIO_COLLECTION)
     .doc(SHARED_PORTFOLIO_DOC_ID)
@@ -324,7 +428,10 @@ async function hasExistingQuarterlyReport(quarter: string) {
     .limit(1)
     .get();
 
-  return !snapshot.empty;
+  return {
+    exists: !snapshot.empty,
+    isTimeoutFallback: snapshot.docs[0]?.data()?.isTimeoutFallback === true,
+  };
 }
 
 function getPreviousQuarterEndDate(date = new Date()) {
@@ -339,6 +446,25 @@ function getPreviousQuarterEndDate(date = new Date()) {
   ].join('-');
 }
 
+export function getQuarterEndDateBefore(quarterEndDate: string) {
+  const normalized = quarterEndDate.trim().slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-\d{2}$/.exec(normalized);
+
+  if (!match) {
+    throw new Error(`Invalid quarter end date: ${quarterEndDate}`);
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+
+  if (month === 3) return `${year - 1}-12-31`;
+  if (month === 6) return `${year}-03-31`;
+  if (month === 9) return `${year}-06-30`;
+  if (month === 12) return `${year}-09-30`;
+
+  throw new Error(`Invalid quarter end month: ${quarterEndDate}`);
+}
+
 export function getMonthlyAnalysisSessionDocId(dateKey: string) {
   const normalized = dateKey.trim();
 
@@ -347,6 +473,15 @@ export function getMonthlyAnalysisSessionDocId(dateKey: string) {
   }
 
   return `monthly-${normalized.slice(0, 7)}`;
+}
+
+export function getCoveredMonthlyAnalysisSessionDocId(coveredMonthKey: string) {
+  const normalized = coveredMonthKey.trim();
+  return normalized ? `monthly-${normalized.slice(0, 7)}` : 'monthly-unknown';
+}
+
+function getQuarterlyReportDocId(quarter: string) {
+  return `quarterly-${quarter}`;
 }
 
 function isFirestoreAlreadyExistsError(error: unknown) {
@@ -444,6 +579,32 @@ function createSnapshotHashFromAssets(assets: AdminAsset[]) {
   const normalized = [...assets]
     .map(normalizeHoldingForSignature)
     .sort((left, right) => left.id.localeCompare(right.id));
+
+  return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
+function createSnapshotHashFromSnapshot(snapshot: SnapshotComparisonSource) {
+  const normalized = {
+    date: snapshot.date,
+    totalValueHKD: Number(snapshot.totalValueHKD.toFixed(4)),
+    holdings: [...snapshot.holdings]
+      .map((holding) => ({
+        assetId: holding.assetId,
+        ticker: holding.ticker,
+        name: holding.name,
+        assetType: holding.assetType,
+        accountSource: holding.accountSource ?? '',
+        currency: holding.currency,
+        quantity: Number(holding.quantity.toFixed(8)),
+        currentPrice: Number(holding.currentPrice.toFixed(8)),
+        marketValueHKD: Number(holding.marketValueHKD.toFixed(4)),
+      }))
+      .sort((left, right) =>
+        `${left.assetId}|${left.ticker}|${left.currency}`.localeCompare(
+          `${right.assetId}|${right.ticker}|${right.currency}`,
+        ),
+      ),
+  };
 
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
 }
@@ -733,7 +894,7 @@ async function generateGroundedSearchSummary(params: {
         apiKey: getGeminiApiKey(),
         model,
         prompt,
-        maxOutputTokens: 1500,
+        maxOutputTokens: 2500,
         googleSearch: true,
       });
 
@@ -901,6 +1062,97 @@ function buildSnapshotFromAssets(
   };
 }
 
+function getSnapshotAssetLookupKey(value: {
+  symbol?: string;
+  ticker?: string;
+  currency?: string;
+}) {
+  return `${(value.symbol ?? value.ticker ?? '').trim().toUpperCase()}|${(value.currency ?? '').trim().toUpperCase()}`;
+}
+
+function buildAssetsFromSnapshot(
+  snapshot: SnapshotComparisonSource,
+  liveAssets: AdminAsset[],
+): AdminAsset[] {
+  const assetsById = new Map(liveAssets.map((asset) => [asset.id, asset]));
+  const assetsByTickerCurrency = new Map(
+    liveAssets.map((asset) => [getSnapshotAssetLookupKey(asset), asset]),
+  );
+
+  return snapshot.holdings.map((holding) => {
+    const matchedAsset =
+      assetsById.get(holding.assetId) ??
+      assetsByTickerCurrency.get(getSnapshotAssetLookupKey(holding));
+    const averageCost = matchedAsset?.averageCost ?? 0;
+
+    return {
+      id: holding.assetId || getSnapshotAssetLookupKey(holding),
+      name: holding.name,
+      symbol: holding.ticker,
+      assetType: holding.assetType as AssetType,
+      accountSource:
+        holding.accountSource === 'Futu' ||
+        holding.accountSource === 'IB' ||
+        holding.accountSource === 'Crypto' ||
+        holding.accountSource === 'Other'
+          ? holding.accountSource
+          : matchedAsset?.accountSource ?? 'Other',
+      currency: holding.currency,
+      quantity: holding.quantity,
+      averageCost,
+      currentPrice: holding.currentPrice,
+    };
+  });
+}
+
+function buildSnapshotDataQualitySummary(params: {
+  snapshotMeta: SnapshotDocument;
+}): ReportDataQualitySummary {
+  const warningMessages: string[] = ['以季末／月初歸檔快照品質為準；過期即時價格數量不適用。'];
+  const coveragePct = params.snapshotMeta.coveragePct;
+  const fallbackAssetCount = params.snapshotMeta.fallbackAssetCount;
+  const missingAssetCount = params.snapshotMeta.missingAssetCount;
+
+  if (params.snapshotMeta.snapshotQuality === 'fallback') {
+    warningMessages.push('快照使用 fallback 價格或降級資料。');
+  }
+  if (typeof coveragePct === 'number' && coveragePct < 100) {
+    warningMessages.push(`快照價格覆蓋率只有 ${coveragePct}%。`);
+  }
+  if (typeof fallbackAssetCount === 'number' && fallbackAssetCount > 0) {
+    warningMessages.push(`快照有 ${fallbackAssetCount} 項資產沿用 fallback 價格。`);
+  }
+  if (typeof missingAssetCount === 'number' && missingAssetCount > 0) {
+    warningMessages.push(`快照有 ${missingAssetCount} 項資產缺少價格或資料。`);
+  }
+
+  let status: ReportDataQualitySummary['status'] = 'ok';
+  if (
+    (typeof missingAssetCount === 'number' && missingAssetCount > 0) ||
+    (typeof coveragePct === 'number' && coveragePct < 80)
+  ) {
+    status = 'warning';
+  } else if (
+    params.snapshotMeta.snapshotQuality === 'fallback' ||
+    (typeof coveragePct === 'number' && coveragePct < 100) ||
+    (typeof fallbackAssetCount === 'number' && fallbackAssetCount > 0)
+  ) {
+    status = 'partial';
+  }
+
+  return {
+    status,
+    coveragePct,
+    staleAssetCount: 0,
+    fallbackAssetCount,
+    missingAssetCount,
+    fxSource: params.snapshotMeta.fxSource ?? 'unknown',
+    fxRatesUsed: params.snapshotMeta.fxRatesUsed,
+    oldestPriceAsOf: '',
+    warningMessages,
+  };
+}
+
 async function readSnapshotOnOrBefore(targetDate: string) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -956,6 +1208,11 @@ export function getPreviousMonthStartDate(date = new Date()) {
   return `${previousYear}-${String(previousMonth).padStart(2, '0')}-01`;
 }
 
+export function getCurrentMonthStartDate(date = new Date()) {
+  const { year, month } = getHongKongDateParts(date);
+  return `${year}-${String(month).padStart(2, '0')}-01`;
+}
+
 function getDateDistanceInDays(leftDate: string, rightDate: string) {
   const left = new Date(`${leftDate}T00:00:00Z`);
   const right = new Date(`${rightDate}T00:00:00Z`);
@@ -996,6 +1253,12 @@ async function readPreviousMonthSnapshot(date = new Date()) {
   const targetDate = getPreviousMonthStartDate(date);
   const history = await readRecentSnapshotHistory(120);
   return selectNearestSnapshotToDate(history, targetDate);
+}
+
+async function readCurrentMonthStartSnapshot(date = new Date()) {
+  const targetDate = getCurrentMonthStartDate(date);
+  const history = await readRecentSnapshotHistory(120);
+  return selectNearestSnapshotToDate(history, targetDate, MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS);
 }
 
 function getOldestPriceDate(assets: AdminAsset[]) {
@@ -1297,11 +1560,13 @@ export function sanitizeForFirestore<T>(value: T): T {
 }
 
 export function buildAnalysisSessionWritePayload(params: {
-  response: PortfolioAnalysisResponse & { assetCount: number };
+  response: PortfolioAnalysisResponse & { assetCount: number; isTimeoutFallback?: boolean };
   title: string;
   allocationSummary?: ReportAllocationSummary;
   reportFactsPayload?: ReportFactsPayload;
   delivery?: 'manual' | 'scheduled';
+  periodStartDate?: string;
+  periodEndDate?: string;
 }) {
   const sanitizedReportFactsPayload = params.reportFactsPayload
     ? sanitizeForFirestore(params.reportFactsPayload)
@@ -1316,6 +1581,9 @@ export function buildAnalysisSessionWritePayload(params: {
     provider: params.response.provider,
     snapshotHash: params.response.snapshotHash,
     delivery: params.delivery ?? 'scheduled',
+    isTimeoutFallback: params.response.isTimeoutFallback === true,
+    ...(params.periodStartDate ? { periodStartDate: params.periodStartDate } : {}),
+    ...(params.periodEndDate ? { periodEndDate: params.periodEndDate } : {}),
     ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
     ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
     createdAt: FieldValue.serverTimestamp(),
@@ -1332,6 +1600,7 @@ export function buildQuarterlyReportWritePayload(params: {
   searchSummary: string;
   model: string;
   provider: string;
+  isTimeoutFallback?: boolean;
   allocationSummary?: ReportAllocationSummary;
   reportFactsPayload?: ReportFactsPayload;
 }) {
@@ -1348,6 +1617,7 @@ export function buildQuarterlyReportWritePayload(params: {
     searchSummary: params.searchSummary,
     model: params.model,
     provider: params.provider,
+    isTimeoutFallback: params.isTimeoutFallback === true,
     ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
     ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
     pdfUrl: '',
@@ -1373,7 +1643,8 @@ function buildComparisonPromptSections(
         `- ${change.ticker} ${change.name}｜${change.status}｜` +
         `現值 ${change.currentValue.toFixed(2)} HKD｜前值 ${change.previousValue.toFixed(2)} HKD｜` +
         `倉位變化 ${change.quantityChange.toFixed(2)}｜價格變化 ${change.priceChangePercent.toFixed(1)}%｜` +
-        `組合貢獻 ${change.contributionToPortfolioChange.toFixed(2)} HKD`,
+        `價格效應 ${change.priceEffectHKD.toFixed(2)} HKD｜買賣效應 ${change.flowEffectHKD.toFixed(2)} HKD｜` +
+        `組合變化 ${change.contributionToPortfolioChange.toFixed(2)} HKD`,
     );
 
   const gainers = comparison.topMovers.gainers
@@ -1422,6 +1693,10 @@ function buildComparisonPromptSections(
     gainers || '- 無正貢獻持倉',
     `【最大拖累者】`,
     losers || '- 無負貢獻持倉',
+    `【期內新增持倉】`,
+    comparison.newHoldings
+      .map((item) => `- ${item.ticker}：${item.valueHKD.toFixed(2)} HKD`)
+      .join('\n') || '- 無新增持倉',
   ].join('\n');
 }
 
@@ -1507,18 +1782,28 @@ function buildQuarterlyAnalysisQuestion(
     trendComparisons: ReturnType<typeof compareSnapshots>[];
     allocationSummary: ReportAllocationSummary;
     dataQualitySummary: ReportDataQualitySummary;
+    searchSummary: string;
+    trendMissingLabels?: string[];
   },
 ) {
   const { currentComparison, trendComparisons, allocationSummary, dataQualitySummary } = params;
   const currentComparisonText = currentComparison
     ? buildComparisonPromptSections(currentComparison, { limitHoldings: 12 })
-    : '未有可比較的上季季末快照；請只根據目前持倉、系統分佈總覽與可用趨勢資料歸檔，不要假設季度變化。';
+    : '未有可比較的上上季末快照；請只根據季末快照、系統分佈總覽與可用趨勢資料歸檔，不要假設季度變化。';
   const trendSections = trendComparisons
     .map(
       (comparison, index) =>
         [`【趨勢 ${index + 1}】`, buildComparisonPromptSections(comparison, { limitHoldings: 8 })].join('\n'),
     )
     .join('\n\n');
+  const macroSummaryText = [
+    '【本季宏觀與市場背景摘要】',
+    params.searchSummary.trim() || '未有可用的外部市場背景摘要；如引用宏觀判讀，請明確指出資料限制。',
+    '你必須引用此摘要，並將其與季度資產變化、配置分佈、幣別曝險互相對照；不可只做一般配置診斷。',
+  ].join('\n');
+  const trendMissingText = params.trendMissingLabels?.length
+    ? `季內月度趨勢限制：${params.trendMissingLabels.join('、')} 快照缺失，趨勢段不完整。`
+    : '季內月度趨勢快照完整。';
 
   return [
     '請撰寫一份「季度資產報告」，定位係總結 / 歸因 / 正式歸檔。',
@@ -1533,8 +1818,17 @@ function buildQuarterlyAnalysisQuestion(
     '【主要風險與集中度】',
     '【下季觀察重點】',
     '',
+    macroSummaryText,
+    '',
     '規則：',
     '所有結論必須引用 input 內的資料；不要虛構新聞、估值或宏觀資料。',
+    '最大貢獻者／拖累者按價格效應排序；買賣效應代表加減倉行為，不可與投資回報混為一談。',
+    '如果某資產 costValue 或 averageCost 為 0，不可判斷為全為未實現利潤；必須寫明成本資料為 0 或缺失，無法準確判斷實際盈虧，並把補回成本資料列為下季觀察重點。',
+    '如果 previousValue 為 0 或大量 new 持倉，不可直接解讀為季度價格貢獻；必須說明可能混合新建倉、資料補錄、snapshot matching 或 baseline holdings 缺失。',
+    '幣別曝險必須分清報價貨幣曝險與經濟風險曝險；加密貨幣以 USD 報價，不等於完全美元資產。',
+    '如果 dataQualitySummary.status 是 partial / warning，結論要保守化，並把資料修復列入下季觀察重點。',
+    '如果資金流覆蓋率唔係 100%，要保留限制提示，避免把所有升跌都當成投資回報。',
+    '【下季觀察重點】每點須帶量化觸發條件，例如單一資產 > 20%、加密合計 > 30%、現金 < 3%、SGOV + 現金 < 10%、BTC 7 日跌幅 > 15%、高 beta 股票合計超過股票部位 60%。',
     '不要重覆 summary card 已顯示的百分比分布，只需做判讀、歸因和歸檔摘要。',
     '短而準，繁體中文輸出；資料不足就直說。',
     '',
@@ -1545,19 +1839,22 @@ function buildQuarterlyAnalysisQuestion(
     '今季 vs 上季對比數據：',
     currentComparisonText,
     '',
-    '三個月趨勢數據：',
+    '季內月度趨勢數據：',
+    trendMissingText,
     trendSections || '未有足夠三個月趨勢資料。',
   ].join('\n');
 }
 
 async function saveScheduledAnalysis(
-  response: PortfolioAnalysisResponse & { assetCount: number },
+  response: PortfolioAnalysisResponse & { assetCount: number; isTimeoutFallback?: boolean },
   title: string,
   allocationSummary?: ReportAllocationSummary,
   reportFactsPayload?: ReportFactsPayload,
   sessionDocId?: string,
   delivery: 'manual' | 'scheduled' = 'scheduled',
   overwriteSession = false,
+  periodStartDate?: string,
+  periodEndDate?: string,
 ) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -1578,6 +1875,7 @@ async function saveScheduledAnalysis(
       generatedAt: response.generatedAt,
       assetCount: response.assetCount,
       answer: response.answer,
+      isTimeoutFallback: response.isTimeoutFallback === true,
       ...(allocationSummary ? { allocationSummary } : {}),
       ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
       updatedAt: FieldValue.serverTimestamp(),
@@ -1591,6 +1889,8 @@ async function saveScheduledAnalysis(
     allocationSummary,
     reportFactsPayload: sanitizedReportFactsPayload,
     delivery,
+    periodStartDate,
+    periodEndDate,
   });
 
   if (sessionDocId) {
@@ -1616,6 +1916,7 @@ async function saveQuarterlyReport(params: {
   searchSummary: string;
   model: string;
   provider: string;
+  isTimeoutFallback?: boolean;
   allocationSummary?: ReportAllocationSummary;
   reportFactsPayload?: ReportFactsPayload;
 }) {
@@ -1625,7 +1926,8 @@ async function saveQuarterlyReport(params: {
     .collection(SHARED_PORTFOLIO_COLLECTION)
     .doc(SHARED_PORTFOLIO_DOC_ID)
     .collection('quarterlyReports')
-    .add(buildQuarterlyReportWritePayload(params));
+    .doc(getQuarterlyReportDocId(params.quarter))
+    .set(buildQuarterlyReportWritePayload(params));
 }
 
 async function runScheduledCategoryAnalysis(params: {
@@ -1635,6 +1937,7 @@ async function runScheduledCategoryAnalysis(params: {
   conversationContext: string;
   maxTokens: number;
   assets?: AdminAsset[];
+  snapshotHashOverride?: string;
   delivery?: 'manual' | 'scheduled';
 }) {
   const assets = params.assets ?? await readAdminPortfolioAssets();
@@ -1656,6 +1959,7 @@ async function runScheduledCategoryAnalysis(params: {
     analysisBackground: promptSettings[params.category],
     analysisModel: getScheduledAnalysisModel(),
     conversationContext: params.conversationContext,
+    snapshotHashOverride: params.snapshotHashOverride,
   });
   let response: PortfolioAnalysisResponse;
   try {
@@ -1692,13 +1996,28 @@ async function runScheduledCategoryAnalysis(params: {
 export async function runMonthlyAssetAnalysis(
   options: { overwriteExisting?: boolean; delivery?: 'manual' | 'scheduled' } = {},
 ) {
-  const assets = await readAdminPortfolioAssets();
-  const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
-  const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
+  const liveAssets = await readAdminPortfolioAssets();
+  const currentSnapshot = await readCurrentMonthStartSnapshot();
+  if (!currentSnapshot) {
+    throw new ScheduledAnalysisError('未找到本月月初快照，無法生成每月資產分析。', 400);
+  }
+  const assets = buildAssetsFromSnapshot(currentSnapshot, liveAssets);
+  const currentSnapshotHash = createSnapshotHashFromSnapshot(currentSnapshot);
   const recentSnapshotHistory = await readRecentSnapshotHistory(120);
   const previousMonthSnapshot = await readPreviousMonthSnapshot();
-  const title = `${getHongKongYearMonthLabel()}每月資產分析`;
-  const existingMonthlyAnalysis = await hasExistingMonthlyAnalysis({ title, dateKey: currentSnapshot.date });
+  const coveredMonthKey = getCoveredMonthKey();
+  const title = `${getCoveredMonthLabel()}每月資產分析`;
+  const monthlySessionTarget = await resolveMonthlyAnalysisSessionTarget({
+    coveredMonthKey,
+    periodStartDate: previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
+    periodEndDate: currentSnapshot.date,
+  });
+  const existingMonthlyAnalysis = await hasExistingMonthlyAnalysis({
+    title,
+    sessionDocId: monthlySessionTarget.docId,
+    periodStartDate: previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
+    periodEndDate: currentSnapshot.date,
+  });
 
   if (!options.overwriteExisting && existingMonthlyAnalysis) {
     return {
@@ -1707,20 +2026,19 @@ export async function runMonthlyAssetAnalysis(
       category: 'asset_analysis' as const,
       title,
       route: MONTHLY_ROUTE,
-      message: '今個月嘅每月資產分析已經生成，毋須重複建立。',
+      message: '覆蓋月份嘅每月資產分析已經生成，毋須重複建立。',
     };
   }
 
-  const dataQualitySummary = buildReportDataQualitySummary({
-    assets,
-    snapshotMeta: latestSnapshotMeta,
+  const dataQualitySummary = buildSnapshotDataQualitySummary({
+    snapshotMeta: currentSnapshot,
   });
   const allocationSummary = buildReportAllocationSummaryFromHoldings({
     holdings: currentSnapshot.holdings,
     asOfDate: currentSnapshot.date,
     basis: 'monthly',
     comparisonHoldings: previousMonthSnapshot?.holdings,
-    comparisonLabel: previousMonthSnapshot ? '較上月月初基準' : undefined,
+    comparisonLabel: previousMonthSnapshot ? `較 ${previousMonthSnapshot.date} 基準` : undefined,
   });
   const searchSummary = await generateGroundedSearchSummary({
     assets,
@@ -1731,34 +2049,20 @@ export async function runMonthlyAssetAnalysis(
         periodSnapshots: recentSnapshotHistory,
       })
     : null;
-  const comparisonText = comparison
-    ? buildComparisonPromptSections(comparison, { limitHoldings: 12 })
-    : `缺少基準 snapshot（目標 ${getPreviousMonthStartDate()}）。`;
   const question = buildMonthlyAnalysisQuestion({
     comparison,
     allocationSummary,
     dataQualitySummary,
     searchSummary: searchSummary.summary,
   });
-  const conversationContext = [
-    '【過去一個月宏觀與市場背景摘要】',
-    searchSummary.summary,
-    '你必須引用此摘要，並將其與目前資產配置、月度變化、幣別曝險逐項對照；不可只做一般配置診斷。',
-    '',
-    formatReportAllocationSummaryForPrompt(allocationSummary),
-    '',
-    formatReportDataQualitySummaryForPrompt(dataQualitySummary, '【資料品質檢查】'),
-    '',
-    '月度對比資料：',
-    comparisonText,
-  ].join('\n');
   const { response, request } = await runScheduledCategoryAnalysis({
     category: 'asset_analysis',
     title,
     question,
-    conversationContext,
+    conversationContext: '',
     maxTokens: 3500,
     assets,
+    snapshotHashOverride: currentSnapshotHash,
     delivery: options.delivery ?? 'scheduled',
   });
   const reportFactsPayload = buildReportFactsPayload({
@@ -1773,12 +2077,12 @@ export async function runMonthlyAssetAnalysis(
     allocationsByCurrency: request.allocationsByCurrency,
     model: response.model,
     provider: response.provider,
-    snapshotHash: response.snapshotHash,
+    snapshotHash: currentSnapshotHash,
     dataQualitySummary,
     topHoldingsByHKD: [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD),
     comparison,
-    fxSource: latestSnapshotMeta?.fxSource,
-    fxRatesUsed: latestSnapshotMeta?.fxRatesUsed,
+    fxSource: currentSnapshot.fxSource,
+    fxRatesUsed: currentSnapshot.fxRatesUsed,
   });
   try {
     await saveScheduledAnalysis(
@@ -1786,9 +2090,11 @@ export async function runMonthlyAssetAnalysis(
       title,
       allocationSummary,
       reportFactsPayload,
-      getMonthlyAnalysisSessionDocId(currentSnapshot.date),
+      monthlySessionTarget.docId,
       options.delivery ?? 'scheduled',
       options.overwriteExisting === true,
+      previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
+      currentSnapshot.date,
     );
   } catch (error) {
     if (!options.overwriteExisting && isFirestoreAlreadyExistsError(error)) {
@@ -1798,7 +2104,7 @@ export async function runMonthlyAssetAnalysis(
         category: 'asset_analysis' as const,
         title,
         route: MONTHLY_ROUTE,
-        message: '今個月嘅每月資產分析已經生成，毋須重複建立。',
+        message: '覆蓋月份嘅每月資產分析已經生成，毋須重複建立。',
       };
     }
 
@@ -1817,6 +2123,10 @@ export async function runMonthlyAssetAnalysis(
     snapshotHash: response.snapshotHash,
     cacheKey: response.cacheKey,
     replacedExisting: existingMonthlyAnalysis && options.overwriteExisting === true,
+    legacyCollision: monthlySessionTarget.collisionWithLegacy,
+    message: monthlySessionTarget.collisionWithLegacy
+      ? '已生成每月資產分析；偵測到舊制同名文件，今次已寫入 v2 文件，舊制文件需人手處理。'
+      : undefined,
   };
 }
 
@@ -1832,43 +2142,55 @@ export async function runManualMonthlyAssetAnalysis() {
   return {
     ...result,
     route: MONTHLY_ROUTE,
-    message: result.replacedExisting
+    message: typeof result.message === 'string'
+      ? result.message
+      : result.replacedExisting
       ? '已重新生成並覆蓋本月每月資產分析。'
       : '已完成每月資產分析。',
   };
 }
 
 export async function runQuarterlyAssetReport() {
-  const assets = await readAdminPortfolioAssets();
-  const currentSnapshot = buildSnapshotFromAssets(assets, getHongKongDate());
-  const latestSnapshotMeta = await readLatestSnapshotMeta(currentSnapshot.date);
-  const previousQuarterSnapshot = await readPreviousQuarterSnapshot();
+  const liveAssets = await readAdminPortfolioAssets();
+  const quarterEndDate = getPreviousQuarterEndDate();
+  const quarterStartBaselineDate = getQuarterEndDateBefore(quarterEndDate);
+  const currentSnapshot = await readSnapshotOnOrBefore(quarterEndDate);
+  if (!currentSnapshot) {
+    throw new ScheduledAnalysisError(`未找到 ${quarterEndDate} 或之前的季末快照，無法生成季度報告。`, 400);
+  }
+  const previousQuarterSnapshot = await readSnapshotOnOrBefore(quarterStartBaselineDate);
+  const assets = buildAssetsFromSnapshot(currentSnapshot, liveAssets);
+  const currentSnapshotHash = createSnapshotHashFromSnapshot(currentSnapshot);
   const recentSnapshotHistory = await readRecentSnapshotHistory(120);
-  const dataQualitySummary = buildReportDataQualitySummary({
-    assets,
-    snapshotMeta: latestSnapshotMeta,
+  const dataQualitySummary = buildSnapshotDataQualitySummary({
+    snapshotMeta: currentSnapshot,
   });
   const allocationSummary = buildReportAllocationSummaryFromHoldings({
     holdings: currentSnapshot.holdings,
     asOfDate: currentSnapshot.date,
     basis: 'quarterly',
     comparisonHoldings: previousQuarterSnapshot?.holdings,
-    comparisonLabel: previousQuarterSnapshot ? '較上季' : undefined,
+    comparisonLabel: previousQuarterSnapshot ? `較 ${previousQuarterSnapshot.date} 基準` : undefined,
   });
-  const trendSnapshots = buildMonthlyTrendSnapshots([
-    currentSnapshot,
-    ...recentSnapshotHistory,
-  ]);
-  const trendComparisons =
-    trendSnapshots.length >= 2
-      ? trendSnapshots
-          .slice(0, trendSnapshots.length - 1)
-          .map((snapshot, index) =>
-            compareSnapshots(snapshot, trendSnapshots[index + 1], {
-              periodSnapshots: recentSnapshotHistory,
-            }),
-          )
-      : [];
+  const quarterTrend = selectQuarterMonthEndSnapshots(
+    [currentSnapshot, ...recentSnapshotHistory],
+    quarterEndDate,
+    previousQuarterSnapshot?.date ?? quarterStartBaselineDate,
+  );
+  const trendComparisons = quarterTrend.points
+    .slice(1)
+    .flatMap((point, index) => {
+      const previousPoint = quarterTrend.points[index];
+      if (!point.snapshot || !previousPoint?.snapshot) {
+        return [];
+      }
+
+      return [
+        compareSnapshots(point.snapshot, previousPoint.snapshot, {
+          periodSnapshots: recentSnapshotHistory,
+        }),
+      ];
+    });
   const searchSummary = await generateGroundedSearchSummary({
     assets,
     mode: 'quarterly',
@@ -1888,41 +2210,23 @@ export async function runQuarterlyAssetReport() {
     trendComparisons,
     allocationSummary,
     dataQualitySummary,
+    searchSummary: searchSummary.summary,
+    trendMissingLabels: quarterTrend.missingLabels,
   });
-  const currentSnapshotHash = createSnapshotHashFromAssets(assets);
-  const conversationContext = [
-    'Gemini Google Search 摘要：',
-    searchSummary.summary,
-    '',
-    formatReportAllocationSummaryForPrompt(allocationSummary),
-    '',
-    formatReportDataQualitySummaryForPrompt(dataQualitySummary, '【資料品質與限制】'),
-    '',
-    '今季 vs 上季對比資料：',
-    currentComparisonText,
-    '',
-    '三個月趨勢資料：',
-    trendComparisons.length > 0
-      ? trendComparisons
-          .map((comparison, index) =>
-            [`【趨勢 ${index + 1}】`, buildComparisonPromptSections(comparison, { limitHoldings: 8 })].join('\n'),
-          )
-          .join('\n\n')
-      : '未有足夠三個月趨勢資料。',
-  ].join('\n');
   const { response, request } = await runScheduledCategoryAnalysis({
     category: 'asset_report',
     title,
     question,
-    conversationContext,
+    conversationContext: '',
     maxTokens: 5000,
     assets,
+    snapshotHashOverride: currentSnapshotHash,
     delivery: 'manual',
   });
   const reportFactsPayload = buildReportFactsPayload({
     reportType: 'quarterly',
     generatedAt: response.generatedAt,
-    periodStartDate: previousQuarterSnapshot?.date ?? getPreviousQuarterEndDate(),
+    periodStartDate: previousQuarterSnapshot?.date ?? quarterStartBaselineDate,
     periodEndDate: currentSnapshot.date,
     baselineSnapshot: previousQuarterSnapshot,
     currentSnapshot,
@@ -1935,8 +2239,8 @@ export async function runQuarterlyAssetReport() {
     dataQualitySummary,
     topHoldingsByHKD: [...request.holdings].sort((left, right) => right.marketValueHKD - left.marketValueHKD),
     comparison: currentComparison,
-    fxSource: latestSnapshotMeta?.fxSource,
-    fxRatesUsed: latestSnapshotMeta?.fxRatesUsed,
+    fxSource: currentSnapshot.fxSource,
+    fxRatesUsed: currentSnapshot.fxRatesUsed,
   });
   await saveScheduledAnalysis(
     response,
@@ -1945,6 +2249,9 @@ export async function runQuarterlyAssetReport() {
     reportFactsPayload,
     undefined,
     'manual',
+    true,
+    previousQuarterSnapshot?.date ?? quarterStartBaselineDate,
+    currentSnapshot.date,
   );
 
   await saveQuarterlyReport({
@@ -1956,6 +2263,7 @@ export async function runQuarterlyAssetReport() {
     searchSummary: searchSummary.summary,
     model: response.model,
     provider: response.provider,
+    isTimeoutFallback: response.isTimeoutFallback === true,
     allocationSummary,
     reportFactsPayload,
   });
@@ -1975,7 +2283,9 @@ export async function runQuarterlyAssetReport() {
   };
 }
 
-export async function runManualQuarterlyAssetReport() {
+export async function runManualQuarterlyAssetReport(
+  options: { overwriteExisting?: boolean } = {},
+) {
   const quarter = getPreviousCompletedQuarterLabel();
 
   if (!canGenerateQuarterlyReportNow()) {
@@ -1985,14 +2295,17 @@ export async function runManualQuarterlyAssetReport() {
     );
   }
 
-  if (await hasExistingQuarterlyReport(quarter)) {
+  const existingQuarterlyReport = await hasExistingQuarterlyReport(quarter);
+  if (!options.overwriteExisting && existingQuarterlyReport.exists) {
     return {
       ok: true,
       skipped: true,
       category: 'asset_report' as const,
       title: `${quarter}資產報告`,
       route: QUARTERLY_ROUTE,
-      message: '今季季度報告已經生成，毋須重複建立。',
+      message: existingQuarterlyReport.isTimeoutFallback
+        ? '本季現有報告為超時降級版本，可用覆蓋模式重新生成。'
+        : '今季季度報告已經生成，毋須重複建立。',
     };
   }
 
@@ -2000,7 +2313,7 @@ export async function runManualQuarterlyAssetReport() {
   return {
     ...result,
     route: QUARTERLY_ROUTE,
-    message: '已完成季度報告。',
+    message: options.overwriteExisting ? '已重新生成並覆蓋季度報告。' : '已完成季度報告。',
   };
 }
 

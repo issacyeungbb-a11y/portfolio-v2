@@ -10,9 +10,12 @@ import {
   buildMonthlyAnalysisQuestion,
   getDefaultServerPromptSettings,
   getMonthlyAnalysisSessionDocId,
+  getCoveredMonthLabel,
+  getCoveredMonthlyAnalysisSessionDocId,
   buildGroundingUnavailableSummary,
   getSearchSummaryPrompt,
   getPreviousMonthStartDate,
+  getQuarterEndDateBefore,
   normalizeSnapshotDocument,
   sanitizeForFirestore,
   selectNearestSnapshotToDate,
@@ -33,6 +36,16 @@ test('buildGroundingUnavailableSummary explains Gemini spending cap failures', (
 test('getPreviousMonthStartDate uses previous month start in Hong Kong time', () => {
   const now = new Date('2026-05-01T08:43:00+08:00');
   assert.equal(getPreviousMonthStartDate(now), '2026-04-01');
+});
+
+test('getCoveredMonthLabel returns previous month across year boundary', () => {
+  const now = new Date('2026-01-10T08:43:00+08:00');
+  assert.equal(getCoveredMonthLabel(now), '2025年12月');
+});
+
+test('getQuarterEndDateBefore handles cross-year quarter ends', () => {
+  assert.equal(getQuarterEndDateBefore('2025-12-31'), '2025-09-30');
+  assert.equal(getQuarterEndDateBefore('2026-03-31'), '2025-12-31');
 });
 
 test('selectNearestSnapshotToDate picks the nearest snapshot around previous month start', () => {
@@ -142,6 +155,7 @@ test('buildScheduledAnalysisTimeoutFallback returns savable partial monthly anal
   assert.equal(response.provider, 'anthropic');
   assert.match(response.answer, /分析模型今次回應超時/);
   assert.ok(response.uncertainty?.some((item) => item.includes('回應超時')));
+  assert.equal(response.isTimeoutFallback, true);
 });
 
 test('buildReportFactsPayload includes netExternalFlowCoveragePct and cashFlowWarningMessage', () => {
@@ -431,8 +445,11 @@ test('buildAnalysisSessionWritePayload sanitizes reportFactsPayload before write
       analysisBackground: 'background',
       generatedAt: '2026-05-01T00:15:00.000Z',
       assetCount: 1,
+      isTimeoutFallback: true,
     } as never,
     title: '2026年5每月資產分析',
+    periodStartDate: '2026-04-01',
+    periodEndDate: '2026-05-01',
     reportFactsPayload: {
       generatedAt: '2026-05-01T00:15:00.000Z',
       reportType: 'monthly',
@@ -483,6 +500,9 @@ test('buildAnalysisSessionWritePayload sanitizes reportFactsPayload before write
   const firstCurrentHolding = (reportFactsPayload.currentHoldings as Array<Record<string, unknown>>)[0];
 
   assert.ok(reportFactsPayload);
+  assert.equal(writePayload.isTimeoutFallback, true);
+  assert.equal(writePayload.periodStartDate, '2026-04-01');
+  assert.equal(writePayload.periodEndDate, '2026-05-01');
   assert.ok(!('netExternalFlowHKD' in reportFactsPayload));
   assert.ok(!('missingAssetCount' in dataQualitySummary));
   assert.ok(!('marketValueLocal' in firstHolding));
@@ -498,6 +518,7 @@ test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write
     searchSummary: 'summary',
     model: 'claude-opus-4-8',
     provider: 'anthropic',
+    isTimeoutFallback: true,
     reportFactsPayload: {
       generatedAt: '2026-05-01T00:15:00.000Z',
       reportType: 'quarterly',
@@ -547,6 +568,7 @@ test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write
   const firstHolding = (reportFactsPayload.topHoldingsByHKD as Array<Record<string, unknown>>)[0];
   const firstCurrentHolding = (reportFactsPayload.currentHoldings as Array<Record<string, unknown>>)[0];
 
+  assert.equal(writePayload.isTimeoutFallback, true);
   assert.ok(!('cashFlowWarningMessage' in reportFactsPayload));
   assert.ok(!('fallbackAssetCount' in dataQualitySummary));
   assert.ok(!('marketValueLocal' in firstHolding));
@@ -616,6 +638,8 @@ test('monthly default prompt keeps five sections and macro linkage requirements'
 test('monthly analysis session doc id is fixed per month', () => {
   assert.equal(getMonthlyAnalysisSessionDocId('2026-05-01'), 'monthly-2026-05');
   assert.equal(getMonthlyAnalysisSessionDocId('2026-05-31'), 'monthly-2026-05');
+  assert.equal(getCoveredMonthlyAnalysisSessionDocId('2026-06'), 'monthly-2026-06');
+  assert.equal(`${getCoveredMonthlyAnalysisSessionDocId('2026-06')}-v2`, 'monthly-2026-06-v2');
 });
 
 test('monthly analysis prompt preserves five sections and adds macro, data quality, and conditional guidance constraints', () => {
