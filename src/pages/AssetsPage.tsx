@@ -9,7 +9,7 @@ import { SystemDiagnosticsPanel } from '../components/ui/SystemDiagnosticsPanel'
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { useAssetTransactions } from '../hooks/useAssetTransactions';
-import { usePortfolioAssets } from '../hooks/usePortfolioAssets';
+import { useAllPortfolioAssets, usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { useTodaySnapshotStatus } from '../hooks/usePortfolioSnapshots';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { useManualPriceUpdater } from '../hooks/useManualPriceUpdater';
@@ -17,6 +17,8 @@ import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import { triggerManualSnapshot } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
+import { repairMissingArchivedAssetsFromTransactions } from '../lib/firebase/assetTransactions';
+import { buildAllAssetPriceUpdatePlan } from '../lib/portfolio/priceUpdateTargets';
 import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
 import { HoldingsTable } from '../components/portfolio/HoldingsTable';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
@@ -354,6 +356,10 @@ export function AssetsPage() {
     editAsset,
     removeAsset,
   } = usePortfolioAssets();
+  const {
+    holdings: allPortfolioHoldings,
+    error: allPortfolioHoldingsError,
+  } = useAllPortfolioAssets();
   const { entries: accountPrincipals, error: accountPrincipalsError } = useAccountPrincipals();
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
   const { entries: assetTransactions, error: assetTransactionsError } = useAssetTransactions({
@@ -420,6 +426,11 @@ export function AssetsPage() {
   });
 
   const nonCashHoldings = holdings.filter((holding) => holding.assetType !== 'cash');
+  const allAssetPriceUpdatePlan = useMemo(
+    () => buildAllAssetPriceUpdatePlan(allPortfolioHoldings),
+    [allPortfolioHoldings],
+  );
+  const bulkUpdateDiagnostics = allAssetPriceUpdatePlan.diagnostics;
   const todayKey = getHongKongDateKey();
   // 今日已更新：lastPriceUpdatedAt 在今日（HKT），無論 priceAsOf 是否符合顯示時窗
   const todayUpdatedHoldings = nonCashHoldings.filter((holding) => {
@@ -652,7 +663,28 @@ export function AssetsPage() {
 
   async function handleConfirmBulkPriceUpdate() {
     setIsBulkUpdateConfirmOpen(false);
-    await handleRunPriceUpdates(nonCashHoldings);
+    setReviewActionError(null);
+
+    try {
+      const repairResult = await repairMissingArchivedAssetsFromTransactions(
+        assetTransactions,
+        new Set(allPortfolioHoldings.map((holding) => holding.id)),
+      );
+      const nextPlan = buildAllAssetPriceUpdatePlan([
+        ...allPortfolioHoldings,
+        ...repairResult.repairedHoldings,
+      ]);
+      await handleRunPriceUpdates(nextPlan.targetHoldings);
+      if (repairResult.repairedCount > 0) {
+        setReviewActionSuccess(
+          `已修復 ${repairResult.repairedCount} 個缺失歷史資產文件，並加入今次價格更新。`,
+        );
+      }
+    } catch (error) {
+      setReviewActionError(
+        error instanceof Error ? error.message : '修復歷史資產文件失敗，請稍後再試。',
+      );
+    }
   }
 
   async function handleConfirmReview(review: PendingPriceUpdateReview) {
@@ -747,6 +779,7 @@ export function AssetsPage() {
           {nonCashHoldings.length === 0 ? '未有可更新資產' : `價格覆蓋率 ${syncedCoveragePct}%`}
           {' · '}待處理 {pendingPriceCount + reviews.length} 項
           {' · '}{todaySnapshotLabel}
+          {' · '}預計更新現時 {bulkUpdateDiagnostics.currentAssetCount} 項 / 歷史 {bulkUpdateDiagnostics.historicalAssetUpdateCount} 項
         </p>
         <div className="assets-toolbar-actions">
           <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
@@ -754,9 +787,9 @@ export function AssetsPage() {
             className="button button-secondary"
             type="button"
             onClick={() => setIsBulkUpdateConfirmOpen(true)}
-            disabled={isUpdatingAllPrices || nonCashHoldings.length === 0}
+            disabled={isUpdatingAllPrices || allAssetPriceUpdatePlan.targetHoldings.length === 0}
           >
-            {isUpdatingAllPrices ? '更新全部資產中...' : '更新全部資產'}
+            {isUpdatingAllPrices ? '更新中...' : '更新現時及歷史資產價格'}
           </button>
           <details className="assets-secondary-actions">
             <summary>更多操作</summary>
@@ -1111,7 +1144,7 @@ export function AssetsPage() {
               </div>
             </div>
             <p className="status-message">
-              會為目前全部 {nonCashHoldings.length} 項非現金資產檢查最新價格；有效結果會直接寫入，未能確認的項目會先保留供你再檢查。
+              會為現時 {bulkUpdateDiagnostics.currentAssetCount} 項及歷史 {bulkUpdateDiagnostics.historicalAssetUpdateCount} 項非現金資產檢查最新價格；有效結果會直接寫入，未能確認的項目會先保留供你再檢查。已清倉資產會保持封存，不會重新列入現時持倉、總資產、配置比例或快照計算。
             </p>
             <div className="button-row">
               <button
@@ -1218,11 +1251,12 @@ export function AssetsPage() {
           accountPrincipalsError,
           accountCashFlowsError,
           assetTransactionsError,
+          allPortfolioHoldingsError,
           reviewsError,
           todaySnapshotError,
           manualSnapshotError,
         ]}
-        successes={[priceUpdateSuccess, manualSnapshotSuccess]}
+        successes={[priceUpdateSuccess, manualSnapshotSuccess, reviewActionSuccess]}
       />
       {shouldShowMissingSnapshotNotice ? (
         <WarningPanel

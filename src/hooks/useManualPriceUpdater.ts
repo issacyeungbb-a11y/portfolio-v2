@@ -35,6 +35,18 @@ function chunkHoldingsForManualUpdate(targetHoldings: Holding[]) {
   return chunks;
 }
 
+function dedupeTargetHoldingsByAssetId(targetHoldings: Holding[]) {
+  return [
+    ...targetHoldings.reduce<Map<string, Holding>>((accumulator, holding) => {
+      if (holding.assetType !== 'cash' && holding.id && !accumulator.has(holding.id)) {
+        accumulator.set(holding.id, holding);
+      }
+
+      return accumulator;
+    }, new Map()).values(),
+  ];
+}
+
 async function callPriceUpdateChunkWithRetry(chunk: Holding[]) {
   try {
     return (await callPortfolioFunction(
@@ -61,7 +73,7 @@ export function useManualPriceUpdater(params: {
   const [priceUpdateSuccess, setPriceUpdateSuccess] = useState<string | null>(null);
 
   async function runPriceUpdates(targetHoldings: Holding[]) {
-    const updatableHoldings = targetHoldings.filter((holding) => holding.assetType !== 'cash');
+    const updatableHoldings = dedupeTargetHoldingsByAssetId(targetHoldings);
 
     if (updatableHoldings.length === 0) {
       setPriceUpdateError(params.emptyTargetMessage ?? '目前沒有可更新的資產。');

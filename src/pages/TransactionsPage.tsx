@@ -16,6 +16,12 @@ import { useManualPriceUpdater } from '../hooks/useManualPriceUpdater';
 import { useAllPortfolioAssets, usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
+import { repairMissingArchivedAssetsFromTransactions } from '../lib/firebase/assetTransactions';
+import { buildTransactionAssetPriceUpdatePlan } from '../lib/portfolio/priceUpdateTargets';
+import {
+  getTransactionPriceComparison,
+  type TransactionPriceComparison,
+} from '../lib/portfolio/transactionPriceComparison';
 import type {
   AccountSource,
   AssetTransactionEntry,
@@ -100,73 +106,6 @@ function formatPercent(value: number) {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })}%`;
-}
-
-interface TransactionPriceComparison {
-  entry: AssetTransactionEntry;
-  kind: 'buy' | 'sell';
-  label: '買入至今' | '賣後比較';
-  currentPrice: number;
-  currentValueDisplay: number;
-  basisDisplay: number;
-  comparisonDisplay: number;
-  returnRate?: number;
-}
-
-function getTransactionPriceComparison(
-  entry: AssetTransactionEntry,
-  holding: Holding | undefined,
-  displayCurrency: DisplayCurrency,
-): TransactionPriceComparison | null {
-  if ((entry.recordType ?? 'trade') !== 'trade' || entry.assetType === 'cash') {
-    return null;
-  }
-
-  if (!holding || !Number.isFinite(holding.currentPrice) || holding.currentPrice <= 0) {
-    return null;
-  }
-
-  const currentValueDisplay = convertCurrency(
-    entry.quantity * holding.currentPrice,
-    holding.currency,
-    displayCurrency,
-  );
-
-  if (entry.transactionType === 'buy') {
-    const costDisplay = convertCurrency(
-      entry.quantity * entry.price + entry.fees,
-      entry.currency,
-      displayCurrency,
-    );
-    const comparisonDisplay = currentValueDisplay - costDisplay;
-
-    return {
-      entry,
-      kind: 'buy',
-      label: '買入至今',
-      currentPrice: holding.currentPrice,
-      currentValueDisplay,
-      basisDisplay: costDisplay,
-      comparisonDisplay,
-      returnRate: costDisplay > 0 ? comparisonDisplay / costDisplay : undefined,
-    };
-  }
-
-  const proceedsDisplay = convertCurrency(
-    entry.quantity * entry.price - entry.fees,
-    entry.currency,
-    displayCurrency,
-  );
-
-  return {
-    entry,
-    kind: 'sell',
-    label: '賣後比較',
-    currentPrice: holding.currentPrice,
-    currentValueDisplay,
-    basisDisplay: proceedsDisplay,
-    comparisonDisplay: proceedsDisplay - currentValueDisplay,
-  };
 }
 
 function getContributionLabel(comparison: TransactionPriceComparison | null) {
@@ -266,7 +205,7 @@ export function TransactionsPage() {
     });
 
     return new Map(
-      filteredEntries.map((entry) => {
+      visibleEntries.map((entry) => {
         const directMatch = comparisonHoldingsById.get(entry.assetId);
 
         if (directMatch) {
@@ -281,7 +220,7 @@ export function TransactionsPage() {
         return [entry.id, fallbackMatch];
       }),
     );
-  }, [allHoldings, comparisonHoldingsById, filteredEntries]);
+  }, [allHoldings, comparisonHoldingsById, visibleEntries]);
   const comparisonsByTransactionId = useMemo(
     () =>
       new Map(
@@ -338,20 +277,9 @@ export function TransactionsPage() {
         )
       : null;
   const transactionPriceUpdateHoldings = useMemo(() => {
-    const holdingsToUpdate = new Map<string, Holding>();
-
-    filteredEntries
-      .filter((entry) => (entry.recordType ?? 'trade') === 'trade' && entry.assetType !== 'cash')
-      .forEach((entry) => {
-        const holding = comparisonHoldingsByTransactionId.get(entry.id);
-
-        if (holding) {
-          holdingsToUpdate.set(holding.id, holding);
-        }
-      });
-
-    return [...holdingsToUpdate.values()];
-  }, [comparisonHoldingsByTransactionId, filteredEntries]);
+    return buildTransactionAssetPriceUpdatePlan(visibleEntries, allHoldings);
+  }, [allHoldings, visibleEntries]);
+  const transactionPriceUpdateDiagnostics = transactionPriceUpdateHoldings.diagnostics;
   const latestTradeDate =
     [...filteredEntries]
       .map((entry) => entry.date)
@@ -436,7 +364,27 @@ export function TransactionsPage() {
   async function handleUpdateTransactionPriceComparisons() {
     setActionError(null);
     setActionSuccess(null);
-    await runPriceUpdates(transactionPriceUpdateHoldings);
+
+    try {
+      const repairResult = await repairMissingArchivedAssetsFromTransactions(
+        visibleEntries,
+        new Set(allHoldings.map((holding) => holding.id)),
+      );
+      const nextPlan = buildTransactionAssetPriceUpdatePlan(
+        visibleEntries,
+        [...allHoldings, ...repairResult.repairedHoldings],
+      );
+      await runPriceUpdates(nextPlan.targetHoldings);
+      if (repairResult.repairedCount > 0) {
+        setActionSuccess(
+          `已修復 ${repairResult.repairedCount} 個缺失歷史資產文件，並加入今次價格更新。`,
+        );
+      }
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : '修復歷史資產文件失敗，請稍後再試。',
+      );
+    }
   }
 
   return (
@@ -461,11 +409,26 @@ export function TransactionsPage() {
             className="button button-secondary"
             type="button"
             onClick={() => void handleUpdateTransactionPriceComparisons()}
-            disabled={isUpdatingTransactionPrices || transactionPriceUpdateHoldings.length === 0}
+            disabled={isUpdatingTransactionPrices || transactionPriceUpdateHoldings.targetHoldings.length === 0}
           >
-            {isUpdatingTransactionPrices ? '更新中...' : '更新交易現價比較'}
+            {isUpdatingTransactionPrices ? '更新中...' : '更新現時及歷史資產價格'}
           </button>
         </div>
+        <p className="table-hint">
+          歷史資產 {transactionPriceUpdateDiagnostics.historicalAssetCount} 項 · 成功配對 {transactionPriceUpdateDiagnostics.matchedAssetCount} 項 · 未能配對 {transactionPriceUpdateDiagnostics.unmatchedAssetCount} 項
+          {' · '}預計更新現時 {transactionPriceUpdateDiagnostics.currentAssetCount} 項 / 歷史 {transactionPriceUpdateDiagnostics.historicalAssetUpdateCount} 項
+        </p>
+        {transactionPriceUpdateDiagnostics.unmatchedAssets.length > 0 ? (
+          <p className="status-message status-message-warning">
+            未能配對：
+            {' '}
+            {transactionPriceUpdateDiagnostics.unmatchedAssets
+              .slice(0, 8)
+              .map((asset) => `${asset.symbol || asset.assetName || asset.assetId}（${asset.reason}）`)
+              .join('、')}
+            {transactionPriceUpdateDiagnostics.unmatchedAssets.length > 8 ? ' 等' : ''}
+          </p>
+        ) : null}
         <div className="transaction-summary-overview">
           <article className="summary-card">
             <p className="summary-label">記錄總數</p>

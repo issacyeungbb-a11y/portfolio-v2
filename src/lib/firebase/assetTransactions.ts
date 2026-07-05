@@ -13,6 +13,7 @@ import {
   Timestamp,
   updateDoc,
   type Transaction,
+  writeBatch,
 } from 'firebase/firestore';
 
 import type {
@@ -34,6 +35,7 @@ import {
   runLedgerRebuild,
   sortLedgerForRebuild,
 } from '../portfolio/transactionRebuild';
+import { buildArchivedAssetRepairPayloadFromTransaction } from '../portfolio/priceUpdateTargets';
 
 type AssetTransactionInput = Omit<
   AssetTransactionEntry,
@@ -156,6 +158,87 @@ function toLedgerTransaction(entry: AssetTransactionEntry): LedgerTransaction {
 
 function sortLedgerTransactions(entries: LedgerTransaction[]) {
   return sortLedgerForRebuild(entries);
+}
+
+function getLatestTransactionByAssetId(entries: AssetTransactionEntry[]) {
+  return [...entries]
+    .filter((entry) => entry.assetId && entry.assetType !== 'cash')
+    .sort((left, right) => {
+      const dateDiff = right.date.localeCompare(left.date);
+      if (dateDiff !== 0) return dateDiff;
+
+      const createdDiff = (right.createdAt ?? '').localeCompare(left.createdAt ?? '');
+      if (createdDiff !== 0) return createdDiff;
+
+      return right.id.localeCompare(left.id);
+    })
+    .reduce<Map<string, AssetTransactionEntry>>((accumulator, entry) => {
+      if (!accumulator.has(entry.assetId)) {
+        accumulator.set(entry.assetId, entry);
+      }
+
+      return accumulator;
+    }, new Map());
+}
+
+export async function repairMissingArchivedAssetsFromTransactions(
+  entries: AssetTransactionEntry[],
+  existingAssetIds: Set<string>,
+) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const latestByAssetId = getLatestTransactionByAssetId(entries);
+  const missingEntries = [...latestByAssetId.values()].filter(
+    (entry) => !existingAssetIds.has(entry.assetId),
+  );
+
+  if (missingEntries.length === 0) {
+    return {
+      repairedCount: 0,
+      repairedAssetIds: [] as string[],
+      repairedHoldings: [] as Holding[],
+    };
+  }
+
+  const assetsCollection = getSharedAssetsCollectionRef();
+  const batch = writeBatch(assetsCollection.firestore);
+  const repairedAt = new Date().toISOString();
+  const repairedHoldings: Holding[] = [];
+
+  missingEntries.forEach((entry) => {
+    const assetRef = doc(assetsCollection, entry.assetId);
+    const payload = buildArchivedAssetRepairPayloadFromTransaction(entry);
+    batch.set(
+      assetRef,
+      {
+        ...payload,
+        archivedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+    repairedHoldings.push(
+      buildHoldingFromInput(
+        entry.assetId,
+        {
+          ...payload,
+          archivedAt: repairedAt,
+        },
+        { useRawCurrentPrice: true },
+      ),
+    );
+  });
+
+  await batch.commit();
+
+  return {
+    repairedCount: missingEntries.length,
+    repairedAssetIds: missingEntries.map((entry) => entry.assetId),
+    repairedHoldings,
+  };
 }
 
 // Builds the "historical baseline" seed that represents the position held before
