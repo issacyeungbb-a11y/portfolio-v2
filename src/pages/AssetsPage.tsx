@@ -18,7 +18,10 @@ import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import { triggerManualSnapshot } from '../lib/api/vercelFunctions';
 import { recalculateHoldingAllocations } from '../lib/firebase/assets';
 import { repairMissingArchivedAssetsFromTransactions } from '../lib/firebase/assetTransactions';
-import { buildAllAssetPriceUpdatePlan } from '../lib/portfolio/priceUpdateTargets';
+import {
+  buildAllAssetPriceUpdatePlan,
+  buildTransactionAssetPriceUpdatePlan,
+} from '../lib/portfolio/priceUpdateTargets';
 import { hasValidHoldingPrice } from '../lib/portfolio/priceValidity';
 import { HoldingsTable } from '../components/portfolio/HoldingsTable';
 import { SummaryCard } from '../components/portfolio/SummaryCard';
@@ -431,6 +434,14 @@ export function AssetsPage() {
     [allPortfolioHoldings],
   );
   const bulkUpdateDiagnostics = allAssetPriceUpdatePlan.diagnostics;
+  const assetRepairPlan = useMemo(
+    () => buildTransactionAssetPriceUpdatePlan(assetTransactions, allPortfolioHoldings),
+    [allPortfolioHoldings, assetTransactions],
+  );
+  const assetRepairDiagnostics = assetRepairPlan.diagnostics;
+  const canRunBulkPriceUpdate =
+    allAssetPriceUpdatePlan.targetHoldings.length > 0 ||
+    assetRepairDiagnostics.repairableMissingAssetCount > 0;
   const todayKey = getHongKongDateKey();
   // 今日已更新：lastPriceUpdatedAt 在今日（HKT），無論 priceAsOf 是否符合顯示時窗
   const todayUpdatedHoldings = nonCashHoldings.filter((holding) => {
@@ -787,7 +798,7 @@ export function AssetsPage() {
             className="button button-secondary"
             type="button"
             onClick={() => setIsBulkUpdateConfirmOpen(true)}
-            disabled={isUpdatingAllPrices || allAssetPriceUpdatePlan.targetHoldings.length === 0}
+            disabled={isUpdatingAllPrices || !canRunBulkPriceUpdate}
           >
             {isUpdatingAllPrices ? '更新中...' : '更新現時及歷史資產價格'}
           </button>
@@ -1144,8 +1155,17 @@ export function AssetsPage() {
               </div>
             </div>
             <p className="status-message">
-              會為現時 {bulkUpdateDiagnostics.currentAssetCount} 項及歷史 {bulkUpdateDiagnostics.historicalAssetUpdateCount} 項非現金資產檢查最新價格；有效結果會直接寫入，未能確認的項目會先保留供你再檢查。已清倉資產會保持封存，不會重新列入現時持倉、總資產、配置比例或快照計算。
+              將修復 {assetRepairDiagnostics.repairableMissingAssetCount} 個歷史資產文件，並為現時 {bulkUpdateDiagnostics.currentAssetCount} 項及歷史 {bulkUpdateDiagnostics.historicalAssetUpdateCount + assetRepairDiagnostics.repairableMissingAssetCount} 項非現金資產檢查最新價格；有效結果會直接寫入，未能確認的項目會先保留供你再檢查。已清倉資產會保持封存，不會重新列入現時持倉、總資產、配置比例或快照計算。
             </p>
+            {assetRepairDiagnostics.blockedMissingAssets.length > 0 ? (
+              <p className="status-message status-message-warning">
+                以下資產因仍有持倉而被阻止：
+                {' '}
+                {assetRepairDiagnostics.blockedMissingAssets
+                  .map((asset) => `${asset.symbol || asset.assetName || asset.assetId}（${asset.reason}）`)
+                  .join('、')}
+              </p>
+            ) : null}
             <div className="button-row">
               <button
                 className="button button-primary"

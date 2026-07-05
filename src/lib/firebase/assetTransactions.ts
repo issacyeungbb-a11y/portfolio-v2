@@ -35,7 +35,10 @@ import {
   runLedgerRebuild,
   sortLedgerForRebuild,
 } from '../portfolio/transactionRebuild';
-import { buildArchivedAssetRepairPayloadFromTransaction } from '../portfolio/priceUpdateTargets';
+import {
+  buildArchivedAssetRepairPayloadFromTransaction,
+  getRepairableMissingAssetEntries,
+} from '../portfolio/priceUpdateTargets';
 
 type AssetTransactionInput = Omit<
   AssetTransactionEntry,
@@ -160,27 +163,6 @@ function sortLedgerTransactions(entries: LedgerTransaction[]) {
   return sortLedgerForRebuild(entries);
 }
 
-function getLatestTransactionByAssetId(entries: AssetTransactionEntry[]) {
-  return [...entries]
-    .filter((entry) => entry.assetId && entry.assetType !== 'cash')
-    .sort((left, right) => {
-      const dateDiff = right.date.localeCompare(left.date);
-      if (dateDiff !== 0) return dateDiff;
-
-      const createdDiff = (right.createdAt ?? '').localeCompare(left.createdAt ?? '');
-      if (createdDiff !== 0) return createdDiff;
-
-      return right.id.localeCompare(left.id);
-    })
-    .reduce<Map<string, AssetTransactionEntry>>((accumulator, entry) => {
-      if (!accumulator.has(entry.assetId)) {
-        accumulator.set(entry.assetId, entry);
-      }
-
-      return accumulator;
-    }, new Map());
-}
-
 export async function repairMissingArchivedAssetsFromTransactions(
   entries: AssetTransactionEntry[],
   existingAssetIds: Set<string>,
@@ -189,10 +171,7 @@ export async function repairMissingArchivedAssetsFromTransactions(
     throw createMissingConfigError();
   }
 
-  const latestByAssetId = getLatestTransactionByAssetId(entries);
-  const missingEntries = [...latestByAssetId.values()].filter(
-    (entry) => !existingAssetIds.has(entry.assetId),
-  );
+  const missingEntries = getRepairableMissingAssetEntries(entries, existingAssetIds);
 
   if (missingEntries.length === 0) {
     return {

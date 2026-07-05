@@ -149,6 +149,7 @@ export function TransactionsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [isTransactionInputOpen, setIsTransactionInputOpen] = useState(false);
+  const [isPriceUpdateConfirmOpen, setIsPriceUpdateConfirmOpen] = useState(false);
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<AssetTransactionType | 'all'>('all');
   const [dateFromFilter, setDateFromFilter] = useState('');
@@ -280,6 +281,9 @@ export function TransactionsPage() {
     return buildTransactionAssetPriceUpdatePlan(visibleEntries, allHoldings);
   }, [allHoldings, visibleEntries]);
   const transactionPriceUpdateDiagnostics = transactionPriceUpdateHoldings.diagnostics;
+  const canRunTransactionPriceUpdate =
+    transactionPriceUpdateHoldings.targetHoldings.length > 0 ||
+    transactionPriceUpdateDiagnostics.repairableMissingAssetCount > 0;
   const latestTradeDate =
     [...filteredEntries]
       .map((entry) => entry.date)
@@ -408,8 +412,8 @@ export function TransactionsPage() {
           <button
             className="button button-secondary"
             type="button"
-            onClick={() => void handleUpdateTransactionPriceComparisons()}
-            disabled={isUpdatingTransactionPrices || transactionPriceUpdateHoldings.targetHoldings.length === 0}
+            onClick={() => setIsPriceUpdateConfirmOpen(true)}
+            disabled={isUpdatingTransactionPrices || !canRunTransactionPriceUpdate}
           >
             {isUpdatingTransactionPrices ? '更新中...' : '更新現時及歷史資產價格'}
           </button>
@@ -789,6 +793,55 @@ export function TransactionsPage() {
           )}
         </div>
       </section>
+
+      {isPriceUpdateConfirmOpen ? (
+        <div className="modal-backdrop" role="presentation">
+          <div
+            className="modal-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transaction-price-update-title"
+          >
+            <div className="section-heading">
+              <div>
+                <p className="eyebrow">確認</p>
+                <h2 id="transaction-price-update-title">確認更新現時及歷史資產價格？</h2>
+              </div>
+            </div>
+            <p className="status-message">
+              將修復 {transactionPriceUpdateDiagnostics.repairableMissingAssetCount} 個歷史資產文件，並更新現時 {transactionPriceUpdateDiagnostics.currentAssetCount} 項及歷史 {transactionPriceUpdateDiagnostics.historicalAssetUpdateCount + transactionPriceUpdateDiagnostics.repairableMissingAssetCount} 項資產價格。
+            </p>
+            {transactionPriceUpdateDiagnostics.blockedMissingAssets.length > 0 ? (
+              <p className="status-message status-message-warning">
+                以下資產因仍有持倉而被阻止：
+                {' '}
+                {transactionPriceUpdateDiagnostics.blockedMissingAssets
+                  .map((asset) => `${asset.symbol || asset.assetName || asset.assetId}（${asset.reason}）`)
+                  .join('、')}
+              </p>
+            ) : null}
+            <div className="button-row">
+              <button
+                className="button button-primary"
+                type="button"
+                onClick={() => {
+                  setIsPriceUpdateConfirmOpen(false);
+                  void handleUpdateTransactionPriceComparisons();
+                }}
+              >
+                確認更新
+              </button>
+              <button
+                className="button button-secondary"
+                type="button"
+                onClick={() => setIsPriceUpdateConfirmOpen(false)}
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
