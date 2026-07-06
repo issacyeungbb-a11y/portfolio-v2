@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ImportPreviewEditor } from '../import/ImportPreviewEditor';
 import { usePortfolioAssets } from '../../hooks/usePortfolioAssets';
 import { callPortfolioFunction } from '../../lib/api/vercelFunctions';
+import { getHongKongDateKey } from '../../lib/dates';
 import { createAssetTransaction, getAssetTransactionsErrorMessage } from '../../lib/firebase/assetTransactions';
 import { createPortfolioAsset, getFirebaseAssetsErrorMessage } from '../../lib/firebase/assets';
 import type {
@@ -63,7 +64,7 @@ function createBlankItem(
     currency: SETTLEMENT_CURRENCY,
     price: '',
     fees: '0',
-    date: new Date().toISOString().slice(0, 10),
+    date: getHongKongDateKey(),
     note: '',
   };
 }
@@ -86,7 +87,7 @@ function createPresetExistingTransactionItem(
     currency: SETTLEMENT_CURRENCY,
     price: '',
     fees: '0',
-    date: new Date().toISOString().slice(0, 10),
+    date: getHongKongDateKey(),
     note: '',
   };
 }
@@ -113,7 +114,7 @@ function buildPreviewItemFromTransaction(
     currency: SETTLEMENT_CURRENCY,
     price: entry.price == null ? '' : String(entry.price),
     fees: entry.fees == null ? '0' : String(entry.fees),
-    date: entry.date ?? new Date().toISOString().slice(0, 10),
+    date: entry.date ?? getHongKongDateKey(),
     note: entry.note ?? '',
   } satisfies ImportPreviewItem;
 }

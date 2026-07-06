@@ -1,5 +1,6 @@
 import type { AssetType, AccountSource, PortfolioAssetInput } from './portfolio';
 import type { AssetTransactionType } from './portfolio';
+import { getHongKongDateKey } from '../lib/dates';
 
 export interface ExtractAssetsRequest {
   fileName: string;
@@ -179,7 +180,7 @@ export function createEditableExtractedTransaction(
     currency: entry.currency ?? '',
     price: entry.price == null ? '' : String(entry.price),
     fees: entry.fees == null ? '0' : String(entry.fees),
-    date: entry.date ?? new Date().toISOString().slice(0, 10),
+    date: entry.date ?? getHongKongDateKey(),
     note: entry.note ?? '',
   };
 }

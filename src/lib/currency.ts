@@ -86,6 +86,9 @@ export function formatCurrencyRounded(value: number, currency: string) {
 }
 
 export function formatPercent(value: number) {
-  const sign = value > 0 ? '+' : '';
-  return `${sign}${Math.round(value)}%`;
+  // 10% 以下保留一位小數，避免日常 0.x% 變動顯示成「0%」
+  const decimals = Math.abs(value) < 10 ? 1 : 0;
+  const rounded = Number(value.toFixed(decimals));
+  const sign = rounded > 0 ? '+' : '';
+  return `${sign}${rounded.toFixed(decimals)}%`;
 }

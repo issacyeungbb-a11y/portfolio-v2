@@ -16,6 +16,7 @@ import {
   buildHoldingFromInput,
   getFirebaseAssetsErrorMessage,
 } from './assets';
+import { getHongKongDateKey } from '../dates';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import {
   getRequiredFirebaseDb,
@@ -42,29 +43,22 @@ export type TodaySnapshotStatus =
       exists: false;
     };
 
-function getHongKongDateKey(date = new Date()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Hong_Kong',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date);
-}
-
 function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
 }
 
 function formatSnapshotDate(value: unknown) {
   if (value instanceof Timestamp) {
-    return value.toDate().toISOString().slice(0, 10);
+    // 快照 doc ID 同 server 端一律用香港日期 key；capturedAt 係 UTC 時間，
+    // 直接 toISOString 會令 06:00 HKT 嘅每日 cron 快照日期早一日
+    return getHongKongDateKey(value.toDate());
   }
 
   if (typeof value === 'string') {
     return value.length >= 10 ? value.slice(0, 10) : value;
   }
 
-  return new Date().toISOString().slice(0, 10);
+  return getHongKongDateKey();
 }
 
 function formatSnapshotTimestamp(value: unknown) {
@@ -132,7 +126,7 @@ function normalizePortfolioSnapshot(
 ): PortfolioPerformancePoint {
   return {
     id,
-    date: formatSnapshotDate(value.capturedAt ?? value.date),
+    date: formatSnapshotDate(value.date ?? value.capturedAt),
     capturedAt: formatSnapshotTimestamp(value.capturedAt),
     totalValue: sanitizeNumber(value.totalValueHKD ?? value.totalValue),
     netExternalFlow: sanitizeNumber(value.netExternalFlowHKD ?? value.netExternalFlow),

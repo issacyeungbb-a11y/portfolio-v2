@@ -510,10 +510,20 @@ export function AssetTrendsPage() {
             {trendSeries.length > 1 ? (
               <div className="trends-period-bridge">
                 <span>期初估值</span>
-                <strong>{formatCurrencyRounded(trendValues[0], displayCurrency)}</strong>
+                <strong>
+                  {formatCurrencyRounded(
+                    convertCurrency(rangeSummary.startValue, 'HKD', displayCurrency),
+                    displayCurrency,
+                  )}
+                </strong>
                 <i aria-hidden="true">→</i>
                 <span>期末估值</span>
-                <strong>{formatCurrencyRounded(trendValues[trendValues.length - 1], displayCurrency)}</strong>
+                <strong>
+                  {formatCurrencyRounded(
+                    convertCurrency(rangeSummary.endValue, 'HKD', displayCurrency),
+                    displayCurrency,
+                  )}
+                </strong>
               </div>
             ) : null}
 

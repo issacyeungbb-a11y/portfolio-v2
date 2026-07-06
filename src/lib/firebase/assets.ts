@@ -11,6 +11,7 @@ import {
 } from 'firebase/firestore';
 
 import type { Holding, PortfolioAssetInput } from '../../types/portfolio';
+import { getHongKongDateKey } from '../dates';
 import { getEffectiveHoldingPrice } from '../portfolio/priceValidity';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { callPortfolioFunction } from '../api/vercelFunctions';
@@ -270,7 +271,7 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
       price: normalized.averageCost,
       fees: 0,
       currency: normalized.currency,
-      date: new Date().toISOString().slice(0, 10),
+      date: getHongKongDateKey(),
       realizedPnlHKD: 0,
       quantityAfter: normalized.quantity,
       averageCostAfter: normalized.averageCost,
@@ -291,7 +292,7 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
       price: 0,
       fees: 0,
       currency: normalized.currency,
-      date: new Date().toISOString().slice(0, 10),
+      date: getHongKongDateKey(),
       realizedPnlHKD: 0,
       quantityAfter: 0,
       averageCostAfter: 0,
@@ -341,7 +342,7 @@ export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
         price: normalized.averageCost,
         fees: 0,
         currency: normalized.currency,
-        date: new Date().toISOString().slice(0, 10),
+        date: getHongKongDateKey(),
         realizedPnlHKD: 0,
         quantityAfter: normalized.quantity,
         averageCostAfter: normalized.averageCost,
@@ -363,7 +364,7 @@ export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
         price: 0,
         fees: 0,
         currency: normalized.currency,
-        date: new Date().toISOString().slice(0, 10),
+        date: getHongKongDateKey(),
         realizedPnlHKD: 0,
         quantityAfter: 0,
         averageCostAfter: 0,

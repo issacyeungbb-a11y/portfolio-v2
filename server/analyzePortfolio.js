@@ -613,23 +613,23 @@ Output format: You MUST respond with a valid JSON object (no markdown fences) wi
 }
 Keep usedPortfolioFacts, uncertainty, suggestedActions as short, 1-line strings. Max 8 items each.
 The answer string must be detailed, structured, and sorted. Use this exact shape when relevant:
-一句話結論：...
+\u4E00\u53E5\u8A71\u7D50\u8AD6\uFF1A...
 
-【排序方法】
+\u3010\u6392\u5E8F\u65B9\u6CD5\u3011
 - Explain the ranking factors and weights, using portfolio data first.
 
-【排名總表】
-1. TICKER｜名稱｜分類：相對偏貴/中性/相對偏平｜核心理由：...
+\u3010\u6392\u540D\u7E3D\u8868\u3011
+1. TICKER\uFF5C\u540D\u7A31\uFF5C\u5206\u985E\uFF1A\u76F8\u5C0D\u504F\u8CB4/\u4E2D\u6027/\u76F8\u5C0D\u504F\u5E73\uFF5C\u6838\u5FC3\u7406\u7531\uFF1A...
 2. ...
 
-【逐項分析】
+\u3010\u9010\u9805\u5206\u6790\u3011
 1. TICKER
-   - 估值/成本：...
-   - 30日走勢/動能：...
-   - 持倉影響：...
-   - 風險與觀察：...
+   - \u4F30\u503C/\u6210\u672C\uFF1A...
+   - 30\u65E5\u8D70\u52E2/\u52D5\u80FD\uFF1A...
+   - \u6301\u5009\u5F71\u97FF\uFF1A...
+   - \u98A8\u96AA\u8207\u89C0\u5BDF\uFF1A...
 
-【行動優先次序】
+\u3010\u884C\u52D5\u512A\u5148\u6B21\u5E8F\u3011
 1. ...
 2. ...
 
@@ -1403,52 +1403,52 @@ function buildGeneralQuestionTimeoutFallback(request, intent, searchResult) {
   const totalValueHKD = request.totalValueHKD || sorted.reduce((sum, holding) => sum + holding.marketValueHKD, 0);
   const topHoldings = sorted.slice(0, 10);
   const sourceFacts = searchResult?.externalEvidence?.flatMap((source) => [
-    `${source.sourceTitle}${source.publishedDate ? `（${source.publishedDate}）` : ""}`,
+    `${source.sourceTitle}${source.publishedDate ? `\uFF08${source.publishedDate}\uFF09` : ""}`,
     ...source.keyFacts,
     ...source.keyFigures
   ]).filter(Boolean).slice(0, 12) ?? [];
-  const externalStatus = searchResult?.status === "ok" ? "外部資料已取得" : searchResult ? "外部資料只取得部分或搜尋失敗" : "今次問題未取得外部資料";
+  const externalStatus = searchResult?.status === "ok" ? "\u5916\u90E8\u8CC7\u6599\u5DF2\u53D6\u5F97" : searchResult ? "\u5916\u90E8\u8CC7\u6599\u53EA\u53D6\u5F97\u90E8\u5206\u6216\u641C\u5C0B\u5931\u6557" : "\u4ECA\u6B21\u554F\u984C\u672A\u53D6\u5F97\u5916\u90E8\u8CC7\u6599";
   const holdingLines = topHoldings.map((holding, index) => {
     const weight = totalValueHKD > 0 ? holding.marketValueHKD / totalValueHKD * 100 : 0;
     const gainLoss = holding.marketValueHKD - holding.costValueHKD;
     const gainLossPct = holding.costValueHKD > 0 ? gainLoss / holding.costValueHKD * 100 : 0;
-    return `${index + 1}. ${holding.ticker}｜${holding.name}｜市值 ${formatCurrencyRounded(
+    return `${index + 1}. ${holding.ticker}\uFF5C${holding.name}\uFF5C\u5E02\u503C ${formatCurrencyRounded(
       holding.marketValueHKD,
       "HKD"
-    )}｜佔比 ${weight.toFixed(1)}%｜帳面 ${gainLoss >= 0 ? "+" : ""}${formatCurrencyRounded(
+    )}\uFF5C\u4F54\u6BD4 ${weight.toFixed(1)}%\uFF5C\u5E33\u9762 ${gainLoss >= 0 ? "+" : ""}${formatCurrencyRounded(
       gainLoss,
       "HKD"
-    )}（${gainLossPct.toFixed(1)}%）`;
+    )}\uFF08${gainLossPct.toFixed(1)}%\uFF09`;
   });
   const answer = [
-    `一句話結論：分析模型今次回應超時，但 ${externalStatus}；以下先用已同步持倉同已取得資料提供臨時版本，避免一般分析完全不可用。`,
+    `\u4E00\u53E5\u8A71\u7D50\u8AD6\uFF1A\u5206\u6790\u6A21\u578B\u4ECA\u6B21\u56DE\u61C9\u8D85\u6642\uFF0C\u4F46 ${externalStatus}\uFF1B\u4EE5\u4E0B\u5148\u7528\u5DF2\u540C\u6B65\u6301\u5009\u540C\u5DF2\u53D6\u5F97\u8CC7\u6599\u63D0\u4F9B\u81E8\u6642\u7248\u672C\uFF0C\u907F\u514D\u4E00\u822C\u5206\u6790\u5B8C\u5168\u4E0D\u53EF\u7528\u3002`,
     "",
-    "【外部資料狀態】",
-    searchResult?.summary?.trim() || "未能穩定取得最新外部摘要；不應把以下內容當成完整最新市場研究。",
+    "\u3010\u5916\u90E8\u8CC7\u6599\u72C0\u614B\u3011",
+    searchResult?.summary?.trim() || "\u672A\u80FD\u7A69\u5B9A\u53D6\u5F97\u6700\u65B0\u5916\u90E8\u6458\u8981\uFF1B\u4E0D\u61C9\u628A\u4EE5\u4E0B\u5167\u5BB9\u7576\u6210\u5B8C\u6574\u6700\u65B0\u5E02\u5834\u7814\u7A76\u3002",
     ...sourceFacts.map((fact) => `- ${fact}`),
     "",
-    "【持倉快照】",
+    "\u3010\u6301\u5009\u5FEB\u7167\u3011",
     ...holdingLines,
     "",
-    "【臨時處理方向】",
-    "1. 先用市值佔比排序，集中處理最大持倉及帳面波動最大的股票。",
-    "2. 涉及最新財報、新聞或估值排名時，要等主模型正常完成後再作最終排序。",
-    "3. 如果要即時再試，建議縮窄到 3-5 隻 ticker，或先用 Claude 模型產生完整版本。"
+    "\u3010\u81E8\u6642\u8655\u7406\u65B9\u5411\u3011",
+    "1. \u5148\u7528\u5E02\u503C\u4F54\u6BD4\u6392\u5E8F\uFF0C\u96C6\u4E2D\u8655\u7406\u6700\u5927\u6301\u5009\u53CA\u5E33\u9762\u6CE2\u52D5\u6700\u5927\u7684\u80A1\u7968\u3002",
+    "2. \u6D89\u53CA\u6700\u65B0\u8CA1\u5831\u3001\u65B0\u805E\u6216\u4F30\u503C\u6392\u540D\u6642\uFF0C\u8981\u7B49\u4E3B\u6A21\u578B\u6B63\u5E38\u5B8C\u6210\u5F8C\u518D\u4F5C\u6700\u7D42\u6392\u5E8F\u3002",
+    "3. \u5982\u679C\u8981\u5373\u6642\u518D\u8A66\uFF0C\u5EFA\u8B70\u7E2E\u7A84\u5230 3-5 \u96BB ticker\uFF0C\u6216\u5148\u7528 Claude \u6A21\u578B\u7522\u751F\u5B8C\u6574\u7248\u672C\u3002"
   ].filter(Boolean).join("\n");
   return {
     answer,
     usedPortfolioFacts: [
-      `總市值約 ${formatCurrencyRounded(totalValueHKD, "HKD")}`,
-      `持倉數量 ${request.holdings.length} 項`,
-      ...topHoldings.slice(0, 5).map((holding) => `${holding.ticker} 市值約 ${formatCurrencyRounded(holding.marketValueHKD, "HKD")}`)
+      `\u7E3D\u5E02\u503C\u7D04 ${formatCurrencyRounded(totalValueHKD, "HKD")}`,
+      `\u6301\u5009\u6578\u91CF ${request.holdings.length} \u9805`,
+      ...topHoldings.slice(0, 5).map((holding) => `${holding.ticker} \u5E02\u503C\u7D04 ${formatCurrencyRounded(holding.marketValueHKD, "HKD")}`)
     ],
     uncertainty: [
-      "分析模型回應超時，系統已回傳臨時答案，未完成深度推理或最終排名。",
-      searchResult?.status === "ok" ? "外部搜尋資料已取得，但主模型未能在時限內消化完整資料。" : "最新外部資料不完整或搜尋失敗，臨時答案主要依賴目前持倉資料。"
+      "\u5206\u6790\u6A21\u578B\u56DE\u61C9\u8D85\u6642\uFF0C\u7CFB\u7D71\u5DF2\u56DE\u50B3\u81E8\u6642\u7B54\u6848\uFF0C\u672A\u5B8C\u6210\u6DF1\u5EA6\u63A8\u7406\u6216\u6700\u7D42\u6392\u540D\u3002",
+      searchResult?.status === "ok" ? "\u5916\u90E8\u641C\u5C0B\u8CC7\u6599\u5DF2\u53D6\u5F97\uFF0C\u4F46\u4E3B\u6A21\u578B\u672A\u80FD\u5728\u6642\u9650\u5167\u6D88\u5316\u5B8C\u6574\u8CC7\u6599\u3002" : "\u6700\u65B0\u5916\u90E8\u8CC7\u6599\u4E0D\u5B8C\u6574\u6216\u641C\u5C0B\u5931\u6557\uFF0C\u81E8\u6642\u7B54\u6848\u4E3B\u8981\u4F9D\u8CF4\u76EE\u524D\u6301\u5009\u8CC7\u6599\u3002"
     ],
     suggestedActions: [
-      "重新提交時可先縮窄股票範圍，降低單次分析時間。",
-      "如需要完整最新市場排序，可改用 Claude 或分批問每 3-5 隻股票。"
+      "\u91CD\u65B0\u63D0\u4EA4\u6642\u53EF\u5148\u7E2E\u7A84\u80A1\u7968\u7BC4\u570D\uFF0C\u964D\u4F4E\u55AE\u6B21\u5206\u6790\u6642\u9593\u3002",
+      "\u5982\u9700\u8981\u5B8C\u6574\u6700\u65B0\u5E02\u5834\u6392\u5E8F\uFF0C\u53EF\u6539\u7528 Claude \u6216\u5206\u6279\u554F\u6BCF 3-5 \u96BB\u80A1\u7968\u3002"
     ]
   };
 }
@@ -1639,8 +1639,8 @@ ${rewritePrompt}`,
           throw error;
         }
         finalQualityFailures = [
-          ...quality.failures.map((failure) => `原回答質檢需留意：${failure}`),
-          "質檢重寫回應超時，已保留第一版可用回答。"
+          ...quality.failures.map((failure) => `\u539F\u56DE\u7B54\u8CEA\u6AA2\u9700\u7559\u610F\uFF1A${failure}`),
+          "\u8CEA\u6AA2\u91CD\u5BEB\u56DE\u61C9\u8D85\u6642\uFF0C\u5DF2\u4FDD\u7559\u7B2C\u4E00\u7248\u53EF\u7528\u56DE\u7B54\u3002"
         ];
       }
     }
@@ -1666,6 +1666,7 @@ ${rewritePrompt}`,
     externalSearchStatus: searchResult ? searchResult.fromCache ? "cached" : searchResult.status : "not_needed"
   } : void 0;
   const modelRegistry = MODEL_REGISTRY;
+  void modelRegistry;
   return {
     ok: true,
     route: ANALYZE_ROUTE,

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { formatCurrencyRounded, getAccountSourceLabel, getAssetTypeLabel } from '../../data/mockPortfolio';
+import { getHongKongDateKey } from '../../lib/dates';
 import type { AccountSource, AssetTransactionEntry, Holding } from '../../types/portfolio';
 
 interface AssetTransactionFormProps {
@@ -43,7 +44,7 @@ export function AssetTransactionForm({
     String(initialValue?.price ?? holding.currentPrice ?? holding.averageCost ?? ''),
   );
   const [fees, setFees] = useState(String(initialValue?.fees ?? 0));
-  const [date, setDate] = useState(() => initialValue?.date ?? new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => initialValue?.date ?? getHongKongDateKey());
   const [note, setNote] = useState(initialValue?.note ?? '');
 
   useEffect(() => {
@@ -54,7 +55,7 @@ export function AssetTransactionForm({
     setQuantity(initialValue?.quantity != null ? String(initialValue.quantity) : '');
     setPrice(String(initialValue?.price ?? holding.currentPrice ?? holding.averageCost ?? ''));
     setFees(String(initialValue?.fees ?? 0));
-    setDate(initialValue?.date ?? new Date().toISOString().slice(0, 10));
+    setDate(initialValue?.date ?? getHongKongDateKey());
     setNote(initialValue?.note ?? '');
   }, [
     holding.id,

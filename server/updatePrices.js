@@ -1,813 +1,793 @@
-import YahooFinance from 'yahoo-finance2';
-import { getCrumbClear } from 'yahoo-finance2/lib/getCrumb';
-import { FieldValue } from 'firebase-admin/firestore';
-import { getFirebaseAdminDb, getSharedCoinGeckoCoinIdCacheDocRef, getSharedCoinGeckoCoinIdCacheDocRefs, getSharedCoinGeckoCoinIdOverrideDocRef, getSharedCoinGeckoCoinIdOverrideDocRefs, } from './firebaseAdmin.js';
-import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
-import { getAnomalyThreshold, detectHistoricalAnomaly } from './priceAnomalyDetection.js';
-import { withRetry } from './retry.js';
-const UPDATE_PRICES_ROUTE = '/api/update-prices';
+import YahooFinance from "yahoo-finance2";
+import { getCrumbClear } from "yahoo-finance2/lib/getCrumb";
+import { FieldValue } from "firebase-admin/firestore";
+import {
+  getFirebaseAdminDb,
+  getSharedCoinGeckoCoinIdCacheDocRef,
+  getSharedCoinGeckoCoinIdCacheDocRefs,
+  getSharedCoinGeckoCoinIdOverrideDocRef,
+  getSharedCoinGeckoCoinIdOverrideDocRefs
+} from "./firebaseAdmin.js";
+import { getAnomalyThreshold } from "./priceAnomalyDetection.js";
+import { detectHistoricalAnomaly } from "./priceAnomalyDetection.js";
+import { QUOTE_FRESHNESS_WINDOW_MS } from "./priceFreshness.js";
+import { withRetry } from "./retry.js";
+const UPDATE_PRICES_ROUTE = "/api/update-prices";
 const DEFAULT_FX_RATES = {
-    USD: 7.8,
-    JPY: 0.052,
-    HKD: 1,
+  USD: 7.8,
+  JPY: 0.052,
+  HKD: 1
 };
-const YAHOO_SOURCE_NAME = 'Yahoo Finance';
-const YAHOO_SOURCE_URL = 'https://finance.yahoo.com';
-const COINGECKO_SOURCE_NAME = 'CoinGecko';
-const COINGECKO_SOURCE_URL = 'https://www.coingecko.com';
-const COINGECKO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const YAHOO_SOURCE_NAME = "Yahoo Finance";
+const YAHOO_SOURCE_URL = "https://finance.yahoo.com";
+const COINGECKO_SOURCE_NAME = "CoinGecko";
+const COINGECKO_SOURCE_URL = "https://www.coingecko.com";
+const COINGECKO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1e3;
 const COINGECKO_SEARCH_MIN_INTERVAL_MS = 2100;
-const YAHOO_PRICE_TIMEOUT_MS = 12000;
-const YAHOO_SINGLE_PRICE_TIMEOUT_MS = 8000;
-const YAHOO_FX_TIMEOUT_MS = 12000;
-const AI_PRICE_FALLBACK_TIMEOUT_MS = 10000;
-const AI_PRICE_FALLBACK_MAX_ASSETS_ENV = Number.parseInt(process.env.AI_PRICE_FALLBACK_MAX_ASSETS ?? '3', 10);
-const AI_PRICE_FALLBACK_MAX_ASSETS = Math.max(0, Number.isFinite(AI_PRICE_FALLBACK_MAX_ASSETS_ENV) ? AI_PRICE_FALLBACK_MAX_ASSETS_ENV : 3);
-const AI_PRICE_FALLBACK_MODEL = process.env.AI_PRICE_FALLBACK_MODEL?.trim() ||
-    process.env.GROUNDED_GEMINI_MODEL?.trim() ||
-    'gemini-2.5-flash';
+const YAHOO_PRICE_TIMEOUT_MS = 12e3;
+const YAHOO_SINGLE_PRICE_TIMEOUT_MS = 8e3;
+const YAHOO_FX_TIMEOUT_MS = 12e3;
+const AI_PRICE_FALLBACK_TIMEOUT_MS = 1e4;
+const AI_PRICE_FALLBACK_MAX_ASSETS_ENV = Number.parseInt(
+  process.env.AI_PRICE_FALLBACK_MAX_ASSETS ?? "3",
+  10
+);
+const AI_PRICE_FALLBACK_MAX_ASSETS = Math.max(
+  0,
+  Number.isFinite(AI_PRICE_FALLBACK_MAX_ASSETS_ENV) ? AI_PRICE_FALLBACK_MAX_ASSETS_ENV : 3
+);
+const AI_PRICE_FALLBACK_MODEL = process.env.AI_PRICE_FALLBACK_MODEL?.trim() || process.env.GROUNDED_GEMINI_MODEL?.trim() || "gemini-2.5-flash";
 const yahooFinanceClient = new YahooFinance();
 const LEGACY_COIN_GECKO_ID_OVERRIDES = {
-    ASTER: { coinId: 'aster-2' },
-    ATONE: { coinId: 'atomone' },
-    NIGHT: { coinId: 'midnight-3' },
+  ASTER: { coinId: "aster-2" },
+  ATONE: { coinId: "atomone" },
+  NIGHT: { coinId: "midnight-3" }
 };
-function normalizeCoinGeckoOverrideEntry(ticker, value) {
-    const coinId = readStringValue(value.coinId)?.trim();
-    if (!coinId) {
-        return null;
-    }
-    const coinSymbol = readStringValue(value.coinSymbol)?.trim() || ticker;
-    const coinName = readStringValue(value.coinName)?.trim() || ticker;
-    const marketCapRank = typeof value.marketCapRank === 'number' && Number.isFinite(value.marketCapRank)
-        ? value.marketCapRank
-        : null;
-    return {
-        ticker,
-        coinId,
-        coinSymbol,
-        coinName,
-        marketCapRank,
-    };
-}
 function readStringValue(value) {
-    return typeof value === 'string' ? value : null;
+  return typeof value === "string" ? value : null;
 }
 function readPositiveNumber(value) {
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 function readDateValue(value) {
-    if (value instanceof Date && !Number.isNaN(value.getTime())) {
-        return value.toISOString();
-    }
-    if (typeof value === 'string') {
-        const parsed = new Date(value);
-        return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-    }
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        const parsed = new Date(value);
-        return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-    }
-    return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  return null;
 }
 function normalizeCoinGeckoTicker(ticker) {
-    return ticker.trim().toUpperCase();
+  return ticker.trim().toUpperCase();
 }
-function createCacheEntryFromOverride(ticker, override) {
-    return createCoinGeckoCacheEntry({
-        ticker,
-        coinId: override.coinId,
-        coinSymbol: override.coinSymbol,
-        coinName: override.coinName,
-        marketCapRank: override.marketCapRank,
-        source: 'override',
-    });
+function normalizeCoinGeckoOverrideEntry(ticker, value) {
+  const coinId = readStringValue(value.coinId)?.trim();
+  if (!coinId) {
+    return null;
+  }
+  const coinSymbol = readStringValue(value.coinSymbol)?.trim() || ticker;
+  const coinName = readStringValue(value.coinName)?.trim() || ticker;
+  const marketCapRank = typeof value.marketCapRank === "number" && Number.isFinite(value.marketCapRank) ? value.marketCapRank : null;
+  return {
+    ticker,
+    coinId,
+    coinSymbol,
+    coinName,
+    marketCapRank
+  };
 }
 function parseCoinGeckoCacheExpiry(value) {
-    if (typeof value !== 'string') {
-        return null;
-    }
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (typeof value !== "string") {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 function serializeCoinGeckoCacheEntry(entry) {
-    return {
-        ticker: entry.ticker,
-        coinId: entry.coinId,
-        coinSymbol: entry.coinSymbol,
-        coinName: entry.coinName,
-        marketCapRank: entry.marketCapRank,
-        source: entry.source,
-        updatedAt: entry.updatedAt,
-        expiresAt: entry.expiresAt,
-    };
+  return {
+    ticker: entry.ticker,
+    coinId: entry.coinId,
+    coinSymbol: entry.coinSymbol,
+    coinName: entry.coinName,
+    marketCapRank: entry.marketCapRank,
+    source: entry.source,
+    updatedAt: entry.updatedAt,
+    expiresAt: entry.expiresAt
+  };
+}
+function createCacheEntryFromOverride(ticker, override) {
+  return createCoinGeckoCacheEntry({
+    ticker,
+    coinId: override.coinId,
+    coinSymbol: override.coinSymbol,
+    coinName: override.coinName,
+    marketCapRank: override.marketCapRank,
+    source: "override"
+  });
 }
 function normalizeCoinGeckoCacheEntry(ticker, value) {
-    const coinId = readStringValue(value.coinId)?.trim();
-    const coinSymbol = readStringValue(value.coinSymbol)?.trim();
-    const coinName = readStringValue(value.coinName)?.trim();
-    const source = value.source === 'override' || value.source === 'search' ? value.source : null;
-    const updatedAt = readDateValue(value.updatedAt);
-    const expiresAt = readDateValue(value.expiresAt);
-    const marketCapRank = typeof value.marketCapRank === 'number' && Number.isFinite(value.marketCapRank)
-        ? value.marketCapRank
-        : null;
-    if (!coinId || !coinSymbol || !coinName || !source || !updatedAt || !expiresAt) {
-        return null;
-    }
-    return {
-        ticker,
-        coinId,
-        coinSymbol,
-        coinName,
-        marketCapRank,
-        source,
-        updatedAt,
-        expiresAt,
-    };
+  const coinId = readStringValue(value.coinId)?.trim();
+  const coinSymbol = readStringValue(value.coinSymbol)?.trim();
+  const coinName = readStringValue(value.coinName)?.trim();
+  const source = value.source === "override" || value.source === "search" ? value.source : null;
+  const updatedAt = readDateValue(value.updatedAt);
+  const expiresAt = readDateValue(value.expiresAt);
+  const marketCapRank = typeof value.marketCapRank === "number" && Number.isFinite(value.marketCapRank) ? value.marketCapRank : null;
+  if (!coinId || !coinSymbol || !coinName || !source || !updatedAt || !expiresAt) {
+    return null;
+  }
+  return {
+    ticker,
+    coinId,
+    coinSymbol,
+    coinName,
+    marketCapRank,
+    source,
+    updatedAt,
+    expiresAt
+  };
 }
-export function isFreshCoinGeckoCacheEntry(entry) {
-    const parsedExpiresAt = parseCoinGeckoCacheExpiry(entry.expiresAt);
-    return parsedExpiresAt ? parsedExpiresAt.getTime() > Date.now() : false;
+function isFreshCoinGeckoCacheEntry(entry) {
+  const parsedExpiresAt = parseCoinGeckoCacheExpiry(entry.expiresAt);
+  return parsedExpiresAt ? parsedExpiresAt.getTime() > Date.now() : false;
 }
 function isCacheOverride(entry) {
-    return entry.source === 'override';
+  return entry.source === "override";
 }
 function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
-export async function readCoinGeckoCacheEntries(tickers) {
-    if (tickers.length === 0) {
-        return new Map();
+async function readCoinGeckoCacheEntries(tickers) {
+  if (tickers.length === 0) {
+    return /* @__PURE__ */ new Map();
+  }
+  const db = getFirebaseAdminDb();
+  const docRefs = getSharedCoinGeckoCoinIdCacheDocRefs(tickers);
+  const snapshots = await db.getAll(...docRefs);
+  const cacheEntries = /* @__PURE__ */ new Map();
+  snapshots.forEach((snapshot, index) => {
+    if (!snapshot.exists) {
+      return;
     }
-    const db = getFirebaseAdminDb();
-    const docRefs = getSharedCoinGeckoCoinIdCacheDocRefs(tickers);
-    const snapshots = await db.getAll(...docRefs);
-    const cacheEntries = new Map();
-    snapshots.forEach((snapshot, index) => {
-        if (!snapshot.exists) {
-            return;
-        }
-        const ticker = normalizeCoinGeckoTicker(tickers[index] ?? '');
-        const cached = normalizeCoinGeckoCacheEntry(ticker, snapshot.data());
-        if (cached) {
-            cacheEntries.set(ticker, cached);
-        }
-    });
-    return cacheEntries;
+    const ticker = normalizeCoinGeckoTicker(tickers[index] ?? "");
+    const cached = normalizeCoinGeckoCacheEntry(
+      ticker,
+      snapshot.data()
+    );
+    if (cached) {
+      cacheEntries.set(ticker, cached);
+    }
+  });
+  return cacheEntries;
 }
-const coinGeckoCoinIdMemoryCache = new Map();
+const coinGeckoCoinIdMemoryCache = /* @__PURE__ */ new Map();
 let lastCoinGeckoSearchAt = 0;
 async function throttleCoinGeckoSearch() {
-    const elapsed = Date.now() - lastCoinGeckoSearchAt;
+  const elapsed = Date.now() - lastCoinGeckoSearchAt;
+  if (elapsed < COINGECKO_SEARCH_MIN_INTERVAL_MS) {
+    await sleep(COINGECKO_SEARCH_MIN_INTERVAL_MS - elapsed);
+  }
+  lastCoinGeckoSearchAt = Date.now();
+}
+async function throttleCoinGeckoSearchDistributed() {
+  try {
+    const db = getFirebaseAdminDb();
+    const ref = db.collection("portfolio").doc("app").collection("coinGeckoThrottle").doc("state");
+    const doc = await ref.get();
+    const remoteLast = doc.exists ? doc.data()?.lastRequestAt?.toMillis?.() ?? 0 : 0;
+    const lastAt = Math.max(lastCoinGeckoSearchAt, remoteLast + 500);
+    const elapsed = Date.now() - lastAt;
     if (elapsed < COINGECKO_SEARCH_MIN_INTERVAL_MS) {
-        await sleep(COINGECKO_SEARCH_MIN_INTERVAL_MS - elapsed);
+      await sleep(COINGECKO_SEARCH_MIN_INTERVAL_MS - elapsed);
     }
     lastCoinGeckoSearchAt = Date.now();
-}
-/** P0-4: Distributed CoinGecko throttle — persists last request time to Firestore. */
-async function throttleCoinGeckoSearchDistributed() {
-    try {
-        const db = getFirebaseAdminDb();
-        const ref = db.collection('portfolio').doc('app').collection('coinGeckoThrottle').doc('state');
-        const doc = await ref.get();
-        const remoteLast = doc.exists ? (doc.data()?.lastRequestAt?.toMillis?.() ?? 0) : 0;
-        const lastAt = Math.max(lastCoinGeckoSearchAt, remoteLast + 500);
-        const elapsed = Date.now() - lastAt;
-        if (elapsed < COINGECKO_SEARCH_MIN_INTERVAL_MS) {
-            await sleep(COINGECKO_SEARCH_MIN_INTERVAL_MS - elapsed);
-        }
-        lastCoinGeckoSearchAt = Date.now();
-        // Write back without awaiting — best-effort persistence
-        ref.set({ lastRequestAt: FieldValue.serverTimestamp() }, { merge: true }).catch((err) =>
-            console.warn('[coingecko throttle] persist failed:', err instanceof Error ? err.message : String(err))
-        );
-    } catch (err) {
-        console.warn('[coingecko throttle] fallback to in-memory:', err instanceof Error ? err.message : String(err));
-        await throttleCoinGeckoSearch();
-    }
+    ref.set({ lastRequestAt: FieldValue.serverTimestamp() }, { merge: true }).catch(
+      (err) => console.warn("[coingecko throttle] persist failed:", err)
+    );
+  } catch (err) {
+    console.warn("[coingecko throttle] fallback to in-memory:", err instanceof Error ? err.message : String(err));
+    await throttleCoinGeckoSearch();
+  }
 }
 function pickBestCoinGeckoSearchCoin(coins, ticker) {
-    if (coins.length === 0) {
-        return null;
+  if (coins.length === 0) {
+    return null;
+  }
+  const normalizedTicker = normalizeCoinGeckoTicker(ticker);
+  const exactMatches = coins.filter(
+    (coin) => normalizeCoinGeckoTicker(coin.symbol) === normalizedTicker
+  );
+  const candidates = exactMatches.length > 0 ? exactMatches : coins;
+  return [...candidates].sort((left, right) => {
+    const leftRank = typeof left.market_cap_rank === "number" ? left.market_cap_rank : Number.POSITIVE_INFINITY;
+    const rightRank = typeof right.market_cap_rank === "number" ? right.market_cap_rank : Number.POSITIVE_INFINITY;
+    if (leftRank !== rightRank) {
+      return leftRank - rightRank;
     }
-    const normalizedTicker = normalizeCoinGeckoTicker(ticker);
-    const exactMatches = coins.filter((coin) => normalizeCoinGeckoTicker(coin.symbol) === normalizedTicker);
-    const candidates = exactMatches.length > 0 ? exactMatches : coins;
-    return [...candidates].sort((left, right) => {
-        const leftRank = typeof left.market_cap_rank === 'number' ? left.market_cap_rank : Number.POSITIVE_INFINITY;
-        const rightRank = typeof right.market_cap_rank === 'number' ? right.market_cap_rank : Number.POSITIVE_INFINITY;
-        if (leftRank !== rightRank) {
-            return leftRank - rightRank;
-        }
-        const leftSymbolMatch = normalizeCoinGeckoTicker(left.symbol) === normalizedTicker ? 0 : 1;
-        const rightSymbolMatch = normalizeCoinGeckoTicker(right.symbol) === normalizedTicker ? 0 : 1;
-        if (leftSymbolMatch !== rightSymbolMatch) {
-            return leftSymbolMatch - rightSymbolMatch;
-        }
-        return left.id.localeCompare(right.id);
-    })[0] ?? null;
+    const leftSymbolMatch = normalizeCoinGeckoTicker(left.symbol) === normalizedTicker ? 0 : 1;
+    const rightSymbolMatch = normalizeCoinGeckoTicker(right.symbol) === normalizedTicker ? 0 : 1;
+    if (leftSymbolMatch !== rightSymbolMatch) {
+      return leftSymbolMatch - rightSymbolMatch;
+    }
+    return left.id.localeCompare(right.id);
+  })[0] ?? null;
 }
 async function readCoinGeckoCacheEntry(ticker) {
-    try {
-        const docRef = getSharedCoinGeckoCoinIdCacheDocRef(ticker);
-        const snapshot = await docRef.get();
-        if (!snapshot.exists) {
-            return null;
-        }
-        const cached = normalizeCoinGeckoCacheEntry(normalizeCoinGeckoTicker(ticker), snapshot.data());
-        if (cached) {
-            coinGeckoCoinIdMemoryCache.set(cached.ticker, cached);
-        }
-        return cached;
+  try {
+    const docRef = getSharedCoinGeckoCoinIdCacheDocRef(ticker);
+    const snapshot = await docRef.get();
+    if (!snapshot.exists) {
+      return null;
     }
-    catch (error) {
-        console.warn(`Failed to read CoinGecko coin id cache for ${ticker}.`, error);
-        return null;
-    }
-}
-const coinGeckoOverrideMemoryCache = new Map();
-async function readCoinGeckoOverrideEntry(ticker) {
-    const normalizedTicker = normalizeCoinGeckoTicker(ticker);
-    const cached = coinGeckoOverrideMemoryCache.get(normalizedTicker);
+    const cached = normalizeCoinGeckoCacheEntry(
+      normalizeCoinGeckoTicker(ticker),
+      snapshot.data()
+    );
     if (cached) {
-        return cached;
+      coinGeckoCoinIdMemoryCache.set(cached.ticker, cached);
     }
-    try {
-        const docRef = getSharedCoinGeckoCoinIdOverrideDocRef(normalizedTicker);
-        const snapshot = await docRef.get();
-        if (!snapshot.exists) {
-            const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker];
-            if (!legacy) {
-                return null;
-            }
-            return {
-                ticker: normalizedTicker,
-                coinId: legacy.coinId,
-                coinSymbol: normalizedTicker,
-                coinName: normalizedTicker,
-                marketCapRank: null,
-            };
-        }
-        const override = normalizeCoinGeckoOverrideEntry(normalizedTicker, snapshot.data());
-        if (override) {
-            coinGeckoOverrideMemoryCache.set(normalizedTicker, override);
-        }
-        return override;
+    return cached;
+  } catch (error) {
+    console.warn(`Failed to read CoinGecko coin id cache for ${ticker}.`, error);
+    return null;
+  }
+}
+const coinGeckoOverrideMemoryCache = /* @__PURE__ */ new Map();
+async function readCoinGeckoOverrideEntry(ticker) {
+  const normalizedTicker = normalizeCoinGeckoTicker(ticker);
+  const cached = coinGeckoOverrideMemoryCache.get(normalizedTicker);
+  if (cached) {
+    return cached;
+  }
+  try {
+    const docRef = getSharedCoinGeckoCoinIdOverrideDocRef(normalizedTicker);
+    const snapshot = await docRef.get();
+    if (!snapshot.exists) {
+      const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker];
+      if (!legacy) {
+        return null;
+      }
+      return {
+        ticker: normalizedTicker,
+        coinId: legacy.coinId,
+        coinSymbol: normalizedTicker,
+        coinName: normalizedTicker,
+        marketCapRank: null
+      };
     }
-    catch (error) {
-        console.warn(`Failed to read CoinGecko coin id override for ${normalizedTicker}.`, error);
-        return LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker]
-            ? {
-                ticker: normalizedTicker,
-                coinId: LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker].coinId,
-                coinSymbol: normalizedTicker,
-                coinName: normalizedTicker,
-                marketCapRank: null,
-            }
-            : null;
+    const override = normalizeCoinGeckoOverrideEntry(
+      normalizedTicker,
+      snapshot.data()
+    );
+    if (override) {
+      coinGeckoOverrideMemoryCache.set(normalizedTicker, override);
     }
+    return override;
+  } catch (error) {
+    console.warn(`Failed to read CoinGecko coin id override for ${normalizedTicker}.`, error);
+    return LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker] ? {
+      ticker: normalizedTicker,
+      coinId: LEGACY_COIN_GECKO_ID_OVERRIDES[normalizedTicker].coinId,
+      coinSymbol: normalizedTicker,
+      coinName: normalizedTicker,
+      marketCapRank: null
+    } : null;
+  }
 }
 async function readCoinGeckoOverrideEntries(tickers) {
-    if (tickers.length === 0) {
-        return new Map();
+  if (tickers.length === 0) {
+    return /* @__PURE__ */ new Map();
+  }
+  const normalizedTickers = [...new Set(tickers.map(normalizeCoinGeckoTicker))];
+  const overrideEntries = /* @__PURE__ */ new Map();
+  const missingTickers = [];
+  for (const ticker of normalizedTickers) {
+    const cached = coinGeckoOverrideMemoryCache.get(ticker);
+    if (cached) {
+      overrideEntries.set(ticker, cached);
+      continue;
     }
-    const normalizedTickers = [...new Set(tickers.map(normalizeCoinGeckoTicker))];
-    const overrideEntries = new Map();
-    const missingTickers = [];
-    for (const ticker of normalizedTickers) {
-        const cached = coinGeckoOverrideMemoryCache.get(ticker);
-        if (cached) {
-            overrideEntries.set(ticker, cached);
-            continue;
-        }
-        missingTickers.push(ticker);
-    }
-    if (missingTickers.length === 0) {
-        return overrideEntries;
-    }
-    try {
-        const db = getFirebaseAdminDb();
-        const docRefs = getSharedCoinGeckoCoinIdOverrideDocRefs(missingTickers);
-        const snapshots = await db.getAll(...docRefs);
-        snapshots.forEach((snapshot, index) => {
-            const ticker = missingTickers[index] ?? '';
-            if (!ticker) {
-                return;
-            }
-            if (!snapshot.exists) {
-                const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[ticker];
-                if (legacy) {
-                    const fallback = {
-                        ticker,
-                        coinId: legacy.coinId,
-                        coinSymbol: ticker,
-                        coinName: ticker,
-                        marketCapRank: null,
-                    };
-                    overrideEntries.set(ticker, fallback);
-                }
-                return;
-            }
-            const override = normalizeCoinGeckoOverrideEntry(ticker, snapshot.data());
-            if (override) {
-                coinGeckoOverrideMemoryCache.set(ticker, override);
-                overrideEntries.set(ticker, override);
-            }
-        });
-    }
-    catch (error) {
-        console.warn('Failed to read CoinGecko override entries.', error);
-        for (const ticker of missingTickers) {
-            const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[ticker];
-            if (!legacy) {
-                continue;
-            }
-            overrideEntries.set(ticker, {
-                ticker,
-                coinId: legacy.coinId,
-                coinSymbol: ticker,
-                coinName: ticker,
-                marketCapRank: null,
-            });
-        }
-    }
+    missingTickers.push(ticker);
+  }
+  if (missingTickers.length === 0) {
     return overrideEntries;
+  }
+  try {
+    const db = getFirebaseAdminDb();
+    const docRefs = getSharedCoinGeckoCoinIdOverrideDocRefs(missingTickers);
+    const snapshots = await db.getAll(...docRefs);
+    snapshots.forEach((snapshot, index) => {
+      const ticker = missingTickers[index] ?? "";
+      if (!ticker) {
+        return;
+      }
+      if (!snapshot.exists) {
+        const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[ticker];
+        if (legacy) {
+          const fallback = {
+            ticker,
+            coinId: legacy.coinId,
+            coinSymbol: ticker,
+            coinName: ticker,
+            marketCapRank: null
+          };
+          overrideEntries.set(ticker, fallback);
+        }
+        return;
+      }
+      const override = normalizeCoinGeckoOverrideEntry(ticker, snapshot.data());
+      if (override) {
+        coinGeckoOverrideMemoryCache.set(ticker, override);
+        overrideEntries.set(ticker, override);
+      }
+    });
+  } catch (error) {
+    console.warn("Failed to read CoinGecko override entries.", error);
+    for (const ticker of missingTickers) {
+      const legacy = LEGACY_COIN_GECKO_ID_OVERRIDES[ticker];
+      if (!legacy) {
+        continue;
+      }
+      overrideEntries.set(ticker, {
+        ticker,
+        coinId: legacy.coinId,
+        coinSymbol: ticker,
+        coinName: ticker,
+        marketCapRank: null
+      });
+    }
+  }
+  return overrideEntries;
 }
 async function writeCoinGeckoCacheEntry(entry) {
-    try {
-        const docRef = getSharedCoinGeckoCoinIdCacheDocRef(entry.ticker);
-        await docRef.set(serializeCoinGeckoCacheEntry(entry), { merge: true });
-        coinGeckoCoinIdMemoryCache.set(entry.ticker, entry);
-    }
-    catch (error) {
-        console.warn(`Failed to write CoinGecko coin id cache for ${entry.ticker}.`, error);
-    }
+  try {
+    const docRef = getSharedCoinGeckoCoinIdCacheDocRef(entry.ticker);
+    await docRef.set(serializeCoinGeckoCacheEntry(entry), { merge: true });
+    coinGeckoCoinIdMemoryCache.set(entry.ticker, entry);
+  } catch (error) {
+    console.warn(`Failed to write CoinGecko coin id cache for ${entry.ticker}.`, error);
+  }
 }
 function createCoinGeckoCacheEntry(params) {
-    const now = new Date();
-    return {
-        ticker: normalizeCoinGeckoTicker(params.ticker),
-        coinId: params.coinId,
-        coinSymbol: params.coinSymbol,
-        coinName: params.coinName,
-        marketCapRank: params.marketCapRank,
-        source: params.source,
-        updatedAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + COINGECKO_CACHE_TTL_MS).toISOString(),
-    };
+  const now = /* @__PURE__ */ new Date();
+  return {
+    ticker: normalizeCoinGeckoTicker(params.ticker),
+    coinId: params.coinId,
+    coinSymbol: params.coinSymbol,
+    coinName: params.coinName,
+    marketCapRank: params.marketCapRank,
+    source: params.source,
+    updatedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + COINGECKO_CACHE_TTL_MS).toISOString()
+  };
 }
-/**
- * CoinGecko API 配置。
- * COINGECKO_PLAN=demo（預設）→ api.coingecko.com + x-cg-demo-api-key
- * COINGECKO_PLAN=pro        → pro-api.coingecko.com + x-cg-pro-api-key
- */
 function getCoinGeckoConfig() {
-    const plan = (process.env.COINGECKO_PLAN?.trim().toLowerCase() || 'demo');
-    const apiKey = process.env.COINGECKO_API_KEY?.trim();
-    if (plan === 'pro') {
-        if (!apiKey) {
-            throw new Error('COINGECKO_PLAN=pro 但未設定 COINGECKO_API_KEY。請在環境變數中設定 Pro API Key。');
-        }
-        return { baseUrl: 'https://pro-api.coingecko.com/api/v3', headers: { 'x-cg-pro-api-key': apiKey } };
+  const plan = process.env.COINGECKO_PLAN?.trim().toLowerCase() || "demo";
+  const apiKey = process.env.COINGECKO_API_KEY?.trim();
+  if (plan === "pro") {
+    if (!apiKey) {
+      throw new Error(
+        "COINGECKO_PLAN=pro \u4F46\u672A\u8A2D\u5B9A COINGECKO_API_KEY\u3002\u8ACB\u5728\u74B0\u5883\u8B8A\u6578\u4E2D\u8A2D\u5B9A Pro API Key\u3002"
+      );
     }
-    const headers = {};
-    if (apiKey) {
-        headers['x-cg-demo-api-key'] = apiKey;
-    }
-    return { baseUrl: 'https://api.coingecko.com/api/v3', headers };
+    return {
+      baseUrl: "https://pro-api.coingecko.com/api/v3",
+      headers: { "x-cg-pro-api-key": apiKey }
+    };
+  }
+  const headers = {};
+  if (apiKey) {
+    headers["x-cg-demo-api-key"] = apiKey;
+  }
+  return {
+    baseUrl: "https://api.coingecko.com/api/v3",
+    headers
+  };
 }
 async function fetchCoinGeckoSearchCoins(ticker) {
-    const { baseUrl, headers } = getCoinGeckoConfig();
-    const response = await fetch(`${baseUrl}/search?query=${encodeURIComponent(ticker)}`, {
-        headers,
-        signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) {
-        throw new Error(`CoinGecko search HTTP ${response.status}`);
+  const { baseUrl, headers } = getCoinGeckoConfig();
+  const response = await fetch(
+    `${baseUrl}/search?query=${encodeURIComponent(ticker)}`,
+    {
+      headers,
+      signal: AbortSignal.timeout(15e3)
     }
-    const payload = (await response.json());
-    return Array.isArray(payload.coins) ? payload.coins : [];
+  );
+  if (!response.ok) {
+    throw new Error(`CoinGecko search HTTP ${response.status}`);
+  }
+  const payload = await response.json();
+  return Array.isArray(payload.coins) ? payload.coins : [];
 }
 async function fetchCoinGeckoCoinIdFromSearch(ticker) {
-    await throttleCoinGeckoSearchDistributed();
-    const coins = await fetchCoinGeckoSearchCoins(ticker);
-    const bestCoin = pickBestCoinGeckoSearchCoin(coins, ticker);
-    if (!bestCoin) {
-        return null;
-    }
-    return createCoinGeckoCacheEntry({
-        ticker,
-        coinId: bestCoin.id,
-        coinSymbol: bestCoin.symbol.toUpperCase(),
-        coinName: bestCoin.name,
-        marketCapRank: typeof bestCoin.market_cap_rank === 'number' ? bestCoin.market_cap_rank : null,
-        source: 'search',
-    });
+  await throttleCoinGeckoSearchDistributed();
+  const coins = await fetchCoinGeckoSearchCoins(ticker);
+  const bestCoin = pickBestCoinGeckoSearchCoin(coins, ticker);
+  if (!bestCoin) {
+    return null;
+  }
+  return createCoinGeckoCacheEntry({
+    ticker,
+    coinId: bestCoin.id,
+    coinSymbol: bestCoin.symbol.toUpperCase(),
+    coinName: bestCoin.name,
+    marketCapRank: typeof bestCoin.market_cap_rank === "number" ? bestCoin.market_cap_rank : null,
+    source: "search"
+  });
 }
-export async function resolveCoinGeckoCoinId(ticker) {
-    const normalizedTicker = normalizeCoinGeckoTicker(ticker);
-    const override = await readCoinGeckoOverrideEntry(normalizedTicker);
-    if (override) {
-        const entry = createCacheEntryFromOverride(normalizedTicker, override);
-        await writeCoinGeckoCacheEntry(entry);
-        return {
-            entry,
-            status: 'override',
-        };
+async function resolveCoinGeckoCoinId(ticker) {
+  const normalizedTicker = normalizeCoinGeckoTicker(ticker);
+  const override = await readCoinGeckoOverrideEntry(normalizedTicker);
+  if (override) {
+    const entry = createCacheEntryFromOverride(normalizedTicker, override);
+    await writeCoinGeckoCacheEntry(entry);
+    return {
+      entry,
+      status: "override"
+    };
+  }
+  const memoryEntry = coinGeckoCoinIdMemoryCache.get(normalizedTicker);
+  if (memoryEntry && isFreshCoinGeckoCacheEntry(memoryEntry)) {
+    return {
+      entry: memoryEntry,
+      status: memoryEntry.source === "override" ? "override" : "cache"
+    };
+  }
+  const cacheEntry = memoryEntry ?? await readCoinGeckoCacheEntry(normalizedTicker);
+  if (cacheEntry && isFreshCoinGeckoCacheEntry(cacheEntry)) {
+    coinGeckoCoinIdMemoryCache.set(normalizedTicker, cacheEntry);
+    return {
+      entry: cacheEntry,
+      status: cacheEntry.source === "override" ? "override" : "cache"
+    };
+  }
+  try {
+    const resolvedEntry = await fetchCoinGeckoCoinIdFromSearch(normalizedTicker);
+    if (resolvedEntry) {
+      await writeCoinGeckoCacheEntry(resolvedEntry);
+      return {
+        entry: resolvedEntry,
+        status: "search"
+      };
     }
-    const memoryEntry = coinGeckoCoinIdMemoryCache.get(normalizedTicker);
-    if (memoryEntry && isFreshCoinGeckoCacheEntry(memoryEntry)) {
-        return {
-            entry: memoryEntry,
-            status: memoryEntry.source === 'override' ? 'override' : 'cache',
-        };
+    if (cacheEntry) {
+      return {
+        entry: cacheEntry,
+        status: "fallback_cache"
+      };
     }
-    const cacheEntry = memoryEntry ?? (await readCoinGeckoCacheEntry(normalizedTicker));
-    if (cacheEntry && isFreshCoinGeckoCacheEntry(cacheEntry)) {
-        coinGeckoCoinIdMemoryCache.set(normalizedTicker, cacheEntry);
-        return {
-            entry: cacheEntry,
-            status: cacheEntry.source === 'override' ? 'override' : 'cache',
-        };
+    return {
+      entry: null,
+      status: "missing"
+    };
+  } catch (error) {
+    console.warn(`Failed to resolve CoinGecko coin id for ${normalizedTicker}.`, error);
+    if (cacheEntry) {
+      return {
+        entry: cacheEntry,
+        status: "fallback_cache"
+      };
     }
-    try {
-        const resolvedEntry = await fetchCoinGeckoCoinIdFromSearch(normalizedTicker);
-        if (resolvedEntry) {
-            await writeCoinGeckoCacheEntry(resolvedEntry);
-            return {
-                entry: resolvedEntry,
-                status: 'search',
-            };
-        }
-        if (cacheEntry) {
-            return {
-                entry: cacheEntry,
-                status: 'fallback_cache',
-            };
-        }
-        return {
-            entry: null,
-            status: 'missing',
-        };
-    }
-    catch (error) {
-        console.warn(`Failed to resolve CoinGecko coin id for ${normalizedTicker}.`, error);
-        if (cacheEntry) {
-            return {
-                entry: cacheEntry,
-                status: 'fallback_cache',
-            };
-        }
-        return {
-            entry: null,
-            status: 'lookup_failed',
-        };
-    }
+    return {
+      entry: null,
+      status: "lookup_failed"
+    };
+  }
 }
 class UpdatePricesError extends Error {
-    status;
-    constructor(message, status = 500) {
-        super(message);
-        this.name = 'UpdatePricesError';
-        this.status = status;
-    }
+  status;
+  constructor(message, status = 500) {
+    super(message);
+    this.name = "UpdatePricesError";
+    this.status = status;
+  }
 }
 function normalizeAssetType(value) {
-    const normalized = value.trim().toLowerCase();
-    if (normalized === 'stock')
-        return 'stock';
-    if (normalized === 'etf')
-        return 'etf';
-    if (normalized === 'bond')
-        return 'bond';
-    if (normalized === 'crypto')
-        return 'crypto';
-    return 'cash';
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "stock") return "stock";
+  if (normalized === "etf") return "etf";
+  if (normalized === "bond") return "bond";
+  if (normalized === "crypto") return "crypto";
+  return "cash";
 }
 function normalizeAccountSource(value) {
-    return value === 'Futu' || value === 'IB' || value === 'Crypto' || value === 'Other'
-        ? value
-        : undefined;
+  return value === "Futu" || value === "IB" || value === "Crypto" || value === "Other" ? value : void 0;
 }
 function normalizeCurrencyCode(value) {
-    return value?.trim().toUpperCase() || '';
+  return value?.trim().toUpperCase() || "";
 }
 function convertForComparison(amount, fromCurrency, toCurrency, fxRates) {
-    const normalizedFrom = normalizeCurrencyCode(fromCurrency);
-    const normalizedTo = normalizeCurrencyCode(toCurrency);
-    if (!Number.isFinite(amount) || amount <= 0 || !normalizedFrom || !normalizedTo || normalizedFrom === normalizedTo) {
-        return amount;
-    }
-    const fromRate = fxRates[normalizedFrom];
-    const toRate = fxRates[normalizedTo];
-    if (!fromRate || !toRate) {
-        return amount;
-    }
-    const valueInHKD = amount * fromRate;
-    return valueInHKD / toRate;
+  const normalizedFrom = normalizeCurrencyCode(fromCurrency);
+  const normalizedTo = normalizeCurrencyCode(toCurrency);
+  if (!Number.isFinite(amount) || amount <= 0 || !normalizedFrom || !normalizedTo || normalizedFrom === normalizedTo) {
+    return amount;
+  }
+  const fromRate = fxRates[normalizedFrom];
+  const toRate = fxRates[normalizedTo];
+  if (!fromRate || !toRate) {
+    return amount;
+  }
+  const valueInHKD = amount * fromRate;
+  return valueInHKD / toRate;
 }
 function normalizeRequestAsset(asset) {
-    if (typeof asset !== 'object' || asset === null) {
-        return null;
-    }
-    const value = asset;
-    if (typeof value.assetId !== 'string' ||
-        typeof value.assetName !== 'string' ||
-        typeof value.ticker !== 'string' ||
-        typeof value.assetType !== 'string' ||
-        typeof value.currentPrice !== 'number' ||
-        typeof value.currency !== 'string') {
-        return null;
-    }
-    return {
-        assetId: value.assetId,
-        assetName: value.assetName,
-        ticker: value.ticker.trim().toUpperCase(),
-        assetType: normalizeAssetType(value.assetType),
-        accountSource: normalizeAccountSource(value.accountSource),
-        currentPrice: value.currentPrice,
-        currency: value.currency.trim().toUpperCase(),
-    };
+  if (typeof asset !== "object" || asset === null) {
+    return null;
+  }
+  const value = asset;
+  if (typeof value.assetId !== "string" || typeof value.assetName !== "string" || typeof value.ticker !== "string" || typeof value.assetType !== "string" || typeof value.currentPrice !== "number" || typeof value.currency !== "string") {
+    return null;
+  }
+  return {
+    assetId: value.assetId,
+    assetName: value.assetName,
+    ticker: value.ticker.trim().toUpperCase(),
+    assetType: normalizeAssetType(value.assetType),
+    accountSource: normalizeAccountSource(value.accountSource),
+    currentPrice: value.currentPrice,
+    currency: value.currency.trim().toUpperCase()
+  };
 }
 function normalizeRequest(payload) {
-    if (typeof payload !== 'object' ||
-        payload === null ||
-        !('assets' in payload) ||
-        !Array.isArray(payload.assets)) {
-        throw new UpdatePricesError('價格更新請求格式不正確。', 400);
-    }
-    const assets = payload.assets
-        .map((asset) => normalizeRequestAsset(asset))
-        .filter((asset) => asset !== null)
-        .filter((asset) => asset.assetType !== 'cash');
-    if (assets.length === 0) {
-        throw new UpdatePricesError('未提供可更新的資產。', 400);
-    }
-    return { assets };
+  if (typeof payload !== "object" || payload === null || !("assets" in payload) || !Array.isArray(payload.assets)) {
+    throw new UpdatePricesError("\u50F9\u683C\u66F4\u65B0\u8ACB\u6C42\u683C\u5F0F\u4E0D\u6B63\u78BA\u3002", 400);
+  }
+  const assets = payload.assets.map((asset) => normalizeRequestAsset(asset)).filter((asset) => asset !== null).filter((asset) => asset.assetType !== "cash");
+  if (assets.length === 0) {
+    throw new UpdatePricesError("\u672A\u63D0\u4F9B\u53EF\u66F4\u65B0\u7684\u8CC7\u7522\u3002", 400);
+  }
+  return { assets };
 }
 function getReviewThresholdForAsset(assetType) {
-    return getAnomalyThreshold(assetType);
+  return getAnomalyThreshold(assetType);
 }
 function parseAsOf(value) {
-    if (!value) {
-        return null;
-    }
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (!value) {
+    return null;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
-// 報價接受時窗由 server/priceFreshness.js 集中管理，不要在此硬編碼。
-export function getQuoteFreshnessWindowMs(assetType) {
-    return QUOTE_FRESHNESS_WINDOW_MS[assetType] ?? QUOTE_FRESHNESS_WINDOW_MS.stock;
+function getQuoteFreshnessWindowMs(assetType) {
+  return QUOTE_FRESHNESS_WINDOW_MS[assetType] ?? QUOTE_FRESHNESS_WINDOW_MS.stock;
 }
-export function isStaleQuote(asOf, assetType) {
-    const parsed = parseAsOf(asOf);
-    if (!parsed) {
-        return true;
-    }
-    return Date.now() - parsed.getTime() > getQuoteFreshnessWindowMs(assetType);
+function isStaleQuote(asOf, assetType) {
+  const parsed = parseAsOf(asOf);
+  if (!parsed) {
+    return true;
+  }
+  return Date.now() - parsed.getTime() > getQuoteFreshnessWindowMs(assetType);
 }
 function buildInvalidReason(category) {
-    if (category === 'ticker_format')
-        return '代號格式可能有問題，未能準確對應市場報價';
-    if (category === 'quote_time')
-        return 'quote 時間過時，已拒絕使用';
-    if (category === 'source_missing')
-        return '來源不足，未提供可信來源名稱或網址';
-    if (category === 'response_format')
-        return 'API 回傳格式不正確，未能穩定解析';
-    if (category === 'price_missing')
-        return '未取得有效市場價格';
-    if (category === 'diff_too_large')
-        return '價格差距過大，需要人工檢查';
-    return '價格更新失敗，請再檢查';
+  if (category === "ticker_format") return "\u4EE3\u865F\u683C\u5F0F\u53EF\u80FD\u6709\u554F\u984C\uFF0C\u672A\u80FD\u6E96\u78BA\u5C0D\u61C9\u5E02\u5834\u5831\u50F9";
+  if (category === "quote_time") return "quote \u6642\u9593\u904E\u6642\uFF0C\u5DF2\u62D2\u7D55\u4F7F\u7528";
+  if (category === "source_missing") return "\u4F86\u6E90\u4E0D\u8DB3\uFF0C\u672A\u63D0\u4F9B\u53EF\u4FE1\u4F86\u6E90\u540D\u7A31\u6216\u7DB2\u5740";
+  if (category === "response_format") return "API \u56DE\u50B3\u683C\u5F0F\u4E0D\u6B63\u78BA\uFF0C\u672A\u80FD\u7A69\u5B9A\u89E3\u6790";
+  if (category === "price_missing") return "\u672A\u53D6\u5F97\u6709\u6548\u5E02\u5834\u50F9\u683C";
+  if (category === "diff_too_large") return "\u50F9\u683C\u5DEE\u8DDD\u904E\u5927\uFF0C\u9700\u8981\u4EBA\u5DE5\u6AA2\u67E5";
+  return "\u50F9\u683C\u66F4\u65B0\u5931\u6557\uFF0C\u8ACB\u518D\u6AA2\u67E5";
 }
-function createFailedMarketResult(asset, sourceName, sourceUrl = '', coinGeckoLookupStatus) {
-    return {
-        assetId: asset.assetId,
-        assetName: asset.assetName,
-        ticker: asset.ticker,
-        assetType: asset.assetType,
-        price: null,
-        currency: asset.currency,
-        asOf: null,
-        sourceName,
-        sourceUrl,
-        marketState: null,
-        coinGeckoLookupStatus,
-    };
-}
-/** P0-4 / P2-7: fetch CoinGecko price payload with retry/backoff. */
-async function fetchCoinGeckoPricePayload(coinIds) {
-    const { baseUrl, headers } = getCoinGeckoConfig();
-    const url = `${baseUrl}/simple/price?ids=${encodeURIComponent(coinIds.join(','))}&vs_currencies=usd&include_last_updated_at=true`;
-    return withRetry(async () => {
-        const response = await fetch(url, {
-            headers,
-            signal: AbortSignal.timeout(15000),
-        });
-        if (response.ok) {
-            return await response.json();
-        }
-        throw Object.assign(new Error(`CoinGecko HTTP ${response.status}`), { httpStatus: response.status });
-    }, {
-        attempts: 3,
-        maxDelayMs: 4000,
-        label: 'fetchCoinGeckoPricePayload',
-        retryable: (err) => {
-            const s = err?.httpStatus;
-            return s === 429 || (s != null && s >= 500);
-        },
-        retryDelayMs: (err, attemptIndex) => {
-            const s = err?.httpStatus;
-            const base = s === 429 ? 4000 : 1000;
-            return Math.min(base * Math.pow(2, attemptIndex), 4000);
-        },
-    });
+function createFailedMarketResult(asset, sourceName, sourceUrl = "", coinGeckoLookupStatus) {
+  return {
+    assetId: asset.assetId,
+    assetName: asset.assetName,
+    ticker: asset.ticker,
+    assetType: asset.assetType,
+    price: null,
+    currency: asset.currency,
+    asOf: null,
+    sourceName,
+    sourceUrl,
+    marketState: null,
+    coinGeckoLookupStatus
+  };
 }
 function buildCoinGeckoResultsForEntries(coinId, entry, entries) {
-    return entries.map(({ asset, status }) => {
-        if (!entry || entry.usd == null || entry.usd <= 0) {
-            return createFailedMarketResult(asset, '', '', status);
-        }
-        return {
-            assetId: asset.assetId,
-            assetName: asset.assetName,
-            ticker: asset.ticker,
-            assetType: asset.assetType,
-            price: entry.usd,
-            currency: 'USD',
-            asOf: entry.last_updated_at
-                ? new Date(entry.last_updated_at * 1000).toISOString()
-                : new Date().toISOString(),
-            sourceName: COINGECKO_SOURCE_NAME,
-            sourceUrl: `${COINGECKO_SOURCE_URL}/en/coins/${coinId}`,
-            marketState: 'CRYPTO',
-            coinGeckoLookupStatus: status,
-        };
-    });
-}
-function normalizeYahooTicker(asset) {
-    if (asset.assetType === 'crypto') {
-        return asset.ticker.toUpperCase();
-    }
-    const normalizedTicker = asset.ticker.trim().toUpperCase();
-    if (normalizedTicker.endsWith('.HK')) {
-        // 處理 "02800.HK" → "2800.HK"
-        const numPart = normalizedTicker.slice(0, -3).replace(/^0+/, '');
-        if (/^\d{1,5}$/.test(numPart)) {
-            return `${numPart.padStart(4, '0')}.HK`;
-        }
-        return normalizedTicker;
-    }
-    if (asset.currency === 'HKD' && /^\d{1,5}$/.test(normalizedTicker)) {
-        // 處理 "02800" → "2800.HK"
-        const stripped = normalizedTicker.replace(/^0+/, '') || normalizedTicker;
-        return `${stripped.padStart(4, '0')}.HK`;
-    }
-    return normalizedTicker;
-}
-function createYahooMarketResult(asset, symbol, quote, sourceName = YAHOO_SOURCE_NAME) {
-    const quoteRecord = typeof quote === 'object' && quote !== null
-        ? quote
-        : null;
-    const price = readPositiveNumber(quoteRecord?.regularMarketPrice) ??
-        readPositiveNumber(quoteRecord?.postMarketPrice) ??
-        readPositiveNumber(quoteRecord?.preMarketPrice);
-    if (price == null) {
-        return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 未返回有效價格`, YAHOO_SOURCE_URL);
+  return entries.map(({ asset, status }) => {
+    if (!entry || entry.usd == null || entry.usd <= 0) {
+      return createFailedMarketResult(asset, "", "", status);
     }
     return {
-        assetId: asset.assetId,
-        assetName: asset.assetName,
-        ticker: asset.ticker,
-        assetType: asset.assetType,
-        price,
-        currency: (readStringValue(quoteRecord?.currency) ?? asset.currency).toUpperCase(),
-        asOf: readDateValue(quoteRecord?.regularMarketTime) ??
-            readDateValue(quoteRecord?.postMarketTime) ??
-            readDateValue(quoteRecord?.preMarketTime),
-        sourceName,
-        sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
-        marketState: readStringValue(quoteRecord?.marketState),
+      assetId: asset.assetId,
+      assetName: asset.assetName,
+      ticker: asset.ticker,
+      assetType: asset.assetType,
+      price: entry.usd,
+      currency: "USD",
+      asOf: entry.last_updated_at ? new Date(entry.last_updated_at * 1e3).toISOString() : (/* @__PURE__ */ new Date()).toISOString(),
+      sourceName: COINGECKO_SOURCE_NAME,
+      sourceUrl: `${COINGECKO_SOURCE_URL}/en/coins/${coinId}`,
+      marketState: "CRYPTO",
+      coinGeckoLookupStatus: status
     };
+  });
+}
+async function fetchCoinGeckoPricePayload(coinIds) {
+  const { baseUrl, headers } = getCoinGeckoConfig();
+  const url = `${baseUrl}/simple/price?ids=${encodeURIComponent(coinIds.join(","))}&vs_currencies=usd&include_last_updated_at=true`;
+  return withRetry(
+    async () => {
+      const response = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(15e3)
+      });
+      if (response.ok) {
+        return await response.json();
+      }
+      const err = Object.assign(
+        new Error(`CoinGecko HTTP ${response.status}`),
+        { httpStatus: response.status }
+      );
+      throw err;
+    },
+    {
+      attempts: 3,
+      maxDelayMs: 4e3,
+      label: "fetchCoinGeckoPricePayload",
+      retryable: (err) => {
+        const s = err.httpStatus;
+        return s === 429 || s != null && s >= 500;
+      },
+      retryDelayMs: (err, attemptIndex) => {
+        const s = err.httpStatus;
+        const base = s === 429 ? 4e3 : 1e3;
+        return Math.min(base * Math.pow(2, attemptIndex), 4e3);
+      }
+    }
+  );
+}
+function normalizeYahooTicker(asset) {
+  if (asset.assetType === "crypto") {
+    return asset.ticker.toUpperCase();
+  }
+  const normalizedTicker = asset.ticker.trim().toUpperCase();
+  if (normalizedTicker.endsWith(".HK")) {
+    const numPart = normalizedTicker.slice(0, -3).replace(/^0+/, "");
+    if (/^\d{1,5}$/.test(numPart)) {
+      return `${numPart.padStart(4, "0")}.HK`;
+    }
+    return normalizedTicker;
+  }
+  if (asset.currency === "HKD" && /^\d{1,5}$/.test(normalizedTicker)) {
+    const stripped = normalizedTicker.replace(/^0+/, "") || normalizedTicker;
+    return `${stripped.padStart(4, "0")}.HK`;
+  }
+  return normalizedTicker;
+}
+function createYahooMarketResult(asset, symbol, quote, sourceName = YAHOO_SOURCE_NAME) {
+  const quoteRecord = typeof quote === "object" && quote !== null ? quote : null;
+  const price = readPositiveNumber(quoteRecord?.regularMarketPrice) ?? readPositiveNumber(quoteRecord?.postMarketPrice) ?? readPositiveNumber(quoteRecord?.preMarketPrice);
+  if (price == null) {
+    return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} \u672A\u8FD4\u56DE\u6709\u6548\u50F9\u683C`, YAHOO_SOURCE_URL);
+  }
+  return {
+    assetId: asset.assetId,
+    assetName: asset.assetName,
+    ticker: asset.ticker,
+    assetType: asset.assetType,
+    price,
+    currency: (readStringValue(quoteRecord?.currency) ?? asset.currency).toUpperCase(),
+    asOf: readDateValue(quoteRecord?.regularMarketTime) ?? readDateValue(quoteRecord?.postMarketTime) ?? readDateValue(quoteRecord?.preMarketTime),
+    sourceName,
+    sourceUrl: `${YAHOO_SOURCE_URL}/quote/${encodeURIComponent(symbol)}`,
+    marketState: readStringValue(quoteRecord?.marketState)
+  };
 }
 async function fetchYahooSummaryFallback(symbol, asset) {
-    try {
-        const summary = await yahooFinanceClient.quoteSummary(symbol, { modules: ['price'] }, { fetchOptions: { signal: AbortSignal.timeout(YAHOO_SINGLE_PRICE_TIMEOUT_MS) } });
-        return createYahooMarketResult(asset, symbol, summary.price, `${YAHOO_SOURCE_NAME} quoteSummary`);
-    }
-    catch (error) {
-        console.warn(`Yahoo Finance quoteSummary fallback failed for ${symbol}.`, error);
-        return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} 查詢失敗`, YAHOO_SOURCE_URL);
-    }
+  try {
+    const summary = await yahooFinanceClient.quoteSummary(
+      symbol,
+      { modules: ["price"] },
+      { fetchOptions: { signal: AbortSignal.timeout(YAHOO_SINGLE_PRICE_TIMEOUT_MS) } }
+    );
+    return createYahooMarketResult(
+      asset,
+      symbol,
+      summary.price,
+      `${YAHOO_SOURCE_NAME} quoteSummary`
+    );
+  } catch (error) {
+    console.warn(`Yahoo Finance quoteSummary fallback failed for ${symbol}.`, error);
+    return createFailedMarketResult(asset, `${YAHOO_SOURCE_NAME} \u67E5\u8A62\u5931\u6557`, YAHOO_SOURCE_URL);
+  }
 }
 async function fillMissingYahooResults(symbols, assets, results) {
-    return Promise.all(results.map(async (result, index) => {
-        if (result.price != null && result.price > 0)
-            return result;
-        const symbol = symbols[index];
-        const asset = assets[index];
-        if (!symbol || !asset)
-            return result;
-        return fetchYahooSummaryFallback(symbol, asset);
-    }));
+  return Promise.all(
+    results.map(async (result, index) => {
+      if (result.price != null && result.price > 0) return result;
+      const symbol = symbols[index];
+      const asset = assets[index];
+      if (!symbol || !asset) return result;
+      return fetchYahooSummaryFallback(symbol, asset);
+    })
+  );
 }
 function getGeminiApiKeyOptional() {
-    return process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim() || null;
+  return process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim() || null;
 }
 function isAiPriceFallbackEnabled() {
-    return process.env.AI_PRICE_FALLBACK_ENABLED?.trim() !== '0' && AI_PRICE_FALLBACK_MAX_ASSETS > 0;
+  return process.env.AI_PRICE_FALLBACK_ENABLED?.trim() !== "0" && AI_PRICE_FALLBACK_MAX_ASSETS > 0;
 }
 function extractJsonObject(raw) {
-    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (fenced?.[1])
-        return fenced[1];
-    const objectMatch = raw.match(/(\{[\s\S]*\})/);
-    return objectMatch?.[1] ?? raw;
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced?.[1]) return fenced[1];
+  const objectMatch = raw.match(/(\{[\s\S]*\})/);
+  return objectMatch?.[1] ?? raw;
 }
 function getGeminiResponseText(response) {
-    if (typeof response?.text === 'string') {
-        return response.text.trim();
-    }
-    const candidates = response?.candidates;
-    if (!Array.isArray(candidates) || candidates.length === 0)
-        return '';
-    const content = candidates[0]?.content;
-    const parts = content?.parts;
-    if (!Array.isArray(parts))
-        return '';
-    return parts
-        .map((part) => {
-        if (typeof part !== 'object' || part === null)
-            return '';
-        const text = part.text;
-        return typeof text === 'string' ? text : '';
-    })
-        .join('\n')
-        .trim();
+  if (typeof response?.text === "string") {
+    return response.text.trim();
+  }
+  const candidates = response?.candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return "";
+  const content = candidates[0]?.content;
+  const parts = content?.parts;
+  if (!Array.isArray(parts)) return "";
+  return parts.map((part) => {
+    if (typeof part !== "object" || part === null) return "";
+    const text = part.text;
+    return typeof text === "string" ? text : "";
+  }).join("\n").trim();
 }
 function getFirstGroundingSourceUrl(response) {
-    const candidates = response?.candidates;
-    if (!Array.isArray(candidates) || candidates.length === 0)
-        return null;
-    const meta = candidates[0]?.groundingMetadata;
-    const chunks = meta?.groundingChunks;
-    if (!Array.isArray(chunks))
-        return null;
-    for (const chunk of chunks) {
-        const web = typeof chunk === 'object' && chunk !== null
-            ? chunk.web
-            : undefined;
-        const uri = typeof web?.uri === 'string' ? web.uri.trim() : '';
-        if (/^https?:\/\//i.test(uri))
-            return uri;
-    }
-    return null;
+  const candidates = response?.candidates;
+  if (!Array.isArray(candidates) || candidates.length === 0) return null;
+  const meta = candidates[0]?.groundingMetadata;
+  const chunks = meta?.groundingChunks;
+  if (!Array.isArray(chunks)) return null;
+  for (const chunk of chunks) {
+    const web = typeof chunk === "object" && chunk !== null ? chunk.web : void 0;
+    const uri = typeof web?.uri === "string" ? web.uri.trim() : "";
+    if (/^https?:\/\//i.test(uri)) return uri;
+  }
+  return null;
 }
 async function generateGroundedGeminiJson(prompt, apiKey) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(AI_PRICE_FALLBACK_MODEL)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ role: 'user', parts: [{ text: prompt }] }],
-            generationConfig: {
-                responseMimeType: 'application/json',
-                maxOutputTokens: 1200,
-            },
-            tools: [{ googleSearch: {} }],
-        }),
-        signal: AbortSignal.timeout(AI_PRICE_FALLBACK_TIMEOUT_MS),
-    });
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-        const message = typeof payload === 'object' &&
-            payload !== null &&
-            'error' in payload &&
-            typeof payload.error?.message === 'string'
-            ? payload.error.message
-            : `Gemini price fallback failed with status ${response.status}`;
-        throw new Error(message);
-    }
-    return payload;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    AI_PRICE_FALLBACK_MODEL
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        maxOutputTokens: 1200
+      },
+      tools: [{ googleSearch: {} }]
+    }),
+    signal: AbortSignal.timeout(AI_PRICE_FALLBACK_TIMEOUT_MS)
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = typeof payload === "object" && payload !== null && "error" in payload && typeof payload.error?.message === "string" ? payload.error.message : `Gemini price fallback failed with status ${response.status}`;
+    throw new Error(message);
+  }
+  return payload;
 }
 function buildAiPriceFallbackPrompt(asset, symbol) {
-    const retrievedAt = new Date().toISOString();
-    return [
-        'Use Google Search to find the latest reliable market price for this portfolio asset.',
-        'Do not guess. Use only a source that clearly identifies the same tradable security.',
-        'Prefer official exchange pages, issuer pages, Nasdaq/NYSE pages, Yahoo Finance, Google Finance, or other reputable market-data pages.',
-        'Return only valid JSON. Do not include markdown.',
-        `Retrieved at: ${retrievedAt}`,
-        `Asset name: ${asset.assetName}`,
-        `Ticker used by system: ${asset.ticker}`,
-        `Normalized market symbol: ${symbol}`,
-        `Asset type: ${asset.assetType}`,
-        `Expected currency: ${asset.currency}`,
-        `Account source: ${asset.accountSource ?? 'unknown'}`,
-        'The JSON shape must be:',
-        `{
+  const retrievedAt = (/* @__PURE__ */ new Date()).toISOString();
+  return [
+    "Use Google Search to find the latest reliable market price for this portfolio asset.",
+    "Do not guess. Use only a source that clearly identifies the same tradable security.",
+    "Prefer official exchange pages, issuer pages, Nasdaq/NYSE pages, Yahoo Finance, Google Finance, or other reputable market-data pages.",
+    "Return only valid JSON. Do not include markdown.",
+    `Retrieved at: ${retrievedAt}`,
+    `Asset name: ${asset.assetName}`,
+    `Ticker used by system: ${asset.ticker}`,
+    `Normalized market symbol: ${symbol}`,
+    `Asset type: ${asset.assetType}`,
+    `Expected currency: ${asset.currency}`,
+    `Account source: ${asset.accountSource ?? "unknown"}`,
+    "The JSON shape must be:",
+    `{
   "matched": true,
   "symbol": "${symbol}",
   "price": 0,
@@ -818,441 +798,454 @@ function buildAiPriceFallbackPrompt(asset, symbol) {
   "confidence": 0.0,
   "reason": "short reason"
 }`,
-        'Rules: matched must be false if the source may refer to a different company, fund, exchange, share class, or currency.',
-        'confidence must be between 0 and 1. Use confidence below 0.75 if the source is ambiguous.',
-    ].join('\n');
+    "Rules: matched must be false if the source may refer to a different company, fund, exchange, share class, or currency.",
+    "confidence must be between 0 and 1. Use confidence below 0.75 if the source is ambiguous."
+  ].join("\n");
 }
 function normalizeAiPriceFallback(asset, symbol, payloadText, groundingSourceUrl) {
-    try {
-        const parsed = JSON.parse(extractJsonObject(payloadText).trim());
-        const matched = parsed.matched === true;
-        const price = readPositiveNumber(parsed.price);
-        const currency = normalizeCurrencyCode(readStringValue(parsed.currency) || asset.currency);
-        const confidence = typeof parsed.confidence === 'number' && Number.isFinite(parsed.confidence)
-            ? parsed.confidence
-            : 0;
-        const sourceUrl = readStringValue(parsed.sourceUrl)?.trim() || groundingSourceUrl || '';
-        const sourceName = readStringValue(parsed.sourceName)?.trim() || 'Grounded AI price fallback';
-        const asOf = readDateValue(parsed.asOf) ?? new Date().toISOString();
-        if (!matched ||
-            price == null ||
-            confidence < 0.75 ||
-            !currency ||
-            !/^https?:\/\//i.test(sourceUrl)) {
-            return null;
-        }
-        return {
-            assetId: asset.assetId,
-            assetName: asset.assetName,
-            ticker: asset.ticker,
-            assetType: asset.assetType,
-            price,
-            currency,
-            asOf,
-            sourceName: `AI price fallback (${sourceName})`,
-            sourceUrl,
-            marketState: `AI_FALLBACK:${symbol}`,
-        };
+  try {
+    const parsed = JSON.parse(extractJsonObject(payloadText).trim());
+    const matched = parsed.matched === true;
+    const price = readPositiveNumber(parsed.price);
+    const currency = normalizeCurrencyCode(readStringValue(parsed.currency) || asset.currency);
+    const confidence = typeof parsed.confidence === "number" && Number.isFinite(parsed.confidence) ? parsed.confidence : 0;
+    const sourceUrl = readStringValue(parsed.sourceUrl)?.trim() || groundingSourceUrl || "";
+    const sourceName = readStringValue(parsed.sourceName)?.trim() || "Grounded AI price fallback";
+    const asOf = readDateValue(parsed.asOf) ?? (/* @__PURE__ */ new Date()).toISOString();
+    if (!matched || price == null || confidence < 0.75 || !currency || !/^https?:\/\//i.test(sourceUrl)) {
+      return null;
     }
-    catch (error) {
-        console.warn(`AI price fallback parse failed for ${asset.ticker}.`, error);
-        return null;
-    }
+    return {
+      assetId: asset.assetId,
+      assetName: asset.assetName,
+      ticker: asset.ticker,
+      assetType: asset.assetType,
+      price,
+      currency,
+      asOf,
+      sourceName: `AI price fallback (${sourceName})`,
+      sourceUrl,
+      marketState: `AI_FALLBACK:${symbol}`
+    };
+  } catch (error) {
+    console.warn(`AI price fallback parse failed for ${asset.ticker}.`, error);
+    return null;
+  }
 }
 async function fetchAiPriceFallback(asset) {
-    const apiKey = getGeminiApiKeyOptional();
-    if (!apiKey || !isAiPriceFallbackEnabled()) {
-        return null;
+  const apiKey = getGeminiApiKeyOptional();
+  if (!apiKey || !isAiPriceFallbackEnabled()) {
+    return null;
+  }
+  const symbol = normalizeYahooTicker(asset);
+  try {
+    const response = await generateGroundedGeminiJson(
+      buildAiPriceFallbackPrompt(asset, symbol),
+      apiKey
+    );
+    const rawText = getGeminiResponseText(response);
+    if (!rawText) {
+      return null;
     }
-    const symbol = normalizeYahooTicker(asset);
-    try {
-        const response = await generateGroundedGeminiJson(buildAiPriceFallbackPrompt(asset, symbol), apiKey);
-        const rawText = getGeminiResponseText(response);
-        if (!rawText) {
-            return null;
-        }
-        return normalizeAiPriceFallback(asset, symbol, rawText, getFirstGroundingSourceUrl(response));
-    }
-    catch (error) {
-        console.warn(`AI price fallback failed for ${asset.ticker}.`, error);
-        return null;
-    }
+    return normalizeAiPriceFallback(asset, symbol, rawText, getFirstGroundingSourceUrl(response));
+  } catch (error) {
+    console.warn(`AI price fallback failed for ${asset.ticker}.`, error);
+    return null;
+  }
 }
 async function applyAiPriceFallbackForMissingYahooResults(assets, results) {
-    if (!isAiPriceFallbackEnabled() || assets.length === 0 || results.length === 0) {
-        return results;
+  if (!isAiPriceFallbackEnabled() || assets.length === 0 || results.length === 0) {
+    return results;
+  }
+  const assetById = new Map(assets.map((asset) => [asset.assetId, asset]));
+  const missingResults = results.filter((result) => result.price == null || result.price <= 0).map((result) => assetById.get(result.assetId)).filter((asset) => Boolean(asset)).filter((asset) => asset.assetType === "stock" || asset.assetType === "etf" || asset.assetType === "bond").slice(0, AI_PRICE_FALLBACK_MAX_ASSETS);
+  if (missingResults.length === 0) {
+    return results;
+  }
+  const fallbackByAssetId = /* @__PURE__ */ new Map();
+  for (const asset of missingResults) {
+    const fallback = await fetchAiPriceFallback(asset);
+    if (fallback) {
+      fallbackByAssetId.set(asset.assetId, fallback);
     }
-    const assetById = new Map(assets.map((asset) => [asset.assetId, asset]));
-    const missingResults = results
-        .filter((result) => result.price == null || result.price <= 0)
-        .map((result) => assetById.get(result.assetId))
-        .filter((asset) => Boolean(asset))
-        .filter((asset) => asset.assetType === 'stock' || asset.assetType === 'etf' || asset.assetType === 'bond')
-        .slice(0, AI_PRICE_FALLBACK_MAX_ASSETS);
-    if (missingResults.length === 0) {
-        return results;
-    }
-    const fallbackByAssetId = new Map();
-    for (const asset of missingResults) {
-        const fallback = await fetchAiPriceFallback(asset);
-        if (fallback) {
-            fallbackByAssetId.set(asset.assetId, fallback);
-        }
-    }
-    if (fallbackByAssetId.size === 0) {
-        return results;
-    }
-    return results.map((result) => fallbackByAssetId.get(result.assetId) ?? result);
+  }
+  if (fallbackByAssetId.size === 0) {
+    return results;
+  }
+  return results.map((result) => fallbackByAssetId.get(result.assetId) ?? result);
 }
-export async function fetchLiveFxRates() {
-    const result = await fetchLiveFxRatesWithStatus();
-    return result.rates;
+async function fetchLiveFxRates() {
+  const result = await fetchLiveFxRatesWithStatus();
+  return result.rates;
 }
-/** 與 fetchLiveFxRates 相同，但額外回傳是否使用備援匯率（P2-1）。 */
-export async function fetchLiveFxRatesWithStatus() {
-    try {
-        const quotes = await yahooFinanceClient.quote(['USDHKD=X', 'USDJPY=X'], {
-            fields: ['symbol', 'regularMarketPrice'],
-            return: 'array',
-        }, {
-            fetchOptions: { signal: AbortSignal.timeout(YAHOO_FX_TIMEOUT_MS) },
-        });
-        const bySymbol = new Map(quotes.map((quote) => [readStringValue(quote.symbol) ?? '', quote]));
-        const usdToHkd = readPositiveNumber(bySymbol.get('USDHKD=X')?.regularMarketPrice);
-        const usdToJpy = readPositiveNumber(bySymbol.get('USDJPY=X')?.regularMarketPrice);
-        if (!usdToHkd || !usdToJpy) {
-            throw new Error('missing fx quote');
-        }
-        return {
-            rates: { USD: usdToHkd, JPY: usdToHkd / usdToJpy, HKD: 1 },
-            usingFallback: false,
-        };
+async function fetchLiveFxRatesWithStatus() {
+  try {
+    const quotes = await yahooFinanceClient.quote(
+      ["USDHKD=X", "USDJPY=X"],
+      {
+        fields: ["symbol", "regularMarketPrice"],
+        return: "array"
+      },
+      {
+        fetchOptions: { signal: AbortSignal.timeout(YAHOO_FX_TIMEOUT_MS) }
+      }
+    );
+    const bySymbol = new Map(
+      quotes.map((quote) => [readStringValue(quote.symbol) ?? "", quote])
+    );
+    const usdToHkd = readPositiveNumber(bySymbol.get("USDHKD=X")?.regularMarketPrice);
+    const usdToJpy = readPositiveNumber(bySymbol.get("USDJPY=X")?.regularMarketPrice);
+    if (!usdToHkd || !usdToJpy) {
+      throw new Error("missing fx quote");
     }
-    catch (error) {
-        console.warn('Failed to fetch Yahoo Finance FX rates, using fallback rates.', error);
-        return { rates: { ...DEFAULT_FX_RATES }, usingFallback: true };
-    }
+    return {
+      rates: { USD: usdToHkd, JPY: usdToHkd / usdToJpy, HKD: 1 },
+      usingFallback: false
+    };
+  } catch (error) {
+    console.warn("Failed to fetch Yahoo Finance FX rates, using fallback rates.", error);
+    return { rates: { ...DEFAULT_FX_RATES }, usingFallback: true };
+  }
 }
-export { fetchLiveFxRates as fetchFxRates };
-// P2-2: Hard cap on Yahoo batch size to avoid query-string length / rate-limit issues.
 const YAHOO_BATCH_MAX = 20;
 async function fetchYahooPriceBatch(assets) {
-    if (assets.length === 0) {
-        return [];
-    }
-    const symbols = assets.map((asset) => normalizeYahooTicker(asset));
+  if (assets.length === 0) {
+    return [];
+  }
+  const symbols = assets.map((asset) => normalizeYahooTicker(asset));
+  try {
+    const quotes = await yahooFinanceClient.quote(
+      symbols,
+      {
+        fields: [
+          "symbol",
+          "currency",
+          "marketState",
+          "regularMarketPrice",
+          "regularMarketTime"
+        ],
+        return: "array"
+      },
+      {
+        fetchOptions: { signal: AbortSignal.timeout(YAHOO_PRICE_TIMEOUT_MS) }
+      }
+    );
+    const quoteBySymbol = new Map(
+      quotes.map((quote) => [(readStringValue(quote.symbol) ?? "").toUpperCase(), quote])
+    );
+    const results = symbols.map((symbol, index) => {
+      const asset = assets[index];
+      const quote = quoteBySymbol.get(symbol.toUpperCase());
+      return createYahooMarketResult(asset, symbol, quote);
+    });
+    return fillMissingYahooResults(symbols, assets, results);
+  } catch (error) {
+    console.warn("Yahoo Finance batch quote failed, clearing crumb and retrying batch.", error);
     try {
-        const quotes = await yahooFinanceClient.quote(symbols, {
-            fields: [
-                'symbol',
-                'currency',
-                'marketState',
-                'regularMarketPrice',
-                'regularMarketTime',
-            ],
-            return: 'array',
-        }, {
-            fetchOptions: { signal: AbortSignal.timeout(YAHOO_PRICE_TIMEOUT_MS) },
-        });
-        const quoteBySymbol = new Map(quotes.map((quote) => [(readStringValue(quote.symbol) ?? '').toUpperCase(), quote]));
-        const results = symbols.map((symbol, index) => {
-            const asset = assets[index];
-            const quote = quoteBySymbol.get(symbol.toUpperCase());
-            return createYahooMarketResult(asset, symbol, quote);
-        });
-        return fillMissingYahooResults(symbols, assets, results);
+      await getCrumbClear(yahooFinanceClient["_opts"].cookieJar);
+    } catch (crumbError) {
+      console.warn("Yahoo Finance crumb clear failed.", crumbError);
     }
-    catch (error) {
-        console.warn('Yahoo Finance batch quote failed, clearing crumb and retrying batch.', error);
-        try {
-            await getCrumbClear(yahooFinanceClient['_opts'].cookieJar);
+    await sleep(2e3);
+    try {
+      const retryQuotes = await yahooFinanceClient.quote(
+        symbols,
+        {
+          fields: [
+            "symbol",
+            "currency",
+            "marketState",
+            "regularMarketPrice",
+            "regularMarketTime"
+          ],
+          return: "array"
+        },
+        {
+          fetchOptions: { signal: AbortSignal.timeout(YAHOO_PRICE_TIMEOUT_MS) }
         }
-        catch (crumbError) {
-            console.warn('Yahoo Finance crumb clear failed.', crumbError);
-        }
-        await sleep(2000);
-        try {
-            const retryQuotes = await yahooFinanceClient.quote(symbols, {
-                fields: [
-                    'symbol',
-                    'currency',
-                    'marketState',
-                    'regularMarketPrice',
-                    'regularMarketTime',
-                ],
-                return: 'array',
-            }, {
-                fetchOptions: { signal: AbortSignal.timeout(YAHOO_PRICE_TIMEOUT_MS) },
-            });
-            const quoteBySymbol = new Map(retryQuotes.map((quote) => [(readStringValue(quote.symbol) ?? '').toUpperCase(), quote]));
-            const results = symbols.map((symbol, index) => {
-                const asset = assets[index];
-                const quote = quoteBySymbol.get(symbol.toUpperCase());
-                return createYahooMarketResult(asset, symbol, quote);
-            });
-            return fillMissingYahooResults(symbols, assets, results);
-        }
-        catch (retryError) {
-            console.warn('Yahoo Finance batch retry also failed, falling back to one-by-one.', retryError);
-        }
-        const singleQuotes = [];
-        for (let index = 0; index < symbols.length; index += 1) {
-            const symbol = symbols[index];
-            const asset = assets[index];
-            try {
-                const singleQuoteResult = await yahooFinanceClient.quote([symbol], {
-                    fields: ['symbol', 'currency', 'marketState', 'regularMarketPrice', 'regularMarketTime'],
-                    return: 'array',
-                }, { fetchOptions: { signal: AbortSignal.timeout(YAHOO_SINGLE_PRICE_TIMEOUT_MS) } });
-                singleQuotes.push(createYahooMarketResult(asset, symbol, singleQuoteResult[0]));
-            }
-            catch (singleError) {
-                singleQuotes.push(await fetchYahooSummaryFallback(symbol, asset));
-            }
-        }
-        return fillMissingYahooResults(symbols, assets, singleQuotes);
+      );
+      const quoteBySymbol = new Map(
+        retryQuotes.map((quote) => [(readStringValue(quote.symbol) ?? "").toUpperCase(), quote])
+      );
+      const results = symbols.map((symbol, index) => {
+        const asset = assets[index];
+        const quote = quoteBySymbol.get(symbol.toUpperCase());
+        return createYahooMarketResult(asset, symbol, quote);
+      });
+      return fillMissingYahooResults(symbols, assets, results);
+    } catch (retryError) {
+      console.warn("Yahoo Finance batch retry also failed, falling back to one-by-one.", retryError);
     }
+    const singleQuotes = [];
+    for (let index = 0; index < symbols.length; index += 1) {
+      const symbol = symbols[index];
+      const asset = assets[index];
+      try {
+        const singleQuoteResult = await yahooFinanceClient.quote(
+          [symbol],
+          {
+            fields: ["symbol", "currency", "marketState", "regularMarketPrice", "regularMarketTime"],
+            return: "array"
+          },
+          { fetchOptions: { signal: AbortSignal.timeout(YAHOO_SINGLE_PRICE_TIMEOUT_MS) } }
+        );
+        singleQuotes.push(createYahooMarketResult(asset, symbol, singleQuoteResult[0]));
+      } catch (singleError) {
+        singleQuotes.push(await fetchYahooSummaryFallback(symbol, asset));
+      }
+    }
+    return fillMissingYahooResults(symbols, assets, singleQuotes);
+  }
 }
 async function fetchYahooPrice(assets) {
-    if (assets.length === 0)
-        return [];
-    if (assets.length <= YAHOO_BATCH_MAX)
-        return fetchYahooPriceBatch(assets);
-    const chunks = [];
-    for (let i = 0; i < assets.length; i += YAHOO_BATCH_MAX) {
-        chunks.push(assets.slice(i, i + YAHOO_BATCH_MAX));
-    }
-    const chunkResults = await Promise.all(chunks.map((chunk) => fetchYahooPriceBatch(chunk)));
-    return chunkResults.flat();
+  if (assets.length === 0) return [];
+  if (assets.length <= YAHOO_BATCH_MAX) return fetchYahooPriceBatch(assets);
+  const chunks = [];
+  for (let i = 0; i < assets.length; i += YAHOO_BATCH_MAX) {
+    chunks.push(assets.slice(i, i + YAHOO_BATCH_MAX));
+  }
+  const chunkResults = await Promise.all(chunks.map((chunk) => fetchYahooPriceBatch(chunk)));
+  return chunkResults.flat();
 }
 async function fetchCoinGeckoPrice(assets) {
-    if (assets.length === 0) {
-        return [];
+  if (assets.length === 0) {
+    return [];
+  }
+  const uniqueTickers = [...new Set(assets.map((asset) => normalizeCoinGeckoTicker(asset.ticker)))];
+  const overrideEntries = await readCoinGeckoOverrideEntries(uniqueTickers);
+  const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
+  const resolvedResults = [];
+  const unresolvedResults = [];
+  const coinIdToAssets = /* @__PURE__ */ new Map();
+  for (const asset of assets) {
+    const normalizedTicker = normalizeCoinGeckoTicker(asset.ticker);
+    const override = overrideEntries.get(normalizedTicker);
+    const cacheEntry = cacheEntries.get(normalizedTicker);
+    const resolvedEntry = override ? createCacheEntryFromOverride(normalizedTicker, override) : cacheEntry;
+    if (!resolvedEntry) {
+      unresolvedResults.push(
+        createFailedMarketResult(asset, "", "", "missing")
+      );
+      continue;
     }
-    const uniqueTickers = [...new Set(assets.map((asset) => normalizeCoinGeckoTicker(asset.ticker)))];
-    const overrideEntries = await readCoinGeckoOverrideEntries(uniqueTickers);
-    const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
-    const resolvedResults = [];
-    const unresolvedResults = [];
-    const coinIdToAssets = new Map();
-    for (const asset of assets) {
-        const normalizedTicker = normalizeCoinGeckoTicker(asset.ticker);
-        const override = overrideEntries.get(normalizedTicker);
-        const cacheEntry = cacheEntries.get(normalizedTicker);
-        const resolvedEntry = override
-            ? createCacheEntryFromOverride(normalizedTicker, override)
-            : cacheEntry;
-        if (!resolvedEntry) {
-            unresolvedResults.push(createFailedMarketResult(asset, '', '', 'missing'));
-            continue;
-        }
-        const current = coinIdToAssets.get(resolvedEntry.coinId) ?? [];
-        current.push({
-            asset,
-            status: resolvedEntry.source === 'override' ? 'override' : 'cache',
-        });
-        coinIdToAssets.set(resolvedEntry.coinId, current);
+    const current = coinIdToAssets.get(resolvedEntry.coinId) ?? [];
+    current.push({
+      asset,
+      status: resolvedEntry.source === "override" ? "override" : "cache"
+    });
+    coinIdToAssets.set(resolvedEntry.coinId, current);
+  }
+  const ON_DEMAND_TIME_BUDGET_MS = 15e3;
+  const onDemandStartedAt = Date.now();
+  const missingToResolve = unresolvedResults.filter((result) => result.coinGeckoLookupStatus === "missing");
+  for (const missingResult of missingToResolve) {
+    if (Date.now() - onDemandStartedAt >= ON_DEMAND_TIME_BUDGET_MS) {
+      console.warn(`On-demand CoinGecko resolve stopped: time budget exhausted (${ON_DEMAND_TIME_BUDGET_MS}ms).`);
+      break;
     }
-    const ON_DEMAND_TIME_BUDGET_MS = 25000;
-    const onDemandStartedAt = Date.now();
-    const missingToResolve = unresolvedResults
-        .filter((result) => result.coinGeckoLookupStatus === 'missing');
-    for (const missingResult of missingToResolve) {
-        if (Date.now() - onDemandStartedAt >= ON_DEMAND_TIME_BUDGET_MS) {
-            console.warn(`On-demand CoinGecko resolve stopped: time budget exhausted (${ON_DEMAND_TIME_BUDGET_MS}ms).`);
-            break;
-        }
-        const asset = assets.find((item) => item.assetId === missingResult.assetId);
-        if (!asset)
-            continue;
+    const asset = assets.find((item) => item.assetId === missingResult.assetId);
+    if (!asset) continue;
+    try {
+      const resolution = await resolveCoinGeckoCoinId(asset.ticker);
+      if (resolution.entry) {
+        const idx = unresolvedResults.indexOf(missingResult);
+        if (idx >= 0) unresolvedResults.splice(idx, 1);
+        const current = coinIdToAssets.get(resolution.entry.coinId) ?? [];
+        current.push({ asset, status: resolution.status });
+        coinIdToAssets.set(resolution.entry.coinId, current);
+      }
+    } catch (resolveError) {
+      console.warn(`On-demand CoinGecko resolve failed for ${asset.ticker}.`, resolveError);
+    }
+  }
+  const resolvedCoinIds = Array.from(coinIdToAssets.keys());
+  if (resolvedCoinIds.length > 0) {
+    try {
+      const payload = await fetchCoinGeckoPricePayload(resolvedCoinIds);
+      for (const coinId of resolvedCoinIds) {
+        resolvedResults.push(
+          ...buildCoinGeckoResultsForEntries(
+            coinId,
+            payload[coinId],
+            coinIdToAssets.get(coinId) ?? []
+          )
+        );
+      }
+    } catch (error) {
+      console.warn("CoinGecko batch price lookup failed, retrying coin-by-coin.", error);
+      for (const coinId of resolvedCoinIds) {
+        const entries = coinIdToAssets.get(coinId) ?? [];
         try {
-            const resolution = await resolveCoinGeckoCoinId(asset.ticker);
-            if (resolution.entry) {
-                const idx = unresolvedResults.indexOf(missingResult);
-                if (idx >= 0)
-                    unresolvedResults.splice(idx, 1);
-                const current = coinIdToAssets.get(resolution.entry.coinId) ?? [];
-                current.push({ asset, status: resolution.status });
-                coinIdToAssets.set(resolution.entry.coinId, current);
-            }
+          await sleep(1500);
+          const payload = await fetchCoinGeckoPricePayload([coinId]);
+          resolvedResults.push(
+            ...buildCoinGeckoResultsForEntries(coinId, payload[coinId], entries)
+          );
+        } catch (coinError) {
+          console.warn(`CoinGecko fallback lookup failed for ${coinId}.`, coinError);
+          resolvedResults.push(
+            ...entries.map(
+              ({ asset, status }) => createFailedMarketResult(
+                asset,
+                "",
+                "",
+                status === "override" ? "override" : "lookup_failed"
+              )
+            )
+          );
         }
-        catch (resolveError) {
-            console.warn(`On-demand CoinGecko resolve failed for ${asset.ticker}.`, resolveError);
-        }
+      }
     }
-    const resolvedCoinIds = Array.from(coinIdToAssets.keys());
-    if (resolvedCoinIds.length > 0) {
-        try {
-            const payload = await fetchCoinGeckoPricePayload(resolvedCoinIds);
-            for (const coinId of resolvedCoinIds) {
-                resolvedResults.push(...buildCoinGeckoResultsForEntries(coinId, payload[coinId], coinIdToAssets.get(coinId) ?? []));
-            }
-        }
-        catch (error) {
-            console.warn('CoinGecko batch price lookup failed, retrying coin-by-coin.', error);
-            for (const coinId of resolvedCoinIds) {
-                const entries = coinIdToAssets.get(coinId) ?? [];
-                try {
-                    await sleep(1500); // P0-4: avoid rate-limit burst during coin-by-coin fallback
-                    const payload = await fetchCoinGeckoPricePayload([coinId]);
-                    resolvedResults.push(...buildCoinGeckoResultsForEntries(coinId, payload[coinId], entries));
-                }
-                catch (coinError) {
-                    console.warn(`CoinGecko fallback lookup failed for ${coinId}.`, coinError);
-                    resolvedResults.push(...entries.map(({ asset, status }) => createFailedMarketResult(asset, '', '', status === 'override' ? 'override' : 'lookup_failed')));
-                }
-            }
-        }
-    }
-    return [...resolvedResults, ...unresolvedResults];
+  }
+  return [...resolvedResults, ...unresolvedResults];
 }
 function detectFailureCategory(params) {
-    const { asset, matched, nextPrice, staleQuote, diffPct, isValid, historicalAnomaly } = params;
-    if (isValid) {
-        return undefined;
+  const { asset, matched, nextPrice, staleQuote, diffPct, isValid, historicalAnomaly } = params;
+  if (isValid) {
+    return void 0;
+  }
+  if (nextPrice == null || nextPrice <= 0) {
+    if (asset.assetType === "crypto") {
+      if (matched?.coinGeckoLookupStatus === "missing" || matched?.coinGeckoLookupStatus === "lookup_failed") {
+        return "source_missing";
+      }
+      if (matched?.sourceName?.includes("CoinGecko")) {
+        return "price_missing";
+      }
     }
-    if (nextPrice == null || nextPrice <= 0) {
-        if (asset.assetType === 'crypto') {
-            if (matched?.coinGeckoLookupStatus === 'missing' || matched?.coinGeckoLookupStatus === 'lookup_failed') {
-                return 'source_missing';
-            }
-            if (matched?.sourceName?.includes('CoinGecko')) {
-                return 'price_missing';
-            }
-        }
-        return 'price_missing';
-    }
-    if (staleQuote) {
-        return 'quote_time';
-    }
-    if (!(matched?.sourceName || matched?.sourceUrl)) {
-        return 'source_missing';
-    }
-    if (historicalAnomaly) {
-        return 'diff_too_large';
-    }
-    if (diffPct >= getReviewThresholdForAsset(asset.assetType)) {
-        return 'diff_too_large';
-    }
-    return 'unknown';
+    return "price_missing";
+  }
+  if (staleQuote) {
+    return "quote_time";
+  }
+  if (!(matched?.sourceName || matched?.sourceUrl)) {
+    return "source_missing";
+  }
+  if (historicalAnomaly) {
+    return "diff_too_large";
+  }
+  if (diffPct >= getReviewThresholdForAsset(asset.assetType)) {
+    return "diff_too_large";
+  }
+  return "unknown";
 }
 async function buildReviewResults(requestedAssets, marketResults, fxRates = DEFAULT_FX_RATES) {
-    return Promise.all(requestedAssets.map(async (asset) => {
-        const matched = marketResults.find((item) => item.assetId === asset.assetId) ??
-            createFailedMarketResult(asset, '未取得回應');
-        const nextPrice = matched.price ?? null;
-        const matchedCurrency = normalizeCurrencyCode(matched.currency || asset.currency);
-        const assetCurrency = normalizeCurrencyCode(asset.currency);
-        const comparisonCurrency = matchedCurrency || assetCurrency;
-        const comparisonCurrentPrice = asset.currentPrice > 0 && comparisonCurrency
-            ? convertForComparison(asset.currentPrice, assetCurrency, comparisonCurrency, fxRates)
-            : asset.currentPrice;
-        const effectiveAsOf = matched.asOf || (nextPrice != null && nextPrice > 0 ? new Date().toISOString() : null);
-        const staleQuote = isStaleQuote(effectiveAsOf, asset.assetType);
-        const diffPct = nextPrice != null && comparisonCurrentPrice > 0
-            ? Math.abs(nextPrice - comparisonCurrentPrice) / comparisonCurrentPrice
-            : 0;
-        let isValid = nextPrice != null &&
-            nextPrice > 0 &&
-            !staleQuote &&
-            Boolean(matched.sourceName || matched.sourceUrl) &&
-            diffPct < getReviewThresholdForAsset(asset.assetType);
-        const historicalAnomaly = isValid && nextPrice != null
-            ? await detectHistoricalAnomaly(asset.assetId, nextPrice, comparisonCurrentPrice)
-            : null;
-        const blocksOnHistoricalAnomaly = historicalAnomaly?.isAnomaly === true &&
-            diffPct >= getReviewThresholdForAsset(asset.assetType);
-        if (blocksOnHistoricalAnomaly) {
-            isValid = false;
-        }
-        const failureCategory = detectFailureCategory({
-            asset,
-            matched,
-            nextPrice,
-            staleQuote,
-            diffPct,
-            isValid,
-            historicalAnomaly: blocksOnHistoricalAnomaly,
-        });
-        const invalidReason = blocksOnHistoricalAnomaly && historicalAnomaly?.reason
-            ? historicalAnomaly.reason
-            : failureCategory
-                ? buildInvalidReason(failureCategory)
-                : '';
-        return {
-            id: asset.assetId,
-            assetId: asset.assetId,
-            assetName: matched.assetName || asset.assetName,
-            ticker: (matched.ticker || asset.ticker).toUpperCase(),
-            assetType: matched.assetType || asset.assetType,
-            accountSource: asset.accountSource,
-            price: isValid ? nextPrice : nextPrice,
-            currency: matchedCurrency || assetCurrency,
-            assetCurrency: assetCurrency || undefined,
-            comparisonCurrentPrice,
-            comparisonCurrency,
-            marketCurrency: matchedCurrency || undefined,
-            currencyMismatch: Boolean(assetCurrency && matchedCurrency) && assetCurrency !== matchedCurrency,
-            asOf: effectiveAsOf || '',
-            sourceName: matched.sourceName || '',
-            sourceUrl: matched.sourceUrl || '',
-            isValid,
-            currentPrice: asset.currentPrice,
-            diffPct,
-            failureCategory,
-            invalidReason,
-            status: isValid ? 'confirmed' : 'pending',
-        };
-    }));
-}
-export function getUpdatePricesErrorResponse(error) {
-    if (error instanceof UpdatePricesError) {
-        return {
-            status: error.status,
-            body: {
-                ok: false,
-                route: UPDATE_PRICES_ROUTE,
-                message: error.message,
-            },
-        };
+  const reviews = await Promise.all(requestedAssets.map(async (asset) => {
+    const matched = marketResults.find((item) => item.assetId === asset.assetId) ?? createFailedMarketResult(asset, "\u672A\u53D6\u5F97\u56DE\u61C9");
+    const nextPrice = matched.price ?? null;
+    const matchedCurrency = normalizeCurrencyCode(matched.currency || asset.currency);
+    const assetCurrency = normalizeCurrencyCode(asset.currency);
+    const comparisonCurrency = matchedCurrency || assetCurrency;
+    const comparisonCurrentPrice = asset.currentPrice > 0 && comparisonCurrency ? convertForComparison(asset.currentPrice, assetCurrency, comparisonCurrency, fxRates) : asset.currentPrice;
+    const effectiveAsOf = matched.asOf || (nextPrice != null && nextPrice > 0 ? (/* @__PURE__ */ new Date()).toISOString() : null);
+    const staleQuote = isStaleQuote(effectiveAsOf, asset.assetType);
+    const diffPct = nextPrice != null && comparisonCurrentPrice > 0 ? Math.abs(nextPrice - comparisonCurrentPrice) / comparisonCurrentPrice : 0;
+    let isValid = nextPrice != null && nextPrice > 0 && !staleQuote && Boolean(matched.sourceName || matched.sourceUrl) && diffPct < getReviewThresholdForAsset(asset.assetType);
+    const historicalAnomaly = isValid && nextPrice != null ? await detectHistoricalAnomaly(asset.assetId, nextPrice, comparisonCurrentPrice) : null;
+    const blocksOnHistoricalAnomaly = historicalAnomaly?.isAnomaly === true && diffPct >= getReviewThresholdForAsset(asset.assetType);
+    if (blocksOnHistoricalAnomaly) {
+      isValid = false;
     }
-    if (error instanceof Error) {
-        return {
-            status: 500,
-            body: {
-                ok: false,
-                route: UPDATE_PRICES_ROUTE,
-                message: error.message,
-            },
-        };
-    }
-    return {
-        status: 500,
-        body: {
-            ok: false,
-            route: UPDATE_PRICES_ROUTE,
-            message: '價格更新失敗，請稍後再試。',
-        },
+    const failureCategory = detectFailureCategory({
+      asset,
+      matched,
+      nextPrice,
+      staleQuote,
+      diffPct,
+      isValid,
+      historicalAnomaly: blocksOnHistoricalAnomaly
+    });
+    const invalidReason = blocksOnHistoricalAnomaly && historicalAnomaly?.reason ? historicalAnomaly.reason : failureCategory ? buildInvalidReason(failureCategory) : "";
+    const review = {
+      id: asset.assetId,
+      assetId: asset.assetId,
+      assetName: matched.assetName || asset.assetName,
+      ticker: (matched.ticker || asset.ticker).toUpperCase(),
+      assetType: matched.assetType || asset.assetType,
+      accountSource: asset.accountSource,
+      price: isValid ? nextPrice : nextPrice,
+      currency: matchedCurrency || assetCurrency,
+      assetCurrency: assetCurrency || void 0,
+      comparisonCurrentPrice,
+      comparisonCurrency,
+      marketCurrency: matchedCurrency || void 0,
+      currencyMismatch: Boolean(assetCurrency && matchedCurrency) && assetCurrency !== matchedCurrency,
+      asOf: effectiveAsOf || "",
+      sourceName: matched.sourceName || "",
+      sourceUrl: matched.sourceUrl || "",
+      isValid,
+      currentPrice: asset.currentPrice,
+      diffPct,
+      failureCategory,
+      invalidReason,
+      status: isValid ? "confirmed" : "pending"
     };
+    return review;
+  }));
+  return reviews;
 }
-export async function generatePriceUpdates(payload) {
-    const request = normalizeRequest(payload);
-    // 注意：不在此處抓取匯率。由 cronUpdatePrices 統一抓取並持久化（P1-4 修正多餘請求）。
-    const yahooAssets = request.assets.filter((asset) => asset.assetType === 'stock' ||
-        asset.assetType === 'etf' ||
-        asset.assetType === 'bond');
-    const cryptoAssets = request.assets.filter((asset) => asset.assetType === 'crypto');
-    const [yahooResults, cryptoResults] = await Promise.all([
-        fetchYahooPrice(yahooAssets),
-        fetchCoinGeckoPrice(cryptoAssets),
-    ]);
-    const protectedYahooResults = await applyAiPriceFallbackForMissingYahooResults(yahooAssets, yahooResults);
-    const results = await buildReviewResults(request.assets, [...protectedYahooResults, ...cryptoResults], DEFAULT_FX_RATES);
+function getUpdatePricesErrorResponse(error) {
+  if (error instanceof UpdatePricesError) {
     return {
-        ok: true,
+      status: error.status,
+      body: {
+        ok: false,
         route: UPDATE_PRICES_ROUTE,
-        mode: 'live',
-        model: 'market-api',
-        results,
+        message: error.message
+      }
     };
+  }
+  if (error instanceof Error) {
+    return {
+      status: 500,
+      body: {
+        ok: false,
+        route: UPDATE_PRICES_ROUTE,
+        message: error.message
+      }
+    };
+  }
+  return {
+    status: 500,
+    body: {
+      ok: false,
+      route: UPDATE_PRICES_ROUTE,
+      message: "\u50F9\u683C\u66F4\u65B0\u5931\u6557\uFF0C\u8ACB\u7A0D\u5F8C\u518D\u8A66\u3002"
+    }
+  };
 }
+async function generatePriceUpdates(payload) {
+  const request = normalizeRequest(payload);
+  const yahooAssets = request.assets.filter(
+    (asset) => asset.assetType === "stock" || asset.assetType === "etf" || asset.assetType === "bond"
+  );
+  const cryptoAssets = request.assets.filter((asset) => asset.assetType === "crypto");
+  const [yahooResults, cryptoResults] = await Promise.all([
+    fetchYahooPrice(yahooAssets),
+    fetchCoinGeckoPrice(cryptoAssets)
+  ]);
+  const protectedYahooResults = await applyAiPriceFallbackForMissingYahooResults(
+    yahooAssets,
+    yahooResults
+  );
+  const results = await buildReviewResults(request.assets, [...protectedYahooResults, ...cryptoResults], DEFAULT_FX_RATES);
+  return {
+    ok: true,
+    route: UPDATE_PRICES_ROUTE,
+    mode: "live",
+    model: "market-api",
+    results
+  };
+}
+export {
+  fetchLiveFxRates as fetchFxRates,
+  fetchLiveFxRates,
+  fetchLiveFxRatesWithStatus,
+  generatePriceUpdates,
+  getQuoteFreshnessWindowMs,
+  getUpdatePricesErrorResponse,
+  isFreshCoinGeckoCacheEntry,
+  isStaleQuote,
+  readCoinGeckoCacheEntries,
+  resolveCoinGeckoCoinId
+};

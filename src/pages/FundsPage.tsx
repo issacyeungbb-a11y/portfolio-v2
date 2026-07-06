@@ -10,6 +10,7 @@ import {
 import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { EmptyState } from '../components/ui/EmptyState';
 import { PageSection } from '../components/ui/DesignSystem';
+import { getHongKongDateKey } from '../lib/dates';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
@@ -52,7 +53,7 @@ export function FundsPage() {
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('HKD');
   const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => getHongKongDateKey());
   const [note, setNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);

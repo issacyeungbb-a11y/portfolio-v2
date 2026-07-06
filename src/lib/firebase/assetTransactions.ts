@@ -25,6 +25,7 @@ import type {
   Holding,
 } from '../../types/portfolio';
 import { buildHoldingFromInput } from './assets';
+import { getHongKongDateKey } from '../dates';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import {
   getSharedAssetTransactionsCollectionRef,
@@ -126,7 +127,7 @@ function normalizeAssetTransaction(
     price: sanitizeNumber(value.price),
     fees: sanitizeNumber(value.fees),
     currency: sanitizeString(value.currency).toUpperCase() || 'HKD',
-    date: sanitizeString(value.date) || new Date().toISOString().slice(0, 10),
+    date: sanitizeString(value.date) || getHongKongDateKey(),
     realizedPnlHKD: sanitizeNumber(value.realizedPnlHKD),
     recordType: sanitizeRecordType(value.recordType),
     quantityAfter: sanitizeNumber(value.quantityAfter),
@@ -253,7 +254,7 @@ function buildSeedPayload(
     price: holding.averageCost,
     fees: 0,
     currency: holding.currency,
-    date: earliestTradeDate ?? new Date().toISOString().slice(0, 10),
+    date: earliestTradeDate ?? getHongKongDateKey(),
     note: '歷史持倉基線',
     recordType: 'seed',
   };
@@ -421,7 +422,7 @@ export async function getRecentAssetTransactions(days = 30, limitCount = 300) {
 
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
-  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  const cutoffDate = getHongKongDateKey(cutoff);
 
   const snapshot = await getDocs(
     query(getSharedAssetTransactionsCollectionRef(), orderBy('date', 'desc'), limit(limitCount)),

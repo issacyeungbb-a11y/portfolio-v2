@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 
 import type { AccountCashFlowEntry, AccountCashFlowType, AccountSource } from '../../types/portfolio';
+import { getHongKongDateKey } from '../dates';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { getSharedAccountCashFlowsCollectionRef } from './sharedPortfolio';
 
@@ -59,7 +60,7 @@ function normalizeAccountCashFlow(
     type: sanitizeType(value.type),
     amount: sanitizeNumber(value.amount),
     currency: sanitizeString(value.currency).toUpperCase() || 'HKD',
-    date: sanitizeString(value.date) || new Date().toISOString().slice(0, 10),
+    date: sanitizeString(value.date) || getHongKongDateKey(),
     note: sanitizeString(value.note) || undefined,
     createdAt: formatTimestamp(value.createdAt),
     updatedAt: formatTimestamp(value.updatedAt),
