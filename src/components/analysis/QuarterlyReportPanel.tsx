@@ -2,7 +2,8 @@ import { EmptyState } from '../ui/EmptyState';
 import { ReportAllocationSummaryCard } from '../portfolio/ReportAllocationSummaryCard';
 import type { DisplayCurrency } from '../../types/portfolio';
 import type { QuarterlyReport } from '../../lib/firebase/quarterlyReports';
-import { splitParagraphs, type ReportSection } from '../../lib/portfolio/quarterlyReportPdf';
+import type { ReportSection } from '../../lib/portfolio/quarterlyReportPdf';
+import { ReportBody } from './ReportBody';
 import { ReportHoldingsSnapshotTable } from './ReportHoldingsSnapshotTable';
 
 interface ConversationTurn {
@@ -225,16 +226,7 @@ export function QuarterlyReportPanel({
                 <h3>報告內容</h3>
               </div>
             </div>
-            <div className="quarterly-report-body">
-              {selectedSections.map((section, index) => (
-                <section key={`${selectedReport.id}-${index}`} className="quarterly-report-section">
-                  {section.title ? <h3>{section.title}</h3> : null}
-                  {splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
-                    <p key={`${selectedReport.id}-${index}-${paragraphIndex}`}>{paragraph}</p>
-                  ))}
-                </section>
-              ))}
-            </div>
+            <ReportBody sections={selectedSections} keyPrefix={selectedReport.id} />
           </section>
 
           <ReportHoldingsSnapshotTable

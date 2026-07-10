@@ -1,7 +1,8 @@
 import { EmptyState } from '../ui/EmptyState';
 import { ReportAllocationSummaryCard } from '../portfolio/ReportAllocationSummaryCard';
 import type { AnalysisSession, DisplayCurrency } from '../../types/portfolio';
-import { splitParagraphs, splitReportIntoSections } from '../../lib/portfolio/quarterlyReportPdf';
+import { splitReportIntoSections } from '../../lib/portfolio/quarterlyReportPdf';
+import { ReportBody } from './ReportBody';
 import { ReportHoldingsSnapshotTable } from './ReportHoldingsSnapshotTable';
 
 interface MonthlyReportPanelProps {
@@ -75,19 +76,10 @@ export function MonthlyReportPanel({
               className="report-allocation-summary-card-compact"
             />
 
-            <div className="quarterly-report-body">
-              {splitReportIntoSections(selectedMonthlyAnalysis.result).map((section, sectionIndex) => (
-                <section
-                  key={`${selectedMonthlyAnalysis.id}-${sectionIndex}`}
-                  className="quarterly-report-section"
-                >
-                  {section.title ? <h3>{section.title}</h3> : null}
-                  {splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
-                    <p key={`${selectedMonthlyAnalysis.id}-${sectionIndex}-${paragraphIndex}`}>{paragraph}</p>
-                  ))}
-                </section>
-              ))}
-            </div>
+            <ReportBody
+              sections={splitReportIntoSections(selectedMonthlyAnalysis.result)}
+              keyPrefix={selectedMonthlyAnalysis.id}
+            />
 
             <ReportHoldingsSnapshotTable
               reportFactsPayload={selectedMonthlyAnalysis.reportFactsPayload}

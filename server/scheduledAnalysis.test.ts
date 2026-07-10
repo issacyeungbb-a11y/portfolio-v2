@@ -682,7 +682,8 @@ test('monthly analysis prompt preserves five sections and adds macro, data quali
   assert.match(prompt, /【下月行動建議】/);
   assert.match(prompt, /宏觀背景同我實際資產分佈、資產變化互相對照/);
   assert.match(prompt, /cash-flow adjusted return/);
-  assert.match(prompt, /risk-on \/ risk-off/);
+  assert.match(prompt, /Risk-on 情境、Risk-off 情境/);
+  assert.match(prompt, /排版格式規則/);
   assert.match(prompt, /「宏觀背景 → 對我資產的影響 → 投資含義」/);
   assert.match(prompt, /必須跟進 \/ 可以考慮 \/ 暫時不建議/);
   assert.match(prompt, /寫明觸發條件/);

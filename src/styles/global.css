@@ -3975,6 +3975,197 @@ h3 {
   color: var(--text-main);
 }
 
+/* ---- 報告富文本排版（ReportBody） ---- */
+
+.report-rich-body {
+  gap: 1.5rem;
+  max-width: 72ch;
+}
+
+.report-rich-section {
+  gap: 0.65rem;
+}
+
+.report-rich-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.35rem;
+}
+
+.report-rich-section h3::before {
+  content: '';
+  width: 0.28rem;
+  height: 1.05rem;
+  border-radius: 999px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.report-hero-section {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem 1.15rem;
+  border-left: 4px solid var(--accent);
+  border-radius: 0.65rem;
+  background: var(--accent-soft);
+}
+
+.report-hero-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+}
+
+.report-hero-section .report-paragraph {
+  font-size: 1.05rem;
+  line-height: 1.9;
+  font-weight: 500;
+}
+
+.report-paragraph {
+  line-height: 1.85;
+}
+
+.report-note {
+  font-size: 0.85rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+  padding: 0.55rem 0.8rem;
+  border-radius: 0.5rem;
+  background: var(--surface-muted);
+}
+
+.report-figure {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.report-figure.is-positive {
+  color: var(--positive);
+}
+
+.report-figure.is-negative {
+  color: var(--danger);
+}
+
+.report-bullet-list,
+.report-numbered-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.report-bullet-item {
+  position: relative;
+  padding-left: 1.05rem;
+  line-height: 1.8;
+}
+
+.report-bullet-item::before {
+  content: '';
+  position: absolute;
+  left: 0.15rem;
+  top: 0.72rem;
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.65;
+}
+
+.report-numbered-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface-strong);
+}
+
+.report-numbered-index {
+  flex-shrink: 0;
+  width: 1.75rem;
+  height: 1.75rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
+  font-size: 0.9rem;
+}
+
+.report-item-content {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.report-item-content p {
+  line-height: 1.8;
+}
+
+.report-item-label {
+  font-weight: 700;
+}
+
+.report-tone-badge {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.report-tone-badge.tone-must {
+  background: var(--caution-soft);
+  color: var(--caution);
+}
+
+.report-tone-badge.tone-consider {
+  background: var(--positive-soft);
+  color: var(--positive);
+}
+
+.report-tone-badge.tone-avoid {
+  background: var(--neutral-soft);
+  color: var(--neutral);
+}
+
+.report-flow {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.report-flow-step {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.report-flow-step + .report-flow-step {
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+}
+
+.report-flow-label {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.report-flow-step p {
+  line-height: 1.75;
+}
+
 .report-disclosure {
   margin-top: 0.75rem;
   padding: 0.65rem 0.85rem;
