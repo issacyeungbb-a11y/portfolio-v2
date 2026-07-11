@@ -35,6 +35,10 @@ export interface Holding extends PortfolioAssetInput {
   archivedAt?: string;
 }
 
+export interface AllocationHolding extends Holding {
+  accountSources: AccountSource[];
+}
+
 export interface AccountPrincipalEntry {
   accountSource: AccountSource;
   principalAmount: number;
@@ -133,7 +137,7 @@ export interface AllocationSlice {
   color: string;
   totalValueHKD: number;
   totalValueUSD: number;
-  holdings: Holding[];
+  holdings: AllocationHolding[];
 }
 
 export interface ReportAllocationSliceSummary {

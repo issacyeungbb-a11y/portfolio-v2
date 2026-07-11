@@ -1,5 +1,6 @@
 import type {
   AccountCashFlowEntry,
+  AllocationHolding,
   AllocationBucketKey,
   AllocationSlice,
   Holding,
@@ -56,11 +57,62 @@ export function getPortfolioTotalCost(holdingsList: Holding[], currency: string)
   );
 }
 
-export function buildAllocationSlices(holdingsList: Holding[]): AllocationSlice[] {
-  const totalHKD = getPortfolioTotalValue(holdingsList, 'HKD');
-  const grouped = new Map<AllocationBucketKey, Holding[]>();
+function buildAllocationHoldingKey(holding: Holding) {
+  return [
+    holding.assetType,
+    holding.symbol.trim().toUpperCase(),
+    normalizeCurrencyCode(holding.currency),
+  ].join('::');
+}
+
+export function aggregateHoldingsForAllocation(holdingsList: Holding[]): AllocationHolding[] {
+  const grouped = new Map<string, AllocationHolding>();
 
   for (const holding of holdingsList) {
+    const key = buildAllocationHoldingKey(holding);
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        ...holding,
+        accountSources: [holding.accountSource],
+      });
+      continue;
+    }
+
+    const marketValue =
+      existing.marketValue +
+      convertCurrency(holding.marketValue, holding.currency, existing.currency);
+    const unrealizedPnl =
+      existing.unrealizedPnl +
+      convertCurrency(holding.unrealizedPnl, holding.currency, existing.currency);
+    const quantity = existing.quantity + holding.quantity;
+    const costBasis = marketValue - unrealizedPnl;
+
+    grouped.set(key, {
+      ...existing,
+      id: `${existing.id}::aggregated`,
+      quantity,
+      marketValue,
+      averageCost: quantity === 0 ? 0 : costBasis / quantity,
+      currentPrice: quantity === 0 ? 0 : marketValue / quantity,
+      unrealizedPnl,
+      unrealizedPct: costBasis === 0 ? 0 : (unrealizedPnl / costBasis) * 100,
+      allocation: existing.allocation + holding.allocation,
+      accountSources: existing.accountSources.includes(holding.accountSource)
+        ? existing.accountSources
+        : [...existing.accountSources, holding.accountSource],
+    });
+  }
+
+  return [...grouped.values()];
+}
+
+export function buildAllocationSlices(holdingsList: Holding[]): AllocationSlice[] {
+  const totalHKD = getPortfolioTotalValue(holdingsList, 'HKD');
+  const grouped = new Map<AllocationBucketKey, AllocationHolding[]>();
+
+  for (const holding of aggregateHoldingsForAllocation(holdingsList)) {
     const bucketKey = holding.assetType;
     const current = grouped.get(bucketKey) ?? [];
     grouped.set(bucketKey, [...current, holding]);

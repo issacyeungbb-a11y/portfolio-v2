@@ -40,10 +40,48 @@ function getPortfolioTotalCost(holdingsList, currency) {
     0
   );
 }
+function buildAllocationHoldingKey(holding) {
+  return [
+    holding.assetType,
+    holding.symbol.trim().toUpperCase(),
+    normalizeCurrencyCode(holding.currency)
+  ].join("::");
+}
+function aggregateHoldingsForAllocation(holdingsList) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const holding of holdingsList) {
+    const key = buildAllocationHoldingKey(holding);
+    const existing = grouped.get(key);
+    if (!existing) {
+      grouped.set(key, {
+        ...holding,
+        accountSources: [holding.accountSource]
+      });
+      continue;
+    }
+    const marketValue = existing.marketValue + convertCurrency(holding.marketValue, holding.currency, existing.currency);
+    const unrealizedPnl = existing.unrealizedPnl + convertCurrency(holding.unrealizedPnl, holding.currency, existing.currency);
+    const quantity = existing.quantity + holding.quantity;
+    const costBasis = marketValue - unrealizedPnl;
+    grouped.set(key, {
+      ...existing,
+      id: `${existing.id}::aggregated`,
+      quantity,
+      marketValue,
+      averageCost: quantity === 0 ? 0 : costBasis / quantity,
+      currentPrice: quantity === 0 ? 0 : marketValue / quantity,
+      unrealizedPnl,
+      unrealizedPct: costBasis === 0 ? 0 : unrealizedPnl / costBasis * 100,
+      allocation: existing.allocation + holding.allocation,
+      accountSources: existing.accountSources.includes(holding.accountSource) ? existing.accountSources : [...existing.accountSources, holding.accountSource]
+    });
+  }
+  return [...grouped.values()];
+}
 function buildAllocationSlices(holdingsList) {
   const totalHKD = getPortfolioTotalValue(holdingsList, "HKD");
   const grouped = /* @__PURE__ */ new Map();
-  for (const holding of holdingsList) {
+  for (const holding of aggregateHoldingsForAllocation(holdingsList)) {
     const bucketKey = holding.assetType;
     const current = grouped.get(bucketKey) ?? [];
     grouped.set(bucketKey, [...current, holding]);
@@ -80,6 +118,7 @@ function getAccountSourceLabel(accountSource) {
   return "\u5168\u90E8\u5E33\u6236\u4F86\u6E90";
 }
 export {
+  aggregateHoldingsForAllocation,
   allocationBucketMeta,
   allocationBucketOrder,
   buildAllocationSlices,

@@ -1,5 +1,6 @@
 import {
   formatCurrency,
+  getAccountSourceLabel,
   getHoldingValueInCurrency,
 } from '../../data/mockPortfolio';
 import type {
@@ -117,6 +118,11 @@ export function AllocationCard({
               <div>
                 <strong>{holding.symbol}</strong>
                 <span>{holding.name}</span>
+                <span>
+                  {holding.accountSources.length > 1
+                    ? `來自 ${holding.accountSources.map(getAccountSourceLabel).join('、')}（${holding.accountSources.length} 個帳戶）`
+                    : getAccountSourceLabel(holding.accountSources[0] ?? holding.accountSource)}
+                </span>
               </div>
               <div className="allocation-holding-values">
                 <strong>
