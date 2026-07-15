@@ -26,7 +26,10 @@ const rootDir = resolve(__dirname, '..');
 const SHARED_SRC_MODULES = [
   'src/lib/currency.ts',
   'src/lib/holdings.ts',
+  'src/lib/portfolio/assetChange.ts',
+  'src/lib/portfolio/overviewSelectors.ts',
   'src/lib/portfolio/reportAllocationSummary.ts',
+  'src/lib/portfolio/transactionPriceComparison.ts',
 ];
 
 const serverEntries = readdirSync(join(rootDir, 'server'))

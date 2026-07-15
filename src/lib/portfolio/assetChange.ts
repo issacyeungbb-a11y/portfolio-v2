@@ -1,10 +1,5 @@
-import {
-  convertCurrency,
-  formatDateLabel,
-  formatPercent,
-  getHoldingValueInCurrency,
-  getPerformanceRangeLabel,
-} from '../../data/mockPortfolio';
+import { convertCurrency, formatPercent } from '../currency';
+import { getCashFlowSignedAmount, getHoldingValueInCurrency } from '../holdings';
 import type {
   AccountCashFlowEntry,
   AssetChangeRange,
@@ -20,6 +15,20 @@ const assetChangeRangeLabels: Record<AssetChangeRange, string> = {
   '7d': '7日',
   '30d': '30日',
 };
+const performanceRangeLabels = {
+  '7d': '7 日',
+  '30d': '30 日',
+  '6m': '6 個月',
+  '1y': '1 年',
+} as const;
+
+function formatDateLabel(dateString: string) {
+  return new Intl.DateTimeFormat('zh-HK', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${dateString}T00:00:00Z`));
+}
 
 export interface AssetChangeSummary {
   range: AssetChangeRange;
@@ -42,14 +51,6 @@ export interface AssetMover {
   previousValue: number;
   currentValue: number;
   changePct: number | null;
-}
-
-function getSignedCashFlowAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
-  if (entry.type === 'withdrawal') {
-    return -Math.abs(entry.amount);
-  }
-
-  return entry.amount;
 }
 
 function parseSnapshotTime(point: Pick<PortfolioPerformancePoint, 'capturedAt' | 'date'>) {
@@ -120,7 +121,7 @@ export function findAssetChangeComparisonPoint(
   return selected ?? null;
 }
 
-function getNetExternalFlowForRange(
+export function getNetExternalFlowBetweenPoints(
   cashFlows: AccountCashFlowEntry[],
   startPoint: PortfolioPerformancePoint,
   endPoint: PortfolioPerformancePoint,
@@ -135,8 +136,26 @@ function getNetExternalFlowForRange(
       return sum;
     }
 
-    return sum + convertCurrency(getSignedCashFlowAmount(entry), entry.currency, 'HKD');
+    return sum + convertCurrency(getCashFlowSignedAmount(entry), entry.currency, 'HKD');
   }, 0);
+}
+
+export function calculatePerformanceBetweenPoints(
+  startPoint: PortfolioPerformancePoint,
+  endPoint: PortfolioPerformancePoint,
+  cashFlows: AccountCashFlowEntry[],
+) {
+  const netExternalFlow = getNetExternalFlowBetweenPoints(cashFlows, startPoint, endPoint);
+  const totalChange = endPoint.totalValue - startPoint.totalValue;
+  const marketChange = totalChange - netExternalFlow;
+  const returnPct = startPoint.totalValue === 0 ? 0 : (marketChange / startPoint.totalValue) * 100;
+
+  return {
+    netExternalFlow,
+    marketChange,
+    totalChange,
+    returnPct,
+  };
 }
 
 export function calculateAssetChangeSummary(
@@ -156,10 +175,7 @@ export function calculateAssetChangeSummary(
     return null;
   }
 
-  const netExternalFlow = getNetExternalFlowForRange(cashFlows, startPoint, currentPoint);
-  const totalChange = currentPoint.totalValue - startPoint.totalValue;
-  const marketChange = totalChange - netExternalFlow;
-  const returnPct = startPoint.totalValue === 0 ? 0 : (marketChange / startPoint.totalValue) * 100;
+  const performance = calculatePerformanceBetweenPoints(startPoint, currentPoint, cashFlows);
 
   return {
     range,
@@ -168,10 +184,7 @@ export function calculateAssetChangeSummary(
     endDate: currentPoint.date,
     startValue: startPoint.totalValue,
     endValue: currentPoint.totalValue,
-    netExternalFlow,
-    marketChange,
-    totalChange,
-    returnPct,
+    ...performance,
   };
 }
 
@@ -279,5 +292,5 @@ export function formatAssetChangePeriod(summary: AssetChangeSummary) {
 }
 
 export function formatLegacyPerformanceLabel(range: '7d' | '30d' | '6m' | '1y') {
-  return getPerformanceRangeLabel(range);
+  return performanceRangeLabels[range];
 }

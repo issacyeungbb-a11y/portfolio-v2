@@ -5,7 +5,6 @@ import {
   convertCurrency,
   formatCurrencyRounded,
   formatPercent,
-  getCashFlowSignedAmount,
 } from '../data/mockPortfolio';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
@@ -18,8 +17,13 @@ import {
   calculateAssetChangeSummary,
   createCurrentPortfolioPoint,
 } from '../lib/portfolio/assetChange';
+import {
+  buildAccountPrincipalOverview,
+  buildCalendarEntries,
+  buildPerformanceOverview,
+  buildTrendSeries,
+} from '../lib/portfolio/overviewSelectors';
 import type {
-  AccountCashFlowEntry,
   PortfolioPerformancePoint,
 } from '../types/portfolio';
 
@@ -65,28 +69,6 @@ function formatMonthChip(dateKey: string) {
 
 function getMonthKey(dateKey: string) {
   return dateKey.slice(0, 7);
-}
-
-function buildTrendSeries(
-  history: PortfolioPerformancePoint[],
-  currentPoint: PortfolioPerformancePoint,
-  range: TrendRange,
-) {
-  const dayCount = range === '1d' ? 1 : range === '7d' ? 7 : 30;
-  const allPoints = [...history, currentPoint]
-    .sort((left, right) => left.date.localeCompare(right.date))
-    .reduce<PortfolioPerformancePoint[]>((result, point) => {
-      const existing = result.findIndex((entry) => entry.date === point.date);
-      if (existing >= 0) {
-        result[existing] = point;
-      } else {
-        result.push(point);
-      }
-      return result;
-    }, []);
-  const cutoff = new Date(parseDateKey(currentPoint.date).getTime() - (dayCount - 1) * 24 * 60 * 60 * 1000);
-
-  return allPoints.filter((point) => parseDateKey(point.date) >= cutoff);
 }
 
 function buildLinePath(values: number[], width: number, height: number) {
@@ -152,37 +134,6 @@ function buildDateTicks(series: PortfolioPerformancePoint[]) {
   return ticks.filter((tick, index, list) => list.findIndex((entry) => entry.index === tick.index) === index);
 }
 
-function buildCalendarEntries(
-  history: PortfolioPerformancePoint[],
-  currentPoint: PortfolioPerformancePoint | null,
-  cashFlows: AccountCashFlowEntry[],
-) {
-  const byDate = [...history, ...(currentPoint ? [currentPoint] : [])]
-    .sort((left, right) => left.date.localeCompare(right.date))
-    .reduce<Map<string, PortfolioPerformancePoint>>((map, point) => {
-      map.set(point.date, point);
-      return map;
-    }, new Map());
-  const points = [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
-  const cashFlowByDate = cashFlows.reduce<Map<string, number>>((map, entry) => {
-    const current = map.get(entry.date) ?? 0;
-    map.set(entry.date, current + convertCurrency(getCashFlowSignedAmount(entry), entry.currency, 'HKD'));
-    return map;
-  }, new Map());
-
-  return points.map((point, index) => {
-    const previous = points[index - 1];
-    const netFlow = cashFlowByDate.get(point.date) ?? 0;
-    const changeHKD = previous ? point.totalValue - previous.totalValue - netFlow : 0;
-
-    return {
-      date: point.date,
-      changeHKD,
-      totalValueHKD: point.totalValue,
-    };
-  });
-}
-
 function buildCalendarGrid(dateKey: string) {
   const monthStart = parseDateKey(`${dateKey.slice(0, 7)}-01`);
   const firstWeekday = monthStart.getDay();
@@ -220,13 +171,6 @@ function formatCalendarChange(value: number) {
   }
 
   return `${sign}${Math.round(absolute).toLocaleString('en-US')}`;
-}
-
-function sumSignedCashFlowsHKD(entries: AccountCashFlowEntry[]) {
-  return entries.reduce(
-    (sum, entry) => sum + convertCurrency(getCashFlowSignedAmount(entry), entry.currency, 'HKD'),
-    0,
-  );
 }
 
 function formatSnapshotHint(value?: string) {
@@ -269,29 +213,19 @@ export function AssetTrendsPage() {
   const currentPoint = createCurrentPortfolioPoint(holdings);
   const todaySnapshotExists = todaySnapshot.exists;
   const totalValue = convertCurrency(currentPoint.totalValue, 'HKD', displayCurrency);
-  const netExternalFlowTotalHKD = sumSignedCashFlowsHKD(cashFlows);
-  const totalPrincipalHKD =
-    principals.reduce(
-      (sum, entry) => sum + convertCurrency(entry.principalAmount, entry.currency, 'HKD'),
-      0,
-    ) + netExternalFlowTotalHKD;
-  const historicalReturnHKD = currentPoint.totalValue - totalPrincipalHKD;
-  const historicalReturnPct =
-    totalPrincipalHKD === 0 ? 0 : (historicalReturnHKD / Math.abs(totalPrincipalHKD)) * 100;
-  const monthStartDate = `${currentPoint.date.slice(0, 7)}-01`;
-  const monthlySnapshot = history
-    .filter((point) => point.date >= monthStartDate)
-    .sort((left, right) => left.date.localeCompare(right.date))[0];
-  const monthStartValueHKD = monthlySnapshot?.totalValue ?? currentPoint.totalValue;
-  const monthFlowsHKD = cashFlows.reduce((sum, entry) => {
-    if (!entry.date.startsWith(currentPoint.date.slice(0, 7))) {
-      return sum;
-    }
-
-    return sum + convertCurrency(getCashFlowSignedAmount(entry), entry.currency, 'HKD');
-  }, 0);
-  const monthlyReturnHKD = currentPoint.totalValue - monthStartValueHKD - monthFlowsHKD;
-  const monthlyReturnPct = monthStartValueHKD === 0 ? 0 : (monthlyReturnHKD / monthStartValueHKD) * 100;
+  const fundsOverview = buildAccountPrincipalOverview(principals, cashFlows, currentPoint.date);
+  const performanceOverview = buildPerformanceOverview({
+    history,
+    currentPoint,
+    cashFlows,
+    principals,
+    todaySnapshotExists,
+  });
+  const netExternalFlowTotalHKD = fundsOverview.netExternalFlowHKD;
+  const historicalReturnHKD = performanceOverview.historicalReturnHKD;
+  const historicalReturnPct = performanceOverview.historicalReturnPct;
+  const monthlyReturnHKD = performanceOverview.monthly?.marketChange ?? 0;
+  const monthlyReturnPct = performanceOverview.monthly?.returnPct ?? 0;
   const todaySummary = calculateAssetChangeSummary(
     history,
     currentPoint,

@@ -785,7 +785,7 @@ export function AssetsPage() {
         </div>
       </section>
 
-      <section className="card assets-toolbar assets-status-strip">
+      <section className="card assets-toolbar assets-status-strip" id="price-actions">
         <p className="table-hint" style={{ margin: 0 }}>
           {nonCashHoldings.length === 0 ? '未有可更新資產' : `價格覆蓋率 ${syncedCoveragePct}%`}
           {' · '}待處理 {pendingPriceCount + reviews.length} 項
@@ -1280,6 +1280,7 @@ export function AssetsPage() {
       />
       {shouldShowMissingSnapshotNotice ? (
         <WarningPanel
+          id="snapshot-actions"
           eyebrow="快照"
           title="今日快照未生成"
           description="今日快照未能自動生成，建議手動後補以確保走勢數據完整。"
@@ -1297,17 +1298,19 @@ export function AssetsPage() {
           </div>
         </WarningPanel>
       ) : null}
-      <PriceUpdateReviewPanel
-        reviews={reviews}
-        onConfirm={handleConfirmReview}
-        onDismiss={handleDismissReview}
-        onOverride={handleOverrideReview}
-        confirmingAssetIds={confirmingAssetIds}
-        dismissingAssetIds={dismissingAssetIds}
-        overridingAssetIds={overridingAssetIds}
-        actionError={reviewActionError}
-        actionSuccess={reviewActionSuccess}
-      />
+      <div id="price-reviews">
+        <PriceUpdateReviewPanel
+          reviews={reviews}
+          onConfirm={handleConfirmReview}
+          onDismiss={handleDismissReview}
+          onOverride={handleOverrideReview}
+          confirmingAssetIds={confirmingAssetIds}
+          dismissingAssetIds={dismissingAssetIds}
+          overridingAssetIds={overridingAssetIds}
+          actionError={reviewActionError}
+          actionSuccess={reviewActionSuccess}
+        />
+      </div>
 
       {/* P1-2: 系統診斷面板（管理用途，按需展開） */}
       <SystemDiagnosticsPanel />

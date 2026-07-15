@@ -16,10 +16,15 @@ import { useManualPriceUpdater } from '../hooks/useManualPriceUpdater';
 import { useAllPortfolioAssets, usePortfolioAssets } from '../hooks/usePortfolioAssets';
 import { usePriceUpdateReviews } from '../hooks/usePriceUpdateReviews';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
+import { getHongKongDateKey } from '../lib/dates';
 import { repairMissingArchivedAssetsFromTransactions } from '../lib/firebase/assetTransactions';
+import {
+  buildTransactionComparisonMaps,
+  buildTransactionOverview,
+  getVisibleTransactions,
+} from '../lib/portfolio/overviewSelectors';
 import { buildTransactionAssetPriceUpdatePlan } from '../lib/portfolio/priceUpdateTargets';
 import {
-  getTransactionPriceComparison,
   type TransactionPriceComparison,
 } from '../lib/portfolio/transactionPriceComparison';
 import type {
@@ -75,32 +80,6 @@ function buildHoldingFallback(entry: AssetTransactionEntry): Holding {
   };
 }
 
-function normalizeAssetMatchValue(value: string | undefined) {
-  return (value ?? '').trim().toUpperCase();
-}
-
-function getHoldingMatchKeys(holding: Holding) {
-  const baseKey = `${holding.accountSource}|${holding.assetType}`;
-  const symbol = normalizeAssetMatchValue(holding.symbol);
-  const name = normalizeAssetMatchValue(holding.name);
-
-  return [
-    symbol ? `${baseKey}|symbol|${symbol}` : null,
-    name ? `${baseKey}|name|${name}` : null,
-  ].filter((key): key is string => Boolean(key));
-}
-
-function getEntryMatchKeys(entry: AssetTransactionEntry) {
-  const baseKey = `${entry.accountSource}|${entry.assetType}`;
-  const symbol = normalizeAssetMatchValue(entry.symbol);
-  const name = normalizeAssetMatchValue(entry.assetName);
-
-  return [
-    symbol ? `${baseKey}|symbol|${symbol}` : null,
-    name ? `${baseKey}|name|${name}` : null,
-  ].filter((key): key is string => Boolean(key));
-}
-
 function formatPercent(value: number) {
   return `${(value * 100).toLocaleString('zh-HK', {
     minimumFractionDigits: 1,
@@ -148,7 +127,9 @@ export function TransactionsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
-  const [isTransactionInputOpen, setIsTransactionInputOpen] = useState(false);
+  const [isTransactionInputOpen, setIsTransactionInputOpen] = useState(
+    () => typeof window !== 'undefined' && window.location.hash === '#new-transaction',
+  );
   const [isPriceUpdateConfirmOpen, setIsPriceUpdateConfirmOpen] = useState(false);
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
   const [transactionTypeFilter, setTransactionTypeFilter] = useState<AssetTransactionType | 'all'>('all');
@@ -166,9 +147,7 @@ export function TransactionsPage() {
     emptyTargetMessage: '目前交易紀錄未有可更新現價的非現金資產。',
   });
 
-  const visibleEntries = entries.filter(
-    (entry) => !(entry.recordType === 'seed' && entry.note === '歷史持倉基線'),
-  );
+  const visibleEntries = useMemo(() => getVisibleTransactions(entries), [entries]);
   const filteredEntries = visibleEntries.filter((entry) => {
     const settlementAccount = entry.settlementAccountSource ?? entry.accountSource;
     const matchesAccount =
@@ -191,50 +170,19 @@ export function TransactionsPage() {
     () => new Map(holdings.map((holding) => [holding.id, holding])),
     [holdings],
   );
-  const comparisonHoldingsById = useMemo(
-    () => new Map(allHoldings.map((holding) => [holding.id, holding])),
-    [allHoldings],
+  const comparisonMaps = useMemo(
+    () => buildTransactionComparisonMaps(visibleEntries, allHoldings, displayCurrency),
+    [allHoldings, displayCurrency, visibleEntries],
   );
-  const comparisonHoldingsByTransactionId = useMemo(() => {
-    const holdingsByMatchKey = new Map<string, Holding[]>();
-
-    allHoldings.forEach((holding) => {
-      getHoldingMatchKeys(holding).forEach((key) => {
-        const current = holdingsByMatchKey.get(key) ?? [];
-        holdingsByMatchKey.set(key, [...current, holding]);
-      });
-    });
-
-    return new Map(
-      visibleEntries.map((entry) => {
-        const directMatch = comparisonHoldingsById.get(entry.assetId);
-
-        if (directMatch) {
-          return [entry.id, directMatch];
-        }
-
-        const fallbackMatch =
-          getEntryMatchKeys(entry)
-            .flatMap((key) => holdingsByMatchKey.get(key) ?? [])
-            .find((holding) => holding.accountSource === entry.accountSource);
-
-        return [entry.id, fallbackMatch];
-      }),
-    );
-  }, [allHoldings, comparisonHoldingsById, visibleEntries]);
+  const comparisonHoldingsByTransactionId = comparisonMaps.holdingsByTransactionId;
   const comparisonsByTransactionId = useMemo(
-    () =>
-      new Map(
-        filteredEntries.map((entry) => [
-          entry.id,
-          getTransactionPriceComparison(
-            entry,
-            comparisonHoldingsByTransactionId.get(entry.id),
-            displayCurrency,
-          ),
-        ]),
-      ),
-    [comparisonHoldingsByTransactionId, displayCurrency, filteredEntries],
+    () => new Map(
+      filteredEntries.map((entry) => [
+        entry.id,
+        comparisonMaps.comparisonsByTransactionId.get(entry.id) ?? null,
+      ]),
+    ),
+    [comparisonMaps.comparisonsByTransactionId, filteredEntries],
   );
   const validComparisons = useMemo(
     () =>
@@ -259,24 +207,12 @@ export function TransactionsPage() {
   );
   const buyWeightedReturn =
     buyComparisonBasisTotal > 0 ? buyComparisonTotal / buyComparisonBasisTotal : null;
-  const positiveComparisons = validComparisons.filter(
-    (comparison) => comparison.comparisonDisplay > 0,
+  const transactionOverview = useMemo(
+    () => buildTransactionOverview(filteredEntries, comparisonsByTransactionId, getHongKongDateKey()),
+    [comparisonsByTransactionId, filteredEntries],
   );
-  const negativeComparisons = validComparisons.filter(
-    (comparison) => comparison.comparisonDisplay < 0,
-  );
-  const maxPositiveComparison =
-    positiveComparisons.length > 0
-      ? positiveComparisons.reduce((best, comparison) =>
-          comparison.comparisonDisplay > best.comparisonDisplay ? comparison : best,
-        )
-      : null;
-  const maxNegativeComparison =
-    negativeComparisons.length > 0
-      ? negativeComparisons.reduce((worst, comparison) =>
-          comparison.comparisonDisplay < worst.comparisonDisplay ? comparison : worst,
-        )
-      : null;
+  const maxPositiveComparison = transactionOverview.maxPositiveContribution?.comparison ?? null;
+  const maxNegativeComparison = transactionOverview.maxNegativeContribution?.comparison ?? null;
   const transactionPriceUpdateHoldings = useMemo(() => {
     return buildTransactionAssetPriceUpdatePlan(visibleEntries, allHoldings);
   }, [allHoldings, visibleEntries]);
@@ -536,7 +472,7 @@ export function TransactionsPage() {
                 <strong className="summary-value">
                   {formatCurrencyRounded(
                     convertCurrency(
-                      filteredEntries.reduce((sum, entry) => sum + entry.realizedPnlHKD, 0),
+                      transactionOverview.realizedPnlHKD,
                       'HKD',
                       displayCurrency,
                     ),
@@ -551,7 +487,9 @@ export function TransactionsPage() {
       </PageSection>
 
       {isTransactionInputOpen ? (
-        <TransactionInputPanel onClose={() => setIsTransactionInputOpen(false)} />
+        <div id="new-transaction">
+          <TransactionInputPanel onClose={() => setIsTransactionInputOpen(false)} />
+        </div>
       ) : null}
 
       <section className="card">

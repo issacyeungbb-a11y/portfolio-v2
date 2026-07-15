@@ -742,8 +742,9 @@ export function AnalysisPage() {
       ) : null}
       {isEmpty && isMonthlyTab ? <p className="status-message">尚未有可分析資產</p> : null}
 
-      {isMonthlyTab ? (
-        <MonthlyReportPanel
+      <div id="stored-reports">
+        {isMonthlyTab ? (
+          <MonthlyReportPanel
           monthlyAnalysisSessions={monthlyAnalysisSessions}
           selectedMonthlyAnalysisId={selectedMonthlyAnalysisId}
           displayCurrency={displayCurrency}
@@ -756,9 +757,9 @@ export function AnalysisPage() {
           onCopyReport={handleCopyCurrentResponse}
           formatGeneratedAt={formatGeneratedAt}
           getAnalysisModelLabel={getAnalysisModelLabel}
-        />
-      ) : (
-        <QuarterlyReportPanel
+          />
+        ) : (
+          <QuarterlyReportPanel
           reports={reports}
           reportsStatus={reportsStatus}
           selectedReport={selectedReport}
@@ -783,8 +784,9 @@ export function AnalysisPage() {
           formatGeneratedAt={formatGeneratedAt}
           formatAnalysisTime={formatAnalysisTime}
           getAnalysisModelLabel={getAnalysisModelLabel}
-        />
-      )}
+          />
+        )}
+      </div>
     </div>
   );
 }

@@ -11,6 +11,7 @@ import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import { EmptyState } from '../components/ui/EmptyState';
 import { PageSection } from '../components/ui/DesignSystem';
 import { getHongKongDateKey } from '../lib/dates';
+import { buildAccountPrincipalOverview } from '../lib/portfolio/overviewSelectors';
 import { useAccountCashFlows } from '../hooks/useAccountCashFlows';
 import { useAccountPrincipals } from '../hooks/useAccountPrincipals';
 import { useDisplayCurrency } from '../hooks/useDisplayCurrency';
@@ -81,42 +82,12 @@ export function FundsPage() {
     return accountSourceOptions.map((source) => entryMap.get(source)!);
   }, [accountPrincipals]);
 
-  const accountSummaries = useMemo(() => {
-    return accountSourceOptions.map((source) => {
-      const basePrincipal =
-        accountPrincipals.find((entry) => entry.accountSource === source) ?? {
-          accountSource: source,
-          principalAmount: 0,
-          currency: 'HKD',
-        };
-
-      const relatedFlows = cashFlows.filter((entry) => entry.accountSource === source);
-      const netFlowHKD = relatedFlows.reduce(
-        (sum, entry) =>
-          sum +
-          convertCurrency(
-            getCashFlowSignedAmount(entry),
-            entry.currency,
-            'HKD',
-          ),
-        0,
-      );
-      const baselineHKD = convertCurrency(
-        basePrincipal.principalAmount,
-        basePrincipal.currency,
-        'HKD',
-      );
-
-      return {
-        accountSource: source,
-        baseline: basePrincipal,
-        recentCount: relatedFlows.length,
-        netFlowHKD,
-        totalPrincipalHKD: baselineHKD + netFlowHKD,
-      };
-    });
-  }, [accountPrincipals, cashFlows]);
-  const totalPrincipalHKD = accountSummaries.reduce((sum, summary) => sum + summary.totalPrincipalHKD, 0);
+  const principalOverview = useMemo(
+    () => buildAccountPrincipalOverview(accountPrincipals, cashFlows, getHongKongDateKey()),
+    [accountPrincipals, cashFlows],
+  );
+  const accountSummaries = principalOverview.accountSummaries;
+  const totalPrincipalHKD = principalOverview.totalPrincipalHKD;
   const totalPrincipalDisplay = convertCurrency(totalPrincipalHKD, 'HKD', displayCurrency);
   const latestCashFlowDateLabel = useMemo(() => {
     const latestDate = [...cashFlows]
@@ -273,7 +244,7 @@ export function FundsPage() {
         </div>
       </section>
 
-      <section className="card">
+      <section className="card" id="cash-flow-form">
         <div className="section-heading">
           <div>
             <p className="eyebrow">新增</p>
