@@ -50,6 +50,32 @@ export interface StoredAnalysisOverview {
   highlights: string[];
 }
 
+export function getMonthlyAnalysisPeriodKey(session: AnalysisSession) {
+  const idMatch = session.id.match(/^monthly-(\d{4})-(\d{1,2})(?:$|-)/i);
+  const titleMatch = session.title.match(/(\d{4})\s*年\s*(\d{1,2})\s*月/);
+  const factsMatch = session.reportFactsPayload?.periodEndDate.match(/^(\d{4})-(\d{1,2})/);
+  const match = idMatch ?? titleMatch ?? factsMatch;
+
+  if (!match) return '';
+
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return '';
+
+  return `${match[1]}-${String(month).padStart(2, '0')}`;
+}
+
+export function sortMonthlyAnalysisSessions(sessions: AnalysisSession[]) {
+  return [...sessions].sort((left, right) => {
+    const periodComparison = getMonthlyAnalysisPeriodKey(right)
+      .localeCompare(getMonthlyAnalysisPeriodKey(left));
+
+    if (periodComparison !== 0) return periodComparison;
+
+    return (right.updatedAt || right.createdAt || '')
+      .localeCompare(left.updatedAt || left.createdAt || '');
+  });
+}
+
 function getMonthKey(dateKey: string) {
   return dateKey.slice(0, 7);
 }

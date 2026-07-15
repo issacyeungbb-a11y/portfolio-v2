@@ -35,6 +35,7 @@ import {
   createQuarterlyReportPdf,
   splitReportIntoSections,
 } from '../lib/portfolio/quarterlyReportPdf';
+import { sortMonthlyAnalysisSessions } from '../lib/portfolio/overviewSelectors';
 import { StatusMessages } from '../components/ui/StatusMessages';
 import type { AnalysisSession, Holding } from '../types/portfolio';
 import type {
@@ -323,12 +324,12 @@ export function AnalysisPage() {
   } = useAnalysisThreads();
   const monthlyAnalysisSessions = useMemo(
     () =>
-      analysisSessions
-        .filter(
+      sortMonthlyAnalysisSessions(
+        analysisSessions.filter(
           (session) =>
             session.category === 'asset_analysis' && isMonthlyAnalysisRecord(session.title ?? ''),
-        )
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+        ),
+      ),
     [analysisSessions],
   );
   const currentMonthAnalysis = useMemo(

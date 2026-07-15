@@ -7,7 +7,9 @@ import {
   buildPerformanceOverview,
   buildTransactionComparisonMaps,
   buildTransactionOverview,
+  getMonthlyAnalysisPeriodKey,
   selectLatestStoredAnalysis,
+  sortMonthlyAnalysisSessions,
 } from '../src/lib/portfolio/overviewSelectors.js';
 
 function point(date, totalValue) {
@@ -158,4 +160,29 @@ test('latest analysis summary reads stored report content only', () => {
   assert.equal(latest?.kind, 'monthly');
   assert.equal(latest?.highlights.length, 3);
   assert.match(latest?.highlights[0] ?? '', /市場收益/);
+});
+
+test('monthly reports sort by covered month before Firestore update time', () => {
+  const june = {
+    id: 'monthly-2026-06',
+    category: 'asset_analysis',
+    title: '2026年6月每月資產分析',
+    question: '',
+    result: '六月內容',
+    model: 'stored-model',
+    updatedAt: '2026-07-02T00:00:00.000Z',
+  };
+  const may = {
+    ...june,
+    id: 'legacy-may',
+    title: '2026年5月每月資產分析',
+    result: '五月內容',
+    updatedAt: '2026-07-14T00:00:00.000Z',
+  };
+
+  assert.equal(getMonthlyAnalysisPeriodKey(june), '2026-06');
+  assert.deepEqual(sortMonthlyAnalysisSessions([may, june]).map((session) => session.id), [
+    'monthly-2026-06',
+    'legacy-may',
+  ]);
 });
