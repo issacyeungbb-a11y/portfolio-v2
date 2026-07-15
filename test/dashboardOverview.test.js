@@ -186,3 +186,30 @@ test('monthly reports sort by covered month before Firestore update time', () =>
     'legacy-may',
   ]);
 });
+
+test('dashboard latest analysis follows covered period instead of generation time', () => {
+  const baseSession = {
+    category: 'asset_analysis',
+    question: '',
+    model: 'stored-model',
+  };
+  const latest = selectLatestStoredAnalysis([
+    {
+      ...baseSession,
+      id: 'monthly-2026-05',
+      title: '2026年5月每月資產分析',
+      result: '五月報告內容較新生成，但所屬月份較舊。',
+      updatedAt: '2026-07-10T14:02:00.000Z',
+    },
+    {
+      ...baseSession,
+      id: 'monthly-2026-06',
+      title: '2026年6月每月資產分析',
+      result: '六月報告內容應顯示於總覽。',
+      updatedAt: '2026-07-04T12:16:00.000Z',
+    },
+  ], []);
+
+  assert.equal(latest?.id, 'monthly-2026-06');
+  assert.equal(latest?.title, '2026年6月每月資產分析');
+});

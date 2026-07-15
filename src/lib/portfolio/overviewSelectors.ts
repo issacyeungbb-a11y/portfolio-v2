@@ -76,6 +76,18 @@ export function sortMonthlyAnalysisSessions(sessions: AnalysisSession[]) {
   });
 }
 
+function getQuarterlyReportPeriodKey(report: QuarterlyReport) {
+  const factsMatch = report.reportFactsPayload?.periodEndDate.match(/^(\d{4})-(\d{1,2})/);
+  if (factsMatch) {
+    return `${factsMatch[1]}-${String(Number(factsMatch[2])).padStart(2, '0')}`;
+  }
+
+  const quarterMatch = report.quarter.match(/(\d{4})\s*年?\s*Q([1-4])/i);
+  if (!quarterMatch) return '';
+
+  return `${quarterMatch[1]}-${String(Number(quarterMatch[2]) * 3).padStart(2, '0')}`;
+}
+
 function getMonthKey(dateKey: string) {
   return dateKey.slice(0, 7);
 }
@@ -376,6 +388,7 @@ export function selectLatestStoredAnalysis(
       id: session.id,
       kind: 'monthly' as const,
       title: session.title || '每月資產分析',
+      periodKey: getMonthlyAnalysisPeriodKey(session),
       generatedAt: session.updatedAt || session.createdAt || '',
       status: 'ready' as const,
       content: session.result,
@@ -386,12 +399,18 @@ export function selectLatestStoredAnalysis(
       id: report.id,
       kind: 'quarterly' as const,
       title: `${report.quarter} 季度投資報告`,
+      periodKey: getQuarterlyReportPeriodKey(report),
       generatedAt: report.generatedAt || report.updatedAt || report.createdAt || '',
       status: report.isTimeoutFallback ? 'fallback' as const : 'ready' as const,
       content: report.report,
     }));
   const latest = [...monthly, ...quarterly]
-    .sort((left, right) => toComparableTime(right.generatedAt) - toComparableTime(left.generatedAt))[0];
+    .sort((left, right) => {
+      const periodComparison = right.periodKey.localeCompare(left.periodKey);
+      if (periodComparison !== 0) return periodComparison;
+
+      return toComparableTime(right.generatedAt) - toComparableTime(left.generatedAt);
+    })[0];
 
   if (!latest) return null;
 
