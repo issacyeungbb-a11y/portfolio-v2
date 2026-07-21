@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { aggregateHoldingsForAllocation, buildAllocationSlices } from '../src/lib/holdings.js';
+import {
+  aggregateHoldingsForAllocation,
+  buildAccountAllocationSlices,
+  buildAllocationSlices,
+} from '../src/lib/holdings.js';
 
 function createHolding(overrides) {
   const marketValue = overrides.quantity * overrides.currentPrice;
@@ -77,4 +81,33 @@ test('allocation detail keeps different symbols as separate assets', () => {
   ];
 
   assert.equal(aggregateHoldingsForAllocation(holdings).length, 2);
+});
+
+test('account allocation keeps each account visible and calculates portfolio share', () => {
+  const holdings = [
+    createHolding({
+      id: 'vtv-futu',
+      accountSource: 'Futu',
+      quantity: 10,
+      averageCost: 150,
+      currentPrice: 175,
+      allocation: 50,
+    }),
+    createHolding({
+      id: 'vtv-ib',
+      accountSource: 'IB',
+      quantity: 5,
+      averageCost: 160,
+      currentPrice: 175,
+      allocation: 25,
+    }),
+  ];
+
+  const slices = buildAccountAllocationSlices(holdings);
+
+  assert.deepEqual(slices.map((slice) => slice.key), ['Futu', 'IB']);
+  assert.equal(slices[0].value, 2 / 3 * 100);
+  assert.equal(slices[1].value, 1 / 3 * 100);
+  assert.deepEqual(slices[0].holdings[0].accountSources, ['Futu']);
+  assert.ok(Math.abs(slices.reduce((sum, slice) => sum + slice.value, 0) - 100) < 1e-9);
 });

@@ -13,8 +13,17 @@ const allocationBucketOrder = [
   "crypto",
   "cash"
 ];
+const accountAllocationMeta = {
+  Futu: { label: "Futu", color: "#0f766e" },
+  IB: { label: "IB", color: "#2563eb" },
+  Crypto: { label: "Crypto", color: "#7c3aed" },
+  Other: { label: "\u5176\u4ED6", color: "#d97706" }
+};
 function getAllocationBucketMeta(key) {
   return allocationBucketMeta[key];
+}
+function getAccountAllocationMeta(key) {
+  return accountAllocationMeta[key];
 }
 function getCashFlowSignedAmount(entry) {
   return entry.type === "withdrawal" ? -Math.abs(entry.amount) : entry.amount;
@@ -102,6 +111,35 @@ function buildAllocationSlices(holdingsList) {
     };
   }).sort((left, right) => right.totalValueHKD - left.totalValueHKD);
 }
+function buildAccountAllocationSlices(holdingsList) {
+  const totalHKD = getPortfolioTotalValue(holdingsList, "HKD");
+  const grouped = /* @__PURE__ */ new Map();
+  for (const holding of holdingsList) {
+    const current = grouped.get(holding.accountSource) ?? [];
+    grouped.set(holding.accountSource, [
+      ...current,
+      {
+        ...holding,
+        accountSources: [holding.accountSource]
+      }
+    ]);
+  }
+  return [...grouped.entries()].map(([key, accountHoldings]) => {
+    const totalValueHKD = getPortfolioTotalValue(accountHoldings, "HKD");
+    const totalValueUSD = getPortfolioTotalValue(accountHoldings, "USD");
+    return {
+      key,
+      label: accountAllocationMeta[key].label,
+      color: accountAllocationMeta[key].color,
+      value: totalHKD === 0 ? 0 : totalValueHKD / totalHKD * 100,
+      totalValueHKD,
+      totalValueUSD,
+      holdings: [...accountHoldings].sort(
+        (left, right) => getHoldingValueInCurrency(right, "HKD") - getHoldingValueInCurrency(left, "HKD")
+      )
+    };
+  }).sort((left, right) => right.totalValueHKD - left.totalValueHKD);
+}
 function getAssetTypeLabel(assetType) {
   if (assetType === "stock") return "\u80A1\u7968";
   if (assetType === "etf") return "ETF";
@@ -118,10 +156,13 @@ function getAccountSourceLabel(accountSource) {
   return "\u5168\u90E8\u5E33\u6236\u4F86\u6E90";
 }
 export {
+  accountAllocationMeta,
   aggregateHoldingsForAllocation,
   allocationBucketMeta,
   allocationBucketOrder,
+  buildAccountAllocationSlices,
   buildAllocationSlices,
+  getAccountAllocationMeta,
   getAccountSourceLabel,
   getAllocationBucketMeta,
   getAssetTypeLabel,

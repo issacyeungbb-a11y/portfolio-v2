@@ -140,6 +140,16 @@ export interface AllocationSlice {
   holdings: AllocationHolding[];
 }
 
+export interface AccountAllocationSlice {
+  key: AccountSource;
+  label: string;
+  value: number;
+  color: string;
+  totalValueHKD: number;
+  totalValueUSD: number;
+  holdings: AllocationHolding[];
+}
+
 export interface ReportAllocationSliceSummary {
   key: AllocationBucketKey;
   label: string;

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { AssetInputForm } from '../components/assets/AssetInputForm';
+import { PortfolioAllocationChart } from '../components/assets/PortfolioAllocationChart';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
 import { TransactionInputPanel } from '../components/transactions/TransactionInputPanel';
 import { CurrencyToggle } from '../components/ui/CurrencyToggle';
@@ -416,9 +417,12 @@ export function AssetsPage() {
     saveReviews,
   });
 
-  const holdings: Holding[] = recalculateHoldingAllocations(
-    firestoreHoldings,
-    (holding) => getHoldingValueInCurrency(holding, 'HKD'),
+  const holdings: Holding[] = useMemo(
+    () => recalculateHoldingAllocations(
+      firestoreHoldings,
+      (holding) => getHoldingValueInCurrency(holding, 'HKD'),
+    ),
+    [firestoreHoldings],
   );
 
   const filteredHoldings = holdings.filter((holding) => {
@@ -784,6 +788,8 @@ export function AssetsPage() {
           />
         </div>
       </section>
+
+      <PortfolioAllocationChart holdings={holdings} displayCurrency={displayCurrency} />
 
       <section className="card assets-toolbar assets-status-strip" id="price-actions">
         <p className="table-hint" style={{ margin: 0 }}>

@@ -2164,6 +2164,302 @@ h3 {
   padding-bottom: 0;
 }
 
+.portfolio-allocation-card {
+  display: grid;
+  gap: 1rem;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 8% 0%, rgba(15, 118, 110, 0.09), transparent 32%),
+    linear-gradient(145deg, rgba(255, 252, 248, 0.98), rgba(249, 243, 235, 0.94));
+}
+
+.portfolio-allocation-heading,
+.portfolio-allocation-detail-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.portfolio-allocation-heading h2 {
+  margin-top: 0.12rem;
+  font-size: clamp(1.12rem, 3vw, 1.45rem);
+}
+
+.allocation-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem;
+  border: 1px solid rgba(118, 96, 77, 0.14);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.allocation-mode-toggle button {
+  min-height: 2.35rem;
+  padding: 0.5rem 0.78rem;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.allocation-mode-toggle button.active {
+  background: var(--surface-dark);
+  color: #fbf4ea;
+  box-shadow: 0 8px 16px rgba(31, 58, 54, 0.16);
+}
+
+.portfolio-allocation-overview {
+  display: grid;
+  gap: 1rem;
+  align-items: center;
+}
+
+.portfolio-allocation-donut-column {
+  display: grid;
+  gap: 0.75rem;
+  justify-items: center;
+}
+
+.portfolio-allocation-donut {
+  position: relative;
+  width: min(100%, 17rem);
+  aspect-ratio: 1;
+}
+
+.portfolio-allocation-donut svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 12px 18px rgba(31, 58, 54, 0.08));
+  transform: rotate(-90deg);
+}
+
+.portfolio-allocation-track,
+.portfolio-allocation-segment {
+  fill: none;
+  transform-origin: center;
+}
+
+.portfolio-allocation-track {
+  stroke: rgba(118, 96, 77, 0.11);
+  stroke-width: 25;
+}
+
+.portfolio-allocation-segment {
+  stroke-width: 24;
+  stroke-linecap: round;
+  opacity: 0.68;
+  transition: opacity 180ms ease, stroke-width 180ms ease;
+}
+
+.portfolio-allocation-segment.selected {
+  stroke-width: 29;
+  opacity: 1;
+}
+
+.portfolio-allocation-center {
+  position: absolute;
+  inset: 50%;
+  width: 53%;
+  height: 53%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-content: center;
+  gap: 0.15rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(118, 96, 77, 0.08);
+  border-radius: 50%;
+  background: rgba(255, 252, 248, 0.98);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
+  text-align: center;
+}
+
+.portfolio-allocation-center span,
+.portfolio-allocation-center small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.portfolio-allocation-center strong {
+  font-size: clamp(0.9rem, 3vw, 1.05rem);
+  line-height: 1.15;
+}
+
+.portfolio-allocation-center b {
+  color: var(--accent);
+  font-size: 1.42rem;
+  line-height: 1;
+}
+
+.portfolio-allocation-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.portfolio-allocation-stats span {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+  padding: 0.58rem 0.65rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  border-radius: 0.95rem;
+  background: rgba(255, 255, 255, 0.48);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.portfolio-allocation-stats strong {
+  overflow: hidden;
+  color: var(--text-main);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-allocation-legend {
+  display: grid;
+  gap: 0.55rem;
+  width: 100%;
+}
+
+.portfolio-allocation-legend-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.48);
+  color: var(--text-main);
+  text-align: left;
+  cursor: pointer;
+}
+
+.portfolio-allocation-legend-row.active {
+  border-color: rgba(15, 118, 110, 0.28);
+  background: rgba(15, 118, 110, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.05);
+}
+
+.portfolio-allocation-swatch {
+  width: 0.78rem;
+  height: 0.78rem;
+  border-radius: 50%;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.55);
+}
+
+.portfolio-allocation-legend-copy,
+.portfolio-allocation-legend-value,
+.portfolio-allocation-holding-copy,
+.portfolio-allocation-holding-value {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.portfolio-allocation-legend-copy small,
+.portfolio-allocation-legend-value small,
+.portfolio-allocation-holding-copy small,
+.portfolio-allocation-holding-value small {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.portfolio-allocation-legend-value,
+.portfolio-allocation-holding-value {
+  justify-items: end;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.portfolio-allocation-bar {
+  grid-column: 2 / -1;
+  height: 0.24rem;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: rgba(118, 96, 77, 0.09);
+}
+
+.portfolio-allocation-bar span,
+.portfolio-allocation-holding-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.portfolio-allocation-detail {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(118, 96, 77, 0.1);
+  border-radius: 1.25rem;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.portfolio-allocation-detail-heading h3 {
+  margin-top: 0.12rem;
+  font-size: 1.08rem;
+}
+
+.portfolio-allocation-holdings {
+  display: grid;
+}
+
+.portfolio-allocation-holding-row {
+  display: grid;
+  grid-template-columns: minmax(3.5rem, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.72rem 0;
+  border-top: 1px solid rgba(118, 96, 77, 0.09);
+}
+
+.portfolio-allocation-holding-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.portfolio-allocation-holding-row:last-child {
+  padding-bottom: 0;
+}
+
+.portfolio-allocation-holding-symbol {
+  overflow: hidden;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-allocation-holding-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolio-allocation-holding-bar {
+  grid-column: 2 / -1;
+  height: 0.2rem;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: rgba(118, 96, 77, 0.08);
+}
+
+.portfolio-allocation-holding-bar span {
+  background: var(--accent);
+  opacity: 0.72;
+}
+
 .report-allocation-summary-card {
   display: grid;
   gap: 0.78rem;
@@ -3316,6 +3612,36 @@ h3 {
 
   .allocation-detail-panel {
     padding: 0.88rem;
+  }
+
+  .portfolio-allocation-heading {
+    flex-direction: column;
+  }
+
+  .allocation-mode-toggle {
+    width: 100%;
+  }
+
+  .allocation-mode-toggle button {
+    flex: 1 1 50%;
+  }
+
+  .portfolio-allocation-detail {
+    padding: 0.78rem;
+  }
+
+  .portfolio-allocation-holding-row {
+    grid-template-columns: minmax(3.2rem, auto) minmax(0, 1fr);
+  }
+
+  .portfolio-allocation-holding-value {
+    grid-column: 2;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .portfolio-allocation-holding-bar {
+    grid-column: 2;
   }
 
   .summary-cluster {
@@ -4707,6 +5033,11 @@ h3 {
 
   .allocation-visual-layout {
     grid-template-columns: 0.95fr 1.2fr;
+    align-items: center;
+  }
+
+  .portfolio-allocation-overview {
+    grid-template-columns: minmax(15rem, 0.85fr) minmax(18rem, 1.15fr);
     align-items: center;
   }
 

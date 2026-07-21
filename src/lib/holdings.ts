@@ -1,5 +1,7 @@
 import type {
+  AccountAllocationSlice,
   AccountCashFlowEntry,
+  AccountSource,
   AllocationHolding,
   AllocationBucketKey,
   AllocationSlice,
@@ -23,8 +25,19 @@ export const allocationBucketOrder: AllocationBucketKey[] = [
   'cash',
 ];
 
+export const accountAllocationMeta: Record<AccountSource, { label: string; color: string }> = {
+  Futu: { label: 'Futu', color: '#0f766e' },
+  IB: { label: 'IB', color: '#2563eb' },
+  Crypto: { label: 'Crypto', color: '#7c3aed' },
+  Other: { label: '其他', color: '#d97706' },
+};
+
 export function getAllocationBucketMeta(key: AllocationBucketKey) {
   return allocationBucketMeta[key];
+}
+
+export function getAccountAllocationMeta(key: AccountSource) {
+  return accountAllocationMeta[key];
 }
 
 export function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type' | 'amount'>) {
@@ -131,6 +144,42 @@ export function buildAllocationSlices(holdingsList: Holding[]): AllocationSlice[
         totalValueHKD,
         totalValueUSD,
         holdings: [...bucketHoldings].sort(
+          (left, right) =>
+            getHoldingValueInCurrency(right, 'HKD') - getHoldingValueInCurrency(left, 'HKD'),
+        ),
+      };
+    })
+    .sort((left, right) => right.totalValueHKD - left.totalValueHKD);
+}
+
+export function buildAccountAllocationSlices(holdingsList: Holding[]): AccountAllocationSlice[] {
+  const totalHKD = getPortfolioTotalValue(holdingsList, 'HKD');
+  const grouped = new Map<AccountSource, AllocationHolding[]>();
+
+  for (const holding of holdingsList) {
+    const current = grouped.get(holding.accountSource) ?? [];
+    grouped.set(holding.accountSource, [
+      ...current,
+      {
+        ...holding,
+        accountSources: [holding.accountSource],
+      },
+    ]);
+  }
+
+  return [...grouped.entries()]
+    .map(([key, accountHoldings]) => {
+      const totalValueHKD = getPortfolioTotalValue(accountHoldings, 'HKD');
+      const totalValueUSD = getPortfolioTotalValue(accountHoldings, 'USD');
+
+      return {
+        key,
+        label: accountAllocationMeta[key].label,
+        color: accountAllocationMeta[key].color,
+        value: totalHKD === 0 ? 0 : (totalValueHKD / totalHKD) * 100,
+        totalValueHKD,
+        totalValueUSD,
+        holdings: [...accountHoldings].sort(
           (left, right) =>
             getHoldingValueInCurrency(right, 'HKD') - getHoldingValueInCurrency(left, 'HKD'),
         ),
