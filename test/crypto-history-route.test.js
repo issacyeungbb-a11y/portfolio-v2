@@ -37,6 +37,19 @@ test('crypto history KPI amounts stay on one line and scale to their card width'
   assert.match(kpiRule, /word-break:\s*normal/);
 });
 
+test('crypto allocation renders as an accessible pie chart', async () => {
+  const [component, styles] = await Promise.all([
+    readFile(new URL('../src/components/crypto/CryptoAllocationPanel.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/styles/global.css', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(component, /className="crypto-allocation-pie"/);
+  assert.match(component, /role="img"/);
+  assert.match(component, /conic-gradient/);
+  assert.doesNotMatch(component, /crypto-allocation-track/);
+  assert.match(styles, /\.crypto-allocation-pie\s*\{[^}]*aspect-ratio:\s*1[^}]*border-radius:\s*50%/s);
+});
+
 test('server reader and importer stay inside independent crypto collections', async () => {
   const [readerSource, importerSource, rulesSource] = await Promise.all([
     readFile(new URL('../server/cryptoHistory.ts', import.meta.url), 'utf8'),

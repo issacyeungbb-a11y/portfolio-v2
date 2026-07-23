@@ -7,11 +7,11 @@ interface CryptoAllocationPanelProps {
 }
 
 const allocationConfig = [
-  { key: 'BTC', label: 'BTC', className: 'allocation-btc' },
-  { key: 'ETH', label: 'ETH', className: 'allocation-eth' },
-  { key: 'ADA', label: 'ADA', className: 'allocation-ada' },
-  { key: 'USDT', label: 'USDT', className: 'allocation-usdt' },
-  { key: 'OTHER', label: '其他', className: 'allocation-other' },
+  { key: 'BTC', label: 'BTC', className: 'allocation-btc', color: 'var(--crypto-btc)' },
+  { key: 'ETH', label: 'ETH', className: 'allocation-eth', color: 'var(--crypto-eth)' },
+  { key: 'ADA', label: 'ADA', className: 'allocation-ada', color: 'var(--crypto-ada)' },
+  { key: 'USDT', label: 'USDT', className: 'allocation-usdt', color: 'var(--crypto-usdt)' },
+  { key: 'OTHER', label: '其他', className: 'allocation-other', color: 'var(--crypto-other)' },
 ] as const;
 
 function percent(value: number) {
@@ -30,19 +30,34 @@ export const CryptoAllocationPanel = memo(function CryptoAllocationPanel({
     return typeof value === 'number' ? [{ ...item, value }] : [];
   });
   const complete = allocations.length === allocationConfig.length;
+  let covered = 0;
+  const gradientStops = allocations.flatMap((item) => {
+    const start = covered;
+    covered = Math.min(1, covered + Math.max(0, item.value));
+
+    return covered > start
+      ? [`${item.color} ${start * 100}% ${covered * 100}%`]
+      : [];
+  });
+
+  if (covered < 1) {
+    gradientStops.push(`var(--surface-muted) ${covered * 100}% 100%`);
+  }
+
+  const pieGradient = `conic-gradient(${gradientStops.join(', ') || 'var(--surface-muted) 0% 100%'})`;
+  const accessibleSummary = allocations
+    .map((item) => `${item.label} ${percent(item.value)}`)
+    .join('、');
 
   return (
     <div className="crypto-allocation-panel">
-      <div className="crypto-allocation-track" aria-label={`${snapshot.month} 資產分佈`}>
-        {allocations.map((item) => (
-          <span
-            key={item.key}
-            className={item.className}
-            style={{ width: `${item.value * 100}%` }}
-            title={`${item.label} ${percent(item.value)}`}
-          />
-        ))}
-      </div>
+      <div
+        className="crypto-allocation-pie"
+        role="img"
+        aria-label={`${snapshot.month} 資產分佈：${accessibleSummary || '沒有可用比例'}`}
+        title={accessibleSummary}
+        style={{ background: pieGradient }}
+      />
       <div className="crypto-allocation-legend">
         {allocationConfig.map((item) => {
           const value = snapshot.allocations[item.key];
