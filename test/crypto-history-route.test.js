@@ -49,6 +49,20 @@ test('crypto history reuses an existing function to stay within the Hobby limit'
   assert.ok(apiFiles.length <= 12, `Expected at most 12 Vercel functions, found ${apiFiles.length}.`);
 });
 
+test('Vercel serves SPA routes directly without swallowing API or static asset paths', async () => {
+  const vercelConfig = JSON.parse(
+    await readFile(new URL('../vercel.json', import.meta.url), 'utf8'),
+  );
+  const spaRewrite = vercelConfig.rewrites.find(
+    (rewrite) => rewrite.destination === '/index.html',
+  );
+
+  assert.deepEqual(spaRewrite, {
+    source: '/((?!api/|api$|.*\\..*).*)',
+    destination: '/index.html',
+  });
+});
+
 test('crypto history KPI amounts stay on one line and scale to their card width', async () => {
   const styles = await readFile(new URL('../src/styles/global.css', import.meta.url), 'utf8');
   const kpiRule = styles.match(/\.crypto-kpi > strong\s*\{([^}]*)\}/)?.[1] ?? '';
