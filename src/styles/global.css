@@ -5782,6 +5782,65 @@ h3 {
   font-size: 0.8rem;
 }
 
+.crypto-sync-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+
+.crypto-sync-panel > div:first-child {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.crypto-sync-panel span {
+  color: var(--text-main);
+  font-weight: 750;
+}
+
+.crypto-sync-panel small,
+.crypto-latest-sync {
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+}
+
+.crypto-sync-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.crypto-sync-preview {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0.65rem 0 0;
+}
+
+.crypto-sync-preview > div {
+  padding: 0.52rem;
+  border-radius: 0.65rem;
+  background: var(--surface-muted);
+}
+
+.crypto-sync-preview dt {
+  color: var(--text-subtle);
+  font-size: 0.7rem;
+}
+
+.crypto-sync-preview dd {
+  margin: 0.18rem 0 0;
+  font-family: var(--font-mono);
+  font-weight: 750;
+}
+
+.crypto-latest-sync {
+  margin: 0.65rem 0 0;
+}
+
 @media (min-width: 720px) {
   .crypto-history-toolbar,
   .crypto-filter-controls,
@@ -5810,6 +5869,16 @@ h3 {
 
   .crypto-import-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .crypto-sync-panel {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .crypto-sync-preview {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

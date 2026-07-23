@@ -26,6 +26,52 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(async (request, response, next) => {
             const pathname = request.url?.split('?')[0];
 
+            if (request.method === 'POST' && pathname === '/api/health') {
+              const requestUrl = new URL(request.url ?? '/api/health', 'http://localhost');
+
+              if (requestUrl.searchParams.get('mode') === 'crypto-sync') {
+                try {
+                  const { requirePortfolioAccess } = await import('./server/requirePortfolioAccess');
+                  const { runCryptoMonthlySync } = await import('./server/cryptoMonthlySync');
+                  await requirePortfolioAccess(request, '/api/health');
+                  const body = (await readJsonBody(request)) as {
+                    apply?: boolean;
+                    confirmation?: string;
+                    expectedSourceChecksum?: string;
+                  };
+                  sendJson(response, 200, {
+                    ok: true,
+                    route: '/api/health',
+                    mode: 'crypto-sync',
+                    ...(await runCryptoMonthlySync(body)),
+                  });
+                } catch (error) {
+                  const {
+                    getPortfolioAccessErrorResponse,
+                    isPortfolioAccessError,
+                  } = await import('./server/requirePortfolioAccess');
+                  if (isPortfolioAccessError(error)) {
+                    const authError = getPortfolioAccessErrorResponse(error, '/api/health');
+                    sendJson(response, authError.status, {
+                      ...authError.body,
+                      mode: 'crypto-sync',
+                    });
+                    return;
+                  }
+
+                  const { getCryptoMonthlySyncErrorResponse } = await import(
+                    './server/cryptoMonthlySync'
+                  );
+                  const formatted = getCryptoMonthlySyncErrorResponse(error);
+                  sendJson(response, formatted.status, {
+                    route: '/api/health',
+                    ...formatted.body,
+                  });
+                }
+                return;
+              }
+            }
+
             if (request.method === 'GET' && pathname === '/api/health') {
               const requestUrl = new URL(request.url ?? '/api/health', 'http://localhost');
 

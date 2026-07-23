@@ -1,15 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import type {
   CryptoHistoricalImport,
   CryptoMonthlySnapshot,
+  CryptoSyncRun,
 } from '../types/cryptoHistory';
 
 interface CryptoHistoryState {
   status: 'loading' | 'ready' | 'error';
   snapshots: CryptoMonthlySnapshot[];
   latestImport: CryptoHistoricalImport | null;
+  latestSync: CryptoSyncRun | null;
   errors: string[];
 }
 
@@ -17,13 +19,16 @@ interface CryptoHistoryResponse {
   ok: boolean;
   snapshots?: CryptoMonthlySnapshot[];
   latestImport?: CryptoHistoricalImport | null;
+  latestSync?: CryptoSyncRun | null;
 }
 
 export function useCryptoHistory() {
+  const [reloadToken, setReloadToken] = useState(0);
   const [state, setState] = useState<CryptoHistoryState>({
     status: 'loading',
     snapshots: [],
     latestImport: null,
+    latestSync: null,
     errors: [],
   });
 
@@ -38,6 +43,7 @@ export function useCryptoHistory() {
           status: 'ready',
           snapshots: Array.isArray(response.snapshots) ? response.snapshots : [],
           latestImport: response.latestImport ?? null,
+          latestSync: response.latestSync ?? null,
           errors: [],
         });
       })
@@ -47,6 +53,7 @@ export function useCryptoHistory() {
           status: 'error',
           snapshots: [],
           latestImport: null,
+          latestSync: null,
           errors: [
             error instanceof Error
               ? error.message
@@ -58,10 +65,15 @@ export function useCryptoHistory() {
     return () => {
       active = false;
     };
+  }, [reloadToken]);
+
+  const refresh = useCallback(() => {
+    setReloadToken((value) => value + 1);
   }, []);
 
   return {
     ...state,
+    refresh,
     isEmpty: state.status === 'ready' && state.snapshots.length === 0,
   };
 }

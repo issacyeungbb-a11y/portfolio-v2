@@ -15,9 +15,32 @@ import {
   getCryptoSourceLabel,
   type CryptoHistoryYearFilter,
 } from '../lib/cryptoHistory';
+import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import type { CryptoMonthlySnapshot } from '../types/cryptoHistory';
 
 type TrendCurrency = 'HKD' | 'USD';
+
+interface CryptoSyncPreview {
+  ok: boolean;
+  mode: 'preview' | 'apply';
+  runId?: string;
+  sourceReadOnly: boolean;
+  sourceChecksum: string;
+  detectedMonthCount: number;
+  firstMonth: string | null;
+  lastMonth: string | null;
+  warningCount: number;
+  warningSummary: Record<string, number>;
+  createCount: number;
+  skipCount: number;
+  conflictCount: number;
+  creates: string[];
+  skips: string[];
+  conflicts: Array<{
+    month: string;
+    differingFields: string[];
+  }>;
+}
 
 function money(value: number, currency: TrendCurrency) {
   return new Intl.NumberFormat('zh-HK', {
@@ -199,6 +222,10 @@ export function CryptoHistoryPage() {
   const [year, setYear] = useState<CryptoHistoryYearFilter>('all');
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
   const [trendCurrency, setTrendCurrency] = useState<TrendCurrency>('HKD');
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'previewing' | 'applying'>('idle');
+  const [syncPreview, setSyncPreview] = useState<CryptoSyncPreview | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncMessageTone, setSyncMessageTone] = useState<'success' | 'warning'>('success');
   const years = useMemo(
     () => getCryptoHistoryYears(history.snapshots),
     [history.snapshots],
@@ -235,6 +262,61 @@ export function CryptoHistoryPage() {
         block: 'start',
       });
     });
+  };
+
+  const previewMonthlySync = async () => {
+    setSyncStatus('previewing');
+    setSyncMessage(null);
+    try {
+      const result = (await callPortfolioFunction('crypto-history-sync', {
+        apply: false,
+      })) as CryptoSyncPreview;
+      setSyncPreview(result);
+      setSyncMessageTone(result.conflictCount > 0 ? 'warning' : 'success');
+      setSyncMessage(
+        result.conflictCount > 0
+          ? '發現已鎖定月份差異，已停止；不會覆蓋現有資料。'
+          : result.createCount > 0
+            ? `已找到 ${result.createCount} 個新月份，請核對後確認寫入。`
+            : '月結記錄已同步，暫時沒有新月份需要寫入。',
+      );
+    } catch (error) {
+      setSyncPreview(null);
+      setSyncMessageTone('warning');
+      setSyncMessage(error instanceof Error ? error.message : '未能檢查新月結。');
+    } finally {
+      setSyncStatus('idle');
+    }
+  };
+
+  const applyMonthlySync = async () => {
+    if (!syncPreview || syncPreview.createCount === 0 || syncPreview.conflictCount > 0) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `確認將 ${syncPreview.createCount} 個新月份寫入獨立 Crypto 歷史集合？現有鎖定月份不會被覆蓋。`,
+    );
+    if (!confirmed) return;
+
+    setSyncStatus('applying');
+    setSyncMessage(null);
+    try {
+      const result = (await callPortfolioFunction('crypto-history-sync', {
+        apply: true,
+        confirmation: 'APPLY_CRYPTO_MONTHLY_SYNC',
+        expectedSourceChecksum: syncPreview.sourceChecksum,
+      })) as CryptoSyncPreview;
+      setSyncPreview(result);
+      setSyncMessageTone('success');
+      setSyncMessage(`同步完成，已新增 ${result.createCount} 個月份。`);
+      history.refresh();
+    } catch (error) {
+      setSyncMessageTone('warning');
+      setSyncMessage(error instanceof Error ? error.message : '月結同步失敗。');
+    } finally {
+      setSyncStatus('idle');
+    }
   };
 
   if (history.status === 'loading' && history.snapshots.length === 0) {
@@ -492,6 +574,60 @@ export function CryptoHistoryPage() {
         ) : (
           <p className="status-message">尚未讀到匯入批次紀錄。</p>
         )}
+
+        <div className="crypto-sync-panel">
+          <div>
+            <span>Google Sheet 單向月結同步</span>
+            <small>只讀隱藏「月結記錄」；preview 不會寫入 Firestore。</small>
+          </div>
+          <div className="crypto-sync-actions">
+            <button
+              type="button"
+              className="button-secondary button-sm"
+              disabled={syncStatus !== 'idle'}
+              onClick={() => void previewMonthlySync()}
+            >
+              {syncStatus === 'previewing' ? '檢查中…' : '檢查新月結'}
+            </button>
+            {syncPreview && syncPreview.createCount > 0 && syncPreview.conflictCount === 0 ? (
+              <button
+                type="button"
+                className="button-primary button-sm"
+                disabled={syncStatus !== 'idle'}
+                onClick={() => void applyMonthlySync()}
+              >
+                {syncStatus === 'applying'
+                  ? '同步中…'
+                  : `確認寫入 ${syncPreview.createCount} 個月份`}
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {syncPreview ? (
+          <dl className="crypto-sync-preview" aria-label="月結同步預覽">
+            <div><dt>偵測月份</dt><dd>{syncPreview.detectedMonthCount}</dd></div>
+            <div><dt>準備新增</dt><dd>{syncPreview.createCount}</dd></div>
+            <div><dt>相同略過</dt><dd>{syncPreview.skipCount}</dd></div>
+            <div><dt>鎖定差異</dt><dd>{syncPreview.conflictCount}</dd></div>
+          </dl>
+        ) : null}
+
+        {syncMessage ? (
+          <p
+            className={syncMessageTone === 'warning' ? 'compact-warning-note' : 'compact-success-note'}
+            aria-live="polite"
+          >
+            {syncMessage}
+          </p>
+        ) : null}
+
+        {history.latestSync ? (
+          <p className="crypto-latest-sync">
+            最近同步：{formatDateTime(history.latestSync.finishedAt)} · {history.latestSync.status}
+            {' · '}新增 {history.latestSync.createCount}／略過 {history.latestSync.skipCount}
+          </p>
+        ) : null}
       </section>
     </div>
   );

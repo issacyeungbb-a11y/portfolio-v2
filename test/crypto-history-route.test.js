@@ -18,6 +18,28 @@ test('crypto history is exposed through the protected read-only API', async () =
   await access(new URL('../server/cryptoHistory.js', import.meta.url));
 });
 
+test('manual crypto month sync reuses the protected health function', async () => {
+  const [apiSource, functionConfigSource, syncSource, historyReader] = await Promise.all([
+    readFile(new URL('../api/health.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../src/lib/api/vercelFunctions.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../server/cryptoMonthlySync.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../server/cryptoHistory.ts', import.meta.url), 'utf8'),
+  ]);
+
+  assert.match(apiSource, /mode === 'crypto-sync'/);
+  assert.match(apiSource, /runCryptoMonthlySync\(body\)/);
+  assert.match(apiSource, /requirePortfolioAccess\(request, '\/api\/health'\)/);
+  assert.match(
+    functionConfigSource,
+    /'crypto-history-sync': \{ path: '\/api\/health\?mode=crypto-sync', method: 'POST' \}/,
+  );
+  assert.match(syncSource, /spreadsheets\.readonly/);
+  assert.match(syncSource, /SYNC_RUN_COLLECTION = 'cryptoSyncRuns'/);
+  assert.match(syncSource, /APPLY_CRYPTO_MONTHLY_SYNC/);
+  assert.doesNotMatch(syncSource, /portfolioSnapshots/);
+  assert.match(historyReader, /collection\('cryptoSyncRuns'\)/);
+});
+
 test('crypto history reuses an existing function to stay within the Hobby limit', async () => {
   const apiFiles = (await readdir(new URL('../api/', import.meta.url))).filter((file) =>
     file.endsWith('.ts'),

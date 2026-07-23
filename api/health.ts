@@ -1,6 +1,15 @@
-import { sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
+import {
+  readJsonBody,
+  sendJson,
+  type ApiRequest,
+  type ApiResponse,
+} from '../server/apiShared.js';
 import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
 import { readCryptoHistory } from '../server/cryptoHistory.js';
+import {
+  getCryptoMonthlySyncErrorResponse,
+  runCryptoMonthlySync,
+} from '../server/cryptoMonthlySync.js';
 import { readDailyJob } from '../server/dailyJobs.js';
 import {
   requirePortfolioAccess,
@@ -936,6 +945,51 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     return;
   }
 
+  const mode = readMode(request);
+
+  if (mode === 'crypto-sync') {
+    if (request.method !== 'POST') {
+      sendJson(response, 405, {
+        ok: false,
+        route: '/api/health',
+        mode: 'crypto-sync',
+        message: 'Method not allowed',
+      });
+      return;
+    }
+
+    try {
+      await requirePortfolioAccess(request, '/api/health');
+      const body = (await readJsonBody(request)) as {
+        apply?: boolean;
+        confirmation?: string;
+        expectedSourceChecksum?: string;
+      };
+      response.setHeader('Cache-Control', 'private, no-store');
+      sendJson(response, 200, {
+        route: '/api/health',
+        mode: 'crypto-sync',
+        ...(await runCryptoMonthlySync(body)),
+      });
+    } catch (error) {
+      if (isPortfolioAccessError(error)) {
+        const errResponse = getPortfolioAccessErrorResponse(error, '/api/health');
+        sendJson(response, errResponse.status, {
+          ...errResponse.body,
+          mode: 'crypto-sync',
+        });
+        return;
+      }
+
+      const formatted = getCryptoMonthlySyncErrorResponse(error);
+      sendJson(response, formatted.status, {
+        route: '/api/health',
+        ...formatted.body,
+      });
+    }
+    return;
+  }
+
   if (request.method !== 'GET') {
     sendJson(response, 405, {
       ok: false,
@@ -944,8 +998,6 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     });
     return;
   }
-
-  const mode = readMode(request);
 
   if (mode === 'crypto-history') {
     try {

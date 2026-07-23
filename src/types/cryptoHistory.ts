@@ -99,3 +99,38 @@ export interface CryptoHistoricalImport {
   importedAt: string;
   updatedAt: string;
 }
+
+export interface CryptoSyncRun {
+  id: string;
+  runId: string;
+  mode: 'apply';
+  status: 'completed' | 'conflict' | 'failed';
+  sourceType: 'google_sheet_read_only';
+  sourceSpreadsheetId: string;
+  sourceSheet: string;
+  sourceRange: string;
+  sourceChecksum: string;
+  detectedMonthCount: number;
+  firstMonth: string | null;
+  lastMonth: string | null;
+  warningCount: number;
+  warningSummary: Record<string, number>;
+  createCount: number;
+  skipCount: number;
+  conflictCount: number;
+  creates: string[];
+  skips: string[];
+  conflicts: Array<{
+    id: string;
+    month: string;
+    existingChecksum: string | null;
+    incomingChecksum: string;
+    differingFields: string[];
+  }>;
+  sourceReadOnly: boolean;
+  errorMessage: string | null;
+  startedAt: string;
+  finishedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}

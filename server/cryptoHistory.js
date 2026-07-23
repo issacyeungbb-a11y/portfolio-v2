@@ -28,13 +28,15 @@ function serializeDocument(document) {
 }
 async function readCryptoHistory() {
   const portfolioRef = getFirebaseAdminDb().collection("portfolio").doc("app");
-  const [snapshots, imports] = await Promise.all([
+  const [snapshots, imports, syncRuns] = await Promise.all([
     portfolioRef.collection("cryptoMonthlySnapshots").orderBy("month", "asc").get(),
-    portfolioRef.collection("cryptoHistoricalImports").orderBy("importedAt", "desc").limit(1).get()
+    portfolioRef.collection("cryptoHistoricalImports").orderBy("importedAt", "desc").limit(1).get(),
+    portfolioRef.collection("cryptoSyncRuns").orderBy("finishedAt", "desc").limit(1).get()
   ]);
   return {
     snapshots: snapshots.docs.map(serializeDocument),
-    latestImport: imports.docs[0] ? serializeDocument(imports.docs[0]) : null
+    latestImport: imports.docs[0] ? serializeDocument(imports.docs[0]) : null,
+    latestSync: syncRuns.docs[0] ? serializeDocument(syncRuns.docs[0]) : null
   };
 }
 export {
