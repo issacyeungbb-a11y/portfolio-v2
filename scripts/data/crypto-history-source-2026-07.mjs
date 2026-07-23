@@ -325,6 +325,7 @@ const lockedJuly2026 = {
 export const cryptoHistorySource = {
   schemaVersion: 1,
   importBatchId: 'crypto-history-2026-07-v1',
+  expectedStartMonth: '2022-01',
   sourceSpreadsheetId: SOURCE_SPREADSHEET_ID,
   sourceSpreadsheetTitle: 'crypto',
   sourceSpreadsheetLocale: 'zh_TW',

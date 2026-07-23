@@ -457,10 +457,11 @@ function listMissingMonths(firstMonth, lastMonth, existingMonths) {
   return missing;
 }
 
-export function validateCryptoMonthlySnapshots(snapshots) {
+export function validateCryptoMonthlySnapshots(snapshots, options = {}) {
   const report = {
     valid: true,
     snapshotCount: snapshots.length,
+    expectedStartMonth: options.expectedStartMonth ?? null,
     firstMonth: snapshots[0]?.month ?? null,
     lastMonth: snapshots.at(-1)?.month ?? null,
     errors: [],
@@ -468,6 +469,7 @@ export function validateCryptoMonthlySnapshots(snapshots) {
     warningCount: 0,
     monthsByYear: {},
     missingMonthsWithinRange: [],
+    unconfirmedMonths: [],
   };
 
   for (const snapshot of snapshots) {
@@ -520,11 +522,20 @@ export function validateCryptoMonthlySnapshots(snapshots) {
   }
 
   if (report.firstMonth && report.lastMonth) {
+    const existingMonths = new Set(snapshots.map((snapshot) => snapshot.month));
     report.missingMonthsWithinRange = listMissingMonths(
       report.firstMonth,
       report.lastMonth,
-      new Set(snapshots.map((snapshot) => snapshot.month)),
+      existingMonths,
     );
+
+    if (report.expectedStartMonth) {
+      report.unconfirmedMonths = listMissingMonths(
+        report.expectedStartMonth,
+        report.lastMonth,
+        existingMonths,
+      );
+    }
   }
 
   report.warningCount = report.warnings.filter(

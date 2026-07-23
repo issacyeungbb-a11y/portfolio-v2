@@ -281,6 +281,10 @@ ${Object.entries(report.validation.monthsByYear)
 
 ${report.validation.missingMonthsWithinRange.length > 0 ? report.validation.missingMonthsWithinRange.map((month) => `- ${month}`).join('\n') : '- 無'}
 
+## 未能自動確認月份
+
+${report.validation.unconfirmedMonths.length > 0 ? report.validation.unconfirmedMonths.map((month) => `- ${month}：原始年度工作表沒有可確認月結；未自行估算或補造資料。`).join('\n') : '- 無'}
+
 ## 警告摘要
 
 ${warningSummary || '- 無'}
@@ -332,7 +336,9 @@ async function verifyReadback(accessToken, snapshots) {
 async function main() {
   requireEnvironment();
   const snapshots = buildCryptoMonthlySnapshots(cryptoHistorySource);
-  const validation = validateCryptoMonthlySnapshots(snapshots);
+  const validation = validateCryptoMonthlySnapshots(snapshots, {
+    expectedStartMonth: cryptoHistorySource.expectedStartMonth,
+  });
   const accessToken = await getAccessToken();
   const existing = await fetchCollection(
     `portfolio/app/${SNAPSHOT_COLLECTION}`,
@@ -404,6 +410,7 @@ async function main() {
     warningSummary,
     firstMonth: validation.firstMonth,
     lastMonth: validation.lastMonth,
+    unconfirmedMonths: validation.unconfirmedMonths,
     batchChecksum,
     validationPassed: true,
     sourceReadOnly: true,

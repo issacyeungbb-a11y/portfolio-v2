@@ -63,11 +63,14 @@ test('uses the hidden locked month log for July 2026 and excludes unlocked NIGHT
 });
 
 test('validates principal, return, return rate, totals and monthly continuity', () => {
-  const report = validateCryptoMonthlySnapshots(snapshots);
+  const report = validateCryptoMonthlySnapshots(snapshots, {
+    expectedStartMonth: cryptoHistorySource.expectedStartMonth,
+  });
 
   assert.equal(report.valid, true);
   assert.deepEqual(report.errors, []);
   assert.deepEqual(report.missingMonthsWithinRange, []);
+  assert.deepEqual(report.unconfirmedMonths, ['2022-01', '2022-02']);
 
   for (const snapshot of snapshots) {
     assert.ok(Math.abs(snapshot.totalHkd - snapshot.performanceTotalUsd * snapshot.usdHkdRate) <= 1);

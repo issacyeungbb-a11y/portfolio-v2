@@ -1,6 +1,6 @@
 # Portfolio_V2 Project Status
 
-更新日期: 2026-03-30
+更新日期: 2026-07-23
 
 ## 目前專案重點
 
@@ -12,6 +12,15 @@
 - Dashboard / Assets / Import / Analysis 四頁已經串連成一條基本工作流
 
 ## 已完成
+
+### Crypto 歷史第一階段
+
+- 已將 2022-03 至 2026-07 共 53 個可確認月結匯入獨立 `cryptoMonthlySnapshots`
+- `/crypto-history` 提供年份／月份篩選、KPI、HKD／USD 走勢、回報、資產分佈、月份列表及詳細資料
+- deterministic importer 已支援 preview、checksum 去重、鎖定差異報告、importBatchId、讀回驗證及整批審計
+- 2022-01、2022-02 因原始工作表沒有可確認月結，明確列為 `unconfirmedMonths`，沒有自行估算
+- Google Sheet 全程唯讀，Crypto 月結沒有寫入 `portfolioSnapshots`
+- 2026-07 只使用隱藏「月結記錄」已鎖定快照，未加入 `2026_V2` 未鎖定 NIGHT 持倉
 
 ### 1. 共享存取控制
 
