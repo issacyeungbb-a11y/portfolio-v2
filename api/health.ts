@@ -1,5 +1,6 @@
 import { sendJson, type ApiRequest, type ApiResponse } from '../server/apiShared.js';
 import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
+import { readCryptoHistory } from '../server/cryptoHistory.js';
 import { readDailyJob } from '../server/dailyJobs.js';
 import {
   requirePortfolioAccess,
@@ -945,6 +946,39 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   const mode = readMode(request);
+
+  if (mode === 'crypto-history') {
+    try {
+      await requirePortfolioAccess(request, '/api/health');
+      response.setHeader('Cache-Control', 'private, no-store');
+      sendJson(response, 200, {
+        ok: true,
+        route: '/api/health',
+        mode: 'crypto-history',
+        ...(await readCryptoHistory()),
+      });
+    } catch (error) {
+      if (isPortfolioAccessError(error)) {
+        const errResponse = getPortfolioAccessErrorResponse(error, '/api/health');
+        sendJson(response, errResponse.status, {
+          ...errResponse.body,
+          mode: 'crypto-history',
+        });
+        return;
+      }
+
+      sendJson(response, 500, {
+        ok: false,
+        route: '/api/health',
+        mode: 'crypto-history',
+        message:
+          error instanceof Error
+            ? error.message
+            : '未能讀取 Crypto 歷史資料。',
+      });
+    }
+    return;
+  }
 
   if (mode === 'diagnose') {
     try {

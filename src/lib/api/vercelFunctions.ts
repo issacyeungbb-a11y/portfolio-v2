@@ -18,7 +18,7 @@ export const portfolioFunctionConfig: Record<
   { path: string; method: 'GET' | 'POST' }
 > = {
   health: { path: '/api/health', method: 'GET' },
-  'crypto-history': { path: '/api/crypto-history', method: 'GET' },
+  'crypto-history': { path: '/api/health?mode=crypto-history', method: 'GET' },
   'extract-assets': { path: '/api/extract-assets', method: 'POST' },
   'extract-transactions': { path: '/api/extract-transactions', method: 'POST' },
   'manual-monthly-analysis': { path: '/api/cron-monthly-analysis', method: 'POST' },

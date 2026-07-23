@@ -27,43 +27,51 @@ export default defineConfig(({ mode }) => {
             const pathname = request.url?.split('?')[0];
 
             if (request.method === 'GET' && pathname === '/api/health') {
+              const requestUrl = new URL(request.url ?? '/api/health', 'http://localhost');
+
+              if (requestUrl.searchParams.get('mode') === 'crypto-history') {
+                try {
+                  const { requirePortfolioAccess } = await import('./server/requirePortfolioAccess');
+                  const { readCryptoHistory } = await import('./server/cryptoHistory');
+                  await requirePortfolioAccess(request, '/api/health');
+                  sendJson(response, 200, {
+                    ok: true,
+                    route: '/api/health',
+                    mode: 'crypto-history',
+                    ...(await readCryptoHistory()),
+                  });
+                } catch (error) {
+                  const {
+                    getPortfolioAccessErrorResponse,
+                    isPortfolioAccessError,
+                  } = await import('./server/requirePortfolioAccess');
+                  if (isPortfolioAccessError(error)) {
+                    const authError = getPortfolioAccessErrorResponse(
+                      error,
+                      '/api/health',
+                    );
+                    sendJson(response, authError.status, {
+                      ...authError.body,
+                      mode: 'crypto-history',
+                    });
+                    return;
+                  }
+
+                  sendJson(response, 500, {
+                    ok: false,
+                    route: '/api/health',
+                    mode: 'crypto-history',
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : '未能讀取 Crypto 歷史資料。',
+                  });
+                }
+                return;
+              }
+
               const { buildHealthResponse } = await import('./src/lib/api/mockFunctionResponses');
               sendJson(response, 200, buildHealthResponse());
-              return;
-            }
-
-            if (request.method === 'GET' && pathname === '/api/crypto-history') {
-              try {
-                const { requirePortfolioAccess } = await import('./server/requirePortfolioAccess');
-                const { readCryptoHistory } = await import('./server/cryptoHistory');
-                await requirePortfolioAccess(request, '/api/crypto-history');
-                sendJson(response, 200, {
-                  ok: true,
-                  ...(await readCryptoHistory()),
-                });
-              } catch (error) {
-                const {
-                  getPortfolioAccessErrorResponse,
-                  isPortfolioAccessError,
-                } = await import('./server/requirePortfolioAccess');
-                if (isPortfolioAccessError(error)) {
-                  const authError = getPortfolioAccessErrorResponse(
-                    error,
-                    '/api/crypto-history',
-                  );
-                  sendJson(response, authError.status, authError.body);
-                  return;
-                }
-
-                sendJson(response, 500, {
-                  ok: false,
-                  route: '/api/crypto-history',
-                  message:
-                    error instanceof Error
-                      ? error.message
-                      : '未能讀取 Crypto 歷史資料。',
-                });
-              }
               return;
             }
 
