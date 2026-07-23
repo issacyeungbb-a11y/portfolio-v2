@@ -27,6 +27,16 @@ test('crypto history reuses an existing function to stay within the Hobby limit'
   assert.ok(apiFiles.length <= 12, `Expected at most 12 Vercel functions, found ${apiFiles.length}.`);
 });
 
+test('crypto history KPI amounts stay on one line and scale to their card width', async () => {
+  const styles = await readFile(new URL('../src/styles/global.css', import.meta.url), 'utf8');
+  const kpiRule = styles.match(/\.crypto-kpi > strong\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  assert.match(styles, /\.crypto-kpi\s*\{[^}]*container-type:\s*inline-size/s);
+  assert.match(kpiRule, /font-size:\s*clamp\([^;]*cqi[^;]*\)/);
+  assert.match(kpiRule, /white-space:\s*nowrap/);
+  assert.match(kpiRule, /word-break:\s*normal/);
+});
+
 test('server reader and importer stay inside independent crypto collections', async () => {
   const [readerSource, importerSource, rulesSource] = await Promise.all([
     readFile(new URL('../server/cryptoHistory.ts', import.meta.url), 'utf8'),

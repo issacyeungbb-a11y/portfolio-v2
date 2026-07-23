@@ -5304,13 +5304,17 @@ h3 {
 
 .crypto-kpi {
   min-width: 0;
+  container-type: inline-size;
 }
 
 .crypto-kpi > strong {
   font-family: var(--font-mono);
-  font-size: clamp(1rem, 4.1vw, 1.32rem);
+  font-size: clamp(0.75rem, 10cqi, 1.32rem);
   line-height: 1.15;
-  word-break: break-word;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  word-break: normal;
 }
 
 .crypto-kpi > strong[data-tone='positive'] {
