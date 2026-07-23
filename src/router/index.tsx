@@ -74,6 +74,15 @@ export const router = createBrowserRouter([
         },
       },
       {
+        path: 'crypto-history',
+        lazy: async () => ({
+          Component: (await import('../pages/CryptoHistoryPage')).CryptoHistoryPage,
+        }),
+        handle: {
+          title: 'Crypto 歷史',
+        },
+      },
+      {
         path: 'transactions',
         lazy: async () => ({
           Component: (await import('../pages/TransactionsPage')).TransactionsPage,

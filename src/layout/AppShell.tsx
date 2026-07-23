@@ -10,6 +10,7 @@ const navItems = [
   { to: '/', label: '總覽', icon: 'dashboard' as const },
   { to: '/assets', label: '資產', icon: 'assets' as const },
   { to: '/trends', label: '走勢', icon: 'trends' as const },
+  { to: '/crypto-history', label: '幣史', sideLabel: 'Crypto 歷史', icon: 'crypto' as const },
   { to: '/transactions', label: '交易', icon: 'transactions' as const },
   { to: '/funds', label: '資金', icon: 'funds' as const },
   { to: '/analysis', label: '分析', icon: 'analysis' as const },
@@ -61,7 +62,7 @@ function AppShellContent() {
               <span className="nav-icon" aria-hidden="true">
                 <NavIcon name={item.icon} />
               </span>
-              <span>{item.label}</span>
+              <span>{item.sideLabel ?? item.label}</span>
             </NavLink>
           ))}
         </nav>

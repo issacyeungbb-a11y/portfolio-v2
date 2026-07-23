@@ -32,6 +32,41 @@ export default defineConfig(({ mode }) => {
               return;
             }
 
+            if (request.method === 'GET' && pathname === '/api/crypto-history') {
+              try {
+                const { requirePortfolioAccess } = await import('./server/requirePortfolioAccess');
+                const { readCryptoHistory } = await import('./server/cryptoHistory');
+                await requirePortfolioAccess(request, '/api/crypto-history');
+                sendJson(response, 200, {
+                  ok: true,
+                  ...(await readCryptoHistory()),
+                });
+              } catch (error) {
+                const {
+                  getPortfolioAccessErrorResponse,
+                  isPortfolioAccessError,
+                } = await import('./server/requirePortfolioAccess');
+                if (isPortfolioAccessError(error)) {
+                  const authError = getPortfolioAccessErrorResponse(
+                    error,
+                    '/api/crypto-history',
+                  );
+                  sendJson(response, authError.status, authError.body);
+                  return;
+                }
+
+                sendJson(response, 500, {
+                  ok: false,
+                  route: '/api/crypto-history',
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : '未能讀取 Crypto 歷史資料。',
+                });
+              }
+              return;
+            }
+
             if (request.method === 'POST' && pathname === '/api/extract-assets') {
               try {
                 const {

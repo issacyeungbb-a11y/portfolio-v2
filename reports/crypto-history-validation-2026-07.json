@@ -1,0 +1,910 @@
+{
+  "generatedAt": "2026-07-23T03:58:28.698Z",
+  "mode": "apply",
+  "importBatchId": "crypto-history-2026-07-v1",
+  "sourceSpreadsheetId": "1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4",
+  "sourceSpreadsheetTitle": "crypto",
+  "sourceReadOnly": true,
+  "sourceExtractionMethod": "Google Drive connector bounded range reads",
+  "validation": {
+    "valid": true,
+    "snapshotCount": 53,
+    "firstMonth": "2022-03",
+    "lastMonth": "2026-07",
+    "errors": [],
+    "warnings": [
+      {
+        "month": "2022-03",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-03",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-03",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-03",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：kikitrade/ Cryoto.com → Kikitrade / Crypto.com、keplr → Keplr；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-03",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-04",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-04",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-04",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-04",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-04",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-05",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-05",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-05",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-05",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-05",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-06",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-06",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-06",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-06",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-06",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-07",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-07",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-07",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-07",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-07",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-08",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-08",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-08",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-08",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-08",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-09",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-09",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-09",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-09",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-09",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-10",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-10",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-10",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-10",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-10",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-10",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-11",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-11",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-11",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-11",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-11",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-11",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-12",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-12",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-12",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2022-12",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-12",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2022-12",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-01",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-01",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-01",
+        "code": "SOURCE_DATE_TYPO_2002",
+        "message": "本金紀錄原始日期包含 29/3/2002；疑似 29/3/2022，原值已保留且未靜默修正。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-01",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、keplr → Keplr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-01",
+        "code": "SOURCE_NOTE",
+        "message": "本金區原始日期包含 29/3/2002；按位置及前後紀錄判斷可能是 29/3/2022，但原值不作修改。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-01",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-02",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-02",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-02",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-02",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-03",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-03",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-03",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-03",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-04",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-04",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-04",
+        "code": "SUSPICIOUS_ETH_PRICE",
+        "message": "原始 ETH 價格為 18,956 USD，與相鄰月份差距明顯；未自行更改。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-04",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-04",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-05",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-05",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-05",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-05",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-06",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-06",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-06",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-06",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-07",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-07",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com、coolWallet → CoolWallet；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-07",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-07",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-08",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-08",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、coolWallet → CoolWallet、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-08",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-08",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-09",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-09",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：Pionex → 派網 / Pionex、coolWallet → CoolWallet、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-09",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-09",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-10",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-10",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-10",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-10",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-11",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-11",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-11",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-11",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-12",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2023-12",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-12",
+        "code": "SOURCE_NOTE",
+        "message": "原始標籤包含 Cryoto.com、coolWallet 等拼寫及大小寫差異；標準化名稱另存，原值保留。",
+        "severity": "info"
+      },
+      {
+        "month": "2023-12",
+        "code": "BTC_EQUIVALENT_DERIVED",
+        "message": "BTC 等值按原始投資計算總值 ÷ 原始 BTC 價格計算。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-01",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2024-01",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2024-01",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-02",
+        "code": "ALLOCATIONS_PARTIAL",
+        "message": "原始月份未提供完整 BTC、ETH、ADA、USDT、其他五項分佈。",
+        "severity": "warning"
+      },
+      {
+        "month": "2024-02",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2024-02",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-03",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-04",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-05",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-06",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-07",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-08",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-09",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-10",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-11",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2024-12",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、hi-stake/ Wld/Vespr → hi-stake / World App / Vespr、kikitrade/ Cryoto.com → Kikitrade / Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-01",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-02",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-03",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-04",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-05",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-06",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-07",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-08",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-09",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-10",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-11",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2025-12",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Cryoto.com → Crypto.com、Wld+Vespr → World App / Vespr；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-01",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Cryoto.com → Crypto.com、Wld+Vespr → World App / Vespr；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-02",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Cryoto.com → Crypto.com、Wld+Vespr → World App / Vespr；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-03",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Cryoto.com → Crypto.com、Wld+Vespr → World App / Vespr；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-04",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Cryoto.com → Crypto.com、Wld+Vespr → World App / Vespr；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-05",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-06",
+        "code": "SOURCE_LABEL_NORMALIZED",
+        "message": "已另外保存標準化名稱：coolWallet → CoolWallet、Pionex → 派網 / Pionex、Wld+Vespr → World App / Vespr、Cryoto.com → Crypto.com；原標籤不變。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-07",
+        "code": "HOLDINGS_PARTIAL",
+        "message": "原始月份只足以確認月結總值或平台摘要，沒有完整逐項持倉。",
+        "severity": "warning"
+      },
+      {
+        "month": "2026-07",
+        "code": "LOCKED_MONTH_NO_HOLDING_BREAKDOWN",
+        "message": "鎖定月結只有標準化總值與分佈，沒有逐平台持倉明細。",
+        "severity": "warning"
+      },
+      {
+        "month": "2026-07",
+        "code": "NIGHT_EXCLUDED_UNLOCKED",
+        "message": "2026_V2 的 NIGHT 13,232 屬未鎖定即時持倉，未加入 2026-07 歷史快照。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-07",
+        "code": "SOURCE_NOTE",
+        "message": "只使用已鎖定月結記錄；沒有讀取 2026_V2 即時持倉作歷史快照。",
+        "severity": "info"
+      },
+      {
+        "month": "2026-07",
+        "code": "SOURCE_NOTE",
+        "message": "2026_V2 的 NIGHT 13,232 數量未加入本月歷史快照。",
+        "severity": "info"
+      }
+    ],
+    "warningCount": 51,
+    "monthsByYear": {
+      "2022": 10,
+      "2023": 12,
+      "2024": 12,
+      "2025": 12,
+      "2026": 7
+    },
+    "missingMonthsWithinRange": [],
+    "warningSummary": {
+      "ALLOCATIONS_PARTIAL": 24,
+      "HOLDINGS_PARTIAL": 14,
+      "SOURCE_DATE_TYPO_2002": 11,
+      "SOURCE_LABEL_NORMALIZED": 52,
+      "SOURCE_NOTE": 24,
+      "BTC_EQUIVALENT_DERIVED": 15,
+      "SUSPICIOUS_ETH_PRICE": 1,
+      "LOCKED_MONTH_NO_HOLDING_BREAKDOWN": 1,
+      "NIGHT_EXCLUDED_UNLOCKED": 1
+    }
+  },
+  "firestorePlan": {
+    "collectionPath": "portfolio/app/cryptoMonthlySnapshots",
+    "createCount": 0,
+    "skipCount": 53,
+    "conflictCount": 0,
+    "conflicts": []
+  },
+  "readbackVerification": {
+    "verified": true,
+    "expectedCount": 53,
+    "matchedCount": 53,
+    "mismatches": []
+  },
+  "protectedStateUnchanged": true
+}

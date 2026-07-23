@@ -1,4 +1,4 @@
-type NavIconName = 'dashboard' | 'assets' | 'trends' | 'transactions' | 'funds' | 'analysis';
+type NavIconName = 'dashboard' | 'assets' | 'trends' | 'crypto' | 'transactions' | 'funds' | 'analysis';
 
 interface NavIconProps {
   name: NavIconName;
@@ -32,6 +32,17 @@ function TrendsIcon() {
       <path d="M5 17.5h14.5" />
       <path d="M6 15l4-4 3 2.25 5.5-5.75" />
       <path d="M15.5 7.5h3v3" />
+    </>
+  );
+}
+
+function CryptoIcon() {
+  return (
+    <>
+      <circle cx="12" cy="12" r="7.5" />
+      <path d="M9.5 8.2h3.2a2 2 0 0 1 0 4H9.5z" />
+      <path d="M9.5 12.2h3.8a2 2 0 0 1 0 4H9.5z" />
+      <path d="M11 6.5v2M14 6.5v2M11 16.2v1.5M14 16.2v1.5" />
     </>
   );
 }
@@ -85,6 +96,7 @@ export function NavIcon({ name }: NavIconProps) {
       {name === 'dashboard' ? <DashboardIcon /> : null}
       {name === 'assets' ? <AssetsIcon /> : null}
       {name === 'trends' ? <TrendsIcon /> : null}
+      {name === 'crypto' ? <CryptoIcon /> : null}
       {name === 'transactions' ? <TransactionsIcon /> : null}
       {name === 'funds' ? <FundsIcon /> : null}
       {name === 'analysis' ? <AnalysisIcon /> : null}

@@ -5,7 +5,8 @@ import { NavIcon } from './NavIcon';
 interface NavItem {
   to: string;
   label: string;
-  icon: 'dashboard' | 'assets' | 'trends' | 'transactions' | 'funds' | 'analysis';
+  sideLabel?: string;
+  icon: 'dashboard' | 'assets' | 'trends' | 'crypto' | 'transactions' | 'funds' | 'analysis';
 }
 
 interface BottomNavProps {

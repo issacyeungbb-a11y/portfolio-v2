@@ -15,6 +15,8 @@
     "ci": "npm test && npm run build",
     "preview": "vite preview",
     "diagnose:coingecko": "node scripts/checkCoinGeckoCrypto.mjs",
+    "crypto-history:preview": "node scripts/import-crypto-history.mjs",
+    "crypto-history:apply": "node scripts/import-crypto-history.mjs --apply",
     "gen-freshness": "node scripts/gen-price-freshness.mjs"
   },
   "dependencies": {
