@@ -5,7 +5,7 @@ export const GEMINI_ANALYZE_MODEL = (
 ) as PortfolioAnalysisModel;
 
 export const CLAUDE_ANALYZE_MODEL = (
-  process.env.CLAUDE_ANALYZE_MODEL?.trim() || 'claude-fable-5'
+  process.env.CLAUDE_ANALYZE_MODEL?.trim() || 'claude-opus-5'
 ) as PortfolioAnalysisModel;
 
 export const GROUNDED_GEMINI_MODEL =
@@ -25,9 +25,9 @@ export const MODEL_REGISTRY: Record<
     provider: 'google',
     label: 'Google Gemini 3.1 Pro Preview',
   },
-  'claude-fable-5': {
+  'claude-opus-5': {
     provider: 'anthropic',
-    label: 'Claude Fable 5',
+    label: 'Claude Opus 5',
   },
 };
 

@@ -85,22 +85,22 @@ test('intentNeedsExternalSearch returns boolean for all intents', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5 & 6. Model validation — gemini-3.1-pro-preview and claude-fable-5
+// 5 & 6. Model validation — gemini-3.1-pro-preview and claude-opus-5
 // ---------------------------------------------------------------------------
 
 test('isValidAnalysisModel: gemini-3.1-pro-preview is valid', () => {
   assert.equal(isValidAnalysisModel('gemini-3.1-pro-preview'), true);
 });
 
-test('isValidAnalysisModel: claude-fable-5 is valid', () => {
-  assert.equal(isValidAnalysisModel('claude-fable-5'), true);
+test('isValidAnalysisModel: claude-opus-5 is valid', () => {
+  assert.equal(isValidAnalysisModel('claude-opus-5'), true);
 });
 
 test('GEMINI_ANALYZE_MODEL defaults to gemini-3.1-pro-preview', () => {
   assert.equal(isValidAnalysisModel(GEMINI_ANALYZE_MODEL), true);
 });
 
-test('CLAUDE_ANALYZE_MODEL defaults to claude-fable-5', () => {
+test('CLAUDE_ANALYZE_MODEL defaults to claude-opus-5', () => {
   assert.equal(isValidAnalysisModel(CLAUDE_ANALYZE_MODEL), true);
 });
 
@@ -126,8 +126,8 @@ test('MODEL_REGISTRY: gemini-3.1-pro-preview has provider and label', () => {
   assert.ok(entry.label.length > 0);
 });
 
-test('MODEL_REGISTRY: claude-fable-5 has provider and label', () => {
-  const entry = MODEL_REGISTRY['claude-fable-5'];
+test('MODEL_REGISTRY: claude-opus-5 has provider and label', () => {
+  const entry = MODEL_REGISTRY['claude-opus-5'];
   assert.equal(entry.provider, 'anthropic');
   assert.ok(entry.label.length > 0);
 });
