@@ -450,7 +450,7 @@ export function AnalysisPage() {
 
     try {
       const conversationContext = buildQuarterlyReportContext(selectedReport);
-      const followUpModel: PortfolioAnalysisModel = 'claude-opus-4-8';
+      const followUpModel: PortfolioAnalysisModel = 'claude-fable-5';
       const followUpCacheKey = await createPortfolioAnalysisCacheKey(
         snapshotHash ?? selectedReport.currentSnapshotHash ?? '',
         'general_question',
