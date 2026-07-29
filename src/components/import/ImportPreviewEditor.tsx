@@ -10,11 +10,16 @@ import type {
   ImportPreviewClassification,
   ImportPreviewItem,
 } from '../../types/extractAssets';
+import {
+  TRADE_CURRENCY_OPTIONS,
+  getTradeCurrencyMismatchWarning,
+} from '../../lib/portfolio/tradeCurrency';
 
 interface ExistingAssetOption {
   id: string;
   label: string;
   accountSource: AccountSource;
+  currency: string;
 }
 
 interface ImportPreviewEditorProps {
@@ -86,6 +91,26 @@ function getClassificationLabel(value: ImportPreviewClassification) {
   return value === 'new_asset' ? '新增資產' : '原有資產交易';
 }
 
+// 交易幣別同資產本身記錄的幣別唔一致，代表確認之後資產頁嗰項嘅平均成本會撈亂
+// 兩種幣，所以要明確提醒使用者順手去資產頁改返幣別。
+function getAssetCurrencyMismatchWarning(
+  item: ImportPreviewItem,
+  existingAsset: ExistingAssetOption | undefined,
+) {
+  if (item.classification !== 'existing_transaction' || !existingAsset) {
+    return null;
+  }
+
+  const assetCurrency = existingAsset.currency.trim().toUpperCase();
+  const tradeCurrency = item.currency.trim().toUpperCase();
+
+  if (!assetCurrency || !tradeCurrency || assetCurrency === tradeCurrency) {
+    return null;
+  }
+
+  return `呢項資產目前以 ${assetCurrency} 記錄，但呢筆交易用緊 ${tradeCurrency}。請去資產頁將該資產嘅幣別一併改成 ${tradeCurrency}，否則平均成本會混合兩種貨幣。`;
+}
+
 export function ImportPreviewEditor({
   items,
   existingAssetOptions,
@@ -115,6 +140,15 @@ export function ImportPreviewEditor({
       <div className="extract-preview-list">
         {items.map((item, index) => {
           const missingFields = getMissingFields(item);
+          const existingAsset = existingAssetOptions.find(
+            (option) => option.id === item.existingAssetId,
+          );
+          const marketWarning = getTradeCurrencyMismatchWarning({
+            symbol: item.ticker,
+            assetType: item.type,
+            tradeCurrency: item.currency,
+          });
+          const assetCurrencyWarning = getAssetCurrencyMismatchWarning(item, existingAsset);
 
           return (
             <article key={item.id} className="extract-preview-card">
@@ -140,6 +174,11 @@ export function ImportPreviewEditor({
 
               {!lockedAsset && missingFields.length > 0 ? (
                 <p className="extract-missing-hint">缺少欄位: {missingFields.join('、')}</p>
+              ) : null}
+
+              {marketWarning ? <p className="extract-missing-hint">{marketWarning}</p> : null}
+              {assetCurrencyWarning ? (
+                <p className="extract-missing-hint">{assetCurrencyWarning}</p>
               ) : null}
 
               <div className="asset-form-grid">
@@ -251,6 +290,24 @@ export function ImportPreviewEditor({
                   </>
                 ) : null}
 
+                <label className={!item.currency.trim() ? 'form-field form-field-missing' : 'form-field'}>
+                  <span>交易市場 / 幣別</span>
+                  <select
+                    value={item.currency}
+                    onChange={(event) => onChangeItem(item.id, 'currency', event.target.value)}
+                    disabled={isConfirming}
+                  >
+                    {TRADE_CURRENCY_OPTIONS.every((option) => option.value !== item.currency) ? (
+                      <option value={item.currency}>{item.currency || '請選擇市場'}</option>
+                    ) : null}
+                    {TRADE_CURRENCY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <label className={!item.transactionType ? 'form-field form-field-missing' : 'form-field'}>
                   <span>交易類型</span>
                   <select
@@ -278,7 +335,7 @@ export function ImportPreviewEditor({
                 </label>
 
                 <label className={!item.price.trim() ? 'form-field form-field-missing' : 'form-field'}>
-                  <span>成交價</span>
+                  <span>成交價{item.currency ? `（${item.currency}）` : ''}</span>
                   <input
                     type="number"
                     step="any"
@@ -289,7 +346,7 @@ export function ImportPreviewEditor({
                 </label>
 
                 <label className="form-field">
-                  <span>手續費</span>
+                  <span>手續費{item.currency ? `（${item.currency}）` : ''}</span>
                   <input
                     type="number"
                     step="any"
@@ -325,6 +382,13 @@ export function ImportPreviewEditor({
 
       {confirmError ? <p className="status-message status-message-error">{confirmError}</p> : null}
       {confirmSuccess ? <p className="status-message status-message-success">{confirmSuccess}</p> : null}
+
+      {items.some((item) => item.currency.trim().toUpperCase() !== 'USD') ? (
+        <p className="summary-hint">
+          非美元交易會按交易幣別記錄成交價同手續費；現金結算仍然統一喺該帳戶嘅 USD 現金戶口扣數，
+          金額按匯率折算。
+        </p>
+      ) : null}
 
       <div className="form-actions">
         <button

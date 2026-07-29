@@ -1,6 +1,6 @@
 # Portfolio_V2 Project Status
 
-更新日期: 2026-07-23
+更新日期: 2026-07-29
 
 ## 目前專案重點
 
@@ -12,6 +12,16 @@
 - Dashboard / Assets / Import / Analysis 四頁已經串連成一條基本工作流
 
 ## 已完成
+
+### 交易幣別跟返上市市場
+
+- 交易記錄唔再一律當美元；港股（9988、0700、`.HK`、`HK.` 等寫法）以 HKD 記錄，
+  美股 USD、日股 JPY
+- 現有資產的交易預設跟返該資產本身的幣別；新資產由 ticker 自動推斷
+- 交易輸入表新增「交易市場 / 幣別」欄，可人手改；ticker 同幣別對唔上時會出警告
+- 現金結算維持單一 USD 現金池，非美元交易按匯率折算後才扣數
+  （`src/lib/portfolio/tradeSettlement.ts`）
+- 相關模組: `src/lib/portfolio/tradeCurrency.ts`、`src/lib/portfolio/tradeSettlement.ts`
 
 ### Crypto 歷史第一階段
 

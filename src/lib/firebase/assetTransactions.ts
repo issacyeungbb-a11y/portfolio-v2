@@ -26,6 +26,10 @@ import type {
 } from '../../types/portfolio';
 import { buildHoldingFromInput } from './assets';
 import { getHongKongDateKey } from '../dates';
+import {
+  SETTLEMENT_CURRENCY,
+  calculateSettlementCashDelta,
+} from '../portfolio/tradeSettlement';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import {
   getSharedAssetTransactionsCollectionRef,
@@ -52,8 +56,6 @@ interface LedgerTransaction extends AssetTransactionInput {
   createdAt?: string;
   updatedAt?: string;
 }
-
-const SETTLEMENT_CURRENCY = 'USD';
 
 function createMissingConfigError() {
   return new Error(`Missing Firebase env vars: ${missingFirebaseEnvKeys.join(', ')}`);
@@ -264,18 +266,6 @@ function getTransactionSettlementAccountSource(entry: Pick<LedgerTransaction, 's
   return entry.settlementAccountSource ?? entry.accountSource;
 }
 
-export function calculateCashDelta(entry: Pick<LedgerTransaction, 'recordType' | 'transactionType' | 'quantity' | 'price' | 'fees'>) {
-  if (entry.recordType !== 'trade') {
-    return 0;
-  }
-
-  const grossAmount = entry.quantity * entry.price;
-
-  return entry.transactionType === 'buy'
-    ? -(grossAmount + entry.fees)
-    : grossAmount - entry.fees;
-}
-
 function getSettlementCurrency() {
   return SETTLEMENT_CURRENCY;
 }
@@ -444,12 +434,13 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
   const settlementSource = entry.settlementAccountSource ?? entry.accountSource;
   const normalizedCurrency = entry.currency.trim().toUpperCase() || SETTLEMENT_CURRENCY;
   const settlementCurrency = getSettlementCurrency();
-  const cashDelta = calculateCashDelta({
+  const cashDelta = calculateSettlementCashDelta({
     recordType: 'trade',
     transactionType: entry.transactionType,
     quantity: Number(entry.quantity) || 0,
     price: Number(entry.price) || 0,
     fees: Number(entry.fees) || 0,
+    currency: normalizedCurrency,
   });
 
   let cashHolding: Holding | null = null;
@@ -609,13 +600,14 @@ export async function updateAssetTransaction(
   const oldSettlement = getTransactionSettlementAccountSource(previousEntry);
   const newSettlement = entry.settlementAccountSource ?? entry.accountSource;
   const newCurrency = entry.currency.trim().toUpperCase() || SETTLEMENT_CURRENCY;
-  const oldCashReversal = calculateCashDelta(previousEntry) * -1;
-  const newCashDelta = calculateCashDelta({
+  const oldCashReversal = calculateSettlementCashDelta(previousEntry) * -1;
+  const newCashDelta = calculateSettlementCashDelta({
     recordType: existingRecordType,
     transactionType: entry.transactionType,
     quantity: Number(entry.quantity) || 0,
     price: Number(entry.price) || 0,
     fees: Number(entry.fees) || 0,
+    currency: newCurrency,
   });
 
   const cashUpdateMap = new Map<string, { accountSource: AccountSource; currency: string; delta: number }>();
@@ -759,7 +751,7 @@ export async function deleteAssetTransaction(entryId: string) {
   const assetRef = doc(getSharedAssetsCollectionRef(), existing.assetId);
 
   // Preflight cash check (collection query, must be outside runTransaction)
-  const cashDeltaToReverse = calculateCashDelta(previousEntry) * -1;
+  const cashDeltaToReverse = calculateSettlementCashDelta(previousEntry) * -1;
   let cashHolding: Holding | null = null;
   if (Math.abs(cashDeltaToReverse) >= 1e-9) {
     const settlement = getTransactionSettlementAccountSource(previousEntry);

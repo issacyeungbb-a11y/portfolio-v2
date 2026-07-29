@@ -19,10 +19,18 @@ import type {
   ParseTransactionsCommandRequest,
   ParseTransactionsCommandResponse,
 } from '../../types/extractAssets';
+import {
+  DEFAULT_TRADE_CURRENCY,
+  inferTradeCurrencyFromSymbol,
+  resolveTradeCurrency,
+  toTradeCurrency,
+} from '../../lib/portfolio/tradeCurrency';
 
 type InputMode = 'ai' | 'manual';
 
 const LOCKED_CASH_ACCOUNT_SOURCES: AccountSource[] = ['IB', 'Futu', 'Crypto'];
+// 所有帳戶的現金池統一係 USD；交易本身的計價幣別跟上市市場（見 tradeCurrency.ts），
+// 寫入時會由交易幣別折算返 USD 扣數。
 const SETTLEMENT_CURRENCY = 'USD';
 
 function normalizeUppercase(value: string) {
@@ -61,7 +69,7 @@ function createBlankItem(
     settlementAccountSource,
     transactionType: 'buy',
     quantity: '',
-    currency: SETTLEMENT_CURRENCY,
+    currency: DEFAULT_TRADE_CURRENCY,
     price: '',
     fees: '0',
     date: getHongKongDateKey(),
@@ -84,7 +92,11 @@ function createPresetExistingTransactionItem(
     settlementAccountSource,
     transactionType: 'buy',
     quantity: '',
-    currency: SETTLEMENT_CURRENCY,
+    currency: resolveTradeCurrency({
+      symbol: holding.symbol,
+      assetType: holding.assetType,
+      holdingCurrency: holding.currency,
+    }),
     price: '',
     fees: '0',
     date: getHongKongDateKey(),
@@ -99,6 +111,7 @@ function buildPreviewItemFromTransaction(
   assetAccountSource: AccountSource,
   settlementAccountSource: AccountSource | '',
   existingAssetId = '',
+  matchedHolding?: Holding,
 ) {
   return {
     id: itemId,
@@ -111,7 +124,12 @@ function buildPreviewItemFromTransaction(
     settlementAccountSource,
     transactionType: entry.transactionType ?? '',
     quantity: entry.quantity == null ? '' : String(entry.quantity),
-    currency: SETTLEMENT_CURRENCY,
+    currency: resolveTradeCurrency({
+      symbol: entry.ticker ?? matchedHolding?.symbol ?? '',
+      assetType: entry.type ?? matchedHolding?.assetType ?? '',
+      holdingCurrency: matchedHolding?.currency,
+      parsedCurrency: entry.currency,
+    }),
     price: entry.price == null ? '' : String(entry.price),
     fees: entry.fees == null ? '0' : String(entry.fees),
     date: entry.date ?? getHongKongDateKey(),
@@ -157,6 +175,19 @@ function getMissingPreviewFields(item: ImportPreviewItem) {
   }
 
   return missing;
+}
+
+// 畫面上揀咗嘅幣別優先（用家可以人手改正舊資產記錯幣別的情況），
+// 只有欄位空白或者唔係支援幣別時，先重新推斷。
+function getItemTradeCurrency(item: ImportPreviewItem, holding?: Holding) {
+  return (
+    toTradeCurrency(item.currency) ??
+    resolveTradeCurrency({
+      symbol: item.ticker || holding?.symbol || '',
+      assetType: item.type || holding?.assetType || '',
+      holdingCurrency: holding?.currency,
+    })
+  );
 }
 
 function assertTransactionType(value: ImportPreviewItem['transactionType']): AssetTransactionType {
@@ -229,6 +260,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
         id: holding.id,
         label: `${holding.symbol} · ${holding.name} · ${holding.accountSource}`,
         accountSource: holding.accountSource,
+        currency: holding.currency,
       })),
     [tradeableHoldings],
   );
@@ -302,8 +334,13 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
           [field]: nextValue,
         };
 
-        if (field === 'currency') {
-          updated.currency = SETTLEMENT_CURRENCY;
+        // 改 ticker 或資產類型時重新推斷市場幣別，但只限使用者未曾自己改過幣別
+        // （即現時幣別仍然等於舊 ticker 推斷出的結果），否則保留手動選擇。
+        if (field === 'ticker' || field === 'type') {
+          const previousInferred = inferTradeCurrencyFromSymbol(item.ticker, item.type);
+          if (item.currency === previousInferred) {
+            updated.currency = inferTradeCurrencyFromSymbol(updated.ticker, updated.type);
+          }
         }
 
         if (field === 'classification' && value === 'new_asset') {
@@ -318,6 +355,11 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
           if (matchedHolding) {
             updated.existingAssetId = matchedHolding.id;
             updated.assetAccountSource = matchedHolding.accountSource;
+            updated.currency = resolveTradeCurrency({
+              symbol: matchedHolding.symbol,
+              assetType: matchedHolding.assetType,
+              holdingCurrency: matchedHolding.currency,
+            });
           }
         }
 
@@ -332,6 +374,13 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
             updated.ticker = selectedHolding.symbol;
             updated.name = item.name || selectedHolding.name;
             updated.type = item.type || selectedHolding.assetType;
+            // 現有資產的 averageCost / currentPrice 都以資產本身幣別記錄，
+            // 交易必須跟返同一個幣別先唔會撈亂平均成本。
+            updated.currency = resolveTradeCurrency({
+              symbol: selectedHolding.symbol,
+              assetType: selectedHolding.assetType,
+              holdingCurrency: selectedHolding.currency,
+            });
           }
         }
 
@@ -396,6 +445,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
           matchedHolding?.accountSource ?? defaultAssetAccountSource,
           defaultCashAccountSource,
           matchedHolding?.id ?? '',
+          matchedHolding,
         );
       });
 
@@ -416,12 +466,14 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
       throw new Error('不可新增現金資產，請改用既有 IB、富途或穩定幣現金資產。');
     }
 
+    const tradeCurrency = getItemTradeCurrency(item);
+
     const assetPayload: PortfolioAssetInput = {
       name: item.name.trim(),
       symbol: normalizeUppercase(item.ticker),
       assetType: item.type as Exclude<AssetType, 'cash'>,
       accountSource: item.assetAccountSource as AccountSource,
-      currency: SETTLEMENT_CURRENCY,
+      currency: tradeCurrency,
       quantity: 0,
       averageCost: 0,
       currentPrice: 0,
@@ -440,7 +492,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
       quantity: Number(item.quantity),
       price: Number(item.price),
       fees: Number(item.fees) || 0,
-      currency: SETTLEMENT_CURRENCY,
+      currency: tradeCurrency,
       date: item.date,
       note: item.note.trim() || undefined,
     });
@@ -501,7 +553,7 @@ export function TransactionInputPanel({ onClose, presetHolding = null }: Transac
           quantity: Number(item.quantity),
           price: Number(item.price),
           fees: Number(item.fees) || 0,
-          currency: SETTLEMENT_CURRENCY,
+          currency: getItemTradeCurrency(item, matchedHolding),
           date: item.date,
           note: item.note.trim() || undefined,
         });

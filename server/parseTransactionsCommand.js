@@ -151,6 +151,11 @@ Rules:
 - Parse only transactions explicitly mentioned by the user.
 - The user may write in Traditional Chinese, Cantonese, or English.
 - "price" means trade price per unit.
+- "currency" is the listing market's currency, not the user's home currency.
+  Hong Kong listed tickers (numeric codes such as 9988, 0700, 09988, or codes
+  ending in .HK) trade in "HKD". US listed tickers (AAPL, TSLA, NVDA) trade in
+  "USD". Tokyo listed tickers (codes ending in .T) trade in "JPY". Only override
+  this when the user explicitly states a different currency.
 - "date" should be YYYY-MM-DD if present or inferable.
 - If a field is missing or uncertain, set it to null.
 - Keep numbers as JSON numbers.
