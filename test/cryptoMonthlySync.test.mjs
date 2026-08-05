@@ -70,6 +70,16 @@ test('builds idempotent create, skip and locked-conflict plans', () => {
   assert.equal(skipPlan.skips.length, 1);
   assert.equal(skipPlan.conflicts.length, 0);
 
+  const legacyChecksumPlan = buildCryptoSyncPlan(
+    [snapshot],
+    new Map([[
+      snapshot.id,
+      { ...snapshot, sourceChecksum: 'legacy-checksum' },
+    ]]),
+  );
+  assert.equal(legacyChecksumPlan.skips.length, 1);
+  assert.equal(legacyChecksumPlan.conflicts.length, 0);
+
   const conflictPlan = buildCryptoSyncPlan(
     [snapshot],
     new Map([[

@@ -407,6 +407,12 @@ export function buildCryptoSyncPlan(
         JSON.stringify(canonicalize(existing[field])) !==
         JSON.stringify(canonicalize(snapshot[field])),
     );
+
+    if (differingFields.length === 0) {
+      plan.skips.push(snapshot);
+      continue;
+    }
+
     plan.conflicts.push({
       id: snapshot.id,
       month: snapshot.month,
