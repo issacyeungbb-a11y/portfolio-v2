@@ -233,8 +233,13 @@ function subscribeToAssetsWithMonthlyOverride(
 
   const emit = () => {
     if (!assetsReady || !overrideReady) return;
-    const applied = applyAccountValuationOverride(rawAssets, override);
-    const holdings = applied.assets.map((asset) =>
+    const activeRawAssets = rawAssets.filter(
+      (asset) => !asset.archivedAt && (asset.assetType === 'cash' || asset.quantity > 0),
+    );
+    const applied = applyAccountValuationOverride(activeRawAssets, override);
+    const appliedById = new Map(applied.assets.map((asset) => [asset.id, asset]));
+    const effectiveAssets = rawAssets.map((asset) => appliedById.get(asset.id) ?? asset);
+    const holdings = effectiveAssets.map((asset) =>
       buildHoldingFromInput(asset.id, asset, {
         useRawCurrentPrice: Boolean(
           override && asset.accountSource === override.accountSource,
