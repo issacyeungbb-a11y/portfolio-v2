@@ -68,7 +68,17 @@ async function runCryptoMonthlyDetection(): Promise<Record<string, unknown>> {
       runCryptoMonthlySync(),
       CRYPTO_MONTHLY_DETECTION_TIMEOUT_MS,
       'Crypto 月結唯讀偵測 timeout',
-    );
+    ) as {
+      validationReport: { validationPassed: boolean; expectedFieldCount: number };
+      detectedMonthCount: number;
+      createCount: number;
+      skipCount: number;
+      conflictCount: number;
+      auditCreateCount: number;
+      creates: string[];
+      auditMonths: string[];
+      conflicts: unknown[];
+    };
     const result = {
       ok: true,
       checkedAt,

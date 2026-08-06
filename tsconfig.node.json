@@ -17,6 +17,7 @@
     "src/lib/dates.ts",
     "src/lib/holdings.ts",
     "src/lib/portfolio/reportAllocationSummary.ts",
+    "src/lib/portfolio/accountValuationOverride.ts",
     "server/**/*.ts",
     "api/**/*.ts",
     "src/types/**/*.ts"
