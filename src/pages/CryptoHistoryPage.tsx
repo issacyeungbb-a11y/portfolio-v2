@@ -448,6 +448,42 @@ export function CryptoHistoryPage() {
     }
   };
 
+  const applyCryptoAccountShadow = async () => {
+    if (!syncPreview?.assetShadow || syncPreview.assetShadow.accountTotalMatched) return;
+
+    setSyncStatus('applying');
+    setSyncMessage(null);
+    try {
+      const result = (await callPortfolioFunction('crypto-history-sync', {
+        applyAssetShadow: true,
+        assetConfirmation: 'APPLY_CRYPTO_ACCOUNT_SHADOW',
+        expectedSourceChecksum: syncPreview.sourceChecksum,
+        expectedAssetShadowChecksum: syncPreview.assetShadow.shadowChecksum,
+      })) as CryptoSyncPreview;
+      if (!result.assetReadback?.verified) {
+        throw new Error('Crypto 帳戶寫入後回讀驗證未通過。');
+      }
+
+      const refreshed = (await callPortfolioFunction('crypto-history-sync', {
+        apply: false,
+        includeAssetShadow: true,
+      })) as CryptoSyncPreview;
+      if (!refreshed.assetShadow?.accountTotalMatched) {
+        throw new Error('Crypto 帳戶同步完成，但網站重新對數未能確認總值一致。');
+      }
+      setSyncPreview(refreshed);
+      setSyncMessageTone('success');
+      setSyncMessage(
+        `Crypto 帳戶已正式同步到 ${money(result.assetReadback.targetTotalHkd, 'HKD')}；Futu、交易、持倉數量及歷史快照沒有改動。`,
+      );
+    } catch (error) {
+      setSyncMessageTone('warning');
+      setSyncMessage(error instanceof Error ? error.message : 'Crypto 帳戶正式同步失敗。');
+    } finally {
+      setSyncStatus('idle');
+    }
+  };
+
   if (history.status === 'loading' && history.snapshots.length === 0) {
     return (
       <div className="page-stack crypto-history-page">
@@ -769,6 +805,22 @@ export function CryptoHistoryPage() {
                     />
                   </div>
                 </div>
+
+                {!syncPreview.assetShadow.accountTotalMatched ? (
+                  <div className="crypto-shadow-apply-row">
+                    <p>
+                      只更新 Crypto 帳戶月結總值覆蓋；不改持倉數量、交易、Futu 或歷史快照。
+                    </p>
+                    <button
+                      type="button"
+                      className="button-primary button-sm"
+                      disabled={syncStatus !== 'idle'}
+                      onClick={() => void applyCryptoAccountShadow()}
+                    >
+                      {syncStatus === 'applying' ? '同步中…' : '確認正式同步 Crypto 帳戶'}
+                    </button>
+                  </div>
+                ) : null}
 
                 <dl className="crypto-shadow-totals">
                   <div>

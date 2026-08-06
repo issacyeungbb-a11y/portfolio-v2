@@ -60,6 +60,8 @@ test('manual crypto month sync reuses the protected health function', async () =
   assert.match(syncSource, /trigger: 'confirmed_history_import'/);
   assert.match(syncSource, /firestoreAssetWrites: 0/);
   assert.match(pageSource, /帳戶總值已同步/);
+  assert.match(pageSource, /確認正式同步 Crypto 帳戶/);
+  assert.match(pageSource, /expectedAssetShadowChecksum/);
   assert.match(pageSource, /result\.readback\?\.verified/);
   assert.match(pageSource, /callPortfolioFunction\('crypto-history'\)/);
   assert.match(syncSource, /async function verifyAppliedSync/);
