@@ -22,7 +22,7 @@ type TrendCurrency = 'HKD' | 'USD';
 
 interface CryptoSyncPreview {
   ok: boolean;
-  mode: 'preview' | 'apply';
+  mode: 'preview' | 'apply' | 'asset_apply';
   runId?: string;
   sourceReadOnly: boolean;
   sourceChecksum: string;
@@ -66,6 +66,8 @@ interface CryptoSyncPreview {
     sourceReadOnly: true;
     firestoreWriteAllowed: false;
     writesPerformed: 0;
+    shadowChecksum: string;
+    accountTotalMatched: boolean;
     targetTotalUsd: number;
     targetTotalHkd: number;
     currentAccountTotalUsd: number;
@@ -105,6 +107,19 @@ interface CryptoSyncPreview {
     syncRunId: string;
     historicalImportId: string | null;
   };
+  assetReadback?: {
+    applied: boolean;
+    skipped: boolean;
+    verified: boolean;
+    month: string;
+    targetTotalHkd: number;
+    readbackTotalHkd: number;
+    differenceHkd: number;
+    excludedFutuAssetCount: number;
+    firestoreAssetWrites: number;
+    firestoreOverrideWrites: number;
+    auditId: string;
+  } | null;
 }
 
 function money(value: number, currency: TrendCurrency) {
@@ -391,6 +406,9 @@ export function CryptoHistoryPage() {
       if (!result.readback?.verified) {
         throw new Error('Firestore 寫入完成，但伺服器回讀驗證未通過。');
       }
+      if (!result.assetReadback?.verified) {
+        throw new Error('Crypto 歷史已寫入，但 Crypto 帳戶自動同步回讀未通過。');
+      }
 
       const websiteResponse = (await callPortfolioFunction('crypto-history')) as {
         snapshots?: CryptoMonthlySnapshot[];
@@ -418,8 +436,8 @@ export function CryptoHistoryPage() {
       setSyncMessageTone('success');
       setSyncMessage(
         result.createCount > 0
-          ? `同步完成，已新增 ${result.createCount} 個月份；Firestore、網站及審計回讀一致。`
-          : `同步完成，已補記 ${result.auditCreateCount} 個月份嘅匯入審計；回讀一致。`,
+          ? `同步完成，已新增 ${result.createCount} 個月份，Crypto 帳戶亦已自動對到 ${money(result.assetReadback.targetTotalHkd, 'HKD')}；Firestore、網站及審計回讀一致。`
+          : `同步完成，已補記 ${result.auditCreateCount} 個月份嘅匯入審計，Crypto 帳戶亦已回讀一致。`,
       );
       history.refresh();
     } catch (error) {
@@ -690,6 +708,7 @@ export function CryptoHistoryPage() {
           <div>
             <span>Google Sheet 單向月結同步</span>
             <small>頁面載入時自動唯讀檢查隱藏「月結記錄」；preview 不會寫入 Firestore。</small>
+            <small>確認新月份寫入 Crypto 歷史後，Crypto 帳戶總值會自動跟隨；Futu 永遠排除。</small>
             {syncPreview ? <small>最近檢查：{formatDateTime(syncPreview.checkedAt)}</small> : null}
           </div>
           <div className="crypto-sync-actions">
@@ -741,8 +760,11 @@ export function CryptoHistoryPage() {
                   <div className="crypto-shadow-badges">
                     <StatusBadge label="Futu 已排除" tone="success" />
                     <StatusBadge label="Firestore 0 寫入" tone="success" />
+                    {syncPreview.assetShadow.accountTotalMatched ? (
+                      <StatusBadge label="帳戶總值已同步" tone="success" />
+                    ) : null}
                     <StatusBadge
-                      label={syncPreview.assetShadow.status === 'ready' ? '可對數' : '需要核對'}
+                      label={syncPreview.assetShadow.status === 'ready' ? '逐項可對數' : '逐項需要核對'}
                       tone={syncPreview.assetShadow.status === 'ready' ? 'success' : 'warning'}
                     />
                   </div>

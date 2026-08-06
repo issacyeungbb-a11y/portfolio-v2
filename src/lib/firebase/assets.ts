@@ -16,9 +16,15 @@ import { getEffectiveHoldingPrice } from '../portfolio/priceValidity';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { callPortfolioFunction } from '../api/vercelFunctions';
 import {
+  getSharedAccountValuationOverrideDocRef,
   getSharedAssetTransactionsCollectionRef,
   getSharedAssetsCollectionRef,
 } from './sharedPortfolio';
+import {
+  applyAccountValuationOverride,
+  normalizeAccountValuationOverride,
+  type AccountValuationOverride,
+} from '../portfolio/accountValuationOverride';
 
 function createMissingConfigError() {
   return new Error(
@@ -185,34 +191,18 @@ export function subscribeToPortfolioAssets(
   onData: (holdings: Holding[]) => void,
   onError: (error: unknown) => void,
 ) {
-  if (!hasFirebaseConfig) {
-    throw createMissingConfigError();
-  }
-
-  const assetsRef = getSharedAssetsCollectionRef();
-  const assetsQuery = query(assetsRef, orderBy('updatedAt', 'desc'));
-
-  return onSnapshot(
-    assetsQuery,
-    (snapshot) => {
-      const holdings = snapshot.docs.map((document) =>
-        buildHoldingFromInput(document.id, document.data() as PortfolioAssetInput),
-      );
-      // Hide closed positions: archived assets, plus any fully-sold non-cash
-      // holding (quantity ≤ 0) even if the archived flag is missing or failed
-      // to map. Sold-out assets still appear in the closed-asset archive, which
-      // is rebuilt independently from transaction history.
-      onData(
-        holdings.filter(
-          (holding) => !holding.archivedAt && !isClosedNonCashPosition(holding),
-        ),
-      );
-    },
-    onError,
-  );
+  return subscribeToAssetsWithMonthlyOverride(false, onData, onError);
 }
 
 export function subscribeToAllPortfolioAssets(
+  onData: (holdings: Holding[]) => void,
+  onError: (error: unknown) => void,
+) {
+  return subscribeToAssetsWithMonthlyOverride(true, onData, onError);
+}
+
+function subscribeToAssetsWithMonthlyOverride(
+  includeClosed: boolean,
   onData: (holdings: Holding[]) => void,
   onError: (error: unknown) => void,
 ) {
@@ -222,22 +212,63 @@ export function subscribeToAllPortfolioAssets(
 
   const assetsRef = getSharedAssetsCollectionRef();
   const assetsQuery = query(assetsRef, orderBy('updatedAt', 'desc'));
+  const overrideRef = getSharedAccountValuationOverrideDocRef('Crypto');
+  let rawAssets: Array<PortfolioAssetInput & {
+    id: string;
+    priceAsOf?: unknown;
+    lastPriceUpdatedAt?: unknown;
+    archivedAt?: unknown;
+  }> = [];
+  let override: AccountValuationOverride | null = null;
+  let assetsReady = false;
+  let overrideReady = false;
 
-  return onSnapshot(
+  const emit = () => {
+    if (!assetsReady || !overrideReady) return;
+    const applied = applyAccountValuationOverride(rawAssets, override);
+    const holdings = applied.assets.map((asset) =>
+      buildHoldingFromInput(asset.id, asset, {
+        useRawCurrentPrice: Boolean(
+          override && asset.accountSource === override.accountSource,
+        ),
+      }),
+    );
+    onData(
+      includeClosed
+        ? holdings
+        : holdings.filter(
+            (holding) => !holding.archivedAt && !isClosedNonCashPosition(holding),
+          ),
+    );
+  };
+  const unsubscribeAssets = onSnapshot(
     assetsQuery,
     (snapshot) => {
-      onData(
-        snapshot.docs.map((document) =>
-          buildHoldingFromInput(
-            document.id,
-            document.data() as PortfolioAssetInput,
-            { useRawCurrentPrice: true },
-          ),
-        ),
-      );
+      rawAssets = snapshot.docs.map((document) => ({
+        id: document.id,
+        ...(document.data() as PortfolioAssetInput),
+      }));
+      assetsReady = true;
+      emit();
     },
     onError,
   );
+  const unsubscribeOverride = onSnapshot(
+    overrideRef,
+    (snapshot) => {
+      override = normalizeAccountValuationOverride(
+        snapshot.exists() ? snapshot.data() as Record<string, unknown> : null,
+      );
+      overrideReady = true;
+      emit();
+    },
+    onError,
+  );
+
+  return () => {
+    unsubscribeAssets();
+    unsubscribeOverride();
+  };
 }
 
 export async function createPortfolioAsset(payload: PortfolioAssetInput) {

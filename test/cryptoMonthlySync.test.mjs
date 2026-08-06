@@ -274,6 +274,8 @@ test('builds a zero-write Crypto-only shadow preview and explicitly excludes Fut
   assert.ok(Math.abs(preview.detailToTargetDifferenceUsd - 1526.31) < 0.000001);
   assert.equal(preview.firestoreWriteAllowed, false);
   assert.equal(preview.writesPerformed, 0);
+  assert.equal(preview.accountTotalMatched, false);
+  assert.equal(preview.shadowChecksum.length, 64);
   assert.equal(preview.status, 'review_required');
   assert.match(
     preview.checks.find((check) => check.code === 'WITHDRAWALS_SEPARATE')?.message ?? '',

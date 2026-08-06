@@ -142,6 +142,8 @@ export interface CryptoAssetShadowPreview {
   sourceReadOnly: true;
   firestoreWriteAllowed: false;
   writesPerformed: 0;
+  shadowChecksum: string;
+  accountTotalMatched: boolean;
   targetTotalUsd: number;
   targetTotalHkd: number;
   currentAccountTotalUsd: number;
@@ -358,6 +360,27 @@ export function buildCryptoAssetShadowPreview(
     },
   ];
   const hasBlockingError = checks.some((check) => !check.passed && check.severity === 'error');
+  const differenceUsd = snapshot.performanceTotalUsd - currentAccountTotalUsd;
+  const differenceHkd = snapshot.totalHkd - currentAccountTotalUsd * snapshot.usdHkdRate;
+  const accountTotalMatched = Math.abs(differenceHkd) <= MONEY_TOLERANCE_HKD;
+  const shadowChecksum = createCryptoSyncChecksum({
+    month: snapshot.month,
+    sourceChecksum: snapshot.sourceChecksum,
+    sourceDetailRange,
+    detailValues,
+    targetTotalUsd: snapshot.performanceTotalUsd,
+    targetTotalHkd: snapshot.totalHkd,
+    cryptoAssets: cryptoAssets
+      .map((asset) => ({
+        id: asset.id,
+        symbol: asset.symbol,
+        assetType: asset.assetType,
+        currency: asset.currency,
+        quantity: asset.quantity,
+        currentPrice: asset.currentPrice,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  });
 
   return {
     mode: 'shadow_preview',
@@ -367,12 +390,14 @@ export function buildCryptoAssetShadowPreview(
     sourceReadOnly: true,
     firestoreWriteAllowed: false,
     writesPerformed: 0,
+    shadowChecksum,
+    accountTotalMatched,
     targetTotalUsd: snapshot.performanceTotalUsd,
     targetTotalHkd: snapshot.totalHkd,
     currentAccountTotalUsd,
     currentAccountTotalHkd: currentAccountTotalUsd * snapshot.usdHkdRate,
-    differenceUsd: snapshot.performanceTotalUsd - currentAccountTotalUsd,
-    differenceHkd: snapshot.totalHkd - currentAccountTotalUsd * snapshot.usdHkdRate,
+    differenceUsd,
+    differenceHkd,
     detailPositionSubtotalUsd,
     detailToTargetDifferenceUsd,
     separateWithdrawalsUsd: snapshot.cumulativeWithdrawnUsd,

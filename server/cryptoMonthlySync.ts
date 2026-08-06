@@ -12,6 +12,7 @@ import {
   getCryptoSyncSourceChecksum,
   parseCryptoMonthLogRows,
   type CryptoSyncPlan,
+  type CryptoAssetShadowPreview,
   type CryptoSyncSnapshot,
 } from './cryptoMonthlySyncCore.js';
 
@@ -27,7 +28,10 @@ const PORTFOLIO_DOC_ID = 'app';
 const SNAPSHOT_COLLECTION = 'cryptoMonthlySnapshots';
 const SYNC_RUN_COLLECTION = 'cryptoSyncRuns';
 const IMPORT_COLLECTION = 'cryptoHistoricalImports';
+const ASSET_SYNC_COLLECTION = 'cryptoAssetSyncs';
+const ACCOUNT_OVERRIDE_COLLECTION = 'accountValuationOverrides';
 const APPLY_CONFIRMATION = 'APPLY_CRYPTO_MONTHLY_SYNC';
+const APPLY_ASSET_CONFIRMATION = 'APPLY_CRYPTO_ACCOUNT_SHADOW';
 
 interface GoogleServiceAccount {
   clientEmail: string;
@@ -39,6 +43,9 @@ interface CryptoMonthlySyncOptions {
   confirmation?: string;
   expectedSourceChecksum?: string;
   includeAssetShadow?: boolean;
+  applyAssetShadow?: boolean;
+  assetConfirmation?: string;
+  expectedAssetShadowChecksum?: string;
 }
 
 interface SheetsValuesResponse {
@@ -504,13 +511,156 @@ async function applyPlan(
   }
 }
 
+async function applyCryptoAccountValuationOverride(params: {
+  snapshot: CryptoSyncSnapshot;
+  shadow: CryptoAssetShadowPreview;
+  detailValues: unknown[][];
+  trigger: 'explicit_confirmation' | 'confirmed_history_import';
+}) {
+  const { snapshot, shadow, detailValues, trigger } = params;
+  const db = getFirebaseAdminDb();
+  const portfolioRef = getPortfolioRef();
+  const snapshotRef = portfolioRef.collection(SNAPSHOT_COLLECTION).doc(snapshot.id);
+  const overrideRef = portfolioRef.collection(ACCOUNT_OVERRIDE_COLLECTION).doc('Crypto');
+  const auditRef = portfolioRef.collection(ASSET_SYNC_COLLECTION).doc(snapshot.id);
+
+  const result = await db.runTransaction(async (transaction) => {
+    const [storedSnapshot, existingAudit] = await Promise.all([
+      transaction.get(snapshotRef),
+      transaction.get(auditRef),
+    ]);
+    const storedSourceChecksum = storedSnapshot.data()?.sourceChecksum;
+
+    if (!storedSnapshot.exists || storedSourceChecksum !== snapshot.sourceChecksum) {
+      throw new CryptoMonthlySyncError(
+        `${snapshot.month} 鎖定月結未能在 Firestore 回讀一致，Crypto 帳戶同步已停止。`,
+        409,
+      );
+    }
+
+    if (existingAudit.exists) {
+      const audit = existingAudit.data();
+      if (
+        audit.sourceChecksum === snapshot.sourceChecksum &&
+        audit.shadowChecksum === shadow.shadowChecksum &&
+        audit.status === 'completed'
+      ) {
+        return { skipped: true as const };
+      }
+      throw new CryptoMonthlySyncError(
+        `${snapshot.month} 已有不同的 Crypto 帳戶同步審計，沒有覆蓋。`,
+        409,
+      );
+    }
+
+    const overridePayload = {
+      accountSource: 'Crypto',
+      active: true,
+      month: snapshot.month,
+      targetTotalUsd: snapshot.performanceTotalUsd,
+      targetTotalHkd: snapshot.totalHkd,
+      usdHkdRate: snapshot.usdHkdRate,
+      sourceSnapshotId: snapshot.id,
+      sourceChecksum: snapshot.sourceChecksum,
+      shadowChecksum: shadow.shadowChecksum,
+      applicationMode: 'proportional_account_overlay',
+      separateWithdrawalsUsd: snapshot.cumulativeWithdrawnUsd,
+      detailPositionSubtotalUsd: shadow.detailPositionSubtotalUsd,
+      detailToTargetDifferenceUsd: shadow.detailToTargetDifferenceUsd,
+      excludedAccountSources: ['Futu'],
+      updatedAt: FieldValue.serverTimestamp(),
+      confirmedAt: FieldValue.serverTimestamp(),
+    };
+    transaction.set(overrideRef, overridePayload);
+    transaction.create(auditRef, {
+      id: snapshot.id,
+      month: snapshot.month,
+      status: 'completed',
+      trigger,
+      accountSource: 'Crypto',
+      sourceSnapshotId: snapshot.id,
+      sourceChecksum: snapshot.sourceChecksum,
+      shadowChecksum: shadow.shadowChecksum,
+      applicationMode: 'proportional_account_overlay',
+      beforeTotalUsd: shadow.currentAccountTotalUsd,
+      beforeTotalHkd: shadow.currentAccountTotalHkd,
+      targetTotalUsd: snapshot.performanceTotalUsd,
+      targetTotalHkd: snapshot.totalHkd,
+      differenceUsd: shadow.differenceUsd,
+      differenceHkd: shadow.differenceHkd,
+      cryptoAssetCount: shadow.cryptoAssetCount,
+      excludedFutuAssetCount: shadow.excludedFutuAssetCount,
+      excludedFutuValueUsd: shadow.excludedFutuValueUsd,
+      separateWithdrawalsUsd: snapshot.cumulativeWithdrawnUsd,
+      detailPositionSubtotalUsd: shadow.detailPositionSubtotalUsd,
+      detailToTargetDifferenceUsd: shadow.detailToTargetDifferenceUsd,
+      firestoreAssetWrites: 0,
+      firestoreOverrideWrites: 1,
+      googleSheetWrites: 0,
+      transactionWrites: 0,
+      snapshotWrites: 0,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { skipped: false as const };
+  });
+
+  const [overrideDocument, auditDocument, effectiveAssets] = await Promise.all([
+    overrideRef.get(),
+    auditRef.get(),
+    readAdminPortfolioAssets(),
+  ]);
+  const readbackShadow = buildCryptoAssetShadowPreview(
+    snapshot,
+    detailValues,
+    effectiveAssets,
+    shadow.sourceDetailRange,
+  );
+
+  if (!overrideDocument.exists || !auditDocument.exists) {
+    throw new CryptoMonthlySyncError('Crypto 帳戶同步寫入後回讀文件不完整。', 500);
+  }
+  if (Math.abs(readbackShadow.differenceHkd) > 1) {
+    throw new CryptoMonthlySyncError(
+      `Crypto 帳戶同步回讀仍相差 HK$${readbackShadow.differenceHkd.toFixed(2)}。`,
+      500,
+    );
+  }
+
+  return {
+    applied: !result.skipped,
+    skipped: result.skipped,
+    verified: true,
+    month: snapshot.month,
+    accountSource: 'Crypto',
+    targetTotalUsd: snapshot.performanceTotalUsd,
+    targetTotalHkd: snapshot.totalHkd,
+    readbackTotalUsd: readbackShadow.currentAccountTotalUsd,
+    readbackTotalHkd: readbackShadow.currentAccountTotalHkd,
+    differenceUsd: readbackShadow.differenceUsd,
+    differenceHkd: readbackShadow.differenceHkd,
+    cryptoAssetCount: readbackShadow.cryptoAssetCount,
+    excludedFutuAssetCount: readbackShadow.excludedFutuAssetCount,
+    firestoreAssetWrites: 0,
+    firestoreOverrideWrites: result.skipped ? 0 : 1,
+    auditId: snapshot.id,
+  };
+}
+
 export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {}) {
   const apply = options.apply === true;
+  const applyAssetShadow = options.applyAssetShadow === true;
   if (apply && options.confirmation !== APPLY_CONFIRMATION) {
     throw new CryptoMonthlySyncError('缺少正式同步確認字串，沒有寫入任何資料。', 400);
   }
+  if (applyAssetShadow && options.assetConfirmation !== APPLY_ASSET_CONFIRMATION) {
+    throw new CryptoMonthlySyncError('缺少 Crypto 帳戶正式同步確認字串，沒有寫入任何資料。', 400);
+  }
+  if (apply && applyAssetShadow) {
+    throw new CryptoMonthlySyncError('月結寫入與獨立帳戶同步不可在同一請求重複執行。', 400);
+  }
 
-  const includeAssetShadow = !apply && options.includeAssetShadow === true;
+  const includeAssetShadow = apply || applyAssetShadow || options.includeAssetShadow === true;
   const source = await readLockedMonthLog(includeAssetShadow);
   const snapshots = parseCryptoMonthLogRows(source.values, {
     spreadsheetId: source.spreadsheetId,
@@ -520,7 +670,7 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
   const sourceChecksum = getCryptoSyncSourceChecksum(snapshots);
 
   if (
-    apply &&
+    (apply || applyAssetShadow) &&
     (!options.expectedSourceChecksum || options.expectedSourceChecksum !== sourceChecksum)
   ) {
     throw new CryptoMonthlySyncError(
@@ -551,6 +701,18 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
       )
     : undefined;
 
+  if (
+    applyAssetShadow &&
+    (!assetShadow ||
+      !options.expectedAssetShadowChecksum ||
+      options.expectedAssetShadowChecksum !== assetShadow.shadowChecksum)
+  ) {
+    throw new CryptoMonthlySyncError(
+      'Crypto 帳戶或月結內容已在影子 preview 後改變，請重新檢查再確認同步。',
+      409,
+    );
+  }
+
   if (apply && previewPlan.conflicts.length > 0) {
     throw new CryptoMonthlySyncError(
       `已鎖定月份出現差異：${previewPlan.conflicts.map((item) => item.month).join('、')}。沒有寫入任何資料。`,
@@ -559,6 +721,28 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
   }
 
   if (!apply) {
+    if (applyAssetShadow && latestSnapshot && assetShadow) {
+      const assetReadback = await applyCryptoAccountValuationOverride({
+        snapshot: latestSnapshot,
+        shadow: assetShadow,
+        detailValues: source.detailValues,
+        trigger: 'explicit_confirmation',
+      });
+      return {
+        ok: true,
+        mode: 'asset_apply',
+        sourceReadOnly: true,
+        sourceSpreadsheetId: source.spreadsheetId,
+        sourceSheet: DEFAULT_SHEET_NAME,
+        sourceRange: source.sourceRange,
+        sourceChecksum,
+        checkedAt: new Date().toISOString(),
+        assetShadow,
+        assetReadback,
+        ...summarizePlan(previewPlan),
+      };
+    }
+
     return {
       ok: true,
       mode: 'preview',
@@ -582,6 +766,14 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
   }
 
   const applied = await applyPlan(snapshots, sourceChecksum);
+  const assetReadback = latestSnapshot && assetShadow
+    ? await applyCryptoAccountValuationOverride({
+        snapshot: latestSnapshot,
+        shadow: assetShadow,
+        detailValues: source.detailValues,
+        trigger: 'confirmed_history_import',
+      })
+    : null;
   return {
     ok: true,
     mode: 'apply',
@@ -601,6 +793,7 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
     auditMonths: applied.auditedMonths,
     validationReport: buildCryptoSyncValidationReport(snapshots, applied.plan),
     readback: applied.readback,
+    assetReadback,
     ...summarizePlan(applied.plan),
   };
 }

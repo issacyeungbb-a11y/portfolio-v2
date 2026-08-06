@@ -4,6 +4,10 @@ import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { fetchLiveFxRates } from './updatePrices.js';
 import { withRetry } from './retry.js';
 import { convertToHKDValue } from '../src/lib/currency.js';
+import {
+  applyAccountValuationOverride,
+  normalizeAccountValuationOverride,
+} from '../src/lib/portfolio/accountValuationOverride.js';
 import type { FxRates } from '../src/types/fxRates';
 import type { AssetType, PortfolioAssetInput } from '../src/types/portfolio';
 
@@ -124,18 +128,26 @@ export async function readAdminPortfolioAssets() {
   return withRetry(
     async () => {
       const db = getFirebaseAdminDb();
-      const snapshot = await db
+      const portfolioRef = db
         .collection(SHARED_PORTFOLIO_COLLECTION)
-        .doc(SHARED_PORTFOLIO_DOC_ID)
-        .collection('assets')
-        .get();
-
-      return snapshot.docs
+        .doc(SHARED_PORTFOLIO_DOC_ID);
+      const [snapshot, overrideDocument] = await Promise.all([
+        portfolioRef.collection('assets').get(),
+        portfolioRef.collection('accountValuationOverrides').doc('Crypto').get(),
+      ]);
+      const assets = snapshot.docs
         .map((document) => ({
           id: document.id,
           ...normalizeAssetInput(document.data() as Record<string, unknown>),
         }))
         .filter((asset) => !asset.archivedAt);
+      const override = normalizeAccountValuationOverride(
+        overrideDocument.exists
+          ? overrideDocument.data() as Record<string, unknown>
+          : null,
+      );
+
+      return applyAccountValuationOverride(assets, override).assets;
     },
     { attempts: 3, label: 'readAdminPortfolioAssets' },
   );

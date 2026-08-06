@@ -54,6 +54,12 @@ test('manual crypto month sync reuses the protected health function', async () =
   assert.match(pageSource, /Firestore 0 寫入/);
   assert.match(syncSource, /buildCryptoAssetShadowPreview/);
   assert.match(syncSource, /includeAssetShadow/);
+  assert.match(syncSource, /APPLY_CRYPTO_ACCOUNT_SHADOW/);
+  assert.match(syncSource, /ACCOUNT_OVERRIDE_COLLECTION = 'accountValuationOverrides'/);
+  assert.match(syncSource, /ASSET_SYNC_COLLECTION = 'cryptoAssetSyncs'/);
+  assert.match(syncSource, /trigger: 'confirmed_history_import'/);
+  assert.match(syncSource, /firestoreAssetWrites: 0/);
+  assert.match(pageSource, /帳戶總值已同步/);
   assert.match(pageSource, /result\.readback\?\.verified/);
   assert.match(pageSource, /callPortfolioFunction\('crypto-history'\)/);
   assert.match(syncSource, /async function verifyAppliedSync/);
@@ -128,4 +134,12 @@ test('server reader and importer stay inside independent crypto collections', as
   assert.match(importerSource, /IMPORT_COLLECTION = 'cryptoHistoricalImports'/);
   assert.match(importerSource, /portfolioSnapshots/);
   assert.doesNotMatch(rulesSource, /cryptoMonthlySnapshots|cryptoHistoricalImports/);
+  assert.match(
+    rulesSource,
+    /match \/accountValuationOverrides\/\{accountSource\} \{\s*allow read: if true;\s*allow create, update, delete: if false;/s,
+  );
+  assert.match(
+    rulesSource,
+    /match \/cryptoAssetSyncs\/\{syncId\} \{\s*allow read: if true;\s*allow create, update, delete: if false;/s,
+  );
 });

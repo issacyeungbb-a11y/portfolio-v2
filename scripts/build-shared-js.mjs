@@ -27,6 +27,7 @@ const SHARED_SRC_MODULES = [
   'src/lib/currency.ts',
   'src/lib/holdings.ts',
   'src/lib/portfolio/assetChange.ts',
+  'src/lib/portfolio/accountValuationOverride.ts',
   'src/lib/portfolio/overviewSelectors.ts',
   'src/lib/portfolio/reportAllocationSummary.ts',
   'src/lib/portfolio/transactionPriceComparison.ts',

@@ -23,7 +23,10 @@ const PORTFOLIO_DOC_ID = "app";
 const SNAPSHOT_COLLECTION = "cryptoMonthlySnapshots";
 const SYNC_RUN_COLLECTION = "cryptoSyncRuns";
 const IMPORT_COLLECTION = "cryptoHistoricalImports";
+const ASSET_SYNC_COLLECTION = "cryptoAssetSyncs";
+const ACCOUNT_OVERRIDE_COLLECTION = "accountValuationOverrides";
 const APPLY_CONFIRMATION = "APPLY_CRYPTO_MONTHLY_SYNC";
+const APPLY_ASSET_CONFIRMATION = "APPLY_CRYPTO_ACCOUNT_SHADOW";
 class CryptoMonthlySyncError extends Error {
   status;
   constructor(message, status = 500) {
@@ -366,12 +369,138 @@ async function applyPlan(snapshots, sourceChecksum) {
     throw error;
   }
 }
+async function applyCryptoAccountValuationOverride(params) {
+  const { snapshot, shadow, detailValues, trigger } = params;
+  const db = getFirebaseAdminDb();
+  const portfolioRef = getPortfolioRef();
+  const snapshotRef = portfolioRef.collection(SNAPSHOT_COLLECTION).doc(snapshot.id);
+  const overrideRef = portfolioRef.collection(ACCOUNT_OVERRIDE_COLLECTION).doc("Crypto");
+  const auditRef = portfolioRef.collection(ASSET_SYNC_COLLECTION).doc(snapshot.id);
+  const result = await db.runTransaction(async (transaction) => {
+    const [storedSnapshot, existingAudit] = await Promise.all([
+      transaction.get(snapshotRef),
+      transaction.get(auditRef)
+    ]);
+    const storedSourceChecksum = storedSnapshot.data()?.sourceChecksum;
+    if (!storedSnapshot.exists || storedSourceChecksum !== snapshot.sourceChecksum) {
+      throw new CryptoMonthlySyncError(
+        `${snapshot.month} \u9396\u5B9A\u6708\u7D50\u672A\u80FD\u5728 Firestore \u56DE\u8B80\u4E00\u81F4\uFF0CCrypto \u5E33\u6236\u540C\u6B65\u5DF2\u505C\u6B62\u3002`,
+        409
+      );
+    }
+    if (existingAudit.exists) {
+      const audit = existingAudit.data();
+      if (audit.sourceChecksum === snapshot.sourceChecksum && audit.shadowChecksum === shadow.shadowChecksum && audit.status === "completed") {
+        return { skipped: true };
+      }
+      throw new CryptoMonthlySyncError(
+        `${snapshot.month} \u5DF2\u6709\u4E0D\u540C\u7684 Crypto \u5E33\u6236\u540C\u6B65\u5BE9\u8A08\uFF0C\u6C92\u6709\u8986\u84CB\u3002`,
+        409
+      );
+    }
+    const overridePayload = {
+      accountSource: "Crypto",
+      active: true,
+      month: snapshot.month,
+      targetTotalUsd: snapshot.performanceTotalUsd,
+      targetTotalHkd: snapshot.totalHkd,
+      usdHkdRate: snapshot.usdHkdRate,
+      sourceSnapshotId: snapshot.id,
+      sourceChecksum: snapshot.sourceChecksum,
+      shadowChecksum: shadow.shadowChecksum,
+      applicationMode: "proportional_account_overlay",
+      separateWithdrawalsUsd: snapshot.cumulativeWithdrawnUsd,
+      detailPositionSubtotalUsd: shadow.detailPositionSubtotalUsd,
+      detailToTargetDifferenceUsd: shadow.detailToTargetDifferenceUsd,
+      excludedAccountSources: ["Futu"],
+      updatedAt: FieldValue.serverTimestamp(),
+      confirmedAt: FieldValue.serverTimestamp()
+    };
+    transaction.set(overrideRef, overridePayload);
+    transaction.create(auditRef, {
+      id: snapshot.id,
+      month: snapshot.month,
+      status: "completed",
+      trigger,
+      accountSource: "Crypto",
+      sourceSnapshotId: snapshot.id,
+      sourceChecksum: snapshot.sourceChecksum,
+      shadowChecksum: shadow.shadowChecksum,
+      applicationMode: "proportional_account_overlay",
+      beforeTotalUsd: shadow.currentAccountTotalUsd,
+      beforeTotalHkd: shadow.currentAccountTotalHkd,
+      targetTotalUsd: snapshot.performanceTotalUsd,
+      targetTotalHkd: snapshot.totalHkd,
+      differenceUsd: shadow.differenceUsd,
+      differenceHkd: shadow.differenceHkd,
+      cryptoAssetCount: shadow.cryptoAssetCount,
+      excludedFutuAssetCount: shadow.excludedFutuAssetCount,
+      excludedFutuValueUsd: shadow.excludedFutuValueUsd,
+      separateWithdrawalsUsd: snapshot.cumulativeWithdrawnUsd,
+      detailPositionSubtotalUsd: shadow.detailPositionSubtotalUsd,
+      detailToTargetDifferenceUsd: shadow.detailToTargetDifferenceUsd,
+      firestoreAssetWrites: 0,
+      firestoreOverrideWrites: 1,
+      googleSheetWrites: 0,
+      transactionWrites: 0,
+      snapshotWrites: 0,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    return { skipped: false };
+  });
+  const [overrideDocument, auditDocument, effectiveAssets] = await Promise.all([
+    overrideRef.get(),
+    auditRef.get(),
+    readAdminPortfolioAssets()
+  ]);
+  const readbackShadow = buildCryptoAssetShadowPreview(
+    snapshot,
+    detailValues,
+    effectiveAssets,
+    shadow.sourceDetailRange
+  );
+  if (!overrideDocument.exists || !auditDocument.exists) {
+    throw new CryptoMonthlySyncError("Crypto \u5E33\u6236\u540C\u6B65\u5BEB\u5165\u5F8C\u56DE\u8B80\u6587\u4EF6\u4E0D\u5B8C\u6574\u3002", 500);
+  }
+  if (Math.abs(readbackShadow.differenceHkd) > 1) {
+    throw new CryptoMonthlySyncError(
+      `Crypto \u5E33\u6236\u540C\u6B65\u56DE\u8B80\u4ECD\u76F8\u5DEE HK$${readbackShadow.differenceHkd.toFixed(2)}\u3002`,
+      500
+    );
+  }
+  return {
+    applied: !result.skipped,
+    skipped: result.skipped,
+    verified: true,
+    month: snapshot.month,
+    accountSource: "Crypto",
+    targetTotalUsd: snapshot.performanceTotalUsd,
+    targetTotalHkd: snapshot.totalHkd,
+    readbackTotalUsd: readbackShadow.currentAccountTotalUsd,
+    readbackTotalHkd: readbackShadow.currentAccountTotalHkd,
+    differenceUsd: readbackShadow.differenceUsd,
+    differenceHkd: readbackShadow.differenceHkd,
+    cryptoAssetCount: readbackShadow.cryptoAssetCount,
+    excludedFutuAssetCount: readbackShadow.excludedFutuAssetCount,
+    firestoreAssetWrites: 0,
+    firestoreOverrideWrites: result.skipped ? 0 : 1,
+    auditId: snapshot.id
+  };
+}
 async function runCryptoMonthlySync(options = {}) {
   const apply = options.apply === true;
+  const applyAssetShadow = options.applyAssetShadow === true;
   if (apply && options.confirmation !== APPLY_CONFIRMATION) {
     throw new CryptoMonthlySyncError("\u7F3A\u5C11\u6B63\u5F0F\u540C\u6B65\u78BA\u8A8D\u5B57\u4E32\uFF0C\u6C92\u6709\u5BEB\u5165\u4EFB\u4F55\u8CC7\u6599\u3002", 400);
   }
-  const includeAssetShadow = !apply && options.includeAssetShadow === true;
+  if (applyAssetShadow && options.assetConfirmation !== APPLY_ASSET_CONFIRMATION) {
+    throw new CryptoMonthlySyncError("\u7F3A\u5C11 Crypto \u5E33\u6236\u6B63\u5F0F\u540C\u6B65\u78BA\u8A8D\u5B57\u4E32\uFF0C\u6C92\u6709\u5BEB\u5165\u4EFB\u4F55\u8CC7\u6599\u3002", 400);
+  }
+  if (apply && applyAssetShadow) {
+    throw new CryptoMonthlySyncError("\u6708\u7D50\u5BEB\u5165\u8207\u7368\u7ACB\u5E33\u6236\u540C\u6B65\u4E0D\u53EF\u5728\u540C\u4E00\u8ACB\u6C42\u91CD\u8907\u57F7\u884C\u3002", 400);
+  }
+  const includeAssetShadow = apply || applyAssetShadow || options.includeAssetShadow === true;
   const source = await readLockedMonthLog(includeAssetShadow);
   const snapshots = parseCryptoMonthLogRows(source.values, {
     spreadsheetId: source.spreadsheetId,
@@ -379,7 +508,7 @@ async function runCryptoMonthlySync(options = {}) {
     sheetName: DEFAULT_SHEET_NAME
   });
   const sourceChecksum = getCryptoSyncSourceChecksum(snapshots);
-  if (apply && (!options.expectedSourceChecksum || options.expectedSourceChecksum !== sourceChecksum)) {
+  if ((apply || applyAssetShadow) && (!options.expectedSourceChecksum || options.expectedSourceChecksum !== sourceChecksum)) {
     throw new CryptoMonthlySyncError(
       "Google Sheet \u5167\u5BB9\u5DF2\u5728 preview \u5F8C\u6539\u8B8A\uFF0C\u8ACB\u91CD\u65B0\u6AA2\u67E5\u518D\u78BA\u8A8D\u540C\u6B65\u3002",
       409
@@ -404,6 +533,12 @@ async function runCryptoMonthlySync(options = {}) {
     portfolioAssets,
     source.detailRange
   ) : void 0;
+  if (applyAssetShadow && (!assetShadow || !options.expectedAssetShadowChecksum || options.expectedAssetShadowChecksum !== assetShadow.shadowChecksum)) {
+    throw new CryptoMonthlySyncError(
+      "Crypto \u5E33\u6236\u6216\u6708\u7D50\u5167\u5BB9\u5DF2\u5728\u5F71\u5B50 preview \u5F8C\u6539\u8B8A\uFF0C\u8ACB\u91CD\u65B0\u6AA2\u67E5\u518D\u78BA\u8A8D\u540C\u6B65\u3002",
+      409
+    );
+  }
   if (apply && previewPlan.conflicts.length > 0) {
     throw new CryptoMonthlySyncError(
       `\u5DF2\u9396\u5B9A\u6708\u4EFD\u51FA\u73FE\u5DEE\u7570\uFF1A${previewPlan.conflicts.map((item) => item.month).join("\u3001")}\u3002\u6C92\u6709\u5BEB\u5165\u4EFB\u4F55\u8CC7\u6599\u3002`,
@@ -411,6 +546,27 @@ async function runCryptoMonthlySync(options = {}) {
     );
   }
   if (!apply) {
+    if (applyAssetShadow && latestSnapshot && assetShadow) {
+      const assetReadback2 = await applyCryptoAccountValuationOverride({
+        snapshot: latestSnapshot,
+        shadow: assetShadow,
+        detailValues: source.detailValues,
+        trigger: "explicit_confirmation"
+      });
+      return {
+        ok: true,
+        mode: "asset_apply",
+        sourceReadOnly: true,
+        sourceSpreadsheetId: source.spreadsheetId,
+        sourceSheet: DEFAULT_SHEET_NAME,
+        sourceRange: source.sourceRange,
+        sourceChecksum,
+        checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        assetShadow,
+        assetReadback: assetReadback2,
+        ...summarizePlan(previewPlan)
+      };
+    }
     return {
       ok: true,
       mode: "preview",
@@ -433,6 +589,12 @@ async function runCryptoMonthlySync(options = {}) {
     };
   }
   const applied = await applyPlan(snapshots, sourceChecksum);
+  const assetReadback = latestSnapshot && assetShadow ? await applyCryptoAccountValuationOverride({
+    snapshot: latestSnapshot,
+    shadow: assetShadow,
+    detailValues: source.detailValues,
+    trigger: "confirmed_history_import"
+  }) : null;
   return {
     ok: true,
     mode: "apply",
@@ -452,6 +614,7 @@ async function runCryptoMonthlySync(options = {}) {
     auditMonths: applied.auditedMonths,
     validationReport: buildCryptoSyncValidationReport(snapshots, applied.plan),
     readback: applied.readback,
+    assetReadback,
     ...summarizePlan(applied.plan)
   };
 }

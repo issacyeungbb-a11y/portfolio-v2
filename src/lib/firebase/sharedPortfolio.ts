@@ -27,6 +27,17 @@ export function getSharedAssetsCollectionRef() {
   return collection(db, SHARED_PORTFOLIO_COLLECTION, SHARED_PORTFOLIO_DOC_ID, 'assets');
 }
 
+export function getSharedAccountValuationOverrideDocRef(accountSource = 'Crypto') {
+  const db = getRequiredFirebaseDb();
+  return doc(
+    db,
+    SHARED_PORTFOLIO_COLLECTION,
+    SHARED_PORTFOLIO_DOC_ID,
+    'accountValuationOverrides',
+    accountSource,
+  );
+}
+
 export function getSharedPriceReviewsCollectionRef() {
   const db = getRequiredFirebaseDb();
   return collection(

@@ -12,6 +12,10 @@ import {
 } from '../server/cryptoMonthlySync.js';
 import { readDailyJob } from '../server/dailyJobs.js';
 import {
+  applyAccountValuationOverride,
+  normalizeAccountValuationOverride,
+} from '../src/lib/portfolio/accountValuationOverride.js';
+import {
   requirePortfolioAccess,
   isPortfolioAccessError,
   getPortfolioAccessErrorResponse,
@@ -230,6 +234,37 @@ async function fetchPublicAssetDocuments(projectId: string) {
   return documents;
 }
 
+async function fetchPublicCryptoValuationOverride(projectId: string) {
+  const firestoreUrl =
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}` +
+    '/databases/(default)/documents/portfolio/app/accountValuationOverrides/Crypto';
+  const response = await fetch(firestoreUrl, { headers: { Accept: 'application/json' } });
+  if (response.status === 404) return null;
+  const payload = (await response.json()) as FirestoreDocument & {
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    throw new Error(payload.error?.message ?? 'Failed to load Crypto valuation override');
+  }
+  return normalizeAccountValuationOverride(readFirestoreFields(payload.fields));
+}
+
+function recalculatePublicAsset(asset: PublicAssetRecord): PublicAssetRecord {
+  const marketValue = asset.assetType === 'cash'
+    ? asset.currentPrice
+    : asset.quantity * asset.currentPrice;
+  const costBasis = asset.assetType === 'cash'
+    ? asset.averageCost
+    : asset.quantity * asset.averageCost;
+  const unrealizedPnl = marketValue - costBasis;
+  return {
+    ...asset,
+    marketValue,
+    unrealizedPnl,
+    unrealizedPct: costBasis === 0 ? 0 : (unrealizedPnl / costBasis) * 100,
+  };
+}
+
 async function handlePublicPortfolioRequest(request: ApiRequest, response: ApiResponse) {
   if (request.method !== 'GET') {
     sendJson(response, 405, {
@@ -257,14 +292,20 @@ async function handlePublicPortfolioRequest(request: ApiRequest, response: ApiRe
       throw new Error('Missing Firebase project id');
     }
 
-    const documents = await fetchPublicAssetDocuments(projectId);
-    const assets = documents
+    const [documents, cryptoOverride] = await Promise.all([
+      fetchPublicAssetDocuments(projectId),
+      fetchPublicCryptoValuationOverride(projectId),
+    ]);
+    const rawAssets = documents
       .map((document) => ({
         id: getFirestoreDocumentId(document.name),
         value: readFirestoreFields(document.fields),
       }))
       .filter((entry) => !isArchivedAsset(entry.value))
       .map((entry) => buildPublicAsset(entry.id, entry.value));
+    const assets = applyAccountValuationOverride(rawAssets, cryptoOverride)
+      .assets
+      .map((asset) => recalculatePublicAsset(asset));
 
     response.setHeader('Cache-Control', 'no-store');
     sendJson(response, 200, {
@@ -965,6 +1006,9 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         confirmation?: string;
         expectedSourceChecksum?: string;
         includeAssetShadow?: boolean;
+        applyAssetShadow?: boolean;
+        assetConfirmation?: string;
+        expectedAssetShadowChecksum?: string;
       };
       response.setHeader('Cache-Control', 'private, no-store');
       sendJson(response, 200, {
