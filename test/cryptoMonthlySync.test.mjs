@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   CRYPTO_MONTH_LOG_HEADERS,
   buildCryptoSyncPlan,
+  getCryptoHistoricalAuditMonths,
   getCryptoSyncSourceChecksum,
   parseCryptoMonthLogRows,
 } from '../server/cryptoMonthlySyncCore.js';
@@ -116,4 +117,45 @@ test('source checksum is deterministic and changes with sheet values', () => {
   const changed = [...july2026];
   changed[18] = '新備註';
   assert.notEqual(getCryptoSyncSourceChecksum(first), getCryptoSyncSourceChecksum(parse([changed])));
+});
+
+test('identifies new and missing historical import audit months without rewriting snapshots', () => {
+  const [julySnapshot] = parse();
+  const augustRow = [...july2026];
+  augustRow[0] = 46235;
+  augustRow[1] = 46239.3507669213;
+  const [, augustSnapshot] = parse([july2026, augustRow]);
+
+  assert.deepEqual(
+    getCryptoHistoricalAuditMonths(
+      [julySnapshot, augustSnapshot],
+      [augustSnapshot.month],
+      '2026-07',
+    ),
+    ['2026-08'],
+  );
+  assert.deepEqual(
+    getCryptoHistoricalAuditMonths(
+      [julySnapshot, augustSnapshot],
+      [],
+      '2026-07',
+    ),
+    ['2026-08'],
+  );
+  assert.deepEqual(
+    getCryptoHistoricalAuditMonths(
+      [julySnapshot, augustSnapshot],
+      [],
+      '2026-08',
+    ),
+    [],
+  );
+  assert.deepEqual(
+    getCryptoHistoricalAuditMonths(
+      [julySnapshot, augustSnapshot],
+      [],
+      null,
+    ),
+    ['2026-07', '2026-08'],
+  );
 });

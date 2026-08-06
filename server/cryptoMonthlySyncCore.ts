@@ -434,3 +434,19 @@ export function getCryptoSyncSourceChecksum(snapshots: CryptoSyncSnapshot[]) {
     })),
   );
 }
+
+export function getCryptoHistoricalAuditMonths(
+  snapshots: CryptoSyncSnapshot[],
+  createdMonths: string[],
+  latestImportedMonth: string | null,
+) {
+  const months = new Set(createdMonths);
+
+  for (const snapshot of snapshots) {
+    if (!latestImportedMonth || snapshot.month > latestImportedMonth) {
+      months.add(snapshot.month);
+    }
+  }
+
+  return [...months].sort((left, right) => left.localeCompare(right));
+}

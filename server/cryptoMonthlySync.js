@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "./firebaseAdmin.js";
 import {
   buildCryptoSyncPlan,
+  getCryptoHistoricalAuditMonths,
   getCryptoSyncSourceChecksum,
   parseCryptoMonthLogRows
 } from "./cryptoMonthlySyncCore.js";
@@ -16,6 +17,7 @@ const PORTFOLIO_COLLECTION = "portfolio";
 const PORTFOLIO_DOC_ID = "app";
 const SNAPSHOT_COLLECTION = "cryptoMonthlySnapshots";
 const SYNC_RUN_COLLECTION = "cryptoSyncRuns";
+const IMPORT_COLLECTION = "cryptoHistoricalImports";
 const APPLY_CONFIRMATION = "APPLY_CRYPTO_MONTHLY_SYNC";
 class CryptoMonthlySyncError extends Error {
   status;
@@ -183,6 +185,31 @@ function buildSyncRun(runId, status, sourceChecksum, snapshots, plan, errorMessa
     updatedAt: FieldValue.serverTimestamp()
   };
 }
+function buildHistoricalImport(runId, sourceChecksum, snapshots, plan, auditedMonths) {
+  return {
+    id: runId,
+    importBatchId: runId,
+    sourceSpreadsheetId: process.env.CRYPTO_SHEET_SPREADSHEET_ID?.trim() || DEFAULT_SPREADSHEET_ID,
+    sourceSpreadsheetTitle: DEFAULT_SPREADSHEET_TITLE,
+    sourceSheets: [DEFAULT_SHEET_NAME],
+    sourceType: "google_sheet_read_only",
+    status: "completed",
+    successMonthCount: snapshots.length,
+    createdMonthCount: auditedMonths.length,
+    skippedDuplicateMonthCount: Math.max(0, snapshots.length - auditedMonths.length),
+    warningCount: warningCount(snapshots),
+    warningSummary: warningSummary(snapshots),
+    firstMonth: snapshots[0]?.month ?? null,
+    lastMonth: snapshots.at(-1)?.month ?? null,
+    auditedMonths,
+    batchChecksum: sourceChecksum,
+    validationPassed: true,
+    sourceReadOnly: true,
+    reconciledFromExistingSnapshots: plan.creates.length === 0 && auditedMonths.length > 0,
+    importedAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp()
+  };
+}
 async function applyPlan(snapshots, sourceChecksum) {
   const db = getFirebaseAdminDb();
   const portfolioRef = getPortfolioRef();
@@ -191,11 +218,14 @@ async function applyPlan(snapshots, sourceChecksum) {
   );
   const runId = `crypto-sync-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const runRef = portfolioRef.collection(SYNC_RUN_COLLECTION).doc(runId);
+  const importRef = portfolioRef.collection(IMPORT_COLLECTION).doc(runId);
+  const latestImportQuery = portfolioRef.collection(IMPORT_COLLECTION).orderBy("importedAt", "desc").limit(1);
   try {
     const finalPlan = await db.runTransaction(async (transaction) => {
-      const storedDocuments = await Promise.all(
-        snapshotRefs.map((reference) => transaction.get(reference))
-      );
+      const [storedDocuments, latestImports] = await Promise.all([
+        Promise.all(snapshotRefs.map((reference) => transaction.get(reference))),
+        transaction.get(latestImportQuery)
+      ]);
       const storedById = new Map(
         storedDocuments.filter((document) => document.exists).map((document) => [
           document.id,
@@ -216,6 +246,18 @@ async function applyPlan(snapshots, sourceChecksum) {
           importedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         });
+      }
+      const latestImportedMonth = latestImports.docs[0]?.data().lastMonth;
+      const auditedMonths = getCryptoHistoricalAuditMonths(
+        snapshots,
+        plan.creates.map((snapshot) => snapshot.month),
+        typeof latestImportedMonth === "string" ? latestImportedMonth : null
+      );
+      if (auditedMonths.length > 0) {
+        transaction.create(
+          importRef,
+          buildHistoricalImport(runId, sourceChecksum, snapshots, plan, auditedMonths)
+        );
       }
       transaction.set(
         runRef,

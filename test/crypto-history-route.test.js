@@ -35,8 +35,11 @@ test('manual crypto month sync reuses the protected health function', async () =
   );
   assert.match(syncSource, /spreadsheets\.readonly/);
   assert.match(syncSource, /SYNC_RUN_COLLECTION = 'cryptoSyncRuns'/);
+  assert.match(syncSource, /IMPORT_COLLECTION = 'cryptoHistoricalImports'/);
+  assert.match(syncSource, /transaction\.create\(\s*importRef/s);
   assert.match(syncSource, /APPLY_CRYPTO_MONTHLY_SYNC/);
   assert.doesNotMatch(syncSource, /portfolioSnapshots/);
+  assert.doesNotMatch(syncSource, /dailySnapshots|transactions|accountPrincipals|cashflows/);
   assert.match(historyReader, /collection\('cryptoSyncRuns'\)/);
 });
 
