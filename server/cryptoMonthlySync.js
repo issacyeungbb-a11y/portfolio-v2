@@ -138,6 +138,11 @@ async function readExistingSnapshots() {
     ])
   );
 }
+async function readLatestHistoricalImportMonth() {
+  const snapshot = await getPortfolioRef().collection(IMPORT_COLLECTION).orderBy("importedAt", "desc").limit(1).get();
+  const lastMonth = snapshot.docs[0]?.data().lastMonth;
+  return typeof lastMonth === "string" ? lastMonth : null;
+}
 function warningCount(snapshots) {
   return snapshots.reduce((total, snapshot) => total + snapshot.warnings.length, 0);
 }
@@ -221,7 +226,7 @@ async function applyPlan(snapshots, sourceChecksum) {
   const importRef = portfolioRef.collection(IMPORT_COLLECTION).doc(runId);
   const latestImportQuery = portfolioRef.collection(IMPORT_COLLECTION).orderBy("importedAt", "desc").limit(1);
   try {
-    const finalPlan = await db.runTransaction(async (transaction) => {
+    const applied = await db.runTransaction(async (transaction) => {
       const [storedDocuments, latestImports] = await Promise.all([
         Promise.all(snapshotRefs.map((reference) => transaction.get(reference))),
         transaction.get(latestImportQuery)
@@ -263,9 +268,9 @@ async function applyPlan(snapshots, sourceChecksum) {
         runRef,
         buildSyncRun(runId, "completed", sourceChecksum, snapshots, plan, null)
       );
-      return plan;
+      return { plan, auditedMonths };
     });
-    return { runId, plan: finalPlan };
+    return { runId, ...applied };
   } catch (error) {
     const existing = await readExistingSnapshots();
     const failedPlan = buildCryptoSyncPlan(snapshots, existing);
@@ -302,8 +307,16 @@ async function runCryptoMonthlySync(options = {}) {
       409
     );
   }
-  const existing = await readExistingSnapshots();
+  const [existing, latestImportedMonth] = await Promise.all([
+    readExistingSnapshots(),
+    readLatestHistoricalImportMonth()
+  ]);
   const previewPlan = buildCryptoSyncPlan(snapshots, existing);
+  const previewAuditMonths = getCryptoHistoricalAuditMonths(
+    snapshots,
+    previewPlan.creates.map((snapshot) => snapshot.month),
+    latestImportedMonth
+  );
   if (apply && previewPlan.conflicts.length > 0) {
     throw new CryptoMonthlySyncError(
       `\u5DF2\u9396\u5B9A\u6708\u4EFD\u51FA\u73FE\u5DEE\u7570\uFF1A${previewPlan.conflicts.map((item) => item.month).join("\u3001")}\u3002\u6C92\u6709\u5BEB\u5165\u4EFB\u4F55\u8CC7\u6599\u3002`,
@@ -324,6 +337,8 @@ async function runCryptoMonthlySync(options = {}) {
       lastMonth: snapshots.at(-1)?.month ?? null,
       warningCount: warningCount(snapshots),
       warningSummary: warningSummary(snapshots),
+      auditCreateCount: previewAuditMonths.length,
+      auditMonths: previewAuditMonths,
       ...summarizePlan(previewPlan)
     };
   }
@@ -342,6 +357,8 @@ async function runCryptoMonthlySync(options = {}) {
     lastMonth: snapshots.at(-1)?.month ?? null,
     warningCount: warningCount(snapshots),
     warningSummary: warningSummary(snapshots),
+    auditCreateCount: applied.auditedMonths.length,
+    auditMonths: applied.auditedMonths,
     ...summarizePlan(applied.plan)
   };
 }

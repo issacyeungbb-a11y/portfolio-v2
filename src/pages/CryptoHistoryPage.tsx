@@ -31,6 +31,8 @@ interface CryptoSyncPreview {
   lastMonth: string | null;
   warningCount: number;
   warningSummary: Record<string, number>;
+  auditCreateCount: number;
+  auditMonths: string[];
   createCount: number;
   skipCount: number;
   conflictCount: number;
@@ -278,6 +280,8 @@ export function CryptoHistoryPage() {
           ? '發現已鎖定月份差異，已停止；不會覆蓋現有資料。'
           : result.createCount > 0
             ? `已找到 ${result.createCount} 個新月份，請核對後確認寫入。`
+            : result.auditCreateCount > 0
+              ? `已找到 ${result.auditCreateCount} 個月份欠缺匯入審計，請確認補記。`
             : '月結記錄已同步，暫時沒有新月份需要寫入。',
       );
     } catch (error) {
@@ -290,12 +294,19 @@ export function CryptoHistoryPage() {
   };
 
   const applyMonthlySync = async () => {
-    if (!syncPreview || syncPreview.createCount === 0 || syncPreview.conflictCount > 0) {
+    if (
+      !syncPreview ||
+      (syncPreview.createCount === 0 && syncPreview.auditCreateCount === 0) ||
+      syncPreview.conflictCount > 0
+    ) {
       return;
     }
 
+    const confirmationMessage = syncPreview.createCount > 0
+      ? `確認將 ${syncPreview.createCount} 個新月份寫入獨立 Crypto 歷史集合？現有鎖定月份不會被覆蓋。`
+      : `確認補記 ${syncPreview.auditCreateCount} 個月份嘅匯入審計？現有鎖定月份不會被覆蓋。`;
     const confirmed = window.confirm(
-      `確認將 ${syncPreview.createCount} 個新月份寫入獨立 Crypto 歷史集合？現有鎖定月份不會被覆蓋。`,
+      confirmationMessage,
     );
     if (!confirmed) return;
 
@@ -309,7 +320,11 @@ export function CryptoHistoryPage() {
       })) as CryptoSyncPreview;
       setSyncPreview(result);
       setSyncMessageTone('success');
-      setSyncMessage(`同步完成，已新增 ${result.createCount} 個月份。`);
+      setSyncMessage(
+        result.createCount > 0
+          ? `同步完成，已新增 ${result.createCount} 個月份。`
+          : `同步完成，已補記 ${result.auditCreateCount} 個月份嘅匯入審計。`,
+      );
       history.refresh();
     } catch (error) {
       setSyncMessageTone('warning');
@@ -589,7 +604,9 @@ export function CryptoHistoryPage() {
             >
               {syncStatus === 'previewing' ? '檢查中…' : '檢查新月結'}
             </button>
-            {syncPreview && syncPreview.createCount > 0 && syncPreview.conflictCount === 0 ? (
+            {syncPreview &&
+            (syncPreview.createCount > 0 || syncPreview.auditCreateCount > 0) &&
+            syncPreview.conflictCount === 0 ? (
               <button
                 type="button"
                 className="button-primary button-sm"
@@ -598,7 +615,9 @@ export function CryptoHistoryPage() {
               >
                 {syncStatus === 'applying'
                   ? '同步中…'
-                  : `確認寫入 ${syncPreview.createCount} 個月份`}
+                  : syncPreview.createCount > 0
+                    ? `確認寫入 ${syncPreview.createCount} 個月份`
+                    : `確認補記 ${syncPreview.auditCreateCount} 個月份審計`}
               </button>
             ) : null}
           </div>
@@ -609,6 +628,7 @@ export function CryptoHistoryPage() {
             <div><dt>偵測月份</dt><dd>{syncPreview.detectedMonthCount}</dd></div>
             <div><dt>準備新增</dt><dd>{syncPreview.createCount}</dd></div>
             <div><dt>相同略過</dt><dd>{syncPreview.skipCount}</dd></div>
+            <div><dt>審計補記</dt><dd>{syncPreview.auditCreateCount}</dd></div>
             <div><dt>鎖定差異</dt><dd>{syncPreview.conflictCount}</dd></div>
           </dl>
         ) : null}
