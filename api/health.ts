@@ -968,7 +968,6 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       response.setHeader('Cache-Control', 'private, no-store');
       sendJson(response, 200, {
         route: '/api/health',
-        mode: 'crypto-sync',
         ...(await runCryptoMonthlySync(body)),
       });
     } catch (error) {
