@@ -124,7 +124,9 @@ export async function readPersistedFxRates(maxAgeMs = 24 * 60 * 60 * 1000): Prom
 /**
  * P0-3: 加入 withRetry 保護，Firestore transient error 最多重試 3 次。
  */
-export async function readAdminPortfolioAssets() {
+export async function readAdminPortfolioAssets(
+  options: { applyAccountValuationOverrides?: boolean } = {},
+) {
   return withRetry(
     async () => {
       const db = getFirebaseAdminDb();
@@ -133,7 +135,9 @@ export async function readAdminPortfolioAssets() {
         .doc(SHARED_PORTFOLIO_DOC_ID);
       const [snapshot, overrideDocument] = await Promise.all([
         portfolioRef.collection('assets').get(),
-        portfolioRef.collection('accountValuationOverrides').doc('Crypto').get(),
+        options.applyAccountValuationOverrides
+          ? portfolioRef.collection('accountValuationOverrides').doc('Crypto').get()
+          : Promise.resolve(null),
       ]);
       const assets = snapshot.docs
         .map((document) => ({
@@ -142,7 +146,7 @@ export async function readAdminPortfolioAssets() {
         }))
         .filter((asset) => !asset.archivedAt);
       const override = normalizeAccountValuationOverride(
-        overrideDocument.exists
+        overrideDocument?.exists
           ? overrideDocument.data() as Record<string, unknown>
           : null,
       );

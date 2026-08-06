@@ -452,7 +452,7 @@ async function applyCryptoAccountValuationOverride(params) {
   const [overrideDocument, auditDocument, effectiveAssets] = await Promise.all([
     overrideRef.get(),
     auditRef.get(),
-    readAdminPortfolioAssets()
+    readAdminPortfolioAssets({ applyAccountValuationOverrides: true })
   ]);
   const readbackShadow = buildCryptoAssetShadowPreview(
     snapshot,
@@ -517,7 +517,7 @@ async function runCryptoMonthlySync(options = {}) {
   const [existing, latestImportedMonth, portfolioAssets] = await Promise.all([
     readExistingSnapshots(),
     readLatestHistoricalImportMonth(),
-    includeAssetShadow ? readAdminPortfolioAssets() : Promise.resolve([])
+    includeAssetShadow ? readAdminPortfolioAssets({ applyAccountValuationOverrides: true }) : Promise.resolve([])
   ]);
   const previewPlan = buildCryptoSyncPlan(snapshots, existing);
   const previewAuditMonths = getCryptoHistoricalAuditMonths(

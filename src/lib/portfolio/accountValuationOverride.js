@@ -48,7 +48,12 @@ function applyAccountValuationOverride(assets, override) {
   }
   const scaleFactor = override.targetTotalUsd / baseTotalUsd;
   const scaledAssets = assets.map(
-    (asset) => asset.accountSource === override.accountSource ? { ...asset, currentPrice: asset.currentPrice * scaleFactor } : asset
+    (asset) => asset.accountSource === override.accountSource ? {
+      ...asset,
+      currentPrice: asset.currentPrice * scaleFactor,
+      valuationOverrideMonth: override.month,
+      valuationUsdHkdRate: override.usdHkdRate
+    } : asset
   );
   return {
     assets: scaledAssets,

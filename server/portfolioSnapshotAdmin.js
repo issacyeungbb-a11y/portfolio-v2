@@ -69,21 +69,21 @@ async function readPersistedFxRates(maxAgeMs = 24 * 60 * 60 * 1e3) {
     return null;
   }
 }
-async function readAdminPortfolioAssets() {
+async function readAdminPortfolioAssets(options = {}) {
   return withRetry(
     async () => {
       const db = getFirebaseAdminDb();
       const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
       const [snapshot, overrideDocument] = await Promise.all([
         portfolioRef.collection("assets").get(),
-        portfolioRef.collection("accountValuationOverrides").doc("Crypto").get()
+        options.applyAccountValuationOverrides ? portfolioRef.collection("accountValuationOverrides").doc("Crypto").get() : Promise.resolve(null)
       ]);
       const assets = snapshot.docs.map((document) => ({
         id: document.id,
         ...normalizeAssetInput(document.data())
       })).filter((asset) => !asset.archivedAt);
       const override = normalizeAccountValuationOverride(
-        overrideDocument.exists ? overrideDocument.data() : null
+        overrideDocument?.exists ? overrideDocument.data() : null
       );
       return applyAccountValuationOverride(assets, override).assets;
     },

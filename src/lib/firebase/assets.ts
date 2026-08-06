@@ -156,6 +156,14 @@ export function buildHoldingFromInput(
     priceAsOf: formatTimestamp(payload.priceAsOf),
     lastPriceUpdatedAt: formatTimestamp(payload.lastPriceUpdatedAt),
     archivedAt: formatTimestamp(payload.archivedAt),
+    valuationOverrideMonth:
+      typeof payload.valuationOverrideMonth === 'string'
+        ? payload.valuationOverrideMonth
+        : undefined,
+    valuationUsdHkdRate:
+      typeof payload.valuationUsdHkdRate === 'number' && payload.valuationUsdHkdRate > 0
+        ? payload.valuationUsdHkdRate
+        : undefined,
   };
 }
 

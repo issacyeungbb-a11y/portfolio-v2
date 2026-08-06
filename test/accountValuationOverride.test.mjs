@@ -5,6 +5,10 @@ import {
   applyAccountValuationOverride,
   normalizeAccountValuationOverride,
 } from '../src/lib/portfolio/accountValuationOverride.js';
+import {
+  aggregateHoldingsForAllocation,
+  getHoldingValueInCurrency,
+} from '../src/lib/holdings.js';
 
 const override = {
   accountSource: 'Crypto',
@@ -63,6 +67,8 @@ test('applies one Crypto account total while preserving quantities and excluding
   assert.equal(result.assets[1].quantity, assets[1].quantity);
   assert.equal(result.assets[2].currentPrice, assets[2].currentPrice);
   assert.equal(result.assets[2].quantity, assets[2].quantity);
+  assert.equal(result.assets[0].valuationUsdHkdRate, override.usdHkdRate);
+  assert.equal(result.assets[0].valuationOverrideMonth, override.month);
 });
 
 test('rejects invalid or internally inconsistent valuation overrides', () => {
@@ -84,4 +90,27 @@ test('does not change any asset when no override is active', () => {
 
   assert.equal(result.applied, false);
   assert.equal(result.assets, assets);
+});
+
+test('uses the locked monthly FX rate for Crypto without applying it to Futu', () => {
+  const crypto = {
+    id: 'crypto-btc', name: 'Bitcoin', symbol: 'BTC', assetType: 'crypto',
+    accountSource: 'Crypto', currency: 'USD', quantity: 1, averageCost: 10,
+    currentPrice: 100, marketValue: 100, unrealizedPnl: 90, unrealizedPct: 900,
+    allocation: 0, valuationOverrideMonth: '2026-08', valuationUsdHkdRate: 7.6923076923,
+  };
+  const futu = {
+    ...crypto,
+    id: 'futu-btc', accountSource: 'Futu', currentPrice: 50, marketValue: 50,
+    unrealizedPnl: 40, unrealizedPct: 400, valuationOverrideMonth: undefined,
+    valuationUsdHkdRate: undefined,
+  };
+
+  assert.ok(Math.abs(getHoldingValueInCurrency(crypto, 'HKD') - 769.23076923) < 0.000001);
+  assert.equal(getHoldingValueInCurrency(futu, 'HKD'), 390);
+
+  const [aggregate] = aggregateHoldingsForAllocation([crypto, futu]);
+  assert.equal(aggregate.currency, 'HKD');
+  assert.ok(Math.abs(aggregate.marketValue - 1159.23076923) < 0.000001);
+  assert.equal(aggregate.valuationUsdHkdRate, undefined);
 });

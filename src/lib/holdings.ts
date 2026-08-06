@@ -7,7 +7,7 @@ import type {
   AllocationSlice,
   Holding,
 } from '../types/portfolio';
-import { convertCurrency, normalizeCurrencyCode } from './currency';
+import { convertCurrency, FX_TO_HKD, normalizeCurrencyCode } from './currency';
 
 export const allocationBucketMeta: Record<AllocationBucketKey, { label: string; color: string }> = {
   stock: { label: '股票', color: '#0f766e' },
@@ -45,7 +45,10 @@ export function getCashFlowSignedAmount(entry: Pick<AccountCashFlowEntry, 'type'
 }
 
 export function getHoldingValueInCurrency(holding: Holding, currency: string) {
-  return convertCurrency(holding.marketValue, holding.currency, currency);
+  const customRates = holding.valuationUsdHkdRate
+    ? { ...FX_TO_HKD, USD: holding.valuationUsdHkdRate }
+    : undefined;
+  return convertCurrency(holding.marketValue, holding.currency, currency, customRates);
 }
 
 export function getHoldingCostInCurrency(holding: Holding, currency: string) {
@@ -53,7 +56,15 @@ export function getHoldingCostInCurrency(holding: Holding, currency: string) {
     return getHoldingValueInCurrency(holding, currency);
   }
 
-  return convertCurrency(holding.quantity * holding.averageCost, holding.currency, currency);
+  const customRates = holding.valuationUsdHkdRate
+    ? { ...FX_TO_HKD, USD: holding.valuationUsdHkdRate }
+    : undefined;
+  return convertCurrency(
+    holding.quantity * holding.averageCost,
+    holding.currency,
+    currency,
+    customRates,
+  );
 }
 
 export function getPortfolioTotalValue(holdingsList: Holding[], currency: string) {
@@ -93,18 +104,29 @@ export function aggregateHoldingsForAllocation(holdingsList: Holding[]): Allocat
       continue;
     }
 
-    const marketValue =
-      existing.marketValue +
-      convertCurrency(holding.marketValue, holding.currency, existing.currency);
-    const unrealizedPnl =
-      existing.unrealizedPnl +
-      convertCurrency(holding.unrealizedPnl, holding.currency, existing.currency);
+    const hasMixedValuationRates =
+      (existing.valuationUsdHkdRate ?? null) !==
+      (holding.valuationUsdHkdRate ?? null);
+    const aggregationCurrency = hasMixedValuationRates ? 'HKD' : existing.currency;
+    const marketValue = hasMixedValuationRates
+      ? getHoldingValueInCurrency(existing, 'HKD') +
+        getHoldingValueInCurrency(holding, 'HKD')
+      : existing.marketValue +
+        convertCurrency(holding.marketValue, holding.currency, existing.currency);
+    const costBasis = hasMixedValuationRates
+      ? getHoldingCostInCurrency(existing, 'HKD') +
+        getHoldingCostInCurrency(holding, 'HKD')
+      : marketValue - (
+          existing.unrealizedPnl +
+          convertCurrency(holding.unrealizedPnl, holding.currency, existing.currency)
+        );
+    const unrealizedPnl = marketValue - costBasis;
     const quantity = existing.quantity + holding.quantity;
-    const costBasis = marketValue - unrealizedPnl;
 
     grouped.set(key, {
       ...existing,
       id: `${existing.id}::aggregated`,
+      currency: aggregationCurrency,
       quantity,
       marketValue,
       averageCost: quantity === 0 ? 0 : costBasis / quantity,
@@ -112,6 +134,12 @@ export function aggregateHoldingsForAllocation(holdingsList: Holding[]): Allocat
       unrealizedPnl,
       unrealizedPct: costBasis === 0 ? 0 : (unrealizedPnl / costBasis) * 100,
       allocation: existing.allocation + holding.allocation,
+      valuationOverrideMonth: hasMixedValuationRates
+        ? undefined
+        : existing.valuationOverrideMonth,
+      valuationUsdHkdRate: hasMixedValuationRates
+        ? undefined
+        : existing.valuationUsdHkdRate,
       accountSources: existing.accountSources.includes(holding.accountSource)
         ? existing.accountSources
         : [...existing.accountSources, holding.accountSource],

@@ -22,6 +22,8 @@ export interface PortfolioAssetInput {
   quantity: number;
   averageCost: number;
   currentPrice: number;
+  valuationOverrideMonth?: string;
+  valuationUsdHkdRate?: number;
 }
 
 export interface Holding extends PortfolioAssetInput {

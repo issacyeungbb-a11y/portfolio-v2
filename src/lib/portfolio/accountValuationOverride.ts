@@ -19,8 +19,13 @@ export interface ValuationInput {
   currentPrice: number;
 }
 
+export interface AccountValuationMetadata {
+  valuationOverrideMonth?: string;
+  valuationUsdHkdRate?: number;
+}
+
 export interface AppliedAccountValuationOverride<T> {
-  assets: T[];
+  assets: Array<T & AccountValuationMetadata>;
   applied: boolean;
   accountSource: string;
   assetCount: number;
@@ -125,7 +130,12 @@ export function applyAccountValuationOverride<T extends ValuationInput>(
   const scaleFactor = override.targetTotalUsd / baseTotalUsd;
   const scaledAssets = assets.map((asset) =>
     asset.accountSource === override.accountSource
-      ? { ...asset, currentPrice: asset.currentPrice * scaleFactor }
+      ? {
+          ...asset,
+          currentPrice: asset.currentPrice * scaleFactor,
+          valuationOverrideMonth: override.month,
+          valuationUsdHkdRate: override.usdHkdRate,
+        }
       : asset,
   );
 
