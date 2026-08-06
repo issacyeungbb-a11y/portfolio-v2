@@ -2,7 +2,9 @@ import { createSign, randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "./firebaseAdmin.js";
 import {
+  CRYPTO_MONTH_LOG_HEADERS,
   buildCryptoSyncPlan,
+  buildCryptoSyncValidationReport,
   getCryptoHistoricalAuditMonths,
   getCryptoSyncSourceChecksum,
   parseCryptoMonthLogRows
@@ -181,6 +183,8 @@ function buildSyncRun(runId, status, sourceChecksum, snapshots, plan, errorMessa
     lastMonth: snapshots.at(-1)?.month ?? null,
     warningCount: warningCount(snapshots),
     warningSummary: warningSummary(snapshots),
+    validatedFieldCount: CRYPTO_MONTH_LOG_HEADERS.length,
+    validatedMonthCount: snapshots.length,
     ...summarizePlan(plan),
     sourceReadOnly: true,
     errorMessage,
@@ -204,6 +208,8 @@ function buildHistoricalImport(runId, sourceChecksum, snapshots, plan, auditedMo
     skippedDuplicateMonthCount: Math.max(0, snapshots.length - auditedMonths.length),
     warningCount: warningCount(snapshots),
     warningSummary: warningSummary(snapshots),
+    validatedFieldCount: CRYPTO_MONTH_LOG_HEADERS.length,
+    validatedMonthCount: snapshots.length,
     firstMonth: snapshots[0]?.month ?? null,
     lastMonth: snapshots.at(-1)?.month ?? null,
     auditedMonths,
@@ -213,6 +219,58 @@ function buildHistoricalImport(runId, sourceChecksum, snapshots, plan, auditedMo
     reconciledFromExistingSnapshots: plan.creates.length === 0 && auditedMonths.length > 0,
     importedAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp()
+  };
+}
+async function verifyAppliedSync(runId, plan, auditedMonths) {
+  const portfolioRef = getPortfolioRef();
+  const snapshotRefs = plan.creates.map(
+    (snapshot) => portfolioRef.collection(SNAPSHOT_COLLECTION).doc(snapshot.id)
+  );
+  const runRef = portfolioRef.collection(SYNC_RUN_COLLECTION).doc(runId);
+  const importRef = portfolioRef.collection(IMPORT_COLLECTION).doc(runId);
+  const [storedSnapshots, storedRun, storedImport] = await Promise.all([
+    Promise.all(snapshotRefs.map((reference) => reference.get())),
+    runRef.get(),
+    auditedMonths.length > 0 ? importRef.get() : Promise.resolve(null)
+  ]);
+  const storedById = new Map(
+    storedSnapshots.filter((document) => document.exists).map((document) => [
+      document.id,
+      { id: document.id, ...document.data() }
+    ])
+  );
+  const readbackPlan = buildCryptoSyncPlan(plan.creates, storedById);
+  if (readbackPlan.creates.length > 0 || readbackPlan.conflicts.length > 0) {
+    throw new CryptoMonthlySyncError(
+      `Firestore \u5BEB\u5165\u5F8C\u56DE\u8B80\u6838\u5C0D\u5931\u6557\uFF1A${[
+        ...readbackPlan.creates.map((snapshot) => `${snapshot.month} \u7F3A\u5C11\u5FEB\u7167`),
+        ...readbackPlan.conflicts.map(
+          (conflict) => `${conflict.month} \u6B04\u4F4D\u5DEE\u7570 ${conflict.differingFields.join("\u3001")}`
+        )
+      ].join("\uFF1B")}`,
+      500
+    );
+  }
+  const runData = storedRun.data();
+  if (!storedRun.exists || runData?.status !== "completed") {
+    throw new CryptoMonthlySyncError("Firestore \u5BEB\u5165\u5F8C\u672A\u80FD\u56DE\u8B80\u5DF2\u5B8C\u6210\u7684 cryptoSyncRuns\u3002", 500);
+  }
+  if (auditedMonths.length > 0) {
+    const importData = storedImport?.data();
+    const storedAuditedMonths = Array.isArray(importData?.auditedMonths) ? importData.auditedMonths : [];
+    if (!storedImport?.exists || importData?.status !== "completed" || JSON.stringify(storedAuditedMonths) !== JSON.stringify(auditedMonths)) {
+      throw new CryptoMonthlySyncError(
+        "Firestore \u5BEB\u5165\u5F8C\u672A\u80FD\u56DE\u8B80\u4E00\u81F4\u7684 cryptoHistoricalImports \u5BE9\u8A08\u8A18\u9304\u3002",
+        500
+      );
+    }
+  }
+  return {
+    verified: true,
+    snapshotMonths: plan.creates.map((snapshot) => snapshot.month),
+    auditMonths: auditedMonths,
+    syncRunId: runId,
+    historicalImportId: auditedMonths.length > 0 ? runId : null
   };
 }
 async function applyPlan(snapshots, sourceChecksum) {
@@ -225,6 +283,7 @@ async function applyPlan(snapshots, sourceChecksum) {
   const runRef = portfolioRef.collection(SYNC_RUN_COLLECTION).doc(runId);
   const importRef = portfolioRef.collection(IMPORT_COLLECTION).doc(runId);
   const latestImportQuery = portfolioRef.collection(IMPORT_COLLECTION).orderBy("importedAt", "desc").limit(1);
+  let transactionCommitted = false;
   try {
     const applied = await db.runTransaction(async (transaction) => {
       const [storedDocuments, latestImports] = await Promise.all([
@@ -270,8 +329,13 @@ async function applyPlan(snapshots, sourceChecksum) {
       );
       return { plan, auditedMonths };
     });
-    return { runId, ...applied };
+    transactionCommitted = true;
+    const readback = await verifyAppliedSync(runId, applied.plan, applied.auditedMonths);
+    return { runId, ...applied, readback };
   } catch (error) {
+    if (transactionCommitted) {
+      throw error;
+    }
     const existing = await readExistingSnapshots();
     const failedPlan = buildCryptoSyncPlan(snapshots, existing);
     const syncError = error instanceof Error ? error.message : String(error);
@@ -317,6 +381,7 @@ async function runCryptoMonthlySync(options = {}) {
     previewPlan.creates.map((snapshot) => snapshot.month),
     latestImportedMonth
   );
+  const previewValidationReport = buildCryptoSyncValidationReport(snapshots, previewPlan);
   if (apply && previewPlan.conflicts.length > 0) {
     throw new CryptoMonthlySyncError(
       `\u5DF2\u9396\u5B9A\u6708\u4EFD\u51FA\u73FE\u5DEE\u7570\uFF1A${previewPlan.conflicts.map((item) => item.month).join("\u3001")}\u3002\u6C92\u6709\u5BEB\u5165\u4EFB\u4F55\u8CC7\u6599\u3002`,
@@ -332,6 +397,7 @@ async function runCryptoMonthlySync(options = {}) {
       sourceSheet: DEFAULT_SHEET_NAME,
       sourceRange: source.sourceRange,
       sourceChecksum,
+      checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
       detectedMonthCount: snapshots.length,
       firstMonth: snapshots[0]?.month ?? null,
       lastMonth: snapshots.at(-1)?.month ?? null,
@@ -339,6 +405,7 @@ async function runCryptoMonthlySync(options = {}) {
       warningSummary: warningSummary(snapshots),
       auditCreateCount: previewAuditMonths.length,
       auditMonths: previewAuditMonths,
+      validationReport: previewValidationReport,
       ...summarizePlan(previewPlan)
     };
   }
@@ -352,6 +419,7 @@ async function runCryptoMonthlySync(options = {}) {
     sourceSheet: DEFAULT_SHEET_NAME,
     sourceRange: source.sourceRange,
     sourceChecksum,
+    checkedAt: (/* @__PURE__ */ new Date()).toISOString(),
     detectedMonthCount: snapshots.length,
     firstMonth: snapshots[0]?.month ?? null,
     lastMonth: snapshots.at(-1)?.month ?? null,
@@ -359,6 +427,8 @@ async function runCryptoMonthlySync(options = {}) {
     warningSummary: warningSummary(snapshots),
     auditCreateCount: applied.auditedMonths.length,
     auditMonths: applied.auditedMonths,
+    validationReport: buildCryptoSyncValidationReport(snapshots, applied.plan),
+    readback: applied.readback,
     ...summarizePlan(applied.plan)
   };
 }

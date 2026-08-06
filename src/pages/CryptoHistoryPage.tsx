@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { CryptoAllocationPanel } from '../components/crypto/CryptoAllocationPanel';
 import { CryptoHistoryTrendChart } from '../components/crypto/CryptoHistoryTrendChart';
@@ -26,6 +26,7 @@ interface CryptoSyncPreview {
   runId?: string;
   sourceReadOnly: boolean;
   sourceChecksum: string;
+  checkedAt: string;
   detectedMonthCount: number;
   firstMonth: string | null;
   lastMonth: string | null;
@@ -42,6 +43,28 @@ interface CryptoSyncPreview {
     month: string;
     differingFields: string[];
   }>;
+  validationReport: {
+    validationPassed: boolean;
+    expectedFieldCount: number;
+    validatedMonthCount: number;
+    validatedFields: string[];
+    months: Array<{
+      month: string;
+      sourceRange: string;
+      fieldCount: number;
+      action: 'create' | 'skip' | 'conflict';
+      sourceChecksum: string;
+      warningCodes: string[];
+      differingFields: string[];
+    }>;
+  };
+  readback?: {
+    verified: boolean;
+    snapshotMonths: string[];
+    auditMonths: string[];
+    syncRunId: string;
+    historicalImportId: string | null;
+  };
 }
 
 function money(value: number, currency: TrendCurrency) {
@@ -293,6 +316,12 @@ export function CryptoHistoryPage() {
     }
   };
 
+  useEffect(() => {
+    if (history.status === 'ready') {
+      void previewMonthlySync();
+    }
+  }, [history.status]);
+
   const applyMonthlySync = async () => {
     if (
       !syncPreview ||
@@ -318,12 +347,38 @@ export function CryptoHistoryPage() {
         confirmation: 'APPLY_CRYPTO_MONTHLY_SYNC',
         expectedSourceChecksum: syncPreview.sourceChecksum,
       })) as CryptoSyncPreview;
+      if (!result.readback?.verified) {
+        throw new Error('Firestore 寫入完成，但伺服器回讀驗證未通過。');
+      }
+
+      const websiteResponse = (await callPortfolioFunction('crypto-history')) as {
+        snapshots?: CryptoMonthlySnapshot[];
+        latestImport?: { importBatchId?: string } | null;
+      };
+      const websiteMonths = new Set(
+        (websiteResponse.snapshots ?? []).map((snapshot) => snapshot.month),
+      );
+      const missingWebsiteMonths = result.readback.snapshotMonths.filter(
+        (month) => !websiteMonths.has(month),
+      );
+      const historicalImportVerified = result.readback.historicalImportId == null ||
+        websiteResponse.latestImport?.importBatchId === result.readback.historicalImportId;
+      if (missingWebsiteMonths.length > 0 || !historicalImportVerified) {
+        throw new Error(
+          `Firestore 已寫入，但網站回讀核對失敗${
+            missingWebsiteMonths.length > 0
+              ? `：缺少 ${missingWebsiteMonths.join('、')}`
+              : '：最新審計批次未更新'
+          }。`,
+        );
+      }
+
       setSyncPreview(result);
       setSyncMessageTone('success');
       setSyncMessage(
         result.createCount > 0
-          ? `同步完成，已新增 ${result.createCount} 個月份。`
-          : `同步完成，已補記 ${result.auditCreateCount} 個月份嘅匯入審計。`,
+          ? `同步完成，已新增 ${result.createCount} 個月份；Firestore、網站及審計回讀一致。`
+          : `同步完成，已補記 ${result.auditCreateCount} 個月份嘅匯入審計；回讀一致。`,
       );
       history.refresh();
     } catch (error) {
@@ -593,7 +648,8 @@ export function CryptoHistoryPage() {
         <div className="crypto-sync-panel">
           <div>
             <span>Google Sheet 單向月結同步</span>
-            <small>只讀隱藏「月結記錄」；preview 不會寫入 Firestore。</small>
+            <small>頁面載入時自動唯讀檢查隱藏「月結記錄」；preview 不會寫入 Firestore。</small>
+            {syncPreview ? <small>最近檢查：{formatDateTime(syncPreview.checkedAt)}</small> : null}
           </div>
           <div className="crypto-sync-actions">
             <button
@@ -624,13 +680,43 @@ export function CryptoHistoryPage() {
         </div>
 
         {syncPreview ? (
-          <dl className="crypto-sync-preview" aria-label="月結同步預覽">
-            <div><dt>偵測月份</dt><dd>{syncPreview.detectedMonthCount}</dd></div>
-            <div><dt>準備新增</dt><dd>{syncPreview.createCount}</dd></div>
-            <div><dt>相同略過</dt><dd>{syncPreview.skipCount}</dd></div>
-            <div><dt>審計補記</dt><dd>{syncPreview.auditCreateCount}</dd></div>
-            <div><dt>鎖定差異</dt><dd>{syncPreview.conflictCount}</dd></div>
-          </dl>
+          <>
+            <dl className="crypto-sync-preview" aria-label="月結同步預覽">
+              <div><dt>偵測月份</dt><dd>{syncPreview.detectedMonthCount}</dd></div>
+              <div><dt>19 欄驗證</dt><dd>{syncPreview.validationReport.validationPassed ? '通過' : '停止'}</dd></div>
+              <div><dt>準備新增</dt><dd>{syncPreview.createCount}</dd></div>
+              <div><dt>相同略過</dt><dd>{syncPreview.skipCount}</dd></div>
+              <div><dt>審計補記</dt><dd>{syncPreview.auditCreateCount}</dd></div>
+              <div><dt>鎖定差異</dt><dd>{syncPreview.conflictCount}</dd></div>
+            </dl>
+            <div className="crypto-sync-month-list" aria-label="待確認月結預覽">
+              {syncPreview.validationReport.months.map((month) => (
+                <article key={month.month} data-action={month.action}>
+                  <div>
+                    <strong>{month.month}</strong>
+                    <span>{month.sourceRange}</span>
+                  </div>
+                  <div>
+                    <strong>{month.fieldCount}/{syncPreview.validationReport.expectedFieldCount} 欄</strong>
+                    <span>
+                      {month.action === 'create'
+                        ? '待確認寫入'
+                        : month.action === 'conflict'
+                          ? '數值差異，已停止'
+                          : '實際資料相同，安全略過'}
+                    </span>
+                  </div>
+                  <small>checksum {month.sourceChecksum.slice(0, 12)}</small>
+                  {month.differingFields.length > 0 ? (
+                    <small>差異欄位：{month.differingFields.join('、')}</small>
+                  ) : null}
+                  {month.warningCodes.length > 0 ? (
+                    <small>警告：{month.warningCodes.join('、')}</small>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          </>
         ) : null}
 
         {syncMessage ? (

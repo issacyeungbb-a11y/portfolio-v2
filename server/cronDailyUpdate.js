@@ -5,6 +5,7 @@ import { readAdminPortfolioAssets } from "./portfolioSnapshotAdmin.js";
 import { runCoinGeckoCoinIdSync } from "./syncCoinIds.js";
 import { writeSystemRun } from "./systemRuns.js";
 import { runScheduledDailySnapshot } from "./cronCaptureSnapshot.js";
+import { runCryptoMonthlySync } from "./cryptoMonthlySync.js";
 import { verifyCronRequest } from "./cronAuth.js";
 import {
   readDailyJob,
@@ -21,6 +22,7 @@ const RESCUE_ROUTE = "/api/cron-daily-rescue";
 const BATCH_SIZE = 10;
 const CRON_COIN_GECKO_TIMEOUT_MS = 2e4;
 const CRON_COIN_GECKO_BUDGET_MS = 18e3;
+const CRYPTO_MONTHLY_DETECTION_TIMEOUT_MS = 25e3;
 const SYSTEM_RUN_TASK_NAME = "cron-daily-update";
 const SHARED_PORTFOLIO_COLLECTION = "portfolio";
 const SHARED_PORTFOLIO_DOC_ID = "app";
@@ -49,6 +51,43 @@ function raceWithTimeout(promise, ms, msg) {
     handle = setTimeout(() => rej(new Error(msg)), ms);
   });
   return Promise.race([promise, t]).finally(() => clearTimeout(handle));
+}
+async function runCryptoMonthlyDetection() {
+  const checkedAt = (/* @__PURE__ */ new Date()).toISOString();
+  try {
+    const preview = await raceWithTimeout(
+      runCryptoMonthlySync(),
+      CRYPTO_MONTHLY_DETECTION_TIMEOUT_MS,
+      "Crypto \u6708\u7D50\u552F\u8B80\u5075\u6E2C timeout"
+    );
+    const result = {
+      ok: true,
+      checkedAt,
+      sourceReadOnly: true,
+      validationPassed: preview.validationReport.validationPassed,
+      expectedFieldCount: preview.validationReport.expectedFieldCount,
+      detectedMonthCount: preview.detectedMonthCount,
+      createCount: preview.createCount,
+      skipCount: preview.skipCount,
+      conflictCount: preview.conflictCount,
+      pendingConfirmation: preview.createCount > 0 || preview.auditCreateCount > 0,
+      creates: preview.creates,
+      auditMonths: preview.auditMonths,
+      conflicts: preview.conflicts
+    };
+    console.info("[crypto-monthly-detect] \u552F\u8B80\u6AA2\u67E5\u5B8C\u6210", JSON.stringify(result));
+    return result;
+  } catch (error) {
+    const result = {
+      ok: false,
+      checkedAt,
+      sourceReadOnly: true,
+      pendingConfirmation: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+    console.warn("[crypto-monthly-detect] \u552F\u8B80\u6AA2\u67E5\u5931\u6557", JSON.stringify(result));
+    return result;
+  }
 }
 function omitUndefined(obj) {
   return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== void 0));
@@ -155,12 +194,21 @@ async function runDailyUpdate(trigger) {
   const dateKey = getHongKongDateKey();
   const route = trigger === "rescue" ? RESCUE_ROUTE : DAILY_ROUTE;
   const startedAt = Date.now();
+  const cryptoMonthlyDetectionPromise = trigger === "scheduled" ? runCryptoMonthlyDetection() : Promise.resolve(null);
   const lockResult = await acquireDailyJobLock(dateKey, trigger);
   if (!lockResult.acquired) {
     const failedLock = lockResult;
     const msg = failedLock.reason === "already_completed" ? "\u4ECA\u65E5\u66F4\u65B0\u8207\u5FEB\u7167\u5DF2\u5B8C\u6210\uFF0C\u8DF3\u904E\u57F7\u884C\u3002" : "\u53E6\u4E00\u500B\u66F4\u65B0\u7A0B\u5E8F\u6B63\u5728\u9032\u884C\u4E2D\uFF0C\u8DF3\u904E\u6B64\u6B21\u57F7\u884C\u3002";
     console.info(`[${route}] ${msg}`);
-    return { ok: true, route, skipped: true, message: msg, dateKey, triggeredAt: (/* @__PURE__ */ new Date()).toISOString() };
+    return {
+      ok: true,
+      route,
+      skipped: true,
+      message: msg,
+      dateKey,
+      cryptoMonthlyDetection: await cryptoMonthlyDetectionPromise,
+      triggeredAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
   }
   const { lockToken, existingJob } = lockResult;
   const processedSet = new Set(existingJob?.processedAssets ?? []);
@@ -335,6 +383,7 @@ async function runDailyUpdate(trigger) {
       fxUsingFallback,
       coinGeckoSyncStatus,
       snapshotStatus: snapshotAlreadyDone ? "skipped" : snapshotResult?.failed ? "failed" : snapshotResult?.skipped ? "skipped" : "completed",
+      cryptoMonthlyDetection: await cryptoMonthlyDetectionPromise,
       durationMs,
       triggeredAt: new Date(startedAt).toISOString()
     };

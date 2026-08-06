@@ -19,12 +19,13 @@ test('crypto history is exposed through the protected read-only API', async () =
 });
 
 test('manual crypto month sync reuses the protected health function', async () => {
-  const [apiSource, functionConfigSource, syncSource, historyReader, pageSource] = await Promise.all([
+  const [apiSource, functionConfigSource, syncSource, historyReader, pageSource, cronSource] = await Promise.all([
     readFile(new URL('../api/health.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/lib/api/vercelFunctions.ts', import.meta.url), 'utf8'),
     readFile(new URL('../server/cryptoMonthlySync.ts', import.meta.url), 'utf8'),
     readFile(new URL('../server/cryptoHistory.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/pages/CryptoHistoryPage.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../server/cronDailyUpdate.ts', import.meta.url), 'utf8'),
   ]);
 
   assert.match(apiSource, /mode === 'crypto-sync'/);
@@ -44,6 +45,21 @@ test('manual crypto month sync reuses the protected health function', async () =
   assert.match(historyReader, /collection\('cryptoSyncRuns'\)/);
   assert.match(pageSource, /auditCreateCount/);
   assert.match(pageSource, /確認補記/);
+  assert.match(pageSource, /useEffect\(\(\) => \{[\s\S]*previewMonthlySync\(\)/);
+  assert.match(pageSource, /待確認月結預覽/);
+  assert.match(pageSource, /19 欄驗證/);
+  assert.match(pageSource, /result\.readback\?\.verified/);
+  assert.match(pageSource, /callPortfolioFunction\('crypto-history'\)/);
+  assert.match(syncSource, /async function verifyAppliedSync/);
+  assert.match(syncSource, /Firestore 寫入後未能回讀一致的 cryptoHistoricalImports/);
+  assert.match(cronSource, /runCryptoMonthlySync\(\)/);
+  assert.match(cronSource, /cryptoMonthlyDetectionPromise/);
+
+  const detectionBlock = cronSource.match(
+    /async function runCryptoMonthlyDetection[\s\S]*?\n}\n\nfunction omitUndefined/,
+  )?.[0] ?? '';
+  assert.match(detectionBlock, /sourceReadOnly: true/);
+  assert.doesNotMatch(detectionBlock, /apply:\s*true|APPLY_CRYPTO_MONTHLY_SYNC|\.create\(|\.set\(/);
 });
 
 test('crypto history reuses an existing function to stay within the Hobby limit', async () => {

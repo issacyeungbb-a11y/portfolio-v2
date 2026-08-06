@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   CRYPTO_MONTH_LOG_HEADERS,
   buildCryptoSyncPlan,
+  buildCryptoSyncValidationReport,
   getCryptoHistoricalAuditMonths,
   getCryptoSyncSourceChecksum,
   parseCryptoMonthLogRows,
@@ -29,6 +30,28 @@ const july2026 = [
   7.6923076923,
   'CoinGecko + 手動 (PHOTON) - 既有資料基準',
   '由 seedCurrentMonthLog() 建立嘅基準記錄，用作 8 月同比基準',
+];
+
+const august2026 = [
+  46235,
+  46239.3507669213,
+  57286.385876818,
+  440664.50674431317,
+  0.8954775589204508,
+  633767.51,
+  -0.304690600588987,
+  -193103.00325568684,
+  0.021677601102834565,
+  0.721240211915131,
+  0.14550078668944205,
+  0.08885154578655372,
+  0.015908062344648387,
+  0.028499393264224855,
+  55760.075876818,
+  1526.31,
+  7.6923076923,
+  'CoinGecko + 手動 (PHOTON)',
+  '自動修復未完成月份區塊',
 ];
 
 const context = {
@@ -157,5 +180,33 @@ test('identifies new and missing historical import audit months without rewritin
       null,
     ),
     ['2026-07', '2026-08'],
+  );
+});
+
+test('builds a 19-field pending confirmation validation report for every detected month', () => {
+  const [julySnapshot] = parse();
+  const [, augustSnapshot] = parse([july2026, august2026]);
+  const plan = buildCryptoSyncPlan(
+    [julySnapshot, augustSnapshot],
+    new Map([[julySnapshot.id, { ...julySnapshot, sourceChecksum: 'legacy-checksum' }]]),
+  );
+  const report = buildCryptoSyncValidationReport([julySnapshot, augustSnapshot], plan);
+
+  assert.equal(report.validationPassed, true);
+  assert.equal(report.expectedFieldCount, 19);
+  assert.equal(report.validatedFields.length, 19);
+  assert.equal(report.validatedMonthCount, 2);
+  assert.equal(augustSnapshot.performanceTotalUsd, 57286.385876818);
+  assert.equal(augustSnapshot.totalHkd, 440664.50674431317);
+  assert.deepEqual(
+    report.months.map((month) => ({
+      month: month.month,
+      fieldCount: month.fieldCount,
+      action: month.action,
+    })),
+    [
+      { month: '2026-07', fieldCount: 19, action: 'skip' },
+      { month: '2026-08', fieldCount: 19, action: 'create' },
+    ],
   );
 });

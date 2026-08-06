@@ -91,11 +91,15 @@ export interface CryptoHistoricalImport {
   skippedDuplicateMonthCount: number;
   warningCount: number;
   warningSummary: Record<string, number>;
+  validatedFieldCount: number;
+  validatedMonthCount: number;
   firstMonth: string;
   lastMonth: string;
   batchChecksum: string;
   validationPassed: boolean;
   sourceReadOnly: boolean;
+  auditedMonths?: string[];
+  reconciledFromExistingSnapshots?: boolean;
   importedAt: string;
   updatedAt: string;
 }
@@ -115,6 +119,8 @@ export interface CryptoSyncRun {
   lastMonth: string | null;
   warningCount: number;
   warningSummary: Record<string, number>;
+  validatedFieldCount?: number;
+  validatedMonthCount?: number;
   createCount: number;
   skipCount: number;
   conflictCount: number;

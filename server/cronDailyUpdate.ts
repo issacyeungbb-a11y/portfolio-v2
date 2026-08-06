@@ -5,6 +5,7 @@ import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
 import { writeSystemRun } from './systemRuns.js';
 import { runScheduledDailySnapshot } from './cronCaptureSnapshot.js';
+import { runCryptoMonthlySync } from './cryptoMonthlySync.js';
 // Re-export verifyCronRequest from cronAuth (dedicated auth module) so API routes
 // can keep their existing imports while avoiding a circular dep with cronCaptureSnapshot.
 export { verifyCronRequest } from './cronAuth.js';
@@ -26,6 +27,7 @@ const RESCUE_ROUTE = '/api/cron-daily-rescue';
 const BATCH_SIZE = 10;
 const CRON_COIN_GECKO_TIMEOUT_MS = 20000;
 const CRON_COIN_GECKO_BUDGET_MS = 18000;
+const CRYPTO_MONTHLY_DETECTION_TIMEOUT_MS = 25000;
 const SYSTEM_RUN_TASK_NAME = 'cron-daily-update';
 const SHARED_PORTFOLIO_COLLECTION = 'portfolio';
 const SHARED_PORTFOLIO_DOC_ID = 'app';
@@ -57,6 +59,44 @@ function raceWithTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promi
     handle = setTimeout(() => rej(new Error(msg)), ms);
   });
   return Promise.race([promise, t]).finally(() => clearTimeout(handle));
+}
+
+async function runCryptoMonthlyDetection(): Promise<Record<string, unknown>> {
+  const checkedAt = new Date().toISOString();
+  try {
+    const preview = await raceWithTimeout(
+      runCryptoMonthlySync(),
+      CRYPTO_MONTHLY_DETECTION_TIMEOUT_MS,
+      'Crypto 月結唯讀偵測 timeout',
+    );
+    const result = {
+      ok: true,
+      checkedAt,
+      sourceReadOnly: true,
+      validationPassed: preview.validationReport.validationPassed,
+      expectedFieldCount: preview.validationReport.expectedFieldCount,
+      detectedMonthCount: preview.detectedMonthCount,
+      createCount: preview.createCount,
+      skipCount: preview.skipCount,
+      conflictCount: preview.conflictCount,
+      pendingConfirmation: preview.createCount > 0 || preview.auditCreateCount > 0,
+      creates: preview.creates,
+      auditMonths: preview.auditMonths,
+      conflicts: preview.conflicts,
+    };
+    console.info('[crypto-monthly-detect] 唯讀檢查完成', JSON.stringify(result));
+    return result;
+  } catch (error) {
+    const result = {
+      ok: false,
+      checkedAt,
+      sourceReadOnly: true,
+      pendingConfirmation: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+    console.warn('[crypto-monthly-detect] 唯讀檢查失敗', JSON.stringify(result));
+    return result;
+  }
 }
 
 function omitUndefined(obj: Record<string, unknown>): Record<string, unknown> {
@@ -203,6 +243,9 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
   const dateKey = getHongKongDateKey();
   const route = trigger === 'rescue' ? RESCUE_ROUTE : DAILY_ROUTE;
   const startedAt = Date.now();
+  const cryptoMonthlyDetectionPromise = trigger === 'scheduled'
+    ? runCryptoMonthlyDetection()
+    : Promise.resolve(null);
 
   // 1. Acquire lock (idempotency gate)
   const lockResult = await acquireDailyJobLock(dateKey, trigger);
@@ -213,7 +256,15 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
       ? '今日更新與快照已完成，跳過執行。'
       : '另一個更新程序正在進行中，跳過此次執行。';
     console.info(`[${route}] ${msg}`);
-    return { ok: true, route, skipped: true, message: msg, dateKey, triggeredAt: new Date().toISOString() };
+    return {
+      ok: true,
+      route,
+      skipped: true,
+      message: msg,
+      dateKey,
+      cryptoMonthlyDetection: await cryptoMonthlyDetectionPromise,
+      triggeredAt: new Date().toISOString(),
+    };
   }
 
   const { lockToken, existingJob } = lockResult;
@@ -424,6 +475,7 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
           : snapshotResult?.skipped
             ? 'skipped'
             : 'completed',
+      cryptoMonthlyDetection: await cryptoMonthlyDetectionPromise,
       durationMs, triggeredAt: new Date(startedAt).toISOString(),
     };
 

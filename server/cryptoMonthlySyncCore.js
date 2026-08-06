@@ -282,6 +282,30 @@ function buildCryptoSyncPlan(snapshots, existingById) {
   }
   return plan;
 }
+function buildCryptoSyncValidationReport(snapshots, plan) {
+  const createMonths = new Set(plan.creates.map((snapshot) => snapshot.month));
+  const conflictByMonth = new Map(
+    plan.conflicts.map((conflict) => [conflict.month, conflict])
+  );
+  return {
+    validationPassed: plan.conflicts.length === 0,
+    expectedFieldCount: CRYPTO_MONTH_LOG_HEADERS.length,
+    validatedMonthCount: snapshots.length,
+    validatedFields: [...CRYPTO_MONTH_LOG_HEADERS],
+    months: snapshots.map((snapshot) => {
+      const conflict = conflictByMonth.get(snapshot.month);
+      return {
+        month: snapshot.month,
+        sourceRange: snapshot.sourceRange,
+        fieldCount: Object.keys(snapshot.rawSourceValues).length,
+        action: conflict ? "conflict" : createMonths.has(snapshot.month) ? "create" : "skip",
+        sourceChecksum: snapshot.sourceChecksum,
+        warningCodes: snapshot.warnings.map((warning) => warning.code),
+        differingFields: conflict?.differingFields ?? []
+      };
+    })
+  };
+}
 function getCryptoSyncSourceChecksum(snapshots) {
   return createCryptoSyncChecksum(
     snapshots.map((snapshot) => ({
@@ -303,8 +327,9 @@ export {
   CRYPTO_MONTH_LOG_HEADERS,
   CryptoMonthlySyncValidationError,
   buildCryptoSyncPlan,
+  buildCryptoSyncValidationReport,
   createCryptoSyncChecksum,
-  getCryptoSyncSourceChecksum,
   getCryptoHistoricalAuditMonths,
+  getCryptoSyncSourceChecksum,
   parseCryptoMonthLogRows
 };
