@@ -31,6 +31,182 @@ class CryptoMonthlySyncValidationError extends Error {
     this.name = "CryptoMonthlySyncValidationError";
   }
 }
+function readOptionalNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.replace(/,/g, "").trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+function getShadowAssetLocalValue(asset) {
+  return asset.assetType === "cash" ? asset.currentPrice : asset.quantity * asset.currentPrice;
+}
+function getShadowAssetUsdValue(asset, usdHkdRate) {
+  const value = getShadowAssetLocalValue(asset);
+  const currency = asset.currency.trim().toUpperCase();
+  if (currency === "HKD") return value / usdHkdRate;
+  if (currency === "USD" || currency === "USDT" || currency === "USDC") return value;
+  return null;
+}
+function buildCryptoAssetShadowPreview(snapshot, detailValues, assets, sourceDetailRange) {
+  const monthHeaderIndex = detailValues.findIndex((row) => String(row[0] ?? "").trim() === "\u8CC7\u7522");
+  if (monthHeaderIndex < 0 || monthHeaderIndex + 1 >= detailValues.length) {
+    throw new CryptoMonthlySyncValidationError("\u5F71\u5B50\u5C0D\u6578\u627E\u4E0D\u5230 2026_V2 \u7684\u6708\u7D50\u6301\u5009\u6A19\u984C\u3002");
+  }
+  const detailMonth = readMonth(detailValues[monthHeaderIndex][4], monthHeaderIndex + 38);
+  const statusText = String(detailValues[0]?.[1] ?? "").trim();
+  const detailRows = detailValues.slice(monthHeaderIndex + 2);
+  const sourcePositions = [];
+  for (const row of detailRows) {
+    const label = String(row[0] ?? "").trim();
+    if (!label || label === "totel(USD)") break;
+    const value = readOptionalNumber(row[6]);
+    const symbol = label.replace(/\s*負債\s*$/, "").trim().toUpperCase();
+    if (!symbol) continue;
+    sourcePositions.push({
+      symbol,
+      sourceLabel: label,
+      sourceValueUsd: value ?? 0,
+      sourceQuantity: readOptionalNumber(row[5]),
+      sourcePriceUsd: readOptionalNumber(row[4]),
+      isLiability: /負債/.test(label) || (value ?? 0) < 0
+    });
+  }
+  if (sourcePositions.length === 0) {
+    throw new CryptoMonthlySyncValidationError("\u5F71\u5B50\u5C0D\u6578\u627E\u4E0D\u5230\u4EFB\u4F55\u6708\u7D50\u6301\u5009\u660E\u7D30\u3002");
+  }
+  const cryptoAssets = assets.filter((asset) => asset.accountSource === "Crypto");
+  const excludedFutuAssets = assets.filter(
+    (asset) => asset.accountSource === "Futu" && asset.assetType === "crypto"
+  );
+  const unsupportedCryptoCurrencies = /* @__PURE__ */ new Set();
+  const currentBySymbol = /* @__PURE__ */ new Map();
+  for (const asset of cryptoAssets) {
+    const valueUsd = getShadowAssetUsdValue(asset, snapshot.usdHkdRate);
+    if (valueUsd == null) {
+      unsupportedCryptoCurrencies.add(asset.currency);
+      continue;
+    }
+    const symbol = asset.symbol.trim().toUpperCase() || asset.name.trim().toUpperCase();
+    const existing = currentBySymbol.get(symbol) ?? { valueUsd: 0, quantity: 0 };
+    currentBySymbol.set(symbol, {
+      valueUsd: existing.valueUsd + valueUsd,
+      quantity: existing.quantity + asset.quantity
+    });
+  }
+  const sourceBySymbol = /* @__PURE__ */ new Map();
+  for (const position of sourcePositions) {
+    const entries = sourceBySymbol.get(position.symbol) ?? [];
+    entries.push(position);
+    sourceBySymbol.set(position.symbol, entries);
+  }
+  const symbols = [.../* @__PURE__ */ new Set([...sourceBySymbol.keys(), ...currentBySymbol.keys()])].sort();
+  const positions = symbols.map((symbol) => {
+    const sourceEntries = sourceBySymbol.get(symbol) ?? [];
+    const sourceValueUsd = sourceEntries.reduce((sum, item) => sum + item.sourceValueUsd, 0);
+    const current = currentBySymbol.get(symbol) ?? { valueUsd: 0, quantity: 0 };
+    return {
+      symbol,
+      sourceLabel: sourceEntries.map((item) => item.sourceLabel).join(" + ") || symbol,
+      sourceValueUsd,
+      currentValueUsd: current.valueUsd,
+      differenceUsd: sourceValueUsd - current.valueUsd,
+      sourceQuantity: sourceEntries.length === 1 ? sourceEntries[0].sourceQuantity : null,
+      currentQuantity: current.quantity,
+      sourcePriceUsd: sourceEntries.length === 1 ? sourceEntries[0].sourcePriceUsd : null,
+      isLiability: sourceEntries.some((item) => item.isLiability)
+    };
+  });
+  const detailPositionSubtotalUsd = sourcePositions.reduce(
+    (sum, position) => sum + position.sourceValueUsd,
+    0
+  );
+  const currentAccountTotalUsd = [...currentBySymbol.values()].reduce(
+    (sum, item) => sum + item.valueUsd,
+    0
+  );
+  const excludedFutuValueUsd = excludedFutuAssets.reduce((sum, asset) => {
+    return sum + (getShadowAssetUsdValue(asset, snapshot.usdHkdRate) ?? 0);
+  }, 0);
+  const detailToTargetDifferenceUsd = snapshot.performanceTotalUsd - detailPositionSubtotalUsd;
+  const detailMatchesTarget = Math.abs(detailToTargetDifferenceUsd) <= MONEY_TOLERANCE_USD;
+  const detailDifferenceMatchesWithdrawals = Math.abs(detailToTargetDifferenceUsd - snapshot.cumulativeWithdrawnUsd) <= MONEY_TOLERANCE_USD;
+  const monthMatches = detailMonth === snapshot.month;
+  const sourceLocked = statusText.includes(snapshot.month) && /已鎖定快照/.test(statusText);
+  const fxMatches = Math.abs(snapshot.totalHkd - snapshot.performanceTotalUsd * snapshot.usdHkdRate) <= MONEY_TOLERANCE_HKD;
+  const hasUnsupportedCurrency = unsupportedCryptoCurrencies.size > 0;
+  const checks = [
+    {
+      code: "LOCKED_MONTH_MATCH",
+      passed: monthMatches && sourceLocked,
+      severity: monthMatches && sourceLocked ? "info" : "error",
+      message: monthMatches && sourceLocked ? `${snapshot.month} \u6708\u7D50\u6301\u5009\u5340\u584A\u5DF2\u9396\u5B9A\uFF0C\u4E26\u8207 19 \u6B04\u6708\u7D50\u8A18\u9304\u4E00\u81F4\u3002` : `\u6708\u7D50\u6301\u5009\u5340\u584A\u6708\u4EFD\u6216\u9396\u5B9A\u72C0\u614B\u4E0D\u4E00\u81F4\uFF08\u660E\u7D30 ${detailMonth}\uFF09\u3002`
+    },
+    {
+      code: "CRYPTO_ACCOUNT_ONLY",
+      passed: true,
+      severity: "info",
+      message: `\u53EA\u8A08 accountSource=Crypto\uFF1B\u5DF2\u6392\u9664 ${excludedFutuAssets.length} \u9805 Futu Crypto\u3002`
+    },
+    {
+      code: "WITHDRAWALS_SEPARATE",
+      passed: true,
+      severity: "info",
+      message: `HK$${Math.round(snapshot.totalHkd).toLocaleString("en-US")} \u76F4\u63A5\u4F5C Crypto \u5E33\u6236\u76EE\u6A19\uFF1B\u63D0\u53D6\uFF0F\u6D88\u8CBB US$${snapshot.cumulativeWithdrawnUsd.toFixed(2)} \u7368\u7ACB\u986F\u793A\uFF0C\u6C92\u6709\u5F9E\u76EE\u6A19\u6263\u6E1B\u3002`
+    },
+    {
+      code: "DETAIL_SUBTOTAL_RECONCILIATION",
+      passed: detailMatchesTarget,
+      severity: detailMatchesTarget ? "info" : "warning",
+      message: detailMatchesTarget ? "\u9010\u9805\u6301\u5009\u660E\u7D30\u8207\u6708\u7D50\u7E3D\u503C\u4E00\u81F4\u3002" : `\u9010\u9805\u6301\u5009\u5408\u8A08\u8F03\u6708\u7D50\u7E3D\u503C\u5C11 US$${detailToTargetDifferenceUsd.toFixed(2)}${detailDifferenceMatchesWithdrawals ? "\uFF0C\u91D1\u984D\u525B\u597D\u7B49\u65BC\u7368\u7ACB\u63D0\u53D6\uFF0F\u6D88\u8CBB\u8A18\u9304\uFF1B\u6B63\u5F0F\u9010\u9805\u540C\u6B65\u524D\u4ECD\u9700\u78BA\u8A8D\u5DEE\u984D\u6B78\u5C6C\u3002" : "\uFF0C\u6B63\u5F0F\u9010\u9805\u540C\u6B65\u524D\u5FC5\u9808\u5148\u6838\u5C0D\u3002"}`
+    },
+    {
+      code: "TOTAL_FX_RECONCILIATION",
+      passed: fxMatches,
+      severity: fxMatches ? "info" : "error",
+      message: fxMatches ? "\u6708\u7D50 USD \u7E3D\u503C\u6309\u9396\u5B9A\u532F\u7387\u63DB\u7B97\u5F8C\u8207 HKD \u7E3D\u503C\u4E00\u81F4\u3002" : "\u6708\u7D50 USD/HKD \u7E3D\u503C\u672A\u80FD\u5C0D\u6578\u3002"
+    },
+    {
+      code: "SUPPORTED_ACCOUNT_CURRENCIES",
+      passed: !hasUnsupportedCurrency,
+      severity: hasUnsupportedCurrency ? "error" : "info",
+      message: hasUnsupportedCurrency ? `Crypto \u5E33\u6236\u5305\u542B\u672A\u652F\u63F4\u8CA8\u5E63\uFF1A${[...unsupportedCryptoCurrencies].join("\u3001")}\u3002` : "Crypto \u5E33\u6236\u8CA8\u5E63\u53EF\u7528\u6708\u7D50\u532F\u7387\u5B89\u5168\u6BD4\u8F03\u3002"
+    },
+    {
+      code: "ZERO_WRITE_PREVIEW",
+      passed: true,
+      severity: "info",
+      message: "\u4ECA\u6B21\u53EA\u5EFA\u7ACB\u9810\u89BD\uFF1BFirestore\u3001Google Sheet\u3001\u4EA4\u6613\u53CA\u6BCF\u65E5\u5FEB\u7167\u5BEB\u5165\u6B21\u6578\u5168\u90E8\u70BA 0\u3002"
+    }
+  ];
+  const hasBlockingError = checks.some((check) => !check.passed && check.severity === "error");
+  return {
+    mode: "shadow_preview",
+    status: hasBlockingError || !detailMatchesTarget ? "review_required" : "ready",
+    month: snapshot.month,
+    accountSource: "Crypto",
+    sourceReadOnly: true,
+    firestoreWriteAllowed: false,
+    writesPerformed: 0,
+    targetTotalUsd: snapshot.performanceTotalUsd,
+    targetTotalHkd: snapshot.totalHkd,
+    currentAccountTotalUsd,
+    currentAccountTotalHkd: currentAccountTotalUsd * snapshot.usdHkdRate,
+    differenceUsd: snapshot.performanceTotalUsd - currentAccountTotalUsd,
+    differenceHkd: snapshot.totalHkd - currentAccountTotalUsd * snapshot.usdHkdRate,
+    detailPositionSubtotalUsd,
+    detailToTargetDifferenceUsd,
+    separateWithdrawalsUsd: snapshot.cumulativeWithdrawnUsd,
+    usdHkdRate: snapshot.usdHkdRate,
+    cryptoAssetCount: cryptoAssets.length,
+    excludedFutuAssetCount: excludedFutuAssets.length,
+    excludedFutuValueUsd,
+    sourceDetailRange,
+    positions,
+    checks
+  };
+}
 function canonicalize(value) {
   if (Array.isArray(value)) {
     return value.map((entry) => canonicalize(entry));
@@ -326,6 +502,7 @@ function getCryptoHistoricalAuditMonths(snapshots, createdMonths, latestImported
 export {
   CRYPTO_MONTH_LOG_HEADERS,
   CryptoMonthlySyncValidationError,
+  buildCryptoAssetShadowPreview,
   buildCryptoSyncPlan,
   buildCryptoSyncValidationReport,
   createCryptoSyncChecksum,

@@ -2,8 +2,10 @@ import { createSign, randomUUID } from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
+import { readAdminPortfolioAssets } from './portfolioSnapshotAdmin.js';
 import {
   CRYPTO_MONTH_LOG_HEADERS,
+  buildCryptoAssetShadowPreview,
   buildCryptoSyncPlan,
   buildCryptoSyncValidationReport,
   getCryptoHistoricalAuditMonths,
@@ -17,6 +19,7 @@ const DEFAULT_SPREADSHEET_ID = '1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4';
 const DEFAULT_SPREADSHEET_TITLE = 'crypto';
 const DEFAULT_SHEET_NAME = '月結記錄';
 const DEFAULT_SOURCE_RANGE = `'${DEFAULT_SHEET_NAME}'!A1:S500`;
+const DEFAULT_DETAIL_RANGE = `'2026_V2'!G38:M73`;
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const PORTFOLIO_COLLECTION = 'portfolio';
@@ -35,6 +38,7 @@ interface CryptoMonthlySyncOptions {
   apply?: boolean;
   confirmation?: string;
   expectedSourceChecksum?: string;
+  includeAssetShadow?: boolean;
 }
 
 interface SheetsValuesResponse {
@@ -162,12 +166,11 @@ async function getGoogleSheetsAccessToken() {
   return payload.access_token;
 }
 
-async function readLockedMonthLog() {
-  const spreadsheetId =
-    process.env.CRYPTO_SHEET_SPREADSHEET_ID?.trim() || DEFAULT_SPREADSHEET_ID;
-  const sourceRange =
-    process.env.CRYPTO_SHEET_SOURCE_RANGE?.trim() || DEFAULT_SOURCE_RANGE;
-  const accessToken = await getGoogleSheetsAccessToken();
+async function readSheetValues(
+  accessToken: string,
+  spreadsheetId: string,
+  sourceRange: string,
+) {
   const url =
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}` +
     `/values/${encodeURIComponent(sourceRange)}` +
@@ -181,15 +184,35 @@ async function readLockedMonthLog() {
   if (!response.ok) {
     const detail = payload.error?.message ?? `HTTP ${response.status}`;
     throw new CryptoMonthlySyncError(
-      `未能唯讀「月結記錄」：${detail}。請確認 service account 已獲工作表檢視權限。`,
+      `未能唯讀「${sourceRange}」：${detail}。請確認 service account 已獲工作表檢視權限。`,
       response.status === 403 ? 403 : 502,
     );
   }
 
+  return payload.values ?? [];
+}
+
+async function readLockedMonthLog(includeAssetShadow = false) {
+  const spreadsheetId =
+    process.env.CRYPTO_SHEET_SPREADSHEET_ID?.trim() || DEFAULT_SPREADSHEET_ID;
+  const sourceRange =
+    process.env.CRYPTO_SHEET_SOURCE_RANGE?.trim() || DEFAULT_SOURCE_RANGE;
+  const detailRange =
+    process.env.CRYPTO_SHEET_DETAIL_RANGE?.trim() || DEFAULT_DETAIL_RANGE;
+  const accessToken = await getGoogleSheetsAccessToken();
+  const [values, detailValues] = await Promise.all([
+    readSheetValues(accessToken, spreadsheetId, sourceRange),
+    includeAssetShadow
+      ? readSheetValues(accessToken, spreadsheetId, detailRange)
+      : Promise.resolve([]),
+  ]);
+
   return {
     spreadsheetId,
     sourceRange,
-    values: payload.values ?? [],
+    detailRange,
+    values,
+    detailValues,
   };
 }
 
@@ -487,7 +510,8 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
     throw new CryptoMonthlySyncError('缺少正式同步確認字串，沒有寫入任何資料。', 400);
   }
 
-  const source = await readLockedMonthLog();
+  const includeAssetShadow = !apply && options.includeAssetShadow === true;
+  const source = await readLockedMonthLog(includeAssetShadow);
   const snapshots = parseCryptoMonthLogRows(source.values, {
     spreadsheetId: source.spreadsheetId,
     spreadsheetTitle: DEFAULT_SPREADSHEET_TITLE,
@@ -505,9 +529,10 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
     );
   }
 
-  const [existing, latestImportedMonth] = await Promise.all([
+  const [existing, latestImportedMonth, portfolioAssets] = await Promise.all([
     readExistingSnapshots(),
     readLatestHistoricalImportMonth(),
+    includeAssetShadow ? readAdminPortfolioAssets() : Promise.resolve([]),
   ]);
   const previewPlan = buildCryptoSyncPlan(snapshots, existing);
   const previewAuditMonths = getCryptoHistoricalAuditMonths(
@@ -516,6 +541,15 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
     latestImportedMonth,
   );
   const previewValidationReport = buildCryptoSyncValidationReport(snapshots, previewPlan);
+  const latestSnapshot = snapshots.at(-1);
+  const assetShadow = includeAssetShadow && latestSnapshot
+    ? buildCryptoAssetShadowPreview(
+        latestSnapshot,
+        source.detailValues,
+        portfolioAssets,
+        source.detailRange,
+      )
+    : undefined;
 
   if (apply && previewPlan.conflicts.length > 0) {
     throw new CryptoMonthlySyncError(
@@ -542,6 +576,7 @@ export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {
       auditCreateCount: previewAuditMonths.length,
       auditMonths: previewAuditMonths,
       validationReport: previewValidationReport,
+      ...(assetShadow ? { assetShadow } : {}),
       ...summarizePlan(previewPlan),
     };
   }

@@ -111,11 +111,279 @@ export interface CryptoSyncSourceContext {
   sheetName?: '月結記錄';
 }
 
+export interface CryptoShadowAssetInput {
+  id: string;
+  name: string;
+  symbol: string;
+  assetType: string;
+  accountSource: string;
+  currency: string;
+  quantity: number;
+  currentPrice: number;
+}
+
+export interface CryptoAssetShadowPosition {
+  symbol: string;
+  sourceLabel: string;
+  sourceValueUsd: number;
+  currentValueUsd: number;
+  differenceUsd: number;
+  sourceQuantity: number | null;
+  currentQuantity: number;
+  sourcePriceUsd: number | null;
+  isLiability: boolean;
+}
+
+export interface CryptoAssetShadowPreview {
+  mode: 'shadow_preview';
+  status: 'ready' | 'review_required';
+  month: string;
+  accountSource: 'Crypto';
+  sourceReadOnly: true;
+  firestoreWriteAllowed: false;
+  writesPerformed: 0;
+  targetTotalUsd: number;
+  targetTotalHkd: number;
+  currentAccountTotalUsd: number;
+  currentAccountTotalHkd: number;
+  differenceUsd: number;
+  differenceHkd: number;
+  detailPositionSubtotalUsd: number;
+  detailToTargetDifferenceUsd: number;
+  separateWithdrawalsUsd: number;
+  usdHkdRate: number;
+  cryptoAssetCount: number;
+  excludedFutuAssetCount: number;
+  excludedFutuValueUsd: number;
+  sourceDetailRange: string;
+  positions: CryptoAssetShadowPosition[];
+  checks: Array<{
+    code: string;
+    passed: boolean;
+    severity: 'info' | 'warning' | 'error';
+    message: string;
+  }>;
+}
+
 export class CryptoMonthlySyncValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'CryptoMonthlySyncValidationError';
   }
+}
+
+function readOptionalNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.replace(/,/g, '').trim());
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function getShadowAssetLocalValue(asset: CryptoShadowAssetInput) {
+  return asset.assetType === 'cash'
+    ? asset.currentPrice
+    : asset.quantity * asset.currentPrice;
+}
+
+function getShadowAssetUsdValue(asset: CryptoShadowAssetInput, usdHkdRate: number) {
+  const value = getShadowAssetLocalValue(asset);
+  const currency = asset.currency.trim().toUpperCase();
+  if (currency === 'HKD') return value / usdHkdRate;
+  if (currency === 'USD' || currency === 'USDT' || currency === 'USDC') return value;
+  return null;
+}
+
+/**
+ * Builds a zero-write comparison between the locked monthly source and the
+ * Firestore Crypto account. Futu is deliberately measured only as an excluded
+ * control group and never enters the Crypto account totals.
+ */
+export function buildCryptoAssetShadowPreview(
+  snapshot: CryptoSyncSnapshot,
+  detailValues: unknown[][],
+  assets: CryptoShadowAssetInput[],
+  sourceDetailRange: string,
+): CryptoAssetShadowPreview {
+  const monthHeaderIndex = detailValues.findIndex((row) => String(row[0] ?? '').trim() === '資產');
+  if (monthHeaderIndex < 0 || monthHeaderIndex + 1 >= detailValues.length) {
+    throw new CryptoMonthlySyncValidationError('影子對數找不到 2026_V2 的月結持倉標題。');
+  }
+
+  const detailMonth = readMonth(detailValues[monthHeaderIndex][4], monthHeaderIndex + 38);
+  const statusText = String(detailValues[0]?.[1] ?? '').trim();
+  const detailRows = detailValues.slice(monthHeaderIndex + 2);
+  const sourcePositions: Array<{
+    symbol: string;
+    sourceLabel: string;
+    sourceValueUsd: number;
+    sourceQuantity: number | null;
+    sourcePriceUsd: number | null;
+    isLiability: boolean;
+  }> = [];
+
+  for (const row of detailRows) {
+    const label = String(row[0] ?? '').trim();
+    if (!label || label === 'totel(USD)') break;
+    const value = readOptionalNumber(row[6]);
+    const symbol = label.replace(/\s*負債\s*$/, '').trim().toUpperCase();
+    if (!symbol) continue;
+    sourcePositions.push({
+      symbol,
+      sourceLabel: label,
+      sourceValueUsd: value ?? 0,
+      sourceQuantity: readOptionalNumber(row[5]),
+      sourcePriceUsd: readOptionalNumber(row[4]),
+      isLiability: /負債/.test(label) || (value ?? 0) < 0,
+    });
+  }
+
+  if (sourcePositions.length === 0) {
+    throw new CryptoMonthlySyncValidationError('影子對數找不到任何月結持倉明細。');
+  }
+
+  const cryptoAssets = assets.filter((asset) => asset.accountSource === 'Crypto');
+  const excludedFutuAssets = assets.filter(
+    (asset) => asset.accountSource === 'Futu' && asset.assetType === 'crypto',
+  );
+  const unsupportedCryptoCurrencies = new Set<string>();
+  const currentBySymbol = new Map<string, { valueUsd: number; quantity: number }>();
+
+  for (const asset of cryptoAssets) {
+    const valueUsd = getShadowAssetUsdValue(asset, snapshot.usdHkdRate);
+    if (valueUsd == null) {
+      unsupportedCryptoCurrencies.add(asset.currency);
+      continue;
+    }
+    const symbol = asset.symbol.trim().toUpperCase() || asset.name.trim().toUpperCase();
+    const existing = currentBySymbol.get(symbol) ?? { valueUsd: 0, quantity: 0 };
+    currentBySymbol.set(symbol, {
+      valueUsd: existing.valueUsd + valueUsd,
+      quantity: existing.quantity + asset.quantity,
+    });
+  }
+
+  const sourceBySymbol = new Map<string, typeof sourcePositions>();
+  for (const position of sourcePositions) {
+    const entries = sourceBySymbol.get(position.symbol) ?? [];
+    entries.push(position);
+    sourceBySymbol.set(position.symbol, entries);
+  }
+  const symbols = [...new Set([...sourceBySymbol.keys(), ...currentBySymbol.keys()])].sort();
+  const positions = symbols.map((symbol) => {
+    const sourceEntries = sourceBySymbol.get(symbol) ?? [];
+    const sourceValueUsd = sourceEntries.reduce((sum, item) => sum + item.sourceValueUsd, 0);
+    const current = currentBySymbol.get(symbol) ?? { valueUsd: 0, quantity: 0 };
+    return {
+      symbol,
+      sourceLabel: sourceEntries.map((item) => item.sourceLabel).join(' + ') || symbol,
+      sourceValueUsd,
+      currentValueUsd: current.valueUsd,
+      differenceUsd: sourceValueUsd - current.valueUsd,
+      sourceQuantity: sourceEntries.length === 1 ? sourceEntries[0].sourceQuantity : null,
+      currentQuantity: current.quantity,
+      sourcePriceUsd: sourceEntries.length === 1 ? sourceEntries[0].sourcePriceUsd : null,
+      isLiability: sourceEntries.some((item) => item.isLiability),
+    };
+  });
+  const detailPositionSubtotalUsd = sourcePositions.reduce(
+    (sum, position) => sum + position.sourceValueUsd,
+    0,
+  );
+  const currentAccountTotalUsd = [...currentBySymbol.values()].reduce(
+    (sum, item) => sum + item.valueUsd,
+    0,
+  );
+  const excludedFutuValueUsd = excludedFutuAssets.reduce((sum, asset) => {
+    return sum + (getShadowAssetUsdValue(asset, snapshot.usdHkdRate) ?? 0);
+  }, 0);
+  const detailToTargetDifferenceUsd = snapshot.performanceTotalUsd - detailPositionSubtotalUsd;
+  const detailMatchesTarget = Math.abs(detailToTargetDifferenceUsd) <= MONEY_TOLERANCE_USD;
+  const detailDifferenceMatchesWithdrawals =
+    Math.abs(detailToTargetDifferenceUsd - snapshot.cumulativeWithdrawnUsd) <= MONEY_TOLERANCE_USD;
+  const monthMatches = detailMonth === snapshot.month;
+  const sourceLocked = statusText.includes(snapshot.month) && /已鎖定快照/.test(statusText);
+  const fxMatches = Math.abs(snapshot.totalHkd - snapshot.performanceTotalUsd * snapshot.usdHkdRate) <= MONEY_TOLERANCE_HKD;
+  const hasUnsupportedCurrency = unsupportedCryptoCurrencies.size > 0;
+
+  const checks: CryptoAssetShadowPreview['checks'] = [
+    {
+      code: 'LOCKED_MONTH_MATCH',
+      passed: monthMatches && sourceLocked,
+      severity: monthMatches && sourceLocked ? 'info' : 'error',
+      message: monthMatches && sourceLocked
+        ? `${snapshot.month} 月結持倉區塊已鎖定，並與 19 欄月結記錄一致。`
+        : `月結持倉區塊月份或鎖定狀態不一致（明細 ${detailMonth}）。`,
+    },
+    {
+      code: 'CRYPTO_ACCOUNT_ONLY',
+      passed: true,
+      severity: 'info',
+      message: `只計 accountSource=Crypto；已排除 ${excludedFutuAssets.length} 項 Futu Crypto。`,
+    },
+    {
+      code: 'WITHDRAWALS_SEPARATE',
+      passed: true,
+      severity: 'info',
+      message: `HK$${Math.round(snapshot.totalHkd).toLocaleString('en-US')} 直接作 Crypto 帳戶目標；提取／消費 US$${snapshot.cumulativeWithdrawnUsd.toFixed(2)} 獨立顯示，沒有從目標扣減。`,
+    },
+    {
+      code: 'DETAIL_SUBTOTAL_RECONCILIATION',
+      passed: detailMatchesTarget,
+      severity: detailMatchesTarget ? 'info' : 'warning',
+      message: detailMatchesTarget
+        ? '逐項持倉明細與月結總值一致。'
+        : `逐項持倉合計較月結總值少 US$${detailToTargetDifferenceUsd.toFixed(2)}${detailDifferenceMatchesWithdrawals ? '，金額剛好等於獨立提取／消費記錄；正式逐項同步前仍需確認差額歸屬。' : '，正式逐項同步前必須先核對。'}`,
+    },
+    {
+      code: 'TOTAL_FX_RECONCILIATION',
+      passed: fxMatches,
+      severity: fxMatches ? 'info' : 'error',
+      message: fxMatches ? '月結 USD 總值按鎖定匯率換算後與 HKD 總值一致。' : '月結 USD/HKD 總值未能對數。',
+    },
+    {
+      code: 'SUPPORTED_ACCOUNT_CURRENCIES',
+      passed: !hasUnsupportedCurrency,
+      severity: hasUnsupportedCurrency ? 'error' : 'info',
+      message: hasUnsupportedCurrency
+        ? `Crypto 帳戶包含未支援貨幣：${[...unsupportedCryptoCurrencies].join('、')}。`
+        : 'Crypto 帳戶貨幣可用月結匯率安全比較。',
+    },
+    {
+      code: 'ZERO_WRITE_PREVIEW',
+      passed: true,
+      severity: 'info',
+      message: '今次只建立預覽；Firestore、Google Sheet、交易及每日快照寫入次數全部為 0。',
+    },
+  ];
+  const hasBlockingError = checks.some((check) => !check.passed && check.severity === 'error');
+
+  return {
+    mode: 'shadow_preview',
+    status: hasBlockingError || !detailMatchesTarget ? 'review_required' : 'ready',
+    month: snapshot.month,
+    accountSource: 'Crypto',
+    sourceReadOnly: true,
+    firestoreWriteAllowed: false,
+    writesPerformed: 0,
+    targetTotalUsd: snapshot.performanceTotalUsd,
+    targetTotalHkd: snapshot.totalHkd,
+    currentAccountTotalUsd,
+    currentAccountTotalHkd: currentAccountTotalUsd * snapshot.usdHkdRate,
+    differenceUsd: snapshot.performanceTotalUsd - currentAccountTotalUsd,
+    differenceHkd: snapshot.totalHkd - currentAccountTotalUsd * snapshot.usdHkdRate,
+    detailPositionSubtotalUsd,
+    detailToTargetDifferenceUsd,
+    separateWithdrawalsUsd: snapshot.cumulativeWithdrawnUsd,
+    usdHkdRate: snapshot.usdHkdRate,
+    cryptoAssetCount: cryptoAssets.length,
+    excludedFutuAssetCount: excludedFutuAssets.length,
+    excludedFutuValueUsd,
+    sourceDetailRange,
+    positions,
+    checks,
+  };
 }
 
 function canonicalize(value: unknown): unknown {

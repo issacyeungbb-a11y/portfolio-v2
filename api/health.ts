@@ -964,6 +964,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
         apply?: boolean;
         confirmation?: string;
         expectedSourceChecksum?: string;
+        includeAssetShadow?: boolean;
       };
       response.setHeader('Cache-Control', 'private, no-store');
       sendJson(response, 200, {

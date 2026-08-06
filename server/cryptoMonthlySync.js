@@ -1,8 +1,10 @@
 import { createSign, randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "./firebaseAdmin.js";
+import { readAdminPortfolioAssets } from "./portfolioSnapshotAdmin.js";
 import {
   CRYPTO_MONTH_LOG_HEADERS,
+  buildCryptoAssetShadowPreview,
   buildCryptoSyncPlan,
   buildCryptoSyncValidationReport,
   getCryptoHistoricalAuditMonths,
@@ -13,6 +15,7 @@ const DEFAULT_SPREADSHEET_ID = "1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4";
 const DEFAULT_SPREADSHEET_TITLE = "crypto";
 const DEFAULT_SHEET_NAME = "\u6708\u7D50\u8A18\u9304";
 const DEFAULT_SOURCE_RANGE = `'${DEFAULT_SHEET_NAME}'!A1:S500`;
+const DEFAULT_DETAIL_RANGE = `'2026_V2'!G38:M73`;
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 const PORTFOLIO_COLLECTION = "portfolio";
@@ -105,10 +108,7 @@ async function getGoogleSheetsAccessToken() {
   }
   return payload.access_token;
 }
-async function readLockedMonthLog() {
-  const spreadsheetId = process.env.CRYPTO_SHEET_SPREADSHEET_ID?.trim() || DEFAULT_SPREADSHEET_ID;
-  const sourceRange = process.env.CRYPTO_SHEET_SOURCE_RANGE?.trim() || DEFAULT_SOURCE_RANGE;
-  const accessToken = await getGoogleSheetsAccessToken();
+async function readSheetValues(accessToken, spreadsheetId, sourceRange) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(sourceRange)}?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER`;
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${accessToken}` },
@@ -118,14 +118,27 @@ async function readLockedMonthLog() {
   if (!response.ok) {
     const detail = payload.error?.message ?? `HTTP ${response.status}`;
     throw new CryptoMonthlySyncError(
-      `\u672A\u80FD\u552F\u8B80\u300C\u6708\u7D50\u8A18\u9304\u300D\uFF1A${detail}\u3002\u8ACB\u78BA\u8A8D service account \u5DF2\u7372\u5DE5\u4F5C\u8868\u6AA2\u8996\u6B0A\u9650\u3002`,
+      `\u672A\u80FD\u552F\u8B80\u300C${sourceRange}\u300D\uFF1A${detail}\u3002\u8ACB\u78BA\u8A8D service account \u5DF2\u7372\u5DE5\u4F5C\u8868\u6AA2\u8996\u6B0A\u9650\u3002`,
       response.status === 403 ? 403 : 502
     );
   }
+  return payload.values ?? [];
+}
+async function readLockedMonthLog(includeAssetShadow = false) {
+  const spreadsheetId = process.env.CRYPTO_SHEET_SPREADSHEET_ID?.trim() || DEFAULT_SPREADSHEET_ID;
+  const sourceRange = process.env.CRYPTO_SHEET_SOURCE_RANGE?.trim() || DEFAULT_SOURCE_RANGE;
+  const detailRange = process.env.CRYPTO_SHEET_DETAIL_RANGE?.trim() || DEFAULT_DETAIL_RANGE;
+  const accessToken = await getGoogleSheetsAccessToken();
+  const [values, detailValues] = await Promise.all([
+    readSheetValues(accessToken, spreadsheetId, sourceRange),
+    includeAssetShadow ? readSheetValues(accessToken, spreadsheetId, detailRange) : Promise.resolve([])
+  ]);
   return {
     spreadsheetId,
     sourceRange,
-    values: payload.values ?? []
+    detailRange,
+    values,
+    detailValues
   };
 }
 function getPortfolioRef() {
@@ -358,7 +371,8 @@ async function runCryptoMonthlySync(options = {}) {
   if (apply && options.confirmation !== APPLY_CONFIRMATION) {
     throw new CryptoMonthlySyncError("\u7F3A\u5C11\u6B63\u5F0F\u540C\u6B65\u78BA\u8A8D\u5B57\u4E32\uFF0C\u6C92\u6709\u5BEB\u5165\u4EFB\u4F55\u8CC7\u6599\u3002", 400);
   }
-  const source = await readLockedMonthLog();
+  const includeAssetShadow = !apply && options.includeAssetShadow === true;
+  const source = await readLockedMonthLog(includeAssetShadow);
   const snapshots = parseCryptoMonthLogRows(source.values, {
     spreadsheetId: source.spreadsheetId,
     spreadsheetTitle: DEFAULT_SPREADSHEET_TITLE,
@@ -371,9 +385,10 @@ async function runCryptoMonthlySync(options = {}) {
       409
     );
   }
-  const [existing, latestImportedMonth] = await Promise.all([
+  const [existing, latestImportedMonth, portfolioAssets] = await Promise.all([
     readExistingSnapshots(),
-    readLatestHistoricalImportMonth()
+    readLatestHistoricalImportMonth(),
+    includeAssetShadow ? readAdminPortfolioAssets() : Promise.resolve([])
   ]);
   const previewPlan = buildCryptoSyncPlan(snapshots, existing);
   const previewAuditMonths = getCryptoHistoricalAuditMonths(
@@ -382,6 +397,13 @@ async function runCryptoMonthlySync(options = {}) {
     latestImportedMonth
   );
   const previewValidationReport = buildCryptoSyncValidationReport(snapshots, previewPlan);
+  const latestSnapshot = snapshots.at(-1);
+  const assetShadow = includeAssetShadow && latestSnapshot ? buildCryptoAssetShadowPreview(
+    latestSnapshot,
+    source.detailValues,
+    portfolioAssets,
+    source.detailRange
+  ) : void 0;
   if (apply && previewPlan.conflicts.length > 0) {
     throw new CryptoMonthlySyncError(
       `\u5DF2\u9396\u5B9A\u6708\u4EFD\u51FA\u73FE\u5DEE\u7570\uFF1A${previewPlan.conflicts.map((item) => item.month).join("\u3001")}\u3002\u6C92\u6709\u5BEB\u5165\u4EFB\u4F55\u8CC7\u6599\u3002`,
@@ -406,6 +428,7 @@ async function runCryptoMonthlySync(options = {}) {
       auditCreateCount: previewAuditMonths.length,
       auditMonths: previewAuditMonths,
       validationReport: previewValidationReport,
+      ...assetShadow ? { assetShadow } : {},
       ...summarizePlan(previewPlan)
     };
   }

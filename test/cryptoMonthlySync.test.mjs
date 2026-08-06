@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   CRYPTO_MONTH_LOG_HEADERS,
+  buildCryptoAssetShadowPreview,
   buildCryptoSyncPlan,
   buildCryptoSyncValidationReport,
   getCryptoHistoricalAuditMonths,
@@ -208,5 +209,78 @@ test('builds a 19-field pending confirmation validation report for every detecte
       { month: '2026-07', fieldCount: 19, action: 'skip' },
       { month: '2026-08', fieldCount: 19, action: 'create' },
     ],
+  );
+});
+
+test('builds a zero-write Crypto-only shadow preview and explicitly excludes Futu', () => {
+  const [, augustSnapshot] = parse([july2026, august2026]);
+  const detailValues = [
+    ['月結狀態', '2026-08 已鎖定快照'],
+    [],
+    ['資產', 46204, null, null, 46235],
+    ['資產', '價格（USD）', '數量', '總值（USD）', '價格（USD）', '數量', '總值（USD）'],
+    ['BTC', null, null, null, 63973, 0.890999999, 57000],
+    ['USDT 負債', null, null, null, 1, 1239.924123182, -1239.924123182],
+    ['totel(USD)', null, null, null, null, null, 57286.385876818],
+  ];
+  const assets = [
+    {
+      id: 'crypto-btc',
+      name: 'Bitcoin',
+      symbol: 'BTC',
+      assetType: 'crypto',
+      accountSource: 'Crypto',
+      currency: 'USD',
+      quantity: 0.5,
+      currentPrice: 60000,
+    },
+    {
+      id: 'crypto-usdt',
+      name: 'USDT Cash',
+      symbol: 'USDT',
+      assetType: 'cash',
+      accountSource: 'Crypto',
+      currency: 'USD',
+      quantity: 1,
+      currentPrice: 1000,
+    },
+    {
+      id: 'futu-btc',
+      name: 'Futu Bitcoin',
+      symbol: 'BTC',
+      assetType: 'crypto',
+      accountSource: 'Futu',
+      currency: 'USD',
+      quantity: 1,
+      currentPrice: 20000,
+    },
+  ];
+
+  const preview = buildCryptoAssetShadowPreview(
+    augustSnapshot,
+    detailValues,
+    assets,
+    "'2026_V2'!G38:M73",
+  );
+
+  assert.equal(preview.mode, 'shadow_preview');
+  assert.equal(preview.month, '2026-08');
+  assert.equal(preview.targetTotalHkd, 440664.50674431317);
+  assert.equal(preview.targetTotalUsd, 57286.385876818);
+  assert.equal(preview.currentAccountTotalUsd, 31000);
+  assert.equal(preview.excludedFutuAssetCount, 1);
+  assert.equal(preview.excludedFutuValueUsd, 20000);
+  assert.equal(preview.detailPositionSubtotalUsd, 55760.075876818);
+  assert.ok(Math.abs(preview.detailToTargetDifferenceUsd - 1526.31) < 0.000001);
+  assert.equal(preview.firestoreWriteAllowed, false);
+  assert.equal(preview.writesPerformed, 0);
+  assert.equal(preview.status, 'review_required');
+  assert.match(
+    preview.checks.find((check) => check.code === 'WITHDRAWALS_SEPARATE')?.message ?? '',
+    /沒有從目標扣減/,
+  );
+  assert.match(
+    preview.checks.find((check) => check.code === 'CRYPTO_ACCOUNT_ONLY')?.message ?? '',
+    /排除 1 項 Futu Crypto/,
   );
 });

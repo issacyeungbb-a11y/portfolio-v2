@@ -58,6 +58,46 @@ interface CryptoSyncPreview {
       differingFields: string[];
     }>;
   };
+  assetShadow?: {
+    mode: 'shadow_preview';
+    status: 'ready' | 'review_required';
+    month: string;
+    accountSource: 'Crypto';
+    sourceReadOnly: true;
+    firestoreWriteAllowed: false;
+    writesPerformed: 0;
+    targetTotalUsd: number;
+    targetTotalHkd: number;
+    currentAccountTotalUsd: number;
+    currentAccountTotalHkd: number;
+    differenceUsd: number;
+    differenceHkd: number;
+    detailPositionSubtotalUsd: number;
+    detailToTargetDifferenceUsd: number;
+    separateWithdrawalsUsd: number;
+    usdHkdRate: number;
+    cryptoAssetCount: number;
+    excludedFutuAssetCount: number;
+    excludedFutuValueUsd: number;
+    sourceDetailRange: string;
+    positions: Array<{
+      symbol: string;
+      sourceLabel: string;
+      sourceValueUsd: number;
+      currentValueUsd: number;
+      differenceUsd: number;
+      sourceQuantity: number | null;
+      currentQuantity: number;
+      sourcePriceUsd: number | null;
+      isLiability: boolean;
+    }>;
+    checks: Array<{
+      code: string;
+      passed: boolean;
+      severity: 'info' | 'warning' | 'error';
+      message: string;
+    }>;
+  };
   readback?: {
     verified: boolean;
     snapshotMonths: string[];
@@ -295,6 +335,7 @@ export function CryptoHistoryPage() {
     try {
       const result = (await callPortfolioFunction('crypto-history-sync', {
         apply: false,
+        includeAssetShadow: true,
       })) as CryptoSyncPreview;
       setSyncPreview(result);
       setSyncMessageTone(result.conflictCount > 0 ? 'warning' : 'success');
@@ -466,12 +507,12 @@ export function CryptoHistoryPage() {
           <KpiCard
             label="月結總資產 USD"
             value={money(activeSnapshot.performanceTotalUsd, 'USD')}
-            hint="包括累計提取／消費"
+            hint="Crypto 帳戶目標總值；不扣提取／消費"
           />
           <KpiCard
-            label="現有資產淨值 USD"
+            label="試算表逐項持倉 USD"
             value={money(activeSnapshot.currentNetUsd, 'USD')}
-            hint="正資產市值減負債"
+            hint="逐項正資產減負債，待影子對數"
           />
           <KpiCard
             label="本金 HKD"
@@ -493,7 +534,7 @@ export function CryptoHistoryPage() {
           <KpiCard
             label="累計提取／消費 USD"
             value={money(activeSnapshot.cumulativeWithdrawnUsd, 'USD')}
-            hint="加入投資計算總值"
+            hint="獨立紀錄，不從總資產扣減"
           />
           <KpiCard
             label="BTC 等值"
@@ -689,6 +730,100 @@ export function CryptoHistoryPage() {
               <div><dt>審計補記</dt><dd>{syncPreview.auditCreateCount}</dd></div>
               <div><dt>鎖定差異</dt><dd>{syncPreview.conflictCount}</dd></div>
             </dl>
+            {syncPreview.assetShadow ? (
+              <section className="crypto-shadow-preview" aria-label="Crypto 帳戶影子對數預覽">
+                <div className="crypto-shadow-heading">
+                  <div>
+                    <p className="eyebrow">零寫入影子對數</p>
+                    <h3>Crypto 帳戶 ↔ {syncPreview.assetShadow.month} 月結</h3>
+                    <small>{syncPreview.assetShadow.sourceDetailRange}</small>
+                  </div>
+                  <div className="crypto-shadow-badges">
+                    <StatusBadge label="Futu 已排除" tone="success" />
+                    <StatusBadge label="Firestore 0 寫入" tone="success" />
+                    <StatusBadge
+                      label={syncPreview.assetShadow.status === 'ready' ? '可對數' : '需要核對'}
+                      tone={syncPreview.assetShadow.status === 'ready' ? 'success' : 'warning'}
+                    />
+                  </div>
+                </div>
+
+                <dl className="crypto-shadow-totals">
+                  <div>
+                    <dt>月結目標</dt>
+                    <dd>{money(syncPreview.assetShadow.targetTotalHkd, 'HKD')}</dd>
+                    <small>{money(syncPreview.assetShadow.targetTotalUsd, 'USD')}</small>
+                  </div>
+                  <div>
+                    <dt>資產頁 Crypto 帳戶現值</dt>
+                    <dd>{money(syncPreview.assetShadow.currentAccountTotalHkd, 'HKD')}</dd>
+                    <small>{money(syncPreview.assetShadow.currentAccountTotalUsd, 'USD')}</small>
+                  </div>
+                  <div data-tone={syncPreview.assetShadow.differenceHkd >= 0 ? 'positive' : 'negative'}>
+                    <dt>影子差額（目標－現值）</dt>
+                    <dd>{money(syncPreview.assetShadow.differenceHkd, 'HKD')}</dd>
+                    <small>{money(syncPreview.assetShadow.differenceUsd, 'USD')}</small>
+                  </div>
+                  <div>
+                    <dt>排除 Futu Crypto</dt>
+                    <dd>{syncPreview.assetShadow.excludedFutuAssetCount} 項</dd>
+                    <small>{money(syncPreview.assetShadow.excludedFutuValueUsd, 'USD')}，不計入以上數字</small>
+                  </div>
+                </dl>
+
+                <div className="crypto-shadow-equation">
+                  <span>月結總資產 {money(syncPreview.assetShadow.targetTotalUsd, 'USD')}</span>
+                  <strong>不扣減</strong>
+                  <span>獨立提取／消費 {money(syncPreview.assetShadow.separateWithdrawalsUsd, 'USD')}</span>
+                </div>
+
+                {Math.abs(syncPreview.assetShadow.detailToTargetDifferenceUsd) > 0.01 ? (
+                  <p className="compact-warning-note">
+                    試算表逐項持倉只合計到 {money(syncPreview.assetShadow.detailPositionSubtotalUsd, 'USD')}，
+                    較月結總資產少 {money(syncPreview.assetShadow.detailToTargetDifferenceUsd, 'USD')}。
+                    今次照你嘅定義，以 {money(syncPreview.assetShadow.targetTotalHkd, 'HKD')} 作帳戶目標，
+                    但正式逐項更新前唔會擅自將差額分配落任何幣種。
+                  </p>
+                ) : null}
+
+                <div className="crypto-shadow-table-scroll">
+                  <table className="crypto-shadow-table">
+                    <thead>
+                      <tr>
+                        <th>幣種</th>
+                        <th>月結逐項 USD</th>
+                        <th>資產頁現值 USD</th>
+                        <th>差額 USD</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {syncPreview.assetShadow.positions.map((position) => (
+                        <tr key={position.symbol}>
+                          <td>
+                            <strong>{position.symbol}</strong>
+                            {position.isLiability ? <small>已包括負債</small> : null}
+                          </td>
+                          <td>{money(position.sourceValueUsd, 'USD')}</td>
+                          <td>{money(position.currentValueUsd, 'USD')}</td>
+                          <td className={position.differenceUsd >= 0 ? 'positive-text' : 'caution-text'}>
+                            {money(position.differenceUsd, 'USD')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="crypto-shadow-checks">
+                  {syncPreview.assetShadow.checks.map((check) => (
+                    <p key={check.code} data-severity={check.severity}>
+                      <strong>{check.passed ? '✓' : '!'}</strong>
+                      <span>{check.message}</span>
+                    </p>
+                  ))}
+                </div>
+              </section>
+            ) : null}
             <div className="crypto-sync-month-list" aria-label="待確認月結預覽">
               {syncPreview.validationReport.months.map((month) => (
                 <article key={month.month} data-action={month.action}>

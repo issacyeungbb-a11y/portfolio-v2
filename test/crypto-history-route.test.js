@@ -48,6 +48,12 @@ test('manual crypto month sync reuses the protected health function', async () =
   assert.match(pageSource, /useEffect\(\(\) => \{[\s\S]*previewMonthlySync\(\)/);
   assert.match(pageSource, /待確認月結預覽/);
   assert.match(pageSource, /19 欄驗證/);
+  assert.match(pageSource, /includeAssetShadow: true/);
+  assert.match(pageSource, /Crypto 帳戶影子對數預覽/);
+  assert.match(pageSource, /Futu 已排除/);
+  assert.match(pageSource, /Firestore 0 寫入/);
+  assert.match(syncSource, /buildCryptoAssetShadowPreview/);
+  assert.match(syncSource, /includeAssetShadow/);
   assert.match(pageSource, /result\.readback\?\.verified/);
   assert.match(pageSource, /callPortfolioFunction\('crypto-history'\)/);
   assert.match(syncSource, /async function verifyAppliedSync/);
