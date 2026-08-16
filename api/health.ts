@@ -12,6 +12,10 @@ import {
 } from '../server/cryptoMonthlySync.js';
 import { readDailyJob } from '../server/dailyJobs.js';
 import {
+  parsePublicTransactionQuery,
+  readPublicPortfolioTransactions,
+} from '../server/portfolioTransactionsPublic.js';
+import {
   applyAccountValuationOverride,
   normalizeAccountValuationOverride,
 } from '../src/lib/portfolio/accountValuationOverride.js';
@@ -22,6 +26,7 @@ import {
 } from '../server/requirePortfolioAccess.js';
 
 const PUBLIC_PORTFOLIO_ROUTE = '/api/portfolio-public';
+const PUBLIC_TRANSACTIONS_ROUTE = '/api/portfolio-transactions-public';
 
 type PublicAssetRecord = {
   id: string;
@@ -80,6 +85,20 @@ function isPublicPortfolioRequest(request: ApiRequest) {
     return (
       url.pathname === PUBLIC_PORTFOLIO_ROUTE ||
       url.searchParams.get('portfolioPublic') === '1'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isPublicTransactionsRequest(request: ApiRequest) {
+  const requestUrl = request.url ?? '/api/health';
+
+  try {
+    const url = new URL(requestUrl, 'http://localhost');
+    return (
+      url.pathname === PUBLIC_TRANSACTIONS_ROUTE ||
+      url.searchParams.get('portfolioTransactionsPublic') === '1'
     );
   } catch {
     return false;
@@ -316,6 +335,52 @@ async function handlePublicPortfolioRequest(request: ApiRequest, response: ApiRe
     sendJson(response, 500, {
       ok: false,
       message: error instanceof Error ? error.message : 'Failed to load portfolio assets',
+    });
+  }
+}
+
+async function handlePublicTransactionsRequest(request: ApiRequest, response: ApiResponse) {
+  response.setHeader('Access-Control-Allow-Origin', '*');
+  response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  response.setHeader('Cache-Control', 'no-store');
+
+  if (request.method === 'OPTIONS') {
+    response.statusCode = 204;
+    response.end();
+    return;
+  }
+
+  if (request.method !== 'GET') {
+    sendJson(response, 405, {
+      ok: false,
+      message: 'Method not allowed',
+    });
+    return;
+  }
+
+  const configuredCode = getConfiguredPublicPortfolioCode();
+  const requestCode = getPublicPortfolioQueryCode(request);
+
+  if (!configuredCode || requestCode !== configuredCode) {
+    sendJson(response, 401, {
+      ok: false,
+      message: 'Unauthorized',
+    });
+    return;
+  }
+
+  try {
+    const query = parsePublicTransactionQuery(request.url ?? PUBLIC_TRANSACTIONS_ROUTE);
+    sendJson(response, 200, {
+      ok: true,
+      asOf: new Date().toISOString(),
+      ...(await readPublicPortfolioTransactions(query)),
+    });
+  } catch {
+    sendJson(response, 500, {
+      ok: false,
+      message: 'Failed to load portfolio transactions',
     });
   }
 }
@@ -981,6 +1046,11 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
+  if (isPublicTransactionsRequest(request)) {
+    await handlePublicTransactionsRequest(request, response);
+    return;
+  }
+
   if (isPublicPortfolioRequest(request)) {
     await handlePublicPortfolioRequest(request, response);
     return;

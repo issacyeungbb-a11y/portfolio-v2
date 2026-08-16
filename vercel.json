@@ -29,6 +29,10 @@
       "destination": "/api/health?portfolioPublic=1"
     },
     {
+      "source": "/api/portfolio-transactions-public",
+      "destination": "/api/health?portfolioTransactionsPublic=1"
+    },
+    {
       "source": "/((?!api/|api$|.*\\..*).*)",
       "destination": "/index.html"
     }
