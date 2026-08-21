@@ -1,7 +1,6 @@
 import {
   addDoc,
   doc,
-  getDocFromServer,
   getDocsFromServer,
   onSnapshot,
   orderBy,
@@ -18,15 +17,9 @@ import { getEffectiveHoldingPrice } from '../portfolio/priceValidity';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { callPortfolioFunction } from '../api/vercelFunctions';
 import {
-  getSharedAccountValuationOverrideDocRef,
   getSharedAssetTransactionsCollectionRef,
   getSharedAssetsCollectionRef,
 } from './sharedPortfolio';
-import {
-  applyAccountValuationOverride,
-  normalizeAccountValuationOverride,
-  type AccountValuationOverride,
-} from '../portfolio/accountValuationOverride';
 
 function createMissingConfigError() {
   return new Error(
@@ -213,22 +206,14 @@ function getPortfolioAssetsQuery() {
   return query(assetsRef, orderBy('updatedAt', 'desc'));
 }
 
-function mapServerAssetRecords(
-  rawAssets: RawPortfolioAssetRecord[],
-  override: AccountValuationOverride | null,
-  includeClosed: boolean,
-) {
-  const activeRawAssets = rawAssets.filter(
-    (asset) => !asset.archivedAt && (asset.assetType === 'cash' || asset.quantity > 0),
-  );
-  const applied = applyAccountValuationOverride(activeRawAssets, override);
-  const appliedById = new Map(applied.assets.map((asset) => [asset.id, asset]));
-  const effectiveAssets = rawAssets.map((asset) => appliedById.get(asset.id) ?? asset);
-  const holdings = effectiveAssets.map((asset) =>
+function mapLiveAssetRecords(rawAssets: RawPortfolioAssetRecord[], includeClosed: boolean) {
+  // Live portfolio screens must show each asset's persisted market quote.
+  // Monthly Crypto account overrides belong to history/reconciliation only;
+  // applying one here fabricates proportional BTC/ETH "prices" to match a
+  // locked month-end account total.
+  const holdings = rawAssets.map((asset) =>
     buildHoldingFromInput(asset.id, asset, {
-      useRawCurrentPrice: Boolean(
-        override && asset.accountSource === override.accountSource,
-      ),
+      useRawCurrentPrice: includeClosed,
     }),
   );
 
@@ -244,19 +229,13 @@ async function getPortfolioAssetsFromServerInternal(includeClosed: boolean) {
     throw createMissingConfigError();
   }
 
-  const [assetsSnapshot, overrideSnapshot] = await Promise.all([
-    getDocsFromServer(getPortfolioAssetsQuery()),
-    getDocFromServer(getSharedAccountValuationOverrideDocRef('Crypto')),
-  ]);
+  const assetsSnapshot = await getDocsFromServer(getPortfolioAssetsQuery());
   const rawAssets = assetsSnapshot.docs.map((document) => ({
     id: document.id,
     ...(document.data() as PortfolioAssetInput),
   }));
-  const override = normalizeAccountValuationOverride(
-    overrideSnapshot.exists() ? overrideSnapshot.data() as Record<string, unknown> : null,
-  );
 
-  return mapServerAssetRecords(rawAssets, override, includeClosed);
+  return mapLiveAssetRecords(rawAssets, includeClosed);
 }
 
 export function getPortfolioAssetsFromServer() {
@@ -271,17 +250,17 @@ export function subscribeToPortfolioAssets(
   onData: (holdings: Holding[], metadata?: PortfolioAssetSnapshotMetadata) => void,
   onError: (error: unknown) => void,
 ) {
-  return subscribeToAssetsWithMonthlyOverride(false, onData, onError);
+  return subscribeToLiveAssets(false, onData, onError);
 }
 
 export function subscribeToAllPortfolioAssets(
   onData: (holdings: Holding[], metadata?: PortfolioAssetSnapshotMetadata) => void,
   onError: (error: unknown) => void,
 ) {
-  return subscribeToAssetsWithMonthlyOverride(true, onData, onError);
+  return subscribeToLiveAssets(true, onData, onError);
 }
 
-function subscribeToAssetsWithMonthlyOverride(
+function subscribeToLiveAssets(
   includeClosed: boolean,
   onData: (holdings: Holding[], metadata?: PortfolioAssetSnapshotMetadata) => void,
   onError: (error: unknown) => void,
@@ -290,59 +269,19 @@ function subscribeToAssetsWithMonthlyOverride(
     throw createMissingConfigError();
   }
 
-  const assetsRef = getSharedAssetsCollectionRef();
-  const assetsQuery = query(assetsRef, orderBy('updatedAt', 'desc'));
-  const overrideRef = getSharedAccountValuationOverrideDocRef('Crypto');
-  let rawAssets: Array<PortfolioAssetInput & {
-    id: string;
-    priceAsOf?: unknown;
-    lastPriceUpdatedAt?: unknown;
-    archivedAt?: unknown;
-  }> = [];
-  let override: AccountValuationOverride | null = null;
-  let assetsReady = false;
-  let overrideReady = false;
-  let assetsFromCache = false;
-  let overrideFromCache = false;
-
-  const emit = () => {
-    if (!assetsReady || !overrideReady) return;
-    const holdings = mapServerAssetRecords(rawAssets, override, includeClosed);
-    onData(
-      holdings,
-      { fromCache: assetsFromCache || overrideFromCache },
-    );
-  };
-  const unsubscribeAssets = onSnapshot(
-    assetsQuery,
+  return onSnapshot(
+    getPortfolioAssetsQuery(),
     (snapshot) => {
-      rawAssets = snapshot.docs.map((document) => ({
+      const rawAssets = snapshot.docs.map((document) => ({
         id: document.id,
         ...(document.data() as PortfolioAssetInput),
       }));
-      assetsFromCache = snapshot.metadata.fromCache;
-      assetsReady = true;
-      emit();
+      onData(mapLiveAssetRecords(rawAssets, includeClosed), {
+        fromCache: snapshot.metadata.fromCache,
+      });
     },
     onError,
   );
-  const unsubscribeOverride = onSnapshot(
-    overrideRef,
-    (snapshot) => {
-      override = normalizeAccountValuationOverride(
-        snapshot.exists() ? snapshot.data() as Record<string, unknown> : null,
-      );
-      overrideFromCache = snapshot.metadata.fromCache;
-      overrideReady = true;
-      emit();
-    },
-    onError,
-  );
-
-  return () => {
-    unsubscribeAssets();
-    unsubscribeOverride();
-  };
 }
 
 export async function createPortfolioAsset(payload: PortfolioAssetInput) {

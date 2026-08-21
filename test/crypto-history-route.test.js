@@ -62,10 +62,14 @@ test('manual crypto month sync reuses the protected health function', async () =
   assert.match(pageSource, /帳戶總值已同步/);
   assert.match(pageSource, /確認正式同步 Crypto 帳戶/);
   assert.match(pageSource, /expectedAssetShadowChecksum/);
-  assert.match(
-    await readFile(new URL('../src/lib/firebase/assets.ts', import.meta.url), 'utf8'),
-    /activeRawAssets[\s\S]*?!asset\.archivedAt[\s\S]*?applyAccountValuationOverride\(activeRawAssets, override\)/,
+  const liveAssetReaderSource = await readFile(
+    new URL('../src/lib/firebase/assets.ts', import.meta.url),
+    'utf8',
   );
+  assert.doesNotMatch(liveAssetReaderSource, /applyAccountValuationOverride/);
+  assert.doesNotMatch(liveAssetReaderSource, /accountValuationOverrides/);
+  assert.match(liveAssetReaderSource, /mapLiveAssetRecords/);
+  assert.match(syncSource, /readAdminPortfolioAssets\(\{ applyAccountValuationOverrides: true \}\)/);
   assert.match(pageSource, /result\.readback\?\.verified/);
   assert.match(pageSource, /callPortfolioFunction\('crypto-history'\)/);
   assert.match(syncSource, /async function verifyAppliedSync/);
