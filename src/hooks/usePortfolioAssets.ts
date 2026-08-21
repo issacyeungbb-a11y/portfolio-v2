@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { Holding, PortfolioAssetInput } from '../types/portfolio';
 import {
   createPortfolioAsset,
   deletePortfolioAsset,
   getFirebaseAssetsErrorMessage,
+  getAllPortfolioAssetsFromServer,
+  getPortfolioAssetsFromServer,
   subscribeToAllPortfolioAssets,
   subscribeToPortfolioAssets,
   updatePortfolioAsset,
@@ -25,6 +27,28 @@ export function usePortfolioAssets() {
     error: null,
   });
 
+  const hasServerSnapshot = useRef(false);
+
+  const refreshFromServer = useCallback(async () => {
+    try {
+      const holdings = await getPortfolioAssetsFromServer();
+      hasServerSnapshot.current = true;
+      setState({
+        status: 'ready',
+        holdings,
+        error: null,
+      });
+    } catch (error) {
+      const message = getFirebaseAssetsErrorMessage(error);
+      setState((current) => ({
+        ...current,
+        status: current.holdings.length > 0 ? 'ready' : 'error',
+        error: message,
+      }));
+      throw new Error(message);
+    }
+  }, []);
+
   useEffect(() => {
     setState((current) => ({
       status: 'loading',
@@ -33,7 +57,11 @@ export function usePortfolioAssets() {
     }));
 
     const unsubscribe = subscribeToPortfolioAssets(
-      (holdings) => {
+      (holdings, metadata) => {
+        if (metadata?.fromCache && hasServerSnapshot.current) {
+          return;
+        }
+
         setState({
           status: 'ready',
           holdings,
@@ -49,8 +77,10 @@ export function usePortfolioAssets() {
       },
     );
 
+    void refreshFromServer().catch(() => undefined);
+
     return unsubscribe;
-  }, []);
+  }, [refreshFromServer]);
 
   async function addAsset(payload: PortfolioAssetInput) {
     try {
@@ -97,6 +127,7 @@ export function usePortfolioAssets() {
     addAsset,
     editAsset,
     removeAsset,
+    refreshFromServer,
   };
 }
 
@@ -107,6 +138,28 @@ export function useAllPortfolioAssets() {
     error: null,
   });
 
+  const hasServerSnapshot = useRef(false);
+
+  const refreshFromServer = useCallback(async () => {
+    try {
+      const holdings = await getAllPortfolioAssetsFromServer();
+      hasServerSnapshot.current = true;
+      setState({
+        status: 'ready',
+        holdings,
+        error: null,
+      });
+    } catch (error) {
+      const message = getFirebaseAssetsErrorMessage(error);
+      setState((current) => ({
+        ...current,
+        status: current.holdings.length > 0 ? 'ready' : 'error',
+        error: message,
+      }));
+      throw new Error(message);
+    }
+  }, []);
+
   useEffect(() => {
     setState((current) => ({
       status: 'loading',
@@ -115,7 +168,11 @@ export function useAllPortfolioAssets() {
     }));
 
     const unsubscribe = subscribeToAllPortfolioAssets(
-      (holdings) => {
+      (holdings, metadata) => {
+        if (metadata?.fromCache && hasServerSnapshot.current) {
+          return;
+        }
+
         setState({
           status: 'ready',
           holdings,
@@ -131,11 +188,14 @@ export function useAllPortfolioAssets() {
       },
     );
 
+    void refreshFromServer().catch(() => undefined);
+
     return unsubscribe;
-  }, []);
+  }, [refreshFromServer]);
 
   return {
     ...state,
     isEmpty: state.status === 'ready' && state.holdings.length === 0,
+    refreshFromServer,
   };
 }

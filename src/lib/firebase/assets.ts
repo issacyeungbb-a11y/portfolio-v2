@@ -1,6 +1,8 @@
 import {
   addDoc,
   doc,
+  getDocFromServer,
+  getDocsFromServer,
   onSnapshot,
   orderBy,
   query,
@@ -195,15 +197,85 @@ export function getFirebaseAssetsErrorMessage(error?: unknown) {
   return '讀取或寫入資產資料失敗，請稍後再試。';
 }
 
+interface PortfolioAssetSnapshotMetadata {
+  fromCache: boolean;
+}
+
+type RawPortfolioAssetRecord = PortfolioAssetInput & {
+  id: string;
+  priceAsOf?: unknown;
+  lastPriceUpdatedAt?: unknown;
+  archivedAt?: unknown;
+};
+
+function getPortfolioAssetsQuery() {
+  const assetsRef = getSharedAssetsCollectionRef();
+  return query(assetsRef, orderBy('updatedAt', 'desc'));
+}
+
+function mapServerAssetRecords(
+  rawAssets: RawPortfolioAssetRecord[],
+  override: AccountValuationOverride | null,
+  includeClosed: boolean,
+) {
+  const activeRawAssets = rawAssets.filter(
+    (asset) => !asset.archivedAt && (asset.assetType === 'cash' || asset.quantity > 0),
+  );
+  const applied = applyAccountValuationOverride(activeRawAssets, override);
+  const appliedById = new Map(applied.assets.map((asset) => [asset.id, asset]));
+  const effectiveAssets = rawAssets.map((asset) => appliedById.get(asset.id) ?? asset);
+  const holdings = effectiveAssets.map((asset) =>
+    buildHoldingFromInput(asset.id, asset, {
+      useRawCurrentPrice: Boolean(
+        override && asset.accountSource === override.accountSource,
+      ),
+    }),
+  );
+
+  return includeClosed
+    ? holdings
+    : holdings.filter(
+        (holding) => !holding.archivedAt && !isClosedNonCashPosition(holding),
+      );
+}
+
+async function getPortfolioAssetsFromServerInternal(includeClosed: boolean) {
+  if (!hasFirebaseConfig) {
+    throw createMissingConfigError();
+  }
+
+  const [assetsSnapshot, overrideSnapshot] = await Promise.all([
+    getDocsFromServer(getPortfolioAssetsQuery()),
+    getDocFromServer(getSharedAccountValuationOverrideDocRef('Crypto')),
+  ]);
+  const rawAssets = assetsSnapshot.docs.map((document) => ({
+    id: document.id,
+    ...(document.data() as PortfolioAssetInput),
+  }));
+  const override = normalizeAccountValuationOverride(
+    overrideSnapshot.exists() ? overrideSnapshot.data() as Record<string, unknown> : null,
+  );
+
+  return mapServerAssetRecords(rawAssets, override, includeClosed);
+}
+
+export function getPortfolioAssetsFromServer() {
+  return getPortfolioAssetsFromServerInternal(false);
+}
+
+export function getAllPortfolioAssetsFromServer() {
+  return getPortfolioAssetsFromServerInternal(true);
+}
+
 export function subscribeToPortfolioAssets(
-  onData: (holdings: Holding[]) => void,
+  onData: (holdings: Holding[], metadata?: PortfolioAssetSnapshotMetadata) => void,
   onError: (error: unknown) => void,
 ) {
   return subscribeToAssetsWithMonthlyOverride(false, onData, onError);
 }
 
 export function subscribeToAllPortfolioAssets(
-  onData: (holdings: Holding[]) => void,
+  onData: (holdings: Holding[], metadata?: PortfolioAssetSnapshotMetadata) => void,
   onError: (error: unknown) => void,
 ) {
   return subscribeToAssetsWithMonthlyOverride(true, onData, onError);
@@ -211,7 +283,7 @@ export function subscribeToAllPortfolioAssets(
 
 function subscribeToAssetsWithMonthlyOverride(
   includeClosed: boolean,
-  onData: (holdings: Holding[]) => void,
+  onData: (holdings: Holding[], metadata?: PortfolioAssetSnapshotMetadata) => void,
   onError: (error: unknown) => void,
 ) {
   if (!hasFirebaseConfig) {
@@ -230,28 +302,15 @@ function subscribeToAssetsWithMonthlyOverride(
   let override: AccountValuationOverride | null = null;
   let assetsReady = false;
   let overrideReady = false;
+  let assetsFromCache = false;
+  let overrideFromCache = false;
 
   const emit = () => {
     if (!assetsReady || !overrideReady) return;
-    const activeRawAssets = rawAssets.filter(
-      (asset) => !asset.archivedAt && (asset.assetType === 'cash' || asset.quantity > 0),
-    );
-    const applied = applyAccountValuationOverride(activeRawAssets, override);
-    const appliedById = new Map(applied.assets.map((asset) => [asset.id, asset]));
-    const effectiveAssets = rawAssets.map((asset) => appliedById.get(asset.id) ?? asset);
-    const holdings = effectiveAssets.map((asset) =>
-      buildHoldingFromInput(asset.id, asset, {
-        useRawCurrentPrice: Boolean(
-          override && asset.accountSource === override.accountSource,
-        ),
-      }),
-    );
+    const holdings = mapServerAssetRecords(rawAssets, override, includeClosed);
     onData(
-      includeClosed
-        ? holdings
-        : holdings.filter(
-            (holding) => !holding.archivedAt && !isClosedNonCashPosition(holding),
-          ),
+      holdings,
+      { fromCache: assetsFromCache || overrideFromCache },
     );
   };
   const unsubscribeAssets = onSnapshot(
@@ -261,6 +320,7 @@ function subscribeToAssetsWithMonthlyOverride(
         id: document.id,
         ...(document.data() as PortfolioAssetInput),
       }));
+      assetsFromCache = snapshot.metadata.fromCache;
       assetsReady = true;
       emit();
     },
@@ -272,6 +332,7 @@ function subscribeToAssetsWithMonthlyOverride(
       override = normalizeAccountValuationOverride(
         snapshot.exists() ? snapshot.data() as Record<string, unknown> : null,
       );
+      overrideFromCache = snapshot.metadata.fromCache;
       overrideReady = true;
       emit();
     },

@@ -269,10 +269,12 @@ export function AssetsPage() {
     isEmpty,
     editAsset,
     removeAsset,
+    refreshFromServer: refreshPortfolioAssets,
   } = usePortfolioAssets();
   const {
     holdings: allPortfolioHoldings,
     error: allPortfolioHoldingsError,
+    refreshFromServer: refreshAllPortfolioAssets,
   } = useAllPortfolioAssets();
   const { entries: accountPrincipals, error: accountPrincipalsError } = useAccountPrincipals();
   const { entries: accountCashFlows, error: accountCashFlowsError } = useAccountCashFlows();
@@ -313,6 +315,9 @@ export function AssetsPage() {
   const [overridingAssetIds, setOverridingAssetIds] = useState<string[]>([]);
   const [reviewActionError, setReviewActionError] = useState<string | null>(null);
   const [reviewActionSuccess, setReviewActionSuccess] = useState<string | null>(null);
+  const [isRefreshingAssets, setIsRefreshingAssets] = useState(false);
+  const [assetRefreshError, setAssetRefreshError] = useState<string | null>(null);
+  const [assetRefreshSuccess, setAssetRefreshSuccess] = useState<string | null>(null);
   const [isGeneratingManualSnapshot, setIsGeneratingManualSnapshot] = useState(false);
   const [manualSnapshotError, setManualSnapshotError] = useState<string | null>(null);
   const [manualSnapshotSuccess, setManualSnapshotSuccess] = useState<string | null>(null);
@@ -535,6 +540,23 @@ export function AssetsPage() {
     }
   }
 
+  async function handleRefreshAssets() {
+    setAssetRefreshError(null);
+    setAssetRefreshSuccess(null);
+    setIsRefreshingAssets(true);
+
+    try {
+      await Promise.all([refreshPortfolioAssets(), refreshAllPortfolioAssets()]);
+      setAssetRefreshSuccess('已從伺服器重新讀取資產資料，總資產已重新計算。');
+    } catch (error) {
+      setAssetRefreshError(
+        error instanceof Error ? error.message : '重新讀取資產資料失敗，請稍後再試。',
+      );
+    } finally {
+      setIsRefreshingAssets(false);
+    }
+  }
+
   async function handleEditHolding(payload: PortfolioAssetInput) {
     if (!editingHolding) {
       return;
@@ -718,6 +740,14 @@ export function AssetsPage() {
           >
             {isUpdatingAllPrices ? '更新中...' : '更新現時及歷史資產價格'}
           </button>
+          <button
+            className="button button-secondary"
+            type="button"
+            onClick={handleRefreshAssets}
+            disabled={isRefreshingAssets}
+          >
+            {isRefreshingAssets ? '重新讀取中...' : '重新同步資產資料'}
+          </button>
           <details className="assets-secondary-actions">
             <summary>更多操作</summary>
             <div className="button-row">
@@ -742,6 +772,9 @@ export function AssetsPage() {
           </details>
         </div>
       </section>
+
+      {assetRefreshError ? <p className="status-message status-message-error">{assetRefreshError}</p> : null}
+      {assetRefreshSuccess ? <p className="status-message status-message-success">{assetRefreshSuccess}</p> : null}
 
       <section className="card">
         <div className="section-heading">
