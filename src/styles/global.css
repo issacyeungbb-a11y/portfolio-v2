@@ -3186,6 +3186,90 @@ h3 {
   overflow: hidden;
 }
 
+.holdings-collapse-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.65rem 0.72rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.holdings-collapse-toolbar p {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.asset-cell-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.55rem;
+}
+
+.holding-collapse-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-height: 1.9rem;
+  padding: 0.3rem 0.52rem;
+  border: 1px solid rgba(118, 96, 77, 0.14);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.66);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.holding-collapse-toggle span {
+  color: var(--accent);
+  font-size: 0.92rem;
+  line-height: 1;
+}
+
+.holding-row-collapsed td {
+  padding-block: 0.48rem;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.holding-collapsed-summary {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1.2fr) minmax(18rem, 2fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.holding-collapsed-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(5rem, 1fr));
+  gap: 0.65rem;
+}
+
+.holding-collapsed-metrics span {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.holding-collapsed-metrics small {
+  color: var(--text-subtle);
+  font-size: 0.68rem;
+}
+
+.holding-collapsed-metrics strong {
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .table-scroll {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -3612,6 +3696,35 @@ h3 {
 
   .allocation-detail-panel {
     padding: 0.88rem;
+  }
+
+  .holdings-collapse-toolbar {
+    align-items: stretch;
+  }
+
+  .holdings-collapse-toolbar p {
+    flex: 1 1 12rem;
+  }
+
+  .holdings-collapse-toolbar .button {
+    flex: 0 0 auto;
+  }
+
+  .holding-collapsed-summary {
+    position: sticky;
+    left: 0;
+    grid-template-columns: minmax(8rem, 1fr) auto;
+    width: calc(100vw - 3.9rem);
+  }
+
+  .holding-collapsed-metrics {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .holding-collapsed-summary .holding-collapse-toggle {
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .portfolio-allocation-heading {
