@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 import {
   convertCurrency,
@@ -47,36 +47,6 @@ export function HoldingsTable({
 }: HoldingsTableProps) {
   const [sortKey, setSortKey] = useState<HoldingsSortKey>('marketValue');
   const [sortDirection, setSortDirection] = useState<HoldingsSortDirection>('desc');
-  const [collapsedHoldingIds, setCollapsedHoldingIds] = useState<string[]>([]);
-  const collapsedHoldingIdSet = useMemo(
-    () => new Set(collapsedHoldingIds),
-    [collapsedHoldingIds],
-  );
-  const visibleHoldingIds = useMemo(
-    () => holdings.map((holding) => holding.id),
-    [holdings],
-  );
-  const allHoldingsCollapsed =
-    holdings.length > 0 && holdings.every((holding) => collapsedHoldingIdSet.has(holding.id));
-
-  function toggleHoldingCollapsed(holdingId: string) {
-    setCollapsedHoldingIds((current) =>
-      current.includes(holdingId)
-        ? current.filter((id) => id !== holdingId)
-        : [...current, holdingId],
-    );
-  }
-
-  function toggleAllHoldingsCollapsed() {
-    setCollapsedHoldingIds((current) => {
-      if (allHoldingsCollapsed) {
-        const visibleHoldingIdSet = new Set(visibleHoldingIds);
-        return current.filter((id) => !visibleHoldingIdSet.has(id));
-      }
-
-      return [...new Set([...current, ...visibleHoldingIds])];
-    });
-  }
 
   function handleSort(nextKey: HoldingsSortKey) {
     if (sortKey === nextKey) {
@@ -175,18 +145,6 @@ export function HoldingsTable({
 
   return (
     <div className="holdings-table-shell">
-      <div className="holdings-collapse-toolbar">
-        <p>每項資產都可以獨立縮小，只保留最重要資料。</p>
-        <button
-          className="button button-secondary button-sm"
-          type="button"
-          onClick={toggleAllHoldingsCollapsed}
-          disabled={holdings.length === 0}
-          aria-expanded={!allHoldingsCollapsed}
-        >
-          {allHoldingsCollapsed ? '全部展開' : '全部縮小'}
-        </button>
-      </div>
       <div className="table-scroll">
         <table className="holdings-table">
           <thead>
@@ -263,69 +221,13 @@ export function HoldingsTable({
               const marketValue = getHoldingValueInCurrency(holding, displayCurrency);
               const costValue = getHoldingCostInCurrency(holding, displayCurrency);
               const isCashHolding = holding.assetType === 'cash';
-              const isCollapsed = collapsedHoldingIdSet.has(holding.id);
-
-              if (isCollapsed) {
-                return (
-                  <tr key={holding.id} className="holding-row-collapsed">
-                    <td colSpan={8}>
-                      <div className="holding-collapsed-summary">
-                        <div className="asset-primary">
-                          <strong>{holding.name}</strong>
-                          <span>{holding.symbol}</span>
-                        </div>
-                        <div className="holding-collapsed-metrics">
-                          <span>
-                            <small>市值</small>
-                            <strong>
-                              {hasPendingPrice
-                                ? '待更新'
-                                : formatCurrencyRounded(marketValue, displayCurrency)}
-                            </strong>
-                          </span>
-                          <span>
-                            <small>比重</small>
-                            <strong>{Math.round(holding.allocation)}%</strong>
-                          </span>
-                          <span>
-                            <small>帳戶</small>
-                            <strong>{getAccountSourceLabel(holding.accountSource)}</strong>
-                          </span>
-                        </div>
-                        <button
-                          className="holding-collapse-toggle"
-                          type="button"
-                          onClick={() => toggleHoldingCollapsed(holding.id)}
-                          aria-expanded="false"
-                          aria-label={`展開 ${holding.name}`}
-                        >
-                          <span aria-hidden="true">＋</span>
-                          展開
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              }
 
               return (
                 <tr key={holding.id}>
                   <td className="asset-cell asset-cell-sticky table-column-label">
-                    <div className="asset-cell-heading">
-                      <div className="asset-primary">
-                        <strong>{holding.name}</strong>
-                        <span>{holding.symbol}</span>
-                      </div>
-                      <button
-                        className="holding-collapse-toggle"
-                        type="button"
-                        onClick={() => toggleHoldingCollapsed(holding.id)}
-                        aria-expanded="true"
-                        aria-label={`縮小 ${holding.name}`}
-                      >
-                        <span aria-hidden="true">−</span>
-                        縮小
-                      </button>
+                    <div className="asset-primary">
+                      <strong>{holding.name}</strong>
+                      <span>{holding.symbol}</span>
                     </div>
                   </td>
                   <td className="table-column-numeric">

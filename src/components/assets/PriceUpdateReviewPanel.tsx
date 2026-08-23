@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { AssetSectionCollapseButton } from './AssetSectionCollapseButton';
 import {
   formatCurrency,
   formatPercent,
@@ -18,6 +19,8 @@ interface PriceUpdateReviewPanelProps {
   overridingAssetIds: string[];
   actionError: string | null;
   actionSuccess: string | null;
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
 function getFailureCategoryLabel(category?: PendingPriceUpdateReview['failureCategory']) {
@@ -50,6 +53,8 @@ export function PriceUpdateReviewPanel({
   overridingAssetIds,
   actionError,
   actionSuccess,
+  isCollapsed,
+  onToggleCollapsed,
 }: PriceUpdateReviewPanelProps) {
   const [editingIds, setEditingIds] = useState<string[]>([]);
   const [priceInputs, setPriceInputs] = useState<Record<string, string>>({});
@@ -81,20 +86,32 @@ export function PriceUpdateReviewPanel({
   }
 
   return (
-    <section className="card">
+    <section className={`card asset-section-collapsible${isCollapsed ? ' asset-section-collapsed' : ''}`}>
       <div className="section-heading">
         <div>
           <p className="eyebrow">價格審查</p>
           <h2>需要人工確認</h2>
-          <p className="table-hint">有效價格會即時寫入資產。以下為仍需人工處理的項目。</p>
+          {!isCollapsed ? (
+            <p className="table-hint">有效價格會即時寫入資產。以下為仍需人工處理的項目。</p>
+          ) : null}
         </div>
-        <span className="chip chip-strong">{reviews.length} 項待處理</span>
+        <div className="asset-section-heading-actions">
+          <span className="chip chip-strong">{reviews.length} 項待處理</span>
+          <AssetSectionCollapseButton
+            sectionLabel="價格審查"
+            isCollapsed={isCollapsed}
+            controls="price-review-content"
+            onToggle={onToggleCollapsed}
+          />
+        </div>
       </div>
 
-      {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}
-      {actionSuccess ? <p className="status-message status-message-success">{actionSuccess}</p> : null}
+      {!isCollapsed ? (
+        <div id="price-review-content" className="asset-section-content">
+          {actionError ? <p className="status-message status-message-error">{actionError}</p> : null}
+          {actionSuccess ? <p className="status-message status-message-success">{actionSuccess}</p> : null}
 
-      <div className="extract-preview-list">
+          <div className="extract-preview-list">
         {reviews.map((review) => {
           const isConfirming = confirmingAssetIds.includes(review.assetId);
           const isDismissing = dismissingAssetIds.includes(review.assetId);
@@ -275,7 +292,9 @@ export function PriceUpdateReviewPanel({
             </article>
           );
         })}
-      </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

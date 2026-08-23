@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { AssetInputForm } from '../components/assets/AssetInputForm';
+import { AssetSectionCollapseButton } from '../components/assets/AssetSectionCollapseButton';
 import { PortfolioAllocationChart } from '../components/assets/PortfolioAllocationChart';
 import { PriceUpdateReviewPanel } from '../components/assets/PriceUpdateReviewPanel';
 import { TransactionInputPanel } from '../components/transactions/TransactionInputPanel';
@@ -51,6 +52,7 @@ import type { PendingPriceUpdateReview } from '../types/priceUpdates';
 
 const ASSET_ARCHIVE_TRANSACTION_LIMIT = 1000;
 const CASH_LEDGER_ACCOUNTS: AccountSource[] = ['IB', 'Futu', 'Crypto'];
+type CollapsibleAssetSection = 'allocation' | 'holdings' | 'closedAssets' | 'priceReviews';
 
 interface CashLedgerEntry {
   id: string;
@@ -301,6 +303,7 @@ export function AssetsPage() {
   const [accountFilter, setAccountFilter] = useState<AccountSource | 'all'>('all');
   const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [collapsedAssetSections, setCollapsedAssetSections] = useState<CollapsibleAssetSection[]>([]);
   const [editingHolding, setEditingHolding] = useState<Holding | null>(null);
   const [tradingHolding, setTradingHolding] = useState<Holding | null>(null);
   const [cashLedgerAccount, setCashLedgerAccount] = useState<AccountSource | null>(null);
@@ -321,6 +324,19 @@ export function AssetsPage() {
   const [isGeneratingManualSnapshot, setIsGeneratingManualSnapshot] = useState(false);
   const [manualSnapshotError, setManualSnapshotError] = useState<string | null>(null);
   const [manualSnapshotSuccess, setManualSnapshotSuccess] = useState<string | null>(null);
+  const collapsedAssetSectionSet = useMemo(
+    () => new Set(collapsedAssetSections),
+    [collapsedAssetSections],
+  );
+
+  function toggleAssetSection(section: CollapsibleAssetSection) {
+    setCollapsedAssetSections((current) =>
+      current.includes(section)
+        ? current.filter((item) => item !== section)
+        : [...current, section],
+    );
+  }
+
   const {
     isUpdatingAllPrices,
     updatingAssetIds,
@@ -721,7 +737,12 @@ export function AssetsPage() {
         </div>
       </section>
 
-      <PortfolioAllocationChart holdings={holdings} displayCurrency={displayCurrency} />
+      <PortfolioAllocationChart
+        holdings={holdings}
+        displayCurrency={displayCurrency}
+        isCollapsed={collapsedAssetSectionSet.has('allocation')}
+        onToggleCollapsed={() => toggleAssetSection('allocation')}
+      />
 
       <section className="card assets-toolbar assets-status-strip" id="price-actions">
         <p className="table-hint" style={{ margin: 0 }}>
@@ -776,24 +797,34 @@ export function AssetsPage() {
       {assetRefreshError ? <p className="status-message status-message-error">{assetRefreshError}</p> : null}
       {assetRefreshSuccess ? <p className="status-message status-message-success">{assetRefreshSuccess}</p> : null}
 
-      <section className="card">
+      <section className={`card asset-section-collapsible${collapsedAssetSectionSet.has('holdings') ? ' asset-section-collapsed' : ''}`}>
         <div className="section-heading">
           <div>
             <h2>全部持倉</h2>
           </div>
-          <span className={status === 'error' ? 'chip chip-strong' : 'chip chip-soft'}>
-            {status === 'loading'
-              ? '資料同步中'
-              : status === 'error'
-                ? '連接失敗'
-                : '已連接'}
-          </span>
+          <div className="asset-section-heading-actions">
+            <span className={status === 'error' ? 'chip chip-strong' : 'chip chip-soft'}>
+              {status === 'loading'
+                ? '資料同步中'
+                : status === 'error'
+                  ? '連接失敗'
+                  : '已連接'}
+            </span>
+            <AssetSectionCollapseButton
+              sectionLabel="全部持倉"
+              isCollapsed={collapsedAssetSectionSet.has('holdings')}
+              controls="all-holdings-content"
+              onToggle={() => toggleAssetSection('holdings')}
+            />
+          </div>
         </div>
 
-        {error ? <p className="status-message status-message-error">{error}</p> : null}
-        {isEmpty ? (
-          <p className="status-message">尚未有資產</p>
-        ) : null}
+        {!collapsedAssetSectionSet.has('holdings') ? (
+          <div id="all-holdings-content" className="asset-section-content">
+            {error ? <p className="status-message status-message-error">{error}</p> : null}
+            {isEmpty ? (
+              <p className="status-message">尚未有資產</p>
+            ) : null}
 
         {isFilterPanelOpen ? (
           <div className="assets-filter-panel">
@@ -837,44 +868,58 @@ export function AssetsPage() {
           </div>
         ) : null}
 
-        <HoldingsTable
-          holdings={filteredHoldings}
-          displayCurrency={displayCurrency}
-          onEdit={(holding) => {
-            setSaveError(null);
-            setEditingHolding(holding);
-          }}
-          onTrade={(holding) => {
-            setTradingHolding(holding);
-          }}
-          onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
-          onViewCashLedger={(holding) => {
-            setCashLedgerAccount(
-              CASH_LEDGER_ACCOUNTS.includes(holding.accountSource)
-                ? holding.accountSource
-                : 'Futu',
-            );
-          }}
-          updatingAssetIds={updatingAssetIds}
-          pendingPriceUpdateReasons={pendingPriceUpdateReasons}
-        />
+            <HoldingsTable
+              holdings={filteredHoldings}
+              displayCurrency={displayCurrency}
+              onEdit={(holding) => {
+                setSaveError(null);
+                setEditingHolding(holding);
+              }}
+              onTrade={(holding) => {
+                setTradingHolding(holding);
+              }}
+              onUpdatePrice={(holding) => handleRunPriceUpdates([holding])}
+              onViewCashLedger={(holding) => {
+                setCashLedgerAccount(
+                  CASH_LEDGER_ACCOUNTS.includes(holding.accountSource)
+                    ? holding.accountSource
+                    : 'Futu',
+                );
+              }}
+              updatingAssetIds={updatingAssetIds}
+              pendingPriceUpdateReasons={pendingPriceUpdateReasons}
+            />
+          </div>
+        ) : null}
       </section>
 
-      <section className="card">
+      <section className={`card asset-section-collapsible${collapsedAssetSectionSet.has('closedAssets') ? ' asset-section-collapsed' : ''}`}>
         <div className="section-heading">
           <div>
             <p className="eyebrow">清倉檔案</p>
             <h2>已清倉資產</h2>
-            <p className="table-hint">
-              從最近 {ASSET_ARCHIVE_TRANSACTION_LIMIT} 筆交易自動找出最後持倉數量為 0 的資產，方便翻查賣出金額及已實現盈虧。
-            </p>
+            {!collapsedAssetSectionSet.has('closedAssets') ? (
+              <p className="table-hint">
+                從最近 {ASSET_ARCHIVE_TRANSACTION_LIMIT} 筆交易自動找出最後持倉數量為 0 的資產，方便翻查賣出金額及已實現盈虧。
+              </p>
+            ) : null}
           </div>
-          <span className="chip chip-soft">
-            {closedAssetArchiveEntries.length} 項
-          </span>
+          <div className="asset-section-heading-actions">
+            <span className="chip chip-soft">
+              {closedAssetArchiveEntries.length} 項
+            </span>
+            <AssetSectionCollapseButton
+              sectionLabel="已清倉資產"
+              isCollapsed={collapsedAssetSectionSet.has('closedAssets')}
+              controls="closed-assets-content"
+              onToggle={() => toggleAssetSection('closedAssets')}
+            />
+          </div>
         </div>
 
-        {closedAssetArchiveEntries.length > 0 ? (
+        {!collapsedAssetSectionSet.has('closedAssets') ? (
+          <div id="closed-assets-content" className="asset-section-content">
+            {closedAssetArchiveEntries.length > 0 ? (
           <>
             <div className="summary-grid summary-grid-secondary">
               <SummaryCard
@@ -920,11 +965,13 @@ export function AssetsPage() {
               ))}
             </div>
           </>
-        ) : (
-          <p className="status-message">
-            暫時未搵到已清倉資產；之後有資產賣出至 0 股/單位，就會自動出現在這裡。
-          </p>
-        )}
+            ) : (
+              <p className="status-message">
+                暫時未搵到已清倉資產；之後有資產賣出至 0 股/單位，就會自動出現在這裡。
+              </p>
+            )}
+          </div>
+        ) : null}
       </section>
 
       {selectedClosedAsset ? (
@@ -1258,6 +1305,8 @@ export function AssetsPage() {
           overridingAssetIds={overridingAssetIds}
           actionError={reviewActionError}
           actionSuccess={reviewActionSuccess}
+          isCollapsed={collapsedAssetSectionSet.has('priceReviews')}
+          onToggleCollapsed={() => toggleAssetSection('priceReviews')}
         />
       </div>
 

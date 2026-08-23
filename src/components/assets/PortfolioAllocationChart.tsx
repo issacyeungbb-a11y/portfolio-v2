@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 
+import { AssetSectionCollapseButton } from './AssetSectionCollapseButton';
 import { formatCurrencyRounded } from '../../lib/currency';
 import {
   buildAccountAllocationSlices,
@@ -20,6 +21,8 @@ import type {
 interface PortfolioAllocationChartProps {
   holdings: Holding[];
   displayCurrency: DisplayCurrency;
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
 }
 
 type AllocationMode = 'assetType' | 'account';
@@ -53,6 +56,8 @@ function getHoldingContext(holding: AllocationHolding, mode: AllocationMode) {
 export function PortfolioAllocationChart({
   holdings,
   displayCurrency,
+  isCollapsed,
+  onToggleCollapsed,
 }: PortfolioAllocationChartProps) {
   const [mode, setMode] = useState<AllocationMode>('assetType');
   const [selectedKeys, setSelectedKeys] = useState<Partial<Record<AllocationMode, string>>>({});
@@ -98,39 +103,54 @@ export function PortfolioAllocationChart({
   }
 
   return (
-    <article className="card portfolio-allocation-card" aria-labelledby="portfolio-allocation-title">
+    <article
+      className={`card portfolio-allocation-card asset-section-collapsible${isCollapsed ? ' asset-section-collapsed' : ''}`}
+      aria-labelledby="portfolio-allocation-title"
+    >
       <div className="portfolio-allocation-heading">
         <div>
           <p className="eyebrow">Portfolio allocation</p>
           <h2 id="portfolio-allocation-title">資產配置全景</h2>
-          <p className="table-hint">
-            以即時市值顯示完整組合；選擇分類後可逐項查看資產、帳戶來源及整體佔比。
-          </p>
+          {!isCollapsed ? (
+            <p className="table-hint">
+              以即時市值顯示完整組合；選擇分類後可逐項查看資產、帳戶來源及整體佔比。
+            </p>
+          ) : null}
         </div>
-        <div className="allocation-mode-toggle" role="tablist" aria-label="資產配置分類方式">
-          <button
-            className={mode === 'assetType' ? 'active' : ''}
-            type="button"
-            role="tab"
-            aria-selected={mode === 'assetType'}
-            onClick={() => setMode('assetType')}
-          >
-            按資產種類
-          </button>
-          <button
-            className={mode === 'account' ? 'active' : ''}
-            type="button"
-            role="tab"
-            aria-selected={mode === 'account'}
-            onClick={() => setMode('account')}
-          >
-            按帳戶
-          </button>
+        <div className="asset-section-heading-actions">
+          {!isCollapsed ? (
+            <div className="allocation-mode-toggle" role="tablist" aria-label="資產配置分類方式">
+              <button
+                className={mode === 'assetType' ? 'active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={mode === 'assetType'}
+                onClick={() => setMode('assetType')}
+              >
+                按資產種類
+              </button>
+              <button
+                className={mode === 'account' ? 'active' : ''}
+                type="button"
+                role="tab"
+                aria-selected={mode === 'account'}
+                onClick={() => setMode('account')}
+              >
+                按帳戶
+              </button>
+            </div>
+          ) : null}
+          <AssetSectionCollapseButton
+            sectionLabel="資產配置全景"
+            isCollapsed={isCollapsed}
+            controls="portfolio-allocation-content"
+            onToggle={onToggleCollapsed}
+          />
         </div>
       </div>
 
-      {selectedSlice ? (
-        <>
+      {!isCollapsed && selectedSlice ? (
+        <div id="portfolio-allocation-content" className="portfolio-allocation-content">
           <div className="portfolio-allocation-overview">
             <div className="portfolio-allocation-donut-column">
               <div
@@ -261,10 +281,10 @@ export function PortfolioAllocationChart({
               })}
             </div>
           </section>
-        </>
-      ) : (
+        </div>
+      ) : !isCollapsed ? (
         <p className="status-message">加入資產後，這裡會自動建立資產種類及帳戶分佈圖。</p>
-      )}
+      ) : null}
     </article>
   );
 }
