@@ -20,7 +20,7 @@
     "gen-freshness": "node scripts/gen-price-freshness.mjs"
   },
   "dependencies": {
-    "@google/genai": "^1.52.0",
+    "@google/genai": "^2.24.0",
     "firebase": "^12.19.0",
     "firebase-admin": "^14.5.0",
     "jspdf": "^4.2.1",
