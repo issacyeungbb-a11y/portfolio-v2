@@ -31,8 +31,8 @@ export default defineConfig(({ mode }) => {
 
               if (requestUrl.searchParams.get('mode') === 'crypto-sync') {
                 try {
-                  const { requirePortfolioAccess } = await import('./server/requirePortfolioAccess');
-                  const { runCryptoMonthlySync } = await import('./server/cryptoMonthlySync');
+                  const { requirePortfolioAccess } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
+                  const { runCryptoMonthlySync } = await server.ssrLoadModule('/server/cryptoMonthlySync.ts');
                   await requirePortfolioAccess(request, '/api/health');
                   const body = (await readJsonBody(request)) as {
                     apply?: boolean;
@@ -49,7 +49,7 @@ export default defineConfig(({ mode }) => {
                   const {
                     getPortfolioAccessErrorResponse,
                     isPortfolioAccessError,
-                  } = await import('./server/requirePortfolioAccess');
+                  } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
                   if (isPortfolioAccessError(error)) {
                     const authError = getPortfolioAccessErrorResponse(error, '/api/health');
                     sendJson(response, authError.status, {
@@ -59,9 +59,7 @@ export default defineConfig(({ mode }) => {
                     return;
                   }
 
-                  const { getCryptoMonthlySyncErrorResponse } = await import(
-                    './server/cryptoMonthlySync'
-                  );
+                  const { getCryptoMonthlySyncErrorResponse } = await server.ssrLoadModule('/server/cryptoMonthlySync.ts');
                   const formatted = getCryptoMonthlySyncErrorResponse(error);
                   sendJson(response, formatted.status, {
                     route: '/api/health',
@@ -77,8 +75,8 @@ export default defineConfig(({ mode }) => {
 
               if (requestUrl.searchParams.get('mode') === 'crypto-history') {
                 try {
-                  const { requirePortfolioAccess } = await import('./server/requirePortfolioAccess');
-                  const { readCryptoHistory } = await import('./server/cryptoHistory');
+                  const { requirePortfolioAccess } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
+                  const { readCryptoHistory } = await server.ssrLoadModule('/server/cryptoHistory.ts');
                   await requirePortfolioAccess(request, '/api/health');
                   sendJson(response, 200, {
                     ok: true,
@@ -90,7 +88,7 @@ export default defineConfig(({ mode }) => {
                   const {
                     getPortfolioAccessErrorResponse,
                     isPortfolioAccessError,
-                  } = await import('./server/requirePortfolioAccess');
+                  } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
                   if (isPortfolioAccessError(error)) {
                     const authError = getPortfolioAccessErrorResponse(
                       error,
@@ -116,7 +114,7 @@ export default defineConfig(({ mode }) => {
                 return;
               }
 
-              const { buildHealthResponse } = await import('./src/lib/api/mockFunctionResponses');
+              const { buildHealthResponse } = await server.ssrLoadModule('/src/lib/api/mockFunctionResponses.ts');
               sendJson(response, 200, buildHealthResponse());
               return;
             }
@@ -127,11 +125,11 @@ export default defineConfig(({ mode }) => {
                   getPortfolioAccessErrorResponse,
                   isPortfolioAccessError,
                   requirePortfolioAccess,
-                } = await import('./server/requirePortfolioAccess');
+                } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
                 const {
                   extractAssetsFromScreenshot,
                   getExtractAssetsErrorResponse,
-                } = await import('./server/extractAssets');
+                } = await server.ssrLoadModule('/server/extractAssets.ts');
                 await requirePortfolioAccess(request, '/api/extract-assets');
                 const body = await readJsonBody(request);
                 const result = await extractAssetsFromScreenshot(body);
@@ -140,14 +138,14 @@ export default defineConfig(({ mode }) => {
                 const {
                   getPortfolioAccessErrorResponse,
                   isPortfolioAccessError,
-                } = await import('./server/requirePortfolioAccess');
+                } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
                 if (isPortfolioAccessError(error)) {
                   const authError = getPortfolioAccessErrorResponse(error, '/api/extract-assets');
                   sendJson(response, authError.status, authError.body);
                   return;
                 }
 
-                const { getExtractAssetsErrorResponse } = await import('./server/extractAssets');
+                const { getExtractAssetsErrorResponse } = await server.ssrLoadModule('/server/extractAssets.ts');
                 const formatted = getExtractAssetsErrorResponse(error);
                 sendJson(response, formatted.status, formatted.body);
               }
@@ -160,11 +158,11 @@ export default defineConfig(({ mode }) => {
                   getPortfolioAccessErrorResponse,
                   isPortfolioAccessError,
                   requirePortfolioAccess,
-                } = await import('./server/requirePortfolioAccess');
+                } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
                 const {
                   generatePriceUpdates,
                   getUpdatePricesErrorResponse,
-                } = await import('./server/updatePrices');
+                } = await server.ssrLoadModule('/server/updatePrices.ts');
                 await requirePortfolioAccess(request, '/api/update-prices');
                 const body = await readJsonBody(request);
                 const result = await generatePriceUpdates(body);
@@ -173,14 +171,14 @@ export default defineConfig(({ mode }) => {
                 const {
                   getPortfolioAccessErrorResponse,
                   isPortfolioAccessError,
-                } = await import('./server/requirePortfolioAccess');
+                } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
                 if (isPortfolioAccessError(error)) {
                   const authError = getPortfolioAccessErrorResponse(error, '/api/update-prices');
                   sendJson(response, authError.status, authError.body);
                   return;
                 }
 
-                const { getUpdatePricesErrorResponse } = await import('./server/updatePrices');
+                const { getUpdatePricesErrorResponse } = await server.ssrLoadModule('/server/updatePrices.ts');
                 const formatted = getUpdatePricesErrorResponse(error);
                 sendJson(response, formatted.status, formatted.body);
               }
@@ -193,11 +191,11 @@ export default defineConfig(({ mode }) => {
                   getPortfolioAccessErrorResponse,
                   isPortfolioAccessError,
                   requirePortfolioAccess,
-                } = await import('./server/requirePortfolioAccess');
+                } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
                 const {
                   analyzePortfolio,
                   getAnalyzePortfolioErrorResponse,
-                } = await import('./server/analyzePortfolio');
+                } = await server.ssrLoadModule('/server/analyzePortfolio.ts');
                 await requirePortfolioAccess(request, '/api/analyze');
                 const body = await readJsonBody(request);
                 const result = await analyzePortfolio(body);
@@ -206,14 +204,14 @@ export default defineConfig(({ mode }) => {
                 const {
                   getPortfolioAccessErrorResponse,
                   isPortfolioAccessError,
-                } = await import('./server/requirePortfolioAccess');
+                } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
                 if (isPortfolioAccessError(error)) {
                   const authError = getPortfolioAccessErrorResponse(error, '/api/analyze');
                   sendJson(response, authError.status, authError.body);
                   return;
                 }
 
-                const { getAnalyzePortfolioErrorResponse } = await import('./server/analyzePortfolio');
+                const { getAnalyzePortfolioErrorResponse } = await server.ssrLoadModule('/server/analyzePortfolio.ts');
                 const formatted = getAnalyzePortfolioErrorResponse(error);
                 sendJson(response, formatted.status, formatted.body);
               }
