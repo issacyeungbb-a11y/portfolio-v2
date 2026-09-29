@@ -249,9 +249,8 @@ export function PortfolioAllocationChart({
                     <span className="portfolio-allocation-holding-value">
                       <strong>{formatCurrencyRounded(holdingValue, displayCurrency)}</strong>
                       <small>
-                        {mode === 'account'
-                          ? `佔帳戶 ${formatAllocationPercent(selectedShare)} · 整體 ${formatAllocationPercent(portfolioShare)}`
-                          : `整體 ${formatAllocationPercent(portfolioShare)}`}
+                        {mode === 'account' ? '佔帳戶' : '佔類別'} {formatAllocationPercent(selectedShare)}
+                        {' · '}整體 {formatAllocationPercent(portfolioShare)}
                       </small>
                     </span>
                     <span className="portfolio-allocation-holding-bar" aria-hidden="true">
