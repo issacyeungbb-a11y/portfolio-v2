@@ -710,7 +710,6 @@ export function QuarterlyReportPage() {
     <div className="page-stack">
       <section className="hero-panel quarterly-hero">
         <div>
-          <p className="eyebrow">Quarterly Reports</p>
           <h2>季度資產報告</h2>
         </div>
         <p className="table-hint">每季首日自動生成，可下載 PDF 留存。</p>
@@ -723,7 +722,6 @@ export function QuarterlyReportPage() {
       <section className="card quarterly-list-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Archive</p>
             <h2>報告列表</h2>
           </div>
           <span className="chip chip-soft">
@@ -790,7 +788,6 @@ export function QuarterlyReportPage() {
         <section className="card quarterly-viewer-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">Report Body</p>
               <h2>{selectedReport.quarter}</h2>
               <p className="table-hint">{formatGeneratedAt(selectedReport.generatedAt)}</p>
             </div>

@@ -46,7 +46,6 @@ export function AllocationCard({
     <article className="card allocation-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">分布</p>
           <h2>{title}</h2>
         </div>
       </div>
@@ -98,7 +97,6 @@ export function AllocationCard({
       <div className="allocation-detail-panel">
         <div className="allocation-detail-header">
           <div>
-            <p className="eyebrow">明細</p>
             <h3>{selectedSlice.label}</h3>
           </div>
           <div className="allocation-detail-total">

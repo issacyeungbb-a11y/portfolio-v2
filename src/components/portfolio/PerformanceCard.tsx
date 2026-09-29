@@ -32,7 +32,6 @@ export function PerformanceCard({
       <article className="performance-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Portfolio Change</p>
             <h2>資產變動</h2>
           </div>
         </div>
@@ -72,7 +71,6 @@ export function PerformanceCard({
     <article className="performance-card" data-tone={tone}>
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Portfolio Change</p>
           <h2>資產變動</h2>
         </div>
       </div>

@@ -288,7 +288,6 @@ export function AssetTrendsPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '資產走勢',
-      subtitle: '查看每日快照與資產變化。',
       primaryStatus: {
         label: todaySnapshotComplete ? '今日快照完整' : '今日快照未完成',
         tone: todaySnapshotComplete ? 'success' : 'warning',
@@ -319,9 +318,7 @@ export function AssetTrendsPage() {
 
       <section className="card trends-overview-card">
         <div className="trends-toolbar">
-          <div>
-            <p className="table-hint">以同一個顯示幣別查看總值、收益與月曆變化。</p>
-          </div>
+          <span className="table-hint">顯示幣別</span>
           <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
         </div>
 
@@ -336,7 +333,7 @@ export function AssetTrendsPage() {
                     convertCurrency(todaySummary.totalChange, 'HKD', displayCurrency),
                     displayCurrency,
                   )} (${formatPercent(todaySummary.returnPct)})`
-                : '今日快照待生成，收益暫不可用'}
+                : '待今日快照'}
             </strong>
           </p>
         </div>
@@ -377,15 +374,13 @@ export function AssetTrendsPage() {
           <span>最新快照</span>
           <strong>{latestSnapshotLabel}</strong>
           {latestSnapshotIsFallback ? <em>備援快照</em> : null}
-          <small>資產走勢數據以該次快照為基準</small>
         </div>
       </section>
 
       <section className="card trends-chart-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">資產走勢</p>
-            <h2>資產走勢</h2>
+            <h2>期間走勢</h2>
           </div>
           <span className="chip chip-soft">{formatDateChip(currentPoint.date)}</span>
         </div>
@@ -539,7 +534,6 @@ export function AssetTrendsPage() {
       <section className="card trends-calendar-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">收益日曆</p>
             <h2>收益日曆</h2>
           </div>
           <label className="trends-calendar-month-select">

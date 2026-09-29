@@ -89,8 +89,7 @@ export function PriceUpdateReviewPanel({
     <section className={`card asset-section-collapsible${isCollapsed ? ' asset-section-collapsed' : ''}`}>
       <div className="section-heading">
         <div>
-          <p className="eyebrow">價格審查</p>
-          <h2>需要人工確認</h2>
+          <h2>價格待人工確認</h2>
           {!isCollapsed ? (
             <p className="table-hint">有效價格會即時寫入資產。以下為仍需人工處理的項目。</p>
           ) : null}

@@ -64,11 +64,8 @@ export function ExtractedAssetsEditor({
     <section className="card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Review</p>
           <h2>解析預覽</h2>
-          <p className="table-hint">
-            檢查 AI 分類為新增資產的內容。此處只會建立非現金資產，現金流會交由交易記錄扣減或增加既有現金帳戶。
-          </p>
+          <p className="table-hint">AI 識別為新資產嘅項目，只會建立非現金資產。</p>
         </div>
         <span className={hasMissingFields ? 'chip chip-strong' : 'chip chip-soft'}>
           {hasMissingFields ? `仍有 ${missingFieldCount} 個缺欄位` : '可確認匯入'}

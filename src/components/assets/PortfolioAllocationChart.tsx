@@ -79,7 +79,6 @@ export function PortfolioAllocationChart({
   const selectedValue = selectedSlice
     ? getSliceValue(selectedSlice, displayCurrency)
     : 0;
-  const largestSlice = slices[0];
 
   let cumulativePercentage = 0;
   const chartSegments = slices.map((slice) => {
@@ -109,13 +108,7 @@ export function PortfolioAllocationChart({
     >
       <div className="portfolio-allocation-heading">
         <div>
-          <p className="eyebrow">Portfolio allocation</p>
-          <h2 id="portfolio-allocation-title">資產配置全景</h2>
-          {!isCollapsed ? (
-            <p className="table-hint">
-              以即時市值顯示完整組合；選擇分類後可逐項查看資產、帳戶來源及整體佔比。
-            </p>
-          ) : null}
+          <h2 id="portfolio-allocation-title">資產配置</h2>
         </div>
         <div className="asset-section-heading-actions">
           {!isCollapsed ? (
@@ -195,18 +188,6 @@ export function PortfolioAllocationChart({
                 </div>
               </div>
 
-              <div className="portfolio-allocation-stats" aria-label="資產配置摘要">
-                <span>
-                  組合總值
-                  <strong>{formatCurrencyRounded(totalValue, displayCurrency)}</strong>
-                </span>
-                <span>
-                  最大配置
-                  <strong>
-                    {largestSlice.label} · {formatAllocationPercent(largestSlice.value)}
-                  </strong>
-                </span>
-              </div>
             </div>
 
             <div className="portfolio-allocation-legend">
@@ -245,11 +226,7 @@ export function PortfolioAllocationChart({
           <section className="portfolio-allocation-detail" aria-labelledby="portfolio-allocation-detail-title">
             <div className="portfolio-allocation-detail-heading">
               <div>
-                <p className="eyebrow">逐項明細</p>
                 <h3 id="portfolio-allocation-detail-title">{selectedSlice.label}</h3>
-                <p className="table-hint">
-                  {selectedSlice.holdings.length} 項資產 · 分類市值 {formatCurrencyRounded(selectedValue, displayCurrency)}
-                </p>
               </div>
               <span className="chip chip-soft">
                 佔整體 {formatAllocationPercent(selectedSlice.value)}

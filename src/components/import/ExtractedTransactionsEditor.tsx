@@ -68,11 +68,8 @@ export function ExtractedTransactionsEditor({
     <section className="card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Review</p>
           <h2>交易記錄預覽</h2>
-          <p className="table-hint">
-            檢查 AI 分類為原有資產交易的內容，確認後會寫入交易記錄，並使用已鎖定的現金帳戶更新現金餘額。
-          </p>
+          <p className="table-hint">AI 識別為現有資產嘅交易，確認後會同步更新現金餘額。</p>
         </div>
         <span className={hasMissingFields ? 'chip chip-strong' : 'chip chip-soft'}>
           {hasMissingFields ? `仍有 ${missingFieldCount} 個缺欄位` : '可確認匯入'}

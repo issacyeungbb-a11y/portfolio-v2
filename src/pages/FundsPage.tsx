@@ -110,7 +110,6 @@ export function FundsPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '資金流水',
-      subtitle: '追蹤入金、出金與帳戶現金變化。',
       primaryStatus: {
         label: latestCashFlowDateLabel,
         tone: cashFlows.length > 0 ? 'success' : 'neutral',
@@ -184,14 +183,13 @@ export function FundsPage() {
 
       <PageSection
         title="本金總覽"
-        subtitle="用同一個基準貨幣管理帳戶本金、入金、提款與調整。"
         actions={<CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />}
       >
         <div className="summary-grid">
           <article className="summary-card">
-            <p className="summary-label">全部本金總數</p>
+            <p className="summary-label">本金總數</p>
             <strong className="summary-value">{formatCurrency(totalPrincipalDisplay, displayCurrency)}</strong>
-            <p className="summary-hint">包括初始本金及後續入金/提款</p>
+            <p className="summary-hint">含入金及提款</p>
           </article>
           {accountSummaries.map((summary) => (
             <article key={summary.accountSource} className="summary-card">
@@ -203,7 +201,7 @@ export function FundsPage() {
                 )}
               </strong>
               <p className="summary-hint">
-                基線 {formatCurrency(
+                初始 {formatCurrency(
                   convertCurrency(
                     summary.baseline.principalAmount,
                     summary.baseline.currency,
@@ -221,12 +219,9 @@ export function FundsPage() {
       <section className="card" id="funds-form">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">帳戶本金</p>
             <h2>各帳戶本金</h2>
           </div>
-          <span className="chip chip-soft">
-            {accountPrincipalStatus === 'loading' ? '同步中' : '已連接'}
-          </span>
+          {accountPrincipalStatus === 'loading' ? <span className="chip chip-soft">同步中</span> : null}
         </div>
 
         {principalSaveError ? <p className="status-message status-message-error">{principalSaveError}</p> : null}
@@ -247,9 +242,7 @@ export function FundsPage() {
       <section className="card" id="cash-flow-form">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">新增</p>
             <h2>新增資金流水</h2>
-            <p className="table-hint">用以記錄各帳戶後續的入金、提款或手動調整。</p>
           </div>
         </div>
 
@@ -345,7 +338,6 @@ export function FundsPage() {
       <section className="card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">流水紀錄</p>
             <h2>最近資金紀錄</h2>
           </div>
         </div>
@@ -355,7 +347,7 @@ export function FundsPage() {
             cashFlows.slice(0, visibleFlowCount).map((entry) => {
               const signedAmount = getCashFlowSignedAmount(entry);
               return (
-                <div key={entry.id} className="setting-row">
+                <div key={entry.id} className="setting-row cash-flow-row">
                   <div>
                     <strong>
                       {getAccountSourceLabel(entry.accountSource)} · {getCashFlowTypeLabel(entry.type)}
@@ -378,7 +370,7 @@ export function FundsPage() {
           ) : (
             <EmptyState
               title="尚未有資金流水"
-              reason="可先在上方新增第一筆記錄，再開始追蹤入金、提款與調整。"
+              reason="喺上方新增第一筆入金、提款或調整。"
               primaryAction={
                 <a className="button button-secondary" href="#funds-form">
                   前往輸入區

@@ -24,7 +24,7 @@ export function TopBar({
       <div className="top-bar-copy">
         <div className="top-bar-title-group">
           <h1>{title}</h1>
-          <p className="top-bar-subtitle">{subtitle}</p>
+          {subtitle ? <p className="top-bar-subtitle">{subtitle}</p> : null}
         </div>
       </div>
 

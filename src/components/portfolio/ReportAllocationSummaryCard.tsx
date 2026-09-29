@@ -1,5 +1,4 @@
 import { convertCurrency } from '../../lib/currency';
-import { getAllocationBucketMeta } from '../../lib/holdings';
 import { MoneyValue, PercentValue } from '../ui/FinanceValue';
 import type {
   ReportAllocationDeltaSummary,
@@ -90,7 +89,6 @@ export function ReportAllocationSummaryCard({
       <article className={`${cardClassName} report-allocation-summary-card-muted`}>
         <div className="section-heading">
           <div>
-            <p className="eyebrow">Allocation</p>
             <h2>資產分佈總覽</h2>
           </div>
         </div>
@@ -122,7 +120,6 @@ export function ReportAllocationSummaryCard({
     <article className={cardClassName}>
       <div className="section-heading report-allocation-summary-heading">
         <div>
-          <p className="eyebrow">Allocation</p>
           <h2>資產分佈總覽</h2>
           <p className="table-hint">
             截至 {formatDateLabel(summary.asOfDate)} · {getComparisonText(summary)}
@@ -231,22 +228,6 @@ export function ReportAllocationSummaryCard({
           );
         })}
       </div>
-
-      {summary.deltas?.length ? (
-        <div className="report-allocation-delta-list" aria-label="上期變化">
-          {summary.deltas.map((delta) => {
-            const meta = getAllocationBucketMeta(delta.key);
-            return (
-              <span
-                key={delta.key}
-                className={delta.deltaPercentagePoints >= 0 ? 'positive-text' : 'caution-text'}
-              >
-                {meta.label} {formatDelta(delta.deltaPercentagePoints)}
-              </span>
-            );
-          })}
-        </div>
-      ) : null}
 
       {summary.summarySentence ? (
         <p className="report-allocation-sentence">{summary.summarySentence}</p>

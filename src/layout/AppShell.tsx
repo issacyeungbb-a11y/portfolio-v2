@@ -35,7 +35,6 @@ function AppShellContent() {
   const { config: topBarConfig } = useTopBarState();
   const resolvedTopBar = topBarConfig ?? {
     title: currentHandle?.title ?? '財務管理系統',
-    subtitle: '集中管理資產、交易、資金與報告。',
     metaItems: [],
     statusItems: [],
   };
@@ -44,9 +43,7 @@ function AppShellContent() {
     <div className="app-shell">
       <aside className="side-nav">
         <div className="brand-block">
-          <p className="eyebrow">專業財務管理系統</p>
           <h2>Portfolio V2</h2>
-          <p>追蹤資產、現金流、分析與報告，集中管理所有財務資訊。</p>
         </div>
 
         <nav className="side-nav-links" aria-label="桌面導覽">

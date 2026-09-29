@@ -45,7 +45,6 @@ export function DashboardPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '投資總覽',
-      subtitle: '跨頁摘要、資料狀態與常用操作。',
       primaryStatus: overview.dataStatus,
     }),
     [overview.dataStatus],
@@ -86,10 +85,7 @@ export function DashboardPage() {
   return (
     <div className="page-stack dashboard-page">
       <section className="card dashboard-command-bar">
-        <div>
-          <p className="eyebrow">操作中心</p>
-          <p className="table-hint">所有金額以 {displayCurrency} 顯示；讀取現有 Firestore 資料，不會自動生成分析。</p>
-        </div>
+        <span className="table-hint">顯示幣別</span>
         <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
       </section>
 
@@ -123,12 +119,11 @@ export function DashboardPage() {
         <article className="summary-card dashboard-kpi">
           <span className="summary-label">累計本金</span>
           <strong>{money(overview.performance.totalPrincipalHKD)}</strong>
-          <small>基線加資金流水</small>
+          <small>含入金及提款</small>
         </article>
         <article className="summary-card dashboard-kpi">
-          <span className="summary-label">資料更新狀態</span>
-          <StatusBadge label={overview.dataStatus.label} tone={overview.dataStatus.tone} />
-          <small>{formatDate(overview.latestUpdatedAt)}</small>
+          <span className="summary-label">最後更新</span>
+          <strong className="dashboard-kpi-time">{formatDate(overview.latestUpdatedAt)}</strong>
         </article>
       </section>
 
@@ -152,10 +147,8 @@ export function DashboardPage() {
         <article className="card dashboard-priority-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">優先處理</p>
               <h2>待處理事項</h2>
             </div>
-            <span className="chip chip-soft">最多 3 項</span>
           </div>
           {priorityTasks.length > 0 ? (
             <div className="dashboard-priority-list">
@@ -182,7 +175,7 @@ export function DashboardPage() {
       <section className="dashboard-domain-grid">
         <article className="card dashboard-domain-card">
           <div className="section-heading">
-            <div><p className="eyebrow">資產</p><h2>持倉摘要</h2></div>
+            <div><h2>持倉摘要</h2></div>
             <Link className="text-link" to="/assets">全部資產</Link>
           </div>
           <div className="dashboard-mini-metrics">
@@ -203,7 +196,7 @@ export function DashboardPage() {
 
         <article className="card dashboard-domain-card">
           <div className="section-heading">
-            <div><p className="eyebrow">資金</p><h2>本金與流水</h2></div>
+            <div><h2>本金與流水</h2></div>
             <Link className="text-link" to="/funds">資金頁</Link>
           </div>
           <div className="dashboard-mini-metrics">
@@ -226,7 +219,7 @@ export function DashboardPage() {
 
         <article className="card dashboard-domain-card">
           <div className="section-heading">
-            <div><p className="eyebrow">交易</p><h2>交易摘要</h2></div>
+            <div><h2>交易摘要</h2></div>
             <Link className="text-link" to="/transactions">交易頁</Link>
           </div>
           <div className="dashboard-mini-metrics">
@@ -250,7 +243,7 @@ export function DashboardPage() {
 
         <article className="card dashboard-domain-card" id="latest-analysis-summary">
           <div className="section-heading">
-            <div><p className="eyebrow">分析</p><h2>最新分析摘要</h2></div>
+            <div><h2>最新分析摘要</h2></div>
             <Link className="text-link" to="/analysis#stored-reports">查看報告</Link>
           </div>
           {overview.latestAnalysis ? (
@@ -268,18 +261,18 @@ export function DashboardPage() {
                   {overview.latestAnalysis.highlights.map((highlight) => <li key={highlight}>{highlight}</li>)}
                 </ol>
               ) : (
-                <p className="status-message">報告已儲存，但未能抽取簡短重點；可進入報告查看完整內容。</p>
+                <p className="status-message">未能抽取重點，請查看完整報告。</p>
               )}
             </>
           ) : (
-            <p className="status-message">Firestore 尚未有已儲存月報或季報。</p>
+            <p className="status-message">尚未有月報或季報。</p>
           )}
         </article>
       </section>
 
       <section className="card dashboard-risk-card">
         <div className="section-heading">
-          <div><p className="eyebrow">監察</p><h2>風險指標</h2></div>
+          <div><h2>風險指標</h2></div>
           <Link className="text-link" to="/analysis">分析與報告</Link>
         </div>
         <div className="dashboard-risk-grid">

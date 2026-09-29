@@ -5,7 +5,7 @@ import { MetricCard } from '../ui/DesignSystem';
 interface SummaryCardProps {
   label: string;
   value: ReactNode;
-  hint: ReactNode;
+  hint?: ReactNode;
   tone?: 'default' | 'positive' | 'caution';
 }
 

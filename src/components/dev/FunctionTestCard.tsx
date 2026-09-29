@@ -48,7 +48,6 @@ export function FunctionTestCard({
     <article className="card function-test-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Function Test</p>
           <h2>{title}</h2>
           {description ? <p className="table-hint">{description}</p> : null}
         </div>

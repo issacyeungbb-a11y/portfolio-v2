@@ -66,7 +66,6 @@ export function AssetChangePanel({
     <article className="card asset-change-panel">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Portfolio Change</p>
           <h2>資產變動</h2>
         </div>
         <div className="performance-range-row" role="tablist" aria-label="資產變動期間">

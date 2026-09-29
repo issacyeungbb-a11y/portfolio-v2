@@ -131,7 +131,7 @@ export function ActionPanel({
 export interface WarningPanelProps extends DataCardProps {}
 
 export function WarningPanel({
-  eyebrow = '注意',
+  eyebrow,
   title,
   description,
   actions,
@@ -144,7 +144,7 @@ export function WarningPanel({
     <article className={joinClassNames('warning-panel', 'data-card', 'card', className)} data-tone={tone} {...props}>
       <div className="section-heading warning-panel-heading">
         <div className="data-card-copy">
-          <p className="eyebrow">{eyebrow}</p>
+          {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}
           {title ? <h2>{title}</h2> : null}
           {description ? <p className="table-hint">{description}</p> : null}
         </div>
@@ -178,7 +178,6 @@ export function EmptyStateCard({
   return (
     <article className={emptyStateClassName} data-tone={tone} {...props}>
       <div className="empty-state-copy">
-        <p className="eyebrow">資料狀態</p>
         <h3>{title}</h3>
         <p>{reason}</p>
       </div>

@@ -185,7 +185,6 @@ function SnapshotDetails({ snapshot }: { snapshot: CryptoMonthlySnapshot }) {
     <section className="card crypto-detail-card" id="crypto-month-detail">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">月份詳細資料</p>
           <h2>{snapshot.month}</h2>
         </div>
         <StatusBadge
@@ -321,7 +320,7 @@ export function CryptoHistoryPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: 'Crypto 歷史',
-      subtitle: '獨立查看 Google Sheet 鎖定月結，不計入現有投資組合快照。',
+      subtitle: 'Google Sheet 月結紀錄，不計入投資組合。',
       primaryStatus:
         history.status === 'ready'
           ? { label: `${history.snapshots.length} 個月份`, tone: 'success' }
@@ -511,12 +510,6 @@ export function CryptoHistoryPage() {
       <StatusMessages errors={history.errors} />
 
       <section className="card crypto-history-toolbar">
-        <div>
-          <p className="eyebrow">只讀歷史</p>
-          <p className="table-hint">
-            來源 Google Sheet 維持唯讀；所有月份使用固定鍵及鎖定 checksum。
-          </p>
-        </div>
         <div className="crypto-filter-controls">
           <div className="crypto-year-selector" aria-label="年份篩選">
             {['all', ...years].map((option) => (
@@ -561,17 +554,17 @@ export function CryptoHistoryPage() {
           <KpiCard
             label="月結總資產 USD"
             value={money(activeSnapshot.performanceTotalUsd, 'USD')}
-            hint="Crypto 帳戶目標總值；不扣提取／消費"
+            hint="不扣提取／消費"
           />
           <KpiCard
             label="試算表逐項持倉 USD"
             value={money(activeSnapshot.currentNetUsd, 'USD')}
-            hint="逐項正資產減負債，待影子對數"
+            hint="資產減負債"
           />
           <KpiCard
             label="本金 HKD"
             value={money(activeSnapshot.principalHkd, 'HKD')}
-            hint="原始月結本金"
+            hint="月結本金"
           />
           <KpiCard
             label="累計回報 HKD"
@@ -588,7 +581,7 @@ export function CryptoHistoryPage() {
           <KpiCard
             label="累計提取／消費 USD"
             value={money(activeSnapshot.cumulativeWithdrawnUsd, 'USD')}
-            hint="獨立紀錄，不從總資產扣減"
+            hint="不從總資產扣減"
           />
           <KpiCard
             label="BTC 等值"
@@ -602,7 +595,6 @@ export function CryptoHistoryPage() {
         <article className="card crypto-chart-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">月度資產走勢</p>
               <h2>鎖定月結總值</h2>
             </div>
             <div className="crypto-currency-toggle" aria-label="走勢顯示貨幣">
@@ -631,8 +623,7 @@ export function CryptoHistoryPage() {
         <article className="card crypto-chart-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">回報走勢</p>
-              <h2>回報金額、回報率及上月變化</h2>
+              <h2>回報走勢</h2>
             </div>
           </div>
           <CryptoHistoryTrendChart
@@ -648,8 +639,7 @@ export function CryptoHistoryPage() {
         <section className="card crypto-allocation-card">
           <div className="section-heading">
             <div>
-              <p className="eyebrow">資產分佈</p>
-              <h2>{activeSnapshot.month} 鎖定比例</h2>
+              <h2>{activeSnapshot.month} 資產分佈</h2>
             </div>
             <StatusBadge
               label={getCryptoSnapshotQualityLabel(activeSnapshot.dataQuality)}
@@ -663,8 +653,7 @@ export function CryptoHistoryPage() {
       <section className="card crypto-records-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">月結紀錄表</p>
-            <h2>{year === 'all' ? '全部月份' : `${year} 年`}</h2>
+            <h2>{year === 'all' ? '月結紀錄' : `${year} 年月結紀錄`}</h2>
           </div>
           <span className="chip chip-soft">{filteredSnapshots.length} 筆</span>
         </div>
@@ -719,8 +708,7 @@ export function CryptoHistoryPage() {
       <section className="card crypto-import-card">
         <div className="section-heading">
           <div>
-            <p className="eyebrow">匯入狀態</p>
-            <h2>最近批次</h2>
+            <h2>最近匯入</h2>
           </div>
           <StatusBadge
             label={history.latestImport?.validationPassed ? '驗證通過' : '未有紀錄'}
@@ -737,14 +725,13 @@ export function CryptoHistoryPage() {
             <div><dt>略過／重複</dt><dd>{history.latestImport.skippedDuplicateMonthCount}</dd></div>
           </dl>
         ) : (
-          <p className="status-message">尚未讀到匯入批次紀錄。</p>
+          <p className="status-message">未有匯入紀錄。</p>
         )}
 
         <div className="crypto-sync-panel">
           <div>
             <span>Google Sheet 單向月結同步</span>
-            <small>頁面載入時自動唯讀檢查隱藏「月結記錄」；preview 不會寫入 Firestore。</small>
-            <small>確認新月份寫入 Crypto 歷史後，Crypto 帳戶總值會自動跟隨；Futu 永遠排除。</small>
+            <small>只讀取 Google Sheet，確認前唔會寫入資料；Crypto 帳戶總值會跟隨更新（不包括 Futu）。</small>
             {syncPreview ? <small>最近檢查：{formatDateTime(syncPreview.checkedAt)}</small> : null}
           </div>
           <div className="crypto-sync-actions">
@@ -789,7 +776,6 @@ export function CryptoHistoryPage() {
               <section className="crypto-shadow-preview" aria-label="Crypto 帳戶影子對數預覽">
                 <div className="crypto-shadow-heading">
                   <div>
-                    <p className="eyebrow">零寫入影子對數</p>
                     <h3>Crypto 帳戶 ↔ {syncPreview.assetShadow.month} 月結</h3>
                     <small>{syncPreview.assetShadow.sourceDetailRange}</small>
                   </div>

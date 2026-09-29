@@ -476,7 +476,6 @@ export function AssetsPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '資產管理',
-      subtitle: '管理持倉、價格更新與資料覆核。',
       primaryStatus: {
         label: pendingPriceCount > 0 ? `價格待更新 ${pendingPriceCount} 項` : '全部價格已更新',
         tone: pendingPriceCount > 0 ? 'warning' : 'success',
@@ -708,12 +707,12 @@ export function AssetsPage() {
       <section className="summary-cluster">
         <div className="summary-grid summary-grid-primary">
           <SummaryCard
-            label={`總資產 ${displayCurrency}`}
+            label="總資產"
             value={formatCurrencyRounded(filteredValue, displayCurrency)}
-            hint={`${filteredHoldings.length} 項 · ${activeFilterLabel}`}
+            hint={assetFilter === 'all' && accountFilter === 'all' ? `${filteredHoldings.length} 項持倉` : `${filteredHoldings.length} 項 · ${activeFilterLabel}`}
           />
           <SummaryCard
-            label={`本金損益 ${displayCurrency}`}
+            label="本金損益"
             value={formatCurrencyRounded(filteredPnl, displayCurrency)}
             hint={`本金 ${formatCurrency(filteredPrincipal, displayCurrency)}`}
             tone={filteredPnl > 0 ? 'positive' : filteredPnl < 0 ? 'caution' : 'default'}
@@ -749,7 +748,6 @@ export function AssetsPage() {
           {nonCashHoldings.length === 0 ? '未有可更新資產' : `價格覆蓋率 ${syncedCoveragePct}%`}
           {' · '}待處理 {pendingPriceCount + reviews.length} 項
           {' · '}{todaySnapshotLabel}
-          {' · '}預計更新現時 {bulkUpdateDiagnostics.currentAssetCount} 項 / 歷史 {bulkUpdateDiagnostics.historicalAssetUpdateCount} 項
         </p>
         <div className="assets-toolbar-actions">
           <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
@@ -759,7 +757,7 @@ export function AssetsPage() {
             onClick={() => setIsBulkUpdateConfirmOpen(true)}
             disabled={isUpdatingAllPrices || !canRunBulkPriceUpdate}
           >
-            {isUpdatingAllPrices ? '更新中...' : '更新現時及歷史資產價格'}
+            {isUpdatingAllPrices ? '更新中...' : '更新全部價格'}
           </button>
           <button
             className="button button-secondary"
@@ -767,7 +765,7 @@ export function AssetsPage() {
             onClick={handleRefreshAssets}
             disabled={isRefreshingAssets}
           >
-            {isRefreshingAssets ? '重新讀取中...' : '重新同步資產資料'}
+            {isRefreshingAssets ? '重新讀取中...' : '重新同步'}
           </button>
           <details className="assets-secondary-actions">
             <summary>更多操作</summary>
@@ -803,13 +801,11 @@ export function AssetsPage() {
             <h2>全部持倉</h2>
           </div>
           <div className="asset-section-heading-actions">
-            <span className={status === 'error' ? 'chip chip-strong' : 'chip chip-soft'}>
-              {status === 'loading'
-                ? '資料同步中'
-                : status === 'error'
-                  ? '連接失敗'
-                  : '已連接'}
-            </span>
+            {status === 'loading' || status === 'error' ? (
+              <span className={status === 'error' ? 'chip chip-strong' : 'chip chip-soft'}>
+                {status === 'loading' ? '資料同步中' : '連接失敗'}
+              </span>
+            ) : null}
             <AssetSectionCollapseButton
               sectionLabel="全部持倉"
               isCollapsed={collapsedAssetSectionSet.has('holdings')}
@@ -896,13 +892,7 @@ export function AssetsPage() {
       <section className={`card asset-section-collapsible${collapsedAssetSectionSet.has('closedAssets') ? ' asset-section-collapsed' : ''}`}>
         <div className="section-heading">
           <div>
-            <p className="eyebrow">清倉檔案</p>
             <h2>已清倉資產</h2>
-            {!collapsedAssetSectionSet.has('closedAssets') ? (
-              <p className="table-hint">
-                從最近 {ASSET_ARCHIVE_TRANSACTION_LIMIT} 筆交易自動找出最後持倉數量為 0 的資產，方便翻查賣出金額及已實現盈虧。
-              </p>
-            ) : null}
           </div>
           <div className="asset-section-heading-actions">
             <span className="chip chip-soft">
@@ -923,14 +913,13 @@ export function AssetsPage() {
           <>
             <div className="summary-grid summary-grid-secondary">
               <SummaryCard
-                label={`清倉賣出總額 ${displayCurrency}`}
+                label="清倉賣出總額"
                 value={formatCurrencyRounded(closedArchiveSaleProceeds, displayCurrency)}
-                hint="按每項交易原幣轉換作估算"
+                hint="按交易原幣換算"
               />
               <SummaryCard
-                label={`已實現盈虧 ${displayCurrency}`}
+                label="已實現盈虧"
                 value={formatCurrencyRounded(convertCurrency(closedArchivePnl, 'HKD', displayCurrency), displayCurrency)}
-                hint="由交易紀錄 realizedPnlHKD 匯總"
                 tone={closedArchivePnl > 0 ? 'positive' : closedArchivePnl < 0 ? 'caution' : 'default'}
               />
             </div>
@@ -967,7 +956,7 @@ export function AssetsPage() {
           </>
             ) : (
               <p className="status-message">
-                暫時未搵到已清倉資產；之後有資產賣出至 0 股/單位，就會自動出現在這裡。
+                暫時未有已清倉資產。
               </p>
             )}
           </div>
@@ -984,7 +973,6 @@ export function AssetsPage() {
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">清倉詳情</p>
                 <h2 id="closed-asset-title">{selectedClosedAsset.assetName}</h2>
                 <p className="table-hint">
                   {selectedClosedAsset.symbol}
@@ -1017,7 +1005,7 @@ export function AssetsPage() {
                 hint={`手續費 ${formatCurrency(selectedClosedAsset.totalFees, selectedClosedAsset.currency)}`}
               />
               <SummaryCard
-                label={`已實現盈虧 ${displayCurrency}`}
+                label="已實現盈虧"
                 value={formatCurrencyRounded(convertCurrency(selectedClosedAsset.realizedPnlHKD, 'HKD', displayCurrency), displayCurrency)}
                 hint="清倉前所有交易盈虧合計"
                 tone={selectedClosedAsset.realizedPnlHKD > 0 ? 'positive' : selectedClosedAsset.realizedPnlHKD < 0 ? 'caution' : 'default'}
@@ -1072,11 +1060,8 @@ export function AssetsPage() {
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">現金流水</p>
-                <h2 id="cash-ledger-title">三個現金帳戶流水</h2>
-                <p className="table-hint">
-                  顯示交易買賣造成的現金加減，以及資金頁記錄的入金、提款或調整。
-                </p>
+                <h2 id="cash-ledger-title">現金帳戶流水</h2>
+                <p className="table-hint">包括交易買賣及入金、提款、調整。</p>
               </div>
               <button
                 className="button button-secondary"
@@ -1146,12 +1131,15 @@ export function AssetsPage() {
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">確認</p>
                 <h2 id="bulk-price-update-title">確認更新全部資產？</h2>
               </div>
             </div>
             <p className="status-message">
-              將修復 {assetRepairDiagnostics.repairableMissingAssetCount} 個歷史資產文件，並為現時 {bulkUpdateDiagnostics.currentAssetCount} 項及歷史 {bulkUpdateDiagnostics.historicalAssetUpdateCount + assetRepairDiagnostics.repairableMissingAssetCount} 項非現金資產檢查最新價格；有效結果會直接寫入，未能確認的項目會先保留供你再檢查。已清倉資產會保持封存，不會重新列入現時持倉、總資產、配置比例或快照計算。
+              檢查現時 {bulkUpdateDiagnostics.currentAssetCount} 項及歷史 {bulkUpdateDiagnostics.historicalAssetUpdateCount + assetRepairDiagnostics.repairableMissingAssetCount} 項資產嘅最新價格
+              {assetRepairDiagnostics.repairableMissingAssetCount > 0
+                ? `，並修復 ${assetRepairDiagnostics.repairableMissingAssetCount} 個歷史資產紀錄`
+                : ''}
+              。未能確認嘅價格會保留供你覆核，已清倉資產不受影響。
             </p>
             {assetRepairDiagnostics.blockedMissingAssets.length > 0 ? (
               <p className="status-message status-message-warning">
@@ -1235,7 +1223,6 @@ export function AssetsPage() {
             role="dialog"
             aria-modal="true"
             aria-label="永久刪除資產確認"
-            eyebrow="警告"
             title="永久刪除資產"
             description={`刪除 ${editingHolding.name} (${editingHolding.symbol}) 後，會影響資產估值、配置比例、損益統計及歷史分析記錄。此動作無法自動回復。`}
           >
@@ -1277,9 +1264,8 @@ export function AssetsPage() {
       {shouldShowMissingSnapshotNotice ? (
         <WarningPanel
           id="snapshot-actions"
-          eyebrow="快照"
           title="今日快照未生成"
-          description="今日快照未能自動生成，建議手動後補以確保走勢數據完整。"
+          description="建議後補，確保走勢數據完整。"
           tone="caution"
         >
           <div className="button-row">

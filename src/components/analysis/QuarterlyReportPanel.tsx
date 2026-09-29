@@ -72,10 +72,9 @@ export function QuarterlyReportPanel({
         <div className="section-heading">
           <div>
             <h2>歷史季報</h2>
-            <p className="table-hint">季度投資報告</p>
           </div>
           <span className="chip chip-soft">
-            {reportsStatus === 'loading' ? '同步中' : `${reports.length} 份報告`}
+            {reportsStatus === 'loading' ? '同步中' : `${reports.length} 份`}
           </span>
         </div>
 
@@ -84,8 +83,8 @@ export function QuarterlyReportPanel({
             title="尚未生成季度報告"
             reason={
               canGenerateCurrentQuarterReport
-                ? '已進入可生成時段，可在上方按「生成季報」建立第一份季度報告。'
-                : '生成第一份季度報告後，這裡會列出歷史版本同 PDF 下載入口。'
+                ? '按上方「生成季報」建立第一份季報。'
+                : '每季首月 1 號上午 9 時後可生成。'
             }
           />
         ) : null}
@@ -154,13 +153,12 @@ export function QuarterlyReportPanel({
         <main className="card quarterly-viewer-card analysis-report-main-card">
           <div className="analysis-report-header">
             <div>
-              <p className="eyebrow">Quarterly Report</p>
               <h2>{selectedReport.quarter}</h2>
               <div className="analysis-report-meta-strip" aria-label="季報摘要">
                 <span>生成：{formatGeneratedAt(selectedReport.generatedAt)}</span>
                 <span>模型：{getAnalysisModelLabel(selectedReport.model)}</span>
                 <span>PDF：{selectedReport.pdfUrl ? '已生成' : '未生成'}</span>
-                {selectedReport.isTimeoutFallback ? <span>超時降級版本</span> : null}
+                {selectedReport.isTimeoutFallback ? <span>簡化版</span> : null}
               </div>
             </div>
             <div className="analysis-report-actions">
@@ -209,8 +207,7 @@ export function QuarterlyReportPanel({
           <section className="analysis-report-section-block">
             <div className="section-heading">
               <div>
-                <h3>報告基準資產分佈</h3>
-                <p className="table-hint">此分佈是生成報告時保存的基準快照。</p>
+                <h3>報告時資產分佈</h3>
               </div>
             </div>
             <ReportAllocationSummaryCard
@@ -271,7 +268,7 @@ export function QuarterlyReportPanel({
               ))}
             </div>
           ) : (
-            <p className="status-message">尚未有追問紀錄，可直接在下方輸入。</p>
+            <p className="status-message">尚未有追問。</p>
           )}
 
           <div className="analysis-chat-composer">

@@ -49,8 +49,7 @@ export function DashboardTrendCard({
     <article className="card dashboard-trend-card">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">資產走勢</p>
-          <h2>最近 {range === '7d' ? '7' : '30'} 日</h2>
+          <h2>資產走勢</h2>
         </div>
         <div className="dashboard-range-switch" role="group" aria-label="選擇資產走勢期間">
           {(['7d', '30d'] as DashboardTrendRange[]).map((option) => (

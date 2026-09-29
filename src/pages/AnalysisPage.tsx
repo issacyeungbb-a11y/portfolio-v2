@@ -49,17 +49,14 @@ type ReportTab = 'asset_analysis' | 'asset_report';
 const reportTabOptions: Array<{
   value: ReportTab;
   label: string;
-  helper: string;
 }> = [
   {
     value: 'asset_analysis',
     label: '每月資產分析',
-    helper: '按月生成',
   },
   {
     value: 'asset_report',
     label: '季度投資報告',
-    helper: '按季生成',
   },
 ];
 
@@ -403,7 +400,6 @@ export function AnalysisPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '分析與報告',
-      subtitle: '生成每月資產分析與季度投資報告。',
       primaryStatus: {
         label:
           isAnalyzing || generatingPeriodicReport
@@ -654,16 +650,16 @@ export function AnalysisPage() {
 
   const monthlyStatusText = canGenerateMonthlyAnalysisNow(currentTime)
     ? hasCurrentMonthAnalysis
-      ? '本月每月資產分析已經生成，可重新生成覆蓋。'
-      : '已進入本月可生成時段。'
-    : '未到每月 1 號香港時間上午 8:00。';
+      ? '本月月報已生成，可重新生成。'
+      : '本月可生成。'
+    : '每月 1 號上午 8 時後可生成。';
   const quarterlyStatusText = canGenerateQuarterlyReportNow(currentTime)
     ? currentQuarterReport
       ? currentQuarterReport.isTimeoutFallback
-        ? '本季季度報告是超時降級版本，可重新生成完整報告。'
-        : '本季季度報告已經生成。'
-      : '已進入本季可生成時段。'
-    : '未到季度報告可生成時段。';
+        ? '本季報告為簡化版，可重新生成完整報告。'
+        : '本季季報已生成。'
+      : '本季可生成。'
+    : '每季首月 1 號上午 9 時後可生成。';
 
   return (
     <div className="page-stack analysis-page">
@@ -682,7 +678,6 @@ export function AnalysisPage() {
                 onClick={() => setSelectedTab(option.value)}
               >
                 <strong>{option.label}</strong>
-                <span>{option.helper}</span>
               </button>
             );
           })}
@@ -750,7 +745,6 @@ export function AnalysisPage() {
           selectedMonthlyAnalysisId={selectedMonthlyAnalysisId}
           displayCurrency={displayCurrency}
           assetCount={holdings.length}
-          baseCurrency={mockPortfolio.baseCurrency}
           canGenerateCurrentMonthAnalysis={canGenerateCurrentMonthAnalysis}
           deletingMonthlyAnalysisId={deletingMonthlyAnalysisId}
           onDeleteMonthlyAnalysisReport={(session) => void handleDeleteMonthlyAnalysisReport(session)}

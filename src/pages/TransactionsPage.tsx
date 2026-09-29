@@ -229,7 +229,6 @@ export function TransactionsPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: '交易記錄',
-      subtitle: '檢視買賣、轉帳與截圖匯入紀錄。',
       primaryStatus: {
         label: filteredEntries.length > 0 ? `最近交易 ${latestTradeLabel}` : '尚未有交易',
         tone: filteredEntries.length > 0 ? 'success' : 'neutral',
@@ -339,25 +338,18 @@ export function TransactionsPage() {
 
       <PageSection
         title="交易摘要"
-        subtitle="交易、手續費、已實現盈虧與現價比較一律以美金（USD）列示。"
+        subtitle="金額以 USD 列示"
       >
         <div className="section-toolbar">
-          <p className="table-hint">
-            現價比較只會即時計算，不會寫入 transaction document。
-          </p>
           <button
             className="button button-secondary"
             type="button"
             onClick={() => setIsPriceUpdateConfirmOpen(true)}
             disabled={isUpdatingTransactionPrices || !canRunTransactionPriceUpdate}
           >
-            {isUpdatingTransactionPrices ? '更新中...' : '更新現時及歷史資產價格'}
+            {isUpdatingTransactionPrices ? '更新中...' : '更新全部價格'}
           </button>
         </div>
-        <p className="table-hint">
-          歷史資產 {transactionPriceUpdateDiagnostics.historicalAssetCount} 項 · 成功配對 {transactionPriceUpdateDiagnostics.matchedAssetCount} 項 · 未能配對 {transactionPriceUpdateDiagnostics.unmatchedAssetCount} 項
-          {' · '}預計更新現時 {transactionPriceUpdateDiagnostics.currentAssetCount} 項 / 歷史 {transactionPriceUpdateDiagnostics.historicalAssetUpdateCount} 項
-        </p>
         {transactionPriceUpdateDiagnostics.unmatchedAssets.length > 0 ? (
           <p className="status-message status-message-warning">
             未能配對：
@@ -373,16 +365,15 @@ export function TransactionsPage() {
           <article className="summary-card">
             <p className="summary-label">記錄總數</p>
             <strong className="summary-value">{filteredEntries.length}</strong>
-            <p className="summary-hint">
-              {hasActiveFilters ? `已篩選自 ${visibleEntries.length} 筆記錄` : '包括建倉記錄與買入 / 賣出交易'}
-            </p>
+            {hasActiveFilters ? (
+              <p className="summary-hint">已篩選自 {visibleEntries.length} 筆記錄</p>
+            ) : null}
           </article>
         </div>
         <div className="transaction-summary-split">
           <section className="transaction-summary-panel transaction-summary-panel-buy">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">BUY</p>
                 <h3>買入交易</h3>
               </div>
               <span className="chip chip-soft">{buyComparisons.length} 筆有現價</span>
@@ -401,7 +392,7 @@ export function TransactionsPage() {
                 </p>
               </article>
               <article className="summary-card">
-                <p className="summary-label">買入交易加權平均回報</p>
+                <p className="summary-label">加權平均回報</p>
                 <strong
                   className="summary-value"
                   data-tone={(buyWeightedReturn ?? 0) >= 0 ? 'positive' : 'caution'}
@@ -411,7 +402,7 @@ export function TransactionsPage() {
                 <p className="summary-hint">按成交成本加權</p>
               </article>
               <article className="summary-card">
-                <p className="summary-label">最大正面貢獻交易</p>
+                <p className="summary-label">最大正面貢獻</p>
                 <strong
                   className="summary-value"
                   data-tone={(maxPositiveComparison?.comparisonDisplay ?? 0) >= 0 ? 'positive' : 'default'}
@@ -429,7 +420,7 @@ export function TransactionsPage() {
                 </p>
               </article>
               <article className="summary-card">
-                <p className="summary-label">最大負面拖累交易</p>
+                <p className="summary-label">最大負面拖累</p>
                 <strong
                   className="summary-value"
                   data-tone={(maxNegativeComparison?.comparisonDisplay ?? 0) < 0 ? 'caution' : 'default'}
@@ -451,7 +442,6 @@ export function TransactionsPage() {
           <section className="transaction-summary-panel transaction-summary-panel-sell">
             <div className="section-heading">
               <div>
-                <p className="eyebrow">SELL</p>
                 <h3>賣出交易</h3>
               </div>
               <span className="chip chip-soft">{sellComparisons.length} 筆有現價</span>
@@ -465,7 +455,7 @@ export function TransactionsPage() {
                 >
                   {formatCurrencyRounded(sellComparisonTotal, displayCurrency)}
                 </strong>
-                <p className="summary-hint">正數代表賣得好，負數代表賣早咗</p>
+                <p className="summary-hint">正數即賣得好，負數即賣早咗</p>
               </article>
               <article className="summary-card">
                 <p className="summary-label">已實現盈虧</p>
@@ -479,7 +469,7 @@ export function TransactionsPage() {
                     displayCurrency,
                   )}
                 </strong>
-                <p className="summary-hint">賣出交易扣除手續費後累計</p>
+                <p className="summary-hint">已扣手續費</p>
               </article>
             </div>
           </section>
@@ -517,9 +507,6 @@ export function TransactionsPage() {
                 </button>
               ))}
             </div>
-            <p className="filter-total">
-              {getAccountSourceLabel(accountFilter)} · {filteredEntries.length} 筆
-            </p>
           </div>
 
           <div className="assets-filter-block">
@@ -536,15 +523,6 @@ export function TransactionsPage() {
                 </button>
               ))}
             </div>
-            <p className="filter-total">
-              {transactionTypeFilter === 'all'
-                ? '全部買入 / 賣出'
-                : transactionTypeFilter === 'buy'
-                  ? '只顯示買入'
-                  : '只顯示賣出'}
-              {' · '}
-              {filteredEntries.length} 筆
-            </p>
           </div>
 
           <div className="assets-filter-block">
@@ -623,21 +601,21 @@ export function TransactionsPage() {
                       ? '買入'
                       : '賣出';
               return (
-                <div key={entry.id} className="setting-row setting-row-wide">
+                <div key={entry.id} className="setting-row setting-row-wide transaction-row">
                   <div>
                     <strong>
                       {entry.symbol} · {typeLabel}
                     </strong>
                     <p>
                       {entry.assetName} · {getAssetTypeLabel(entry.assetType)} · {getAccountSourceLabel(entry.accountSource)}
-                    </p>
-                    <p>
+                      {' · '}
                       {formatTradeDate(entry.date)}
                       {entry.note ? ` · ${entry.note}` : ''}
                     </p>
                     <p className="table-hint">
-                      結算 {getAccountSourceLabel(entry.settlementAccountSource ?? entry.accountSource)} ·
-                      {' '}
+                      {entry.settlementAccountSource && entry.settlementAccountSource !== entry.accountSource
+                        ? `結算 ${getAccountSourceLabel(entry.settlementAccountSource)} · `
+                        : ''}
                       持倉 {entry.quantityAfter ?? 0} · 均成本 {formatCurrency(averageCostDisplay, displayCurrency)}
                     </p>
                   </div>
@@ -651,9 +629,11 @@ export function TransactionsPage() {
                     <span className="table-metric-secondary">
                       現價 {entry.assetType === 'cash' ? '不適用' : currentPriceDisplay ?? '未有現價'}
                     </span>
-                    <span className="table-metric-secondary">
-                      已實現 {formatCurrency(realizedPnlDisplay, displayCurrency)}
-                    </span>
+                    {entry.transactionType === 'sell' || entry.realizedPnlHKD !== 0 ? (
+                      <span className="table-metric-secondary">
+                        已實現 {formatCurrency(realizedPnlDisplay, displayCurrency)}
+                      </span>
+                    ) : null}
                     {shouldShowPriceComparison ? (
                       priceComparison ? (
                         <span className="table-metric-secondary transaction-price-comparison">
@@ -717,7 +697,7 @@ export function TransactionsPage() {
           ) : (
             <EmptyState
               title="尚未有交易記錄"
-              reason={hasActiveFilters ? '目前篩選條件下未有交易，可以放寬帳戶或日期範圍。' : '可以新增第一筆交易，或者用 AI 文字快速整理多筆交易。'}
+              reason={hasActiveFilters ? '篩選條件下未有交易。' : '新增第一筆交易，或用 AI 文字整理多筆交易。'}
               primaryAction={
                 <button
                   className="button button-secondary"
@@ -742,7 +722,6 @@ export function TransactionsPage() {
           >
             <div className="section-heading">
               <div>
-                <p className="eyebrow">確認</p>
                 <h2 id="transaction-price-update-title">確認更新現時及歷史資產價格？</h2>
               </div>
             </div>

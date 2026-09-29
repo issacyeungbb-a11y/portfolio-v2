@@ -31,7 +31,6 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="card" style={{ margin: '2rem', padding: '2rem', textAlign: 'center' }}>
-          <p className="eyebrow">System Error</p>
           <h2>{this.props.fallbackMessage ?? '頁面暫時無法顯示'}</h2>
           <p className="status-message">{this.state.errorMessage}</p>
           <button

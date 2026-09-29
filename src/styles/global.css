@@ -537,9 +537,9 @@ h3 {
 
 .dashboard-command-bar {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 0.7rem;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
 }
 
@@ -556,10 +556,25 @@ h3 {
   gap: 0.72rem;
 }
 
+.dashboard-kpi-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.dashboard-kpi-total,
+.dashboard-kpi:last-child {
+  grid-column: 1 / -1;
+}
+
 .dashboard-kpi {
   gap: 0.25rem;
-  min-height: 7rem;
+  min-height: 5.6rem;
   align-content: center;
+}
+
+.dashboard-kpi > strong.dashboard-kpi-time {
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .dashboard-kpi > strong {
@@ -659,7 +674,9 @@ h3 {
 .dashboard-priority-row,
 .dashboard-compact-row {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.42rem;
   padding: 0.62rem 0;
   border-bottom: 1px solid rgba(118, 96, 77, 0.1);
@@ -676,7 +693,7 @@ h3 {
 
 .dashboard-quick-actions {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
@@ -1098,6 +1115,11 @@ h3 {
   gap: 0.72rem;
 }
 
+.summary-grid.summary-grid-primary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+
 .summary-card {
   display: grid;
   gap: 0.18rem;
@@ -1232,6 +1254,7 @@ h3 {
 
 .transaction-summary-panel {
   display: grid;
+  align-content: start;
   gap: 0.72rem;
 }
 
@@ -1464,7 +1487,9 @@ h3 {
 
 .trends-toolbar {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
   gap: 0.7rem;
 }
 
@@ -2646,7 +2671,7 @@ h3 {
 
 .report-allocation-legend {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr));
   gap: 0.5rem;
 }
 
@@ -2679,7 +2704,6 @@ h3 {
   font-weight: 800;
 }
 
-.report-allocation-delta-list,
 .report-allocation-tags {
   display: flex;
   flex-wrap: wrap;
@@ -2687,10 +2711,6 @@ h3 {
   align-items: center;
 }
 
-.report-allocation-delta-list {
-  font-size: 0.82rem;
-  font-weight: 800;
-}
 
 .report-allocation-sentence {
   padding: 0.72rem 0.8rem;
@@ -3293,6 +3313,7 @@ h3 {
   position: sticky;
   top: 0;
   z-index: 2;
+  white-space: nowrap;
   font-size: 0.7rem;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -3724,7 +3745,6 @@ h3 {
     gap: 0.6rem;
   }
 
-  .summary-grid-primary,
   .summary-grid-secondary {
     grid-template-columns: 1fr;
   }
@@ -4345,7 +4365,7 @@ h3 {
 }
 
 .report-allocation-summary-card-compact .report-allocation-legend {
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(14.5rem, 1fr));
 }
 
 .report-allocation-summary-card-compact .report-allocation-sentence {
@@ -4937,6 +4957,15 @@ h3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .dashboard-kpi-total,
+  .dashboard-kpi:last-child {
+    grid-column: auto;
+  }
+
+  .dashboard-kpi {
+    min-height: 7rem;
+  }
+
   .dashboard-control-grid {
     grid-template-columns: minmax(0, 1.7fr) minmax(15rem, 0.8fr);
     align-items: stretch;
@@ -4995,7 +5024,7 @@ h3 {
 
   .trends-toolbar {
     flex-direction: row;
-    align-items: start;
+    align-items: center;
     justify-content: space-between;
     gap: 1rem;
   }
@@ -6165,11 +6194,13 @@ h3 {
   }
 }
 
-@media (min-width: 1180px) {
+@media (min-width: 1600px) {
   .crypto-kpi-grid {
     grid-template-columns: repeat(8, minmax(0, 1fr));
   }
+}
 
+@media (min-width: 1180px) {
   .crypto-chart-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6203,5 +6234,42 @@ h3 {
 
   .crypto-history-page .crypto-chart-point {
     border-color: #1f2624;
+  }
+}
+
+.transaction-row .transaction-inline-form {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 720px) {
+  .transaction-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    column-gap: 1.2rem;
+  }
+
+  .transaction-row > .table-metric {
+    align-items: flex-end;
+    text-align: right;
+  }
+}
+
+.cash-flow-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.cash-flow-row > .chip {
+  flex: 0 0 auto;
+}
+
+@media (min-width: 720px) {
+  .setting-row-form {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 }

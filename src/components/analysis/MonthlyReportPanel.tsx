@@ -10,7 +10,6 @@ interface MonthlyReportPanelProps {
   selectedMonthlyAnalysisId: string | null;
   displayCurrency: DisplayCurrency;
   assetCount: number;
-  baseCurrency: string;
   canGenerateCurrentMonthAnalysis: boolean;
   deletingMonthlyAnalysisId: string | null;
   onDeleteMonthlyAnalysisReport: (session: AnalysisSession) => void;
@@ -25,7 +24,6 @@ export function MonthlyReportPanel({
   selectedMonthlyAnalysisId,
   displayCurrency,
   assetCount,
-  baseCurrency,
   canGenerateCurrentMonthAnalysis,
   deletingMonthlyAnalysisId,
   onDeleteMonthlyAnalysisReport,
@@ -46,13 +44,11 @@ export function MonthlyReportPanel({
           <>
             <div className="analysis-report-header">
               <div>
-                <p className="eyebrow">Monthly Analysis</p>
                 <h2>{selectedMonthlyAnalysis.title}</h2>
                 <div className="analysis-report-meta-strip" aria-label="月報摘要">
                   <span>生成：{formatGeneratedAt(selectedMonthlyAnalysis.updatedAt)}</span>
                   <span>模型：{getAnalysisModelLabel(selectedMonthlyAnalysis.model)}</span>
                   <span>資產：{assetCount} 項</span>
-                  <span>基準：{baseCurrency}</span>
                 </div>
               </div>
               <div className="analysis-report-actions">
@@ -91,8 +87,8 @@ export function MonthlyReportPanel({
             title="尚未生成每月分析"
             reason={
               canGenerateCurrentMonthAnalysis
-                ? '已進入可生成時段，可在上方按「生成月報」建立第一份每月資產分析。'
-                : '未到每月生成時段（每月 1 號香港時間上午 8:00 後），暫時未有可用的月報。'
+                ? '按上方「生成月報」建立第一份月報。'
+                : '每月 1 號上午 8 時後可生成。'
             }
           />
         )}
@@ -102,7 +98,6 @@ export function MonthlyReportPanel({
         <div className="section-heading">
           <div>
             <h2>歷史月報</h2>
-            <p className="table-hint">每月資產分析記錄</p>
           </div>
           <span className="chip chip-soft">
             {monthlyAnalysisSessions.length > 0 ? `${monthlyAnalysisSessions.length} 份` : '尚未生成'}
@@ -141,9 +136,7 @@ export function MonthlyReportPanel({
               );
             })}
           </div>
-        ) : (
-          <p className="table-hint">生成月報後，歷史記錄會在這裡列出。</p>
-        )}
+        ) : null}
       </aside>
     </div>
   );

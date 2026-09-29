@@ -12,7 +12,6 @@ function App() {
     return (
       <div className="app-auth-shell">
         <div className="app-auth-card">
-          <p className="eyebrow">Shared Access</p>
           <h1>系統設定尚未完成</h1>
           <p className="app-auth-copy">
             {error || '共享存取碼尚未配置，請聯絡管理員完成設定。'}
@@ -26,7 +25,6 @@ function App() {
     return (
       <div className="app-auth-shell">
         <div className="app-auth-card">
-          <p className="eyebrow">Shared Access</p>
           <h1>輸入共享存取碼</h1>
 
           <form
