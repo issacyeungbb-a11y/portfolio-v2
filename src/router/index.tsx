@@ -2,10 +2,19 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 
 import { AppShell } from '../layout/AppShell';
 
+// React Router v7 移除咗 RouterProvider 嘅 fallbackElement，改為喺頂層路由設定
+// hydrateFallbackElement，喺首次載入 lazy 頁面期間顯示。
+const initialLoadFallback = (
+  <div className="app-auth-shell" aria-busy="true">
+    <div className="skeleton skeleton-card" style={{ width: 'min(100%, 34rem)' }} />
+  </div>
+);
+
 export const router = createBrowserRouter([
   // Standalone tool route — outside AppShell, no sidebar/topbar/bottomnav
   {
     path: '/system/diagnostics',
+    hydrateFallbackElement: initialLoadFallback,
     lazy: async () => ({
       Component: (await import('../pages/SystemDiagnosticsPage')).SystemDiagnosticsPage,
     }),
@@ -13,6 +22,7 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: <AppShell />,
+    hydrateFallbackElement: initialLoadFallback,
     children: [
       {
         index: true,
