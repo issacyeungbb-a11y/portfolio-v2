@@ -59,7 +59,14 @@ function App() {
   }
 
   return (
-    <RouterProvider router={router} />
+    <RouterProvider
+      router={router}
+      fallbackElement={
+        <div className="app-auth-shell" aria-busy="true">
+          <div className="skeleton skeleton-card" style={{ width: 'min(100%, 34rem)' }} />
+        </div>
+      }
+    />
   );
 }
 

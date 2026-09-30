@@ -224,7 +224,7 @@ export default defineConfig(({ mode }) => {
       },
     ],
     build: {
-      rolldownOptions: {
+      rollupOptions: {
         external: [
           'firebase-admin',
           'firebase-admin/app',
@@ -233,18 +233,13 @@ export default defineConfig(({ mode }) => {
           'yahoo-finance2',
         ],
         output: {
-          // Rolldown 唔支援 Rollup 嘅 manualChunks 物件寫法，改用 codeSplitting groups
-          // 按模組路徑分出同以前一樣嘅兩個 vendor chunk。
-          codeSplitting: {
-            groups: [
-              {
-                name: 'vendor-react',
-                test: /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler|cookie|set-cookie-parser)[\\/]/,
-              },
-              {
-                name: 'vendor-firebase',
-                test: /[\\/]node_modules[\\/](firebase|@firebase|idb)[\\/]/,
-              },
+          manualChunks: {
+            'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+            'vendor-firebase': [
+              'firebase/app',
+              'firebase/auth',
+              'firebase/firestore',
+              'firebase/storage',
             ],
           },
         },
