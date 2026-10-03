@@ -38,5 +38,6 @@ export function getCryptoSnapshotQualityTone(quality: CryptoDataQuality) {
 }
 
 export function getCryptoSourceLabel(sourceType: string) {
+  if (sourceType === 'system_management') return '系統持倉月結';
   return sourceType === 'locked_month_log' ? '鎖定月結記錄' : '年度工作表';
 }

@@ -489,6 +489,9 @@ async function applyCryptoAccountValuationOverride(params) {
   };
 }
 async function runCryptoMonthlySync(options = {}) {
+  if ((await getPortfolioRef().collection("cryptoManagement").doc("current").get()).exists) {
+    throw new CryptoMonthlySyncError("\u5DF2\u8F49\u7528\u7CFB\u7D71\u6301\u5009\u7BA1\u7406\uFF1BGoogle Sheet \u73FE\u70BA\u9077\u79FB\u5099\u4EFD\uFF0C\u4E0D\u518D\u540C\u6B65\u3002", 409);
+  }
   const apply = options.apply === true;
   const applyAssetShadow = options.applyAssetShadow === true;
   if (apply && options.confirmation !== APPLY_CONFIRMATION) {
@@ -639,5 +642,7 @@ function getCryptoMonthlySyncErrorResponse(error) {
 export {
   CryptoMonthlySyncError,
   getCryptoMonthlySyncErrorResponse,
+  getGoogleSheetsAccessToken,
+  readSheetValues,
   runCryptoMonthlySync
 };

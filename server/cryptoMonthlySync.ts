@@ -134,7 +134,7 @@ function encodeJwtPart(value: unknown) {
   return Buffer.from(JSON.stringify(value)).toString('base64url');
 }
 
-async function getGoogleSheetsAccessToken() {
+export async function getGoogleSheetsAccessToken() {
   const serviceAccount = readGoogleServiceAccount();
   const now = Math.floor(Date.now() / 1000);
   const unsignedToken = `${encodeJwtPart({ alg: 'RS256', typ: 'JWT' })}.${encodeJwtPart({
@@ -173,7 +173,7 @@ async function getGoogleSheetsAccessToken() {
   return payload.access_token;
 }
 
-async function readSheetValues(
+export async function readSheetValues(
   accessToken: string,
   spreadsheetId: string,
   sourceRange: string,
@@ -648,6 +648,9 @@ async function applyCryptoAccountValuationOverride(params: {
 }
 
 export async function runCryptoMonthlySync(options: CryptoMonthlySyncOptions = {}) {
+  if ((await getPortfolioRef().collection('cryptoManagement').doc('current').get()).exists) {
+    throw new CryptoMonthlySyncError('已轉用系統持倉管理；Google Sheet 現為遷移備份，不再同步。', 409);
+  }
   const apply = options.apply === true;
   const applyAssetShadow = options.applyAssetShadow === true;
   if (apply && options.confirmation !== APPLY_CONFIRMATION) {

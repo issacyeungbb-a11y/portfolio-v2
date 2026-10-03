@@ -103,7 +103,7 @@ function buildAllocationSlices(holdingsList) {
   const totalHKD = getPortfolioTotalValue(holdingsList, "HKD");
   const grouped = /* @__PURE__ */ new Map();
   for (const holding of aggregateHoldingsForAllocation(holdingsList)) {
-    const bucketKey = holding.assetType;
+    const bucketKey = holding.managedCryptoLiability ? "crypto" : holding.assetType;
     const current = grouped.get(bucketKey) ?? [];
     grouped.set(bucketKey, [...current, holding]);
   }

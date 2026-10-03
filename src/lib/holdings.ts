@@ -154,7 +154,7 @@ export function buildAllocationSlices(holdingsList: Holding[]): AllocationSlice[
   const grouped = new Map<AllocationBucketKey, AllocationHolding[]>();
 
   for (const holding of aggregateHoldingsForAllocation(holdingsList)) {
-    const bucketKey = holding.assetType;
+    const bucketKey = holding.managedCryptoLiability ? 'crypto' : holding.assetType;
     const current = grouped.get(bucketKey) ?? [];
     grouped.set(bucketKey, [...current, holding]);
   }

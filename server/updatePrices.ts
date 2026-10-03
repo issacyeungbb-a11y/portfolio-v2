@@ -4,6 +4,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 
 import {
   getFirebaseAdminDb,
+  getSharedPortfolioDocRef,
   getSharedCoinGeckoCoinIdCacheDocRef,
   getSharedCoinGeckoCoinIdCacheDocRefs,
   getSharedCoinGeckoCoinIdOverrideDocRef,
@@ -539,7 +540,7 @@ function createCoinGeckoCacheEntry(params: {
  * COINGECKO_PLAN=pro 使用 pro-api.coingecko.com + x-cg-pro-api-key。
  * 如果 plan=pro 但未設定 COINGECKO_API_KEY，拋出明確錯誤而非靜默失敗。
  */
-function getCoinGeckoConfig(): { baseUrl: string; headers: Record<string, string> } {
+export function getCoinGeckoConfig(): { baseUrl: string; headers: Record<string, string> } {
   const plan = (process.env.COINGECKO_PLAN?.trim().toLowerCase() || 'demo') as 'demo' | 'pro';
   const apiKey = process.env.COINGECKO_API_KEY?.trim();
 
@@ -1423,6 +1424,8 @@ async function fetchCoinGeckoPrice(
   }
 
   const uniqueTickers = [...new Set(assets.map((asset) => normalizeCoinGeckoTicker(asset.ticker)))];
+  const management = await getSharedPortfolioDocRef().collection('cryptoManagement').doc('current').get();
+  const manualSymbols = new Set((management.data()?.coins ?? []).filter((c: { priceSource: string }) => c.priceSource === 'manual').map((c: { symbol: string }) => c.symbol));
   const overrideEntries = await readCoinGeckoOverrideEntries(uniqueTickers);
   const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
   const resolvedResults: MarketPriceResult[] = [];
@@ -1434,6 +1437,10 @@ async function fetchCoinGeckoPrice(
 
   for (const asset of assets) {
     const normalizedTicker = normalizeCoinGeckoTicker(asset.ticker);
+    if (asset.accountSource === 'Crypto' && manualSymbols.has(normalizedTicker)) {
+      unresolvedResults.push(createFailedMarketResult(asset, '手動價格：請於 Crypto 管理頁更新'));
+      continue;
+    }
     const override = overrideEntries.get(normalizedTicker);
     const cacheEntry = cacheEntries.get(normalizedTicker);
     const resolvedEntry = override

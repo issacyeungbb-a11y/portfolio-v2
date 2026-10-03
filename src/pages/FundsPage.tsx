@@ -446,14 +446,14 @@ function AccountPrincipalRow({
           value={principalAmount}
           onChange={(event) => setPrincipalAmount(event.target.value)}
           placeholder="本金金額"
-          disabled={isSaving}
+          disabled={isSaving || entry.managedCrypto}
         />
         <input
           className="settings-inline-input settings-inline-currency"
           value={currency}
           onChange={(event) => setCurrency(event.target.value.toUpperCase())}
           placeholder="幣別"
-          disabled={isSaving}
+          disabled={isSaving || entry.managedCrypto}
         />
         <button
           className="button button-secondary"
@@ -465,9 +465,9 @@ function AccountPrincipalRow({
               currency: currency.trim().toUpperCase() || 'HKD',
             })
           }
-          disabled={isSaving}
+          disabled={isSaving || entry.managedCrypto}
         >
-          {isSaving ? '儲存中...' : '儲存'}
+          {entry.managedCrypto ? '於 Crypto 管理中心修改' : isSaving ? '儲存中...' : '儲存'}
         </button>
       </div>
     </div>

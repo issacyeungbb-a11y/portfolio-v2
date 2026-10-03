@@ -73,7 +73,7 @@ export function useManualPriceUpdater(params: {
   const [priceUpdateSuccess, setPriceUpdateSuccess] = useState<string | null>(null);
 
   async function runPriceUpdates(targetHoldings: Holding[]) {
-    const updatableHoldings = dedupeTargetHoldingsByAssetId(targetHoldings);
+    const updatableHoldings = dedupeTargetHoldingsByAssetId(targetHoldings.filter(h => !h.managedManualPrice));
 
     if (updatableHoldings.length === 0) {
       setPriceUpdateError(params.emptyTargetMessage ?? '目前沒有可更新的資產。');

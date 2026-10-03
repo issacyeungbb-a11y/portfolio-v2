@@ -128,7 +128,7 @@ export function buildAccountPrincipalOverview(
       baseline,
       recentCount: relatedFlows.length,
       netFlowHKD,
-      totalPrincipalHKD: baselineHKD + netFlowHKD,
+      totalPrincipalHKD: baseline.managedCrypto ? baselineHKD : baselineHKD + netFlowHKD,
     } satisfies AccountPrincipalSummary;
   });
 

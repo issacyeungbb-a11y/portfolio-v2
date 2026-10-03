@@ -6,6 +6,7 @@ import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
 import { writeSystemRun } from './systemRuns.js';
 import { runScheduledDailySnapshot } from './cronCaptureSnapshot.js';
 import { runCryptoMonthlySync } from './cryptoMonthlySync.js';
+import { closeCryptoMonth, refreshManagedCrypto } from './cryptoManagement.js';
 // Re-export verifyCronRequest from cronAuth (dedicated auth module) so API routes
 // can keep their existing imports while avoiding a circular dep with cronCaptureSnapshot.
 export { verifyCronRequest } from './cronAuth.js';
@@ -64,6 +65,7 @@ function raceWithTimeout<T>(promise: Promise<T>, ms: number, msg: string): Promi
 async function runCryptoMonthlyDetection(): Promise<Record<string, unknown>> {
   const checkedAt = new Date().toISOString();
   try {
+    if ((await getFirebaseAdminDb().collection('portfolio').doc('app').collection('cryptoManagement').doc('current').get()).exists) return { ok: true, source: 'system_management', sheetSyncRetired: true };
     const preview = await raceWithTimeout(
       runCryptoMonthlySync(),
       CRYPTO_MONTHLY_DETECTION_TIMEOUT_MS,
@@ -314,7 +316,7 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
     // 3. Update phase (skip if already done)
     if (!updateAlreadyDone) {
       const allAssets = await readAdminPortfolioAssets();
-      const nonCashAssets = allAssets.filter((asset) => asset.assetType !== 'cash');
+      const nonCashAssets = allAssets.filter((asset) => asset.assetType !== 'cash' && !asset.managedManualPrice);
       totalAssets = nonCashAssets.length;
       const assetsToProcess = nonCashAssets.filter(a => !processedSet.has(a.id) && !failedSet.has(a.id));
 
@@ -437,6 +439,8 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
     }
 
     // 4. Snapshot phase (skip if already done)
+    await refreshManagedCrypto();
+    const cryptoMonthlyClose = await closeCryptoMonth(true);
     // P0-1: 傳入主流程 fxRates，snapshot 優先使用相同匯率（無需再次 fetch）
     // P2 修補：等 Firestore 寫入收斂，避免 update phase batch commit 後即刻再讀
     //   priceUpdateReviews 時仲睇到舊嘅 pending 狀態（eventual consistency race）。
@@ -475,7 +479,7 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
     console.info(`[${route}] 完成`, { appliedCount, pendingReviewCount, coveragePct, durationMs });
 
     return {
-      ok: true, route, message, dateKey,
+      ok: true, route, message, dateKey, cryptoMonthlyClose,
       appliedCount, pendingReviewCount, coveragePct,
       fxUsingFallback, coinGeckoSyncStatus,
       snapshotStatus: snapshotAlreadyDone

@@ -22,6 +22,9 @@ export interface PortfolioAssetInput {
   quantity: number;
   averageCost: number;
   currentPrice: number;
+  managedCrypto?: boolean;
+  managedCryptoLiability?: boolean;
+  managedManualPrice?: boolean;
   valuationOverrideMonth?: string;
   valuationUsdHkdRate?: number;
 }
@@ -42,6 +45,7 @@ export interface AllocationHolding extends Holding {
 }
 
 export interface AccountPrincipalEntry {
+  managedCrypto?: boolean;
   accountSource: AccountSource;
   principalAmount: number;
   currency: string;

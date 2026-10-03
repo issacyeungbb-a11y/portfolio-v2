@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import {
   convertCurrency,
@@ -295,6 +296,7 @@ export function HoldingsTable({
                         }}
                         disabled={
                           isUpdating ||
+                          holding.managedManualPrice || holding.managedCryptoLiability ||
                           (isCashHolding ? !onViewCashLedger : !onUpdatePrice)
                         }
                       >
@@ -304,7 +306,7 @@ export function HoldingsTable({
                         className="button button-secondary table-action-button"
                         type="button"
                         onClick={() => onTrade?.(holding)}
-                        disabled={!onTrade || isUpdating || isCashHolding}
+                        disabled={!onTrade || isUpdating || isCashHolding || holding.managedCrypto}
                       >
                         交易
                       </button>
@@ -312,10 +314,11 @@ export function HoldingsTable({
                         className="button button-secondary table-action-button"
                         type="button"
                         onClick={() => onEdit?.(holding)}
-                        disabled={!onEdit || isUpdating}
+                        disabled={!onEdit || isUpdating || holding.managedCrypto}
                       >
                         編輯
                       </button>
+                      {holding.managedCrypto ? <Link className="button button-secondary table-action-button" to="/crypto-history">管理持倉</Link> : null}
                     </div>
                   </td>
                 </tr>

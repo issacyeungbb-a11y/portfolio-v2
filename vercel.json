@@ -1,6 +1,9 @@
 {
   "fluid": true,
   "functions": {
+    "api/health.ts": {
+      "maxDuration": 120
+    },
     "api/cron-monthly-analysis.ts": {
       "maxDuration": 300
     },

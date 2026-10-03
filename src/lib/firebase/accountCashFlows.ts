@@ -11,6 +11,7 @@ import type { AccountCashFlowEntry, AccountCashFlowType, AccountSource } from '.
 import { getHongKongDateKey } from '../dates';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
 import { getSharedAccountCashFlowsCollectionRef } from './sharedPortfolio';
+import { callPortfolioFunction } from '../api/vercelFunctions';
 
 function createMissingConfigError() {
   return new Error(
@@ -110,6 +111,7 @@ export function subscribeToAccountCashFlows(
 export async function createAccountCashFlow(
   entry: Omit<AccountCashFlowEntry, 'id' | 'createdAt' | 'updatedAt'>,
 ) {
+  if (entry.accountSource === 'Crypto' && (await callPortfolioFunction('crypto-management', { action: 'read' }) as { state: unknown }).state) throw new Error('Crypto 資金請於持倉管理中心記錄。');
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }

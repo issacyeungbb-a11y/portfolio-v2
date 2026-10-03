@@ -35,7 +35,7 @@ function hasMissingOrInvalidPrice(holding: Holding) {
  * 因此沒有 priceAsOf，不應以時窗判斷。
  */
 export function hasValidHoldingPrice(holding: Holding) {
-  if (holding.assetType === 'cash') return holding.currentPrice >= 0;
+  if (holding.assetType === 'cash') return Number.isFinite(holding.currentPrice) && (holding.currentPrice >= 0 || holding.managedCryptoLiability === true);
   if (hasMissingOrInvalidPrice(holding)) return false;
   return Date.now() - new Date(holding.priceAsOf!).getTime() <= getQuoteFreshnessWindowMs(holding.assetType);
 }

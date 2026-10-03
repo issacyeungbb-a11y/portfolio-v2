@@ -26,6 +26,12 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(async (request, response, next) => {
             const pathname = request.url?.split('?')[0];
 
+            if (pathname === '/api/health' && new URL(request.url ?? '', 'http://localhost').searchParams.get('mode') === 'crypto-management') {
+              const { default: handler } = await server.ssrLoadModule('/api/health.ts');
+              await handler(request, response);
+              return;
+            }
+
             if (request.method === 'POST' && pathname === '/api/health') {
               const requestUrl = new URL(request.url ?? '/api/health', 'http://localhost');
 

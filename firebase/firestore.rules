@@ -7,8 +7,14 @@ service cloud.firestore {
       allow delete: if false;
 
       match /assets/{assetId} {
-        allow read, create, update: if true;
-        allow delete: if true;
+        function managerActive() { return exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current); }
+        allow read: if true;
+        allow create: if request.resource.data.accountSource != 'Crypto' || !managerActive();
+        allow update: if (resource.data.accountSource != 'Crypto' && request.resource.data.accountSource != 'Crypto') || !managerActive() ||
+          (resource.data.get('managedCrypto', false) && !resource.data.get('managedManualPrice', false) &&
+           request.resource.data.currency == 'USD' &&
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentPrice', 'currency', 'updatedAt', 'lastPriceUpdatedAt', 'priceAsOf', 'priceSource', 'priceSourceName', 'priceSourceUrl']));
+        allow delete: if resource.data.accountSource != 'Crypto' || !managerActive();
 
         match /priceHistory/{entryId} {
           allow read, create, update: if true;
@@ -57,12 +63,15 @@ service cloud.firestore {
       }
 
       match /accountPrincipals/{accountSource} {
-        allow read, create, update: if true;
+        allow read: if true;
+        allow create, update: if accountSource != 'Crypto' || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current);
         allow delete: if false;
       }
 
       match /accountCashFlows/{entryId} {
-        allow read, create, update: if true;
+        allow read: if true;
+        allow create: if request.resource.data.accountSource != 'Crypto' || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current);
+        allow update: if (resource.data.accountSource != 'Crypto' && request.resource.data.accountSource != 'Crypto') || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current);
         allow delete: if false;
       }
 

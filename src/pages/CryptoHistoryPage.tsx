@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { CryptoManagementPanel } from '../components/crypto/CryptoManagementPanel';
 
 import { CryptoAllocationPanel } from '../components/crypto/CryptoAllocationPanel';
 import { CryptoHistoryTrendChart } from '../components/crypto/CryptoHistoryTrendChart';
@@ -297,6 +298,10 @@ function SnapshotDetails({ snapshot }: { snapshot: CryptoMonthlySnapshot }) {
 }
 
 export function CryptoHistoryPage() {
+  return <CryptoManagementPanel history={<CryptoMonthlyHistory managed />} />;
+}
+
+function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
   const history = useCryptoHistory();
   const [year, setYear] = useState<CryptoHistoryYearFilter>('all');
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
@@ -320,7 +325,7 @@ export function CryptoHistoryPage() {
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
       title: 'Crypto 歷史',
-      subtitle: 'Google Sheet 月結紀錄，不計入投資組合。',
+      subtitle: managed ? '持倉在管理中心維護，以下保留各月份鎖定結果。' : 'Google Sheet 月結紀錄，不計入投資組合。',
       primaryStatus:
         history.status === 'ready'
           ? { label: `${history.snapshots.length} 個月份`, tone: 'success' }
@@ -328,7 +333,7 @@ export function CryptoHistoryPage() {
             ? { label: '讀取失敗', tone: 'danger' }
             : { label: '載入中', tone: 'neutral' },
     }),
-    [history.snapshots.length, history.status],
+    [history.snapshots.length, history.status, managed],
   );
 
   useTopBar(topBarConfig);
@@ -372,10 +377,10 @@ export function CryptoHistoryPage() {
   };
 
   useEffect(() => {
-    if (history.status === 'ready') {
+    if (history.status === 'ready' && !managed) {
       void previewMonthlySync();
     }
-  }, [history.status]);
+  }, [history.status, managed]);
 
   const applyMonthlySync = async () => {
     if (
@@ -557,7 +562,7 @@ export function CryptoHistoryPage() {
             hint="不扣提取／消費"
           />
           <KpiCard
-            label="試算表逐項持倉 USD"
+            label={activeSnapshot.sourceType === 'system_management' ? '月結淨資產 USD' : '原表逐項持倉 USD'}
             value={money(activeSnapshot.currentNetUsd, 'USD')}
             hint="資產減負債"
           />
@@ -581,7 +586,7 @@ export function CryptoHistoryPage() {
           <KpiCard
             label="累計提取／消費 USD"
             value={money(activeSnapshot.cumulativeWithdrawnUsd, 'USD')}
-            hint="不從總資產扣減"
+            hint="獨立列示，不重複計算"
           />
           <KpiCard
             label="BTC 等值"
@@ -705,7 +710,7 @@ export function CryptoHistoryPage() {
 
       {activeSnapshot ? <SnapshotDetails snapshot={activeSnapshot} /> : null}
 
-      <section className="card crypto-import-card">
+      {!managed && <section className="card crypto-import-card">
         <div className="section-heading">
           <div>
             <h2>最近匯入</h2>
@@ -929,7 +934,7 @@ export function CryptoHistoryPage() {
             {' · '}新增 {history.latestSync.createCount}／略過 {history.latestSync.skipCount}
           </p>
         ) : null}
-      </section>
+      </section>}
     </div>
   );
 }

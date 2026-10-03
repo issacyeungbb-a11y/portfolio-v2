@@ -3,6 +3,7 @@ import { getCrumbClear } from "yahoo-finance2/lib/getCrumb";
 import { FieldValue } from "firebase-admin/firestore";
 import {
   getFirebaseAdminDb,
+  getSharedPortfolioDocRef,
   getSharedCoinGeckoCoinIdCacheDocRef,
   getSharedCoinGeckoCoinIdCacheDocRefs,
   getSharedCoinGeckoCoinIdOverrideDocRef,
@@ -1012,6 +1013,8 @@ async function fetchCoinGeckoPrice(assets) {
     return [];
   }
   const uniqueTickers = [...new Set(assets.map((asset) => normalizeCoinGeckoTicker(asset.ticker)))];
+  const management = await getSharedPortfolioDocRef().collection("cryptoManagement").doc("current").get();
+  const manualSymbols = new Set((management.data()?.coins ?? []).filter((c) => c.priceSource === "manual").map((c) => c.symbol));
   const overrideEntries = await readCoinGeckoOverrideEntries(uniqueTickers);
   const cacheEntries = await readCoinGeckoCacheEntries(uniqueTickers);
   const resolvedResults = [];
@@ -1019,6 +1022,10 @@ async function fetchCoinGeckoPrice(assets) {
   const coinIdToAssets = /* @__PURE__ */ new Map();
   for (const asset of assets) {
     const normalizedTicker = normalizeCoinGeckoTicker(asset.ticker);
+    if (asset.accountSource === "Crypto" && manualSymbols.has(normalizedTicker)) {
+      unresolvedResults.push(createFailedMarketResult(asset, "\u624B\u52D5\u50F9\u683C\uFF1A\u8ACB\u65BC Crypto \u7BA1\u7406\u9801\u66F4\u65B0"));
+      continue;
+    }
     const override = overrideEntries.get(normalizedTicker);
     const cacheEntry = cacheEntries.get(normalizedTicker);
     const resolvedEntry = override ? createCacheEntryFromOverride(normalizedTicker, override) : cacheEntry;
@@ -1242,6 +1249,7 @@ export {
   fetchLiveFxRates,
   fetchLiveFxRatesWithStatus,
   generatePriceUpdates,
+  getCoinGeckoConfig,
   getQuoteFreshnessWindowMs,
   getUpdatePricesErrorResponse,
   isFreshCoinGeckoCacheEntry,

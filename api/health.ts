@@ -6,6 +6,7 @@ import {
 } from '../server/apiShared.js';
 import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
 import { readCryptoHistory } from '../server/cryptoHistory.js';
+import { runCryptoManagement, CryptoManagementError } from '../server/cryptoManagement.js';
 import {
   getCryptoMonthlySyncErrorResponse,
   runCryptoMonthlySync,
@@ -1057,6 +1058,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   const mode = readMode(request);
+
+  if (mode === 'crypto-management') {
+    response.setHeader('Cache-Control', 'private, no-store');
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Method not allowed' }); return; }
+    try {
+      await requirePortfolioAccess(request, '/api/health');
+      const body = await readJsonBody(request) as Record<string, unknown>;
+      sendJson(response, 200, { ok: true, ...(await runCryptoManagement(body)) });
+    } catch (error) {
+      if (isPortfolioAccessError(error)) { const formatted = getPortfolioAccessErrorResponse(error, '/api/health'); sendJson(response, formatted.status, formatted.body); }
+      else sendJson(response, error instanceof CryptoManagementError ? error.status : 400, { ok: false, message: error instanceof Error ? error.message : 'Crypto 管理操作失敗。' });
+    }
+    return;
+  }
 
   if (mode === 'crypto-sync') {
     if (request.method !== 'POST') {

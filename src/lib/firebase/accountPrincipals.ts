@@ -1,4 +1,4 @@
-import { doc, onSnapshot, serverTimestamp, setDoc, Timestamp } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, serverTimestamp, setDoc, Timestamp } from 'firebase/firestore';
 
 import type { AccountPrincipalEntry, AccountSource } from '../../types/portfolio';
 import { hasFirebaseConfig, missingFirebaseEnvKeys } from './client';
@@ -44,6 +44,7 @@ function normalizeAccountPrincipalEntry(
   return {
     accountSource,
     principalAmount,
+    managedCrypto: value?.managedCrypto === true,
     currency,
     updatedAt: formatTimestamp(value?.updatedAt),
   };
@@ -128,6 +129,7 @@ export async function saveAccountPrincipal(entry: AccountPrincipalEntry) {
   }
 
   const collectionRef = getSharedAccountPrincipalsCollectionRef();
+  if (entry.accountSource === 'Crypto' && (await getDoc(doc(collectionRef, 'Crypto'))).data()?.managedCrypto) throw new Error('Crypto 本金請於持倉管理中心嘅資金紀錄調整。');
   await setDoc(
     doc(collectionRef, entry.accountSource),
     {

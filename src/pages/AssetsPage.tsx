@@ -442,7 +442,7 @@ export function AssetsPage() {
         sum + convertCurrency(entry.principalAmount, entry.currency, displayCurrency),
       0,
     ) +
-    cashFlowEntries.reduce(
+    cashFlowEntries.filter(flow => !accountPrincipals.some(principal => principal.accountSource === flow.accountSource && principal.managedCrypto)).reduce(
       (sum, entry) =>
         sum +
         convertCurrency(

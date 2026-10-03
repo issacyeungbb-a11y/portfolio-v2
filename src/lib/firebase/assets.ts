@@ -2,6 +2,7 @@ import {
   addDoc,
   doc,
   getDocsFromServer,
+  getDoc,
   onSnapshot,
   orderBy,
   query,
@@ -34,7 +35,7 @@ function normalizePortfolioAssetInput(payload: PortfolioAssetInput): PortfolioAs
   const normalizedCurrentPrice = Number(payload.currentPrice) || 0;
 
   if (payload.assetType === 'cash') {
-    const cashAmount =
+    const cashAmount = payload.managedCryptoLiability ? normalizedCurrentPrice :
       normalizedCurrentPrice ||
       normalizedAverageCost ||
       normalizedQuantity ||
@@ -125,6 +126,7 @@ export function buildHoldingFromInput(
     allocation: 0,
     priceAsOf: formatTimestamp(payload.priceAsOf),
     lastPriceUpdatedAt: formatTimestamp(payload.lastPriceUpdatedAt),
+    managedCryptoLiability: payload.managedCryptoLiability,
   });
   const currentPrice = options.useRawCurrentPrice
     ? normalized.currentPrice
@@ -143,6 +145,9 @@ export function buildHoldingFromInput(
   return {
     id,
     ...normalized,
+    managedCrypto: payload.managedCrypto,
+    managedCryptoLiability: payload.managedCryptoLiability,
+    managedManualPrice: payload.managedManualPrice,
     currentPrice,
     marketValue,
     unrealizedPnl,
@@ -285,6 +290,7 @@ function subscribeToLiveAssets(
 }
 
 export async function createPortfolioAsset(payload: PortfolioAssetInput) {
+  if (payload.accountSource === 'Crypto' && (await callPortfolioFunction('crypto-management', { action: 'read' }) as { state: unknown }).state) throw new Error('Crypto 請於「持倉管理中心」新增持倉。');
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
@@ -356,6 +362,7 @@ export async function createPortfolioAsset(payload: PortfolioAssetInput) {
 }
 
 export async function createPortfolioAssets(payloads: PortfolioAssetInput[]) {
+  if (payloads.some(p => p.accountSource === 'Crypto') && (await callPortfolioFunction('crypto-management', { action: 'read' }) as { state: unknown }).state) throw new Error('Crypto 請於「持倉管理中心」新增持倉。');
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();
   }
@@ -436,6 +443,7 @@ export async function updatePortfolioAsset(assetId: string, payload: PortfolioAs
   const normalized = normalizePortfolioAssetInput(payload);
   const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
 
+  if ((await getDoc(assetRef)).data()?.managedCrypto) throw new Error('Crypto 數量請於「持倉管理中心」修改。');
   await updateDoc(assetRef, {
     ...normalized,
     updatedAt: serverTimestamp(),
@@ -453,6 +461,7 @@ export async function deletePortfolioAsset(assetId: string) {
   }
 
   const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
+  if ((await getDoc(assetRef)).data()?.managedCrypto) throw new Error('Crypto 持倉請於「持倉管理中心」移除。');
   await updateDoc(assetRef, {
     archivedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

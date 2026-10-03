@@ -6,6 +6,7 @@ import { runCoinGeckoCoinIdSync } from "./syncCoinIds.js";
 import { writeSystemRun } from "./systemRuns.js";
 import { runScheduledDailySnapshot } from "./cronCaptureSnapshot.js";
 import { runCryptoMonthlySync } from "./cryptoMonthlySync.js";
+import { closeCryptoMonth, refreshManagedCrypto } from "./cryptoManagement.js";
 import { verifyCronRequest } from "./cronAuth.js";
 import {
   readDailyJob,
@@ -55,6 +56,7 @@ function raceWithTimeout(promise, ms, msg) {
 async function runCryptoMonthlyDetection() {
   const checkedAt = (/* @__PURE__ */ new Date()).toISOString();
   try {
+    if ((await getFirebaseAdminDb().collection("portfolio").doc("app").collection("cryptoManagement").doc("current").get()).exists) return { ok: true, source: "system_management", sheetSyncRetired: true };
     const preview = await raceWithTimeout(
       runCryptoMonthlySync(),
       CRYPTO_MONTHLY_DETECTION_TIMEOUT_MS,
@@ -237,7 +239,7 @@ async function runDailyUpdate(trigger) {
   try {
     if (!updateAlreadyDone) {
       const allAssets = await readAdminPortfolioAssets();
-      const nonCashAssets = allAssets.filter((asset) => asset.assetType !== "cash");
+      const nonCashAssets = allAssets.filter((asset) => asset.assetType !== "cash" && !asset.managedManualPrice);
       totalAssets = nonCashAssets.length;
       const assetsToProcess = nonCashAssets.filter((a) => !processedSet.has(a.id) && !failedSet.has(a.id));
       await updateDailyJob(dateKey, { totalAssets });
@@ -345,6 +347,8 @@ async function runDailyUpdate(trigger) {
         totalAssets
       });
     }
+    await refreshManagedCrypto();
+    const cryptoMonthlyClose = await closeCryptoMonth(true);
     let snapshotResult = null;
     if (!snapshotAlreadyDone) {
       await new Promise((r) => setTimeout(r, 2e3));
@@ -377,6 +381,7 @@ async function runDailyUpdate(trigger) {
       route,
       message,
       dateKey,
+      cryptoMonthlyClose,
       appliedCount,
       pendingReviewCount,
       coveragePct,

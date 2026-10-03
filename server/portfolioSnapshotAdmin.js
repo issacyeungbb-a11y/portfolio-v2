@@ -44,6 +44,9 @@ function normalizeAssetInput(value) {
     quantity: typeof value.quantity === "number" ? value.quantity : 0,
     averageCost: typeof value.averageCost === "number" ? value.averageCost : 0,
     currentPrice: typeof value.currentPrice === "number" ? value.currentPrice : 0,
+    managedCrypto: value.managedCrypto === true,
+    managedManualPrice: value.managedManualPrice === true,
+    managedCryptoLiability: value.managedCryptoLiability === true,
     priceAsOf,
     lastPriceUpdatedAt,
     archivedAt

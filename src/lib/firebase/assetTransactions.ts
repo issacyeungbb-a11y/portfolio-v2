@@ -490,6 +490,7 @@ export async function createAssetTransaction(entry: AssetTransactionInput) {
     const assetSnap = await transaction.get(assetRef);
     const cashSnap = cashRef ? await transaction.get(cashRef) : null;
 
+    if (assetSnap.data()?.managedCrypto) throw new Error('Crypto 持倉請於管理中心調整，舊交易保留作歷史查閱。');
     if (!assetSnap.exists()) {
       throw new Error('找不到對應資產，請先確認該資產仍然存在。');
     }
@@ -685,6 +686,7 @@ export async function updateAssetTransaction(
       freshCashBalances.set(key, sanitizeNumber((cashSnap.data() as Record<string, unknown>).currentPrice));
     }
 
+    if (assetSnap.data()?.managedCrypto) throw new Error('Crypto 持倉請於管理中心調整，舊交易保留作歷史查閱。');
     if (!assetSnap.exists()) {
       throw new Error('找不到對應資產，請先確認該資產仍然存在。');
     }
@@ -778,6 +780,7 @@ export async function deleteAssetTransaction(entryId: string) {
     const txSnap = await transaction.get(txRef);
     const cashSnap = cashRef ? await transaction.get(cashRef) : null;
 
+    if (assetSnap.data()?.managedCrypto) throw new Error('Crypto 持倉請於管理中心調整，舊交易保留作歷史查閱。');
     if (!assetSnap.exists()) {
       throw new Error('找不到對應資產，請先確認該資產仍然存在。');
     }
