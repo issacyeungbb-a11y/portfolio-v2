@@ -8,6 +8,7 @@ export type PortfolioFunctionKey =
   | 'extract-assets'
   | 'extract-transactions'
   | 'manual-monthly-analysis'
+  | 'monthly-analysis-status'
   | 'manual-quarterly-report'
   | 'manual-capture-snapshot'
   | 'parse-assets-command'
@@ -26,6 +27,7 @@ export const portfolioFunctionConfig: Record<
   'extract-assets': { path: '/api/extract-assets', method: 'POST' },
   'extract-transactions': { path: '/api/extract-transactions', method: 'POST' },
   'manual-monthly-analysis': { path: '/api/cron-monthly-analysis', method: 'POST' },
+  'monthly-analysis-status': { path: '/api/cron-monthly-analysis', method: 'GET' },
   'manual-quarterly-report': { path: '/api/manual-quarterly-report', method: 'POST' },
   'manual-capture-snapshot': { path: '/api/manual-capture-snapshot', method: 'POST' },
   'parse-assets-command': { path: '/api/parse-assets-command', method: 'POST' },
@@ -60,6 +62,9 @@ export async function callPortfolioFunction(
   payload?: unknown,
 ): Promise<unknown> {
   const config = portfolioFunctionConfig[key];
+  const statusJobId = key === 'monthly-analysis-status' && typeof payload === 'object' && payload !== null
+    ? (payload as { jobId?: string }).jobId : undefined;
+  const path = statusJobId ? `${config.path}?jobId=${encodeURIComponent(statusJobId)}` : config.path;
   const requestId =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID()
@@ -82,21 +87,22 @@ export async function callPortfolioFunction(
   headers['x-client-request-id'] = requestId;
 
   let response: Response;
+  let rawText: string;
   try {
-    response = await fetch(config.path, {
+    response = await fetch(path, {
       method: config.method,
       headers,
       body: config.method === 'POST' ? JSON.stringify(payload ?? {}) : undefined,
     });
+    rawText = await response.text();
   } catch (error) {
     const errorName = error instanceof Error ? error.name : 'NetworkError';
     const errorMessage = error instanceof Error ? error.message : 'unknown network error';
-    throw new Error(
+    throw new PortfolioFunctionNetworkError(
       `無法連線到 ${config.path}（${errorName}: ${errorMessage}）。可能是 Vercel function 超時、瀏覽器網絡被中斷，或部署仍在切換。Request ID: ${requestId}`,
     );
   }
 
-  const rawText = await response.text();
   const contentType = response.headers.get('content-type') ?? '';
 
   let data: unknown = null;
@@ -130,10 +136,29 @@ export async function callPortfolioFunction(
           ? normalizeTextError(response.status, data)
           : `Request failed with status ${response.status}`;
 
-    throw new Error(`${message}（${config.method} ${config.path}，HTTP ${response.status}，Request ID: ${requestId}）`);
+    throw new PortfolioFunctionHttpError(`${message}（${config.method} ${config.path}，HTTP ${response.status}，Request ID: ${requestId}）`, response.status);
   }
 
   return data;
+}
+
+export class PortfolioFunctionNetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PortfolioFunctionNetworkError';
+  }
+}
+
+export class PortfolioFunctionHttpError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = 'PortfolioFunctionHttpError';
+  }
+}
+
+export function isRetryablePortfolioFunctionError(error: unknown) {
+  return error instanceof PortfolioFunctionNetworkError ||
+    (error instanceof PortfolioFunctionHttpError && (error.status >= 500 || error.status === 429));
 }
 
 export async function triggerManualSnapshot() {

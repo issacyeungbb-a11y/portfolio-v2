@@ -50,6 +50,8 @@ function normalizeAnalysisSession(
         : undefined,
     updatedAt: formatTimestamp(value.updatedAt),
     createdAt: formatTimestamp(value.createdAt),
+    generationJobId: typeof value.generationJobId === 'string' ? value.generationJobId : undefined,
+    isTimeoutFallback: value.isTimeoutFallback === true,
   };
 }
 

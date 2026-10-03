@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.46.0",
+    "@vercel/functions": "^3.9.11",
     "firebase": "^12.11.0",
     "firebase-admin": "^13.7.0",
     "jspdf": "^4.2.1",

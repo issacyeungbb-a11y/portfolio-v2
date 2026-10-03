@@ -1285,42 +1285,60 @@ async function analyzeWithGemini(prompt, model, maxTokens, jsonMode = false, tim
   });
   return getGeminiResponseText(response);
 }
-async function analyzeWithClaude(systemPrompt, userPrompt, model, maxTokens = 1800, timeoutMs = CLAUDE_ANALYSIS_TIMEOUT_MS) {
+async function analyzeWithClaude(systemPrompt, userPrompt, model, maxTokens = 1800, timeoutMs = CLAUDE_ANALYSIS_TIMEOUT_MS, fetchResponse = fetch) {
   const apiKey = getAnthropicApiKey();
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01"
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [
-        {
-          role: "user",
-          content: userPrompt
-        }
-      ]
-    }),
-    signal: AbortSignal.timeout(timeoutMs)
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    const errorMessage = typeof payload.error === "object" && payload.error !== null && "message" in payload.error && typeof payload.error.message === "string" ? payload.error.message : "Claude \u5206\u6790\u8ACB\u6C42\u5931\u6557\uFF0C\u8ACB\u7A0D\u5F8C\u518D\u8A66\u3002";
-    throw new AnalyzePortfolioError(errorMessage, response.status);
-  }
-  const content = Array.isArray(payload.content) ? payload.content : [];
-  const text = content.map((item) => {
-    if (typeof item !== "object" || item === null) {
-      return "";
+  const deadline = Date.now() + timeoutMs;
+  const messages = [{ role: "user", content: userPrompt }];
+  let answer = "";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (Date.now() >= deadline) throw new DOMException("\u5206\u6790\u6A21\u578B\u56DE\u61C9\u903E\u6642\u3002", "TimeoutError");
+    const response = await fetchResponse("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages
+      }),
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now()))
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      const errorMessage = typeof payload.error === "object" && payload.error !== null && "message" in payload.error && typeof payload.error.message === "string" ? payload.error.message : "Claude \u5206\u6790\u8ACB\u6C42\u5931\u6557\uFF0C\u8ACB\u7A0D\u5F8C\u518D\u8A66\u3002";
+      throw new AnalyzePortfolioError(errorMessage, response.status);
     }
-    const value = item;
-    return value.type === "text" && typeof value.text === "string" ? value.text : "";
-  }).join("\n");
-  return text;
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    const text = content.map((item) => {
+      if (typeof item !== "object" || item === null) {
+        return "";
+      }
+      const value = item;
+      return value.type === "text" && typeof value.text === "string" ? value.text : "";
+    }).join("\n");
+    console.info("[analyzePortfolio] Claude completion", {
+      requestId: response.headers.get("request-id"),
+      model,
+      stopReason: payload.stop_reason,
+      usage: payload.usage,
+      continuation: attempt
+    });
+    if (!text) throw new AnalyzePortfolioError("\u6A21\u578B\u672A\u6709\u56DE\u50B3\u5206\u6790\u5167\u5BB9\u3002", 502);
+    answer += text;
+    if (payload.stop_reason === "end_turn" || payload.stop_reason === "stop_sequence") return answer;
+    if (payload.stop_reason !== "max_tokens") {
+      throw new AnalyzePortfolioError(`\u6A21\u578B\u672A\u5B8C\u6210\u56DE\u61C9\uFF08${String(payload.stop_reason ?? "unknown")}\uFF09\uFF0C\u672A\u5132\u5B58\u622A\u65B7\u5831\u544A\u3002`, 502);
+    }
+    messages.push({ role: "assistant", content: text }, {
+      role: "user",
+      content: "\u4E0A\u4E00\u6BB5\u56E0\u8F38\u51FA\u9577\u5EA6\u4E0A\u9650\u800C\u4E2D\u65B7\u3002\u8ACB\u5F9E\u6700\u5F8C\u4E00\u500B\u5B57\u5143\u4E4B\u5F8C\u63A5\u7E8C\u5B8C\u6210\uFF0C\u53EA\u8F38\u51FA\u5269\u9918\u5167\u5BB9\uFF0C\u4E0D\u8981\u91CD\u8907\u5DF2\u8F38\u51FA\u7684\u6587\u5B57\u3001\u4E0D\u8981\u52A0\u5165\u5F15\u8A00\u6216\u65B0\u7684\u4EE3\u78BC\u570D\u6B04\u3002"
+    });
+  }
+  throw new AnalyzePortfolioError("\u6A21\u578B\u591A\u6B21\u9054\u5230\u8F38\u51FA\u9577\u5EA6\u4E0A\u9650\uFF0C\u672A\u5132\u5B58\u622A\u65B7\u5831\u544A\u3002\u8ACB\u7A0D\u5F8C\u91CD\u8A66\u3002", 502);
 }
 function getDefaultAnalysisMaxTokens(category) {
   if (category === "asset_report") {
@@ -1695,6 +1713,7 @@ async function analyzePortfolio(payload) {
 }
 export {
   analyzePortfolio,
+  analyzeWithClaude,
   buildEarningsEvidencePack,
   buildPrompt,
   clearExternalEvidenceCacheForTest,

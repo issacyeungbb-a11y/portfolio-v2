@@ -1855,62 +1855,80 @@ async function analyzeWithGemini(
   return getGeminiResponseText(response);
 }
 
-async function analyzeWithClaude(
+export async function analyzeWithClaude(
   systemPrompt: string,
   userPrompt: string,
   model: Extract<PortfolioAnalysisModel, 'claude-opus-5'>,
   maxTokens = 1800,
   timeoutMs = CLAUDE_ANALYSIS_TIMEOUT_MS,
+  fetchResponse: typeof fetch = fetch,
 ) {
   const apiKey = getAnthropicApiKey();
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: userPrompt,
-        },
-      ],
-    }),
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  const deadline = Date.now() + timeoutMs;
+  const messages = [{ role: 'user', content: userPrompt }];
+  let answer = '';
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (Date.now() >= deadline) throw new DOMException('分析模型回應逾時。', 'TimeoutError');
+    const response = await fetchResponse('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        system: systemPrompt,
+        messages,
+      }),
+      signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+    });
 
-  const payload = (await response.json()) as Record<string, unknown>;
+    const payload = (await response.json()) as Record<string, unknown>;
 
-  if (!response.ok) {
-    const errorMessage =
-      typeof payload.error === 'object' &&
-      payload.error !== null &&
-      'message' in payload.error &&
-      typeof payload.error.message === 'string'
-        ? payload.error.message
-        : 'Claude 分析請求失敗，請稍後再試。';
+    if (!response.ok) {
+      const errorMessage =
+        typeof payload.error === 'object' &&
+        payload.error !== null &&
+        'message' in payload.error &&
+        typeof payload.error.message === 'string'
+          ? payload.error.message
+          : 'Claude 分析請求失敗，請稍後再試。';
 
-    throw new AnalyzePortfolioError(errorMessage, response.status);
+      throw new AnalyzePortfolioError(errorMessage, response.status);
+    }
+
+    const content = Array.isArray(payload.content) ? payload.content : [];
+    const text = content
+      .map((item) => {
+        if (typeof item !== 'object' || item === null) {
+          return '';
+        }
+
+        const value = item as Record<string, unknown>;
+        return value.type === 'text' && typeof value.text === 'string' ? value.text : '';
+      })
+      .join('\n');
+    console.info('[analyzePortfolio] Claude completion', {
+      requestId: response.headers.get('request-id'),
+      model, stopReason: payload.stop_reason, usage: payload.usage, continuation: attempt,
+    });
+    if (!text) throw new AnalyzePortfolioError('模型未有回傳分析內容。', 502);
+    answer += text;
+    if (payload.stop_reason === 'end_turn' || payload.stop_reason === 'stop_sequence') return answer;
+    if (payload.stop_reason !== 'max_tokens') {
+      throw new AnalyzePortfolioError(`模型未完成回應（${String(payload.stop_reason ?? 'unknown')}），未儲存截斷報告。`, 502);
+    }
+    // Continue in the same conversation instead of accepting a partial report.
+    // Every continuation shares the original deadline, keeping the job inside
+    // its function budget and retaining the old report if completion fails.
+    messages.push({ role: 'assistant', content: text }, {
+      role: 'user',
+      content: '上一段因輸出長度上限而中斷。請從最後一個字元之後接續完成，只輸出剩餘內容，不要重複已輸出的文字、不要加入引言或新的代碼圍欄。',
+    });
   }
-
-  const content = Array.isArray(payload.content) ? payload.content : [];
-  const text = content
-    .map((item) => {
-      if (typeof item !== 'object' || item === null) {
-        return '';
-      }
-
-      const value = item as Record<string, unknown>;
-      return value.type === 'text' && typeof value.text === 'string' ? value.text : '';
-    })
-    .join('\n');
-
-  return text;
+  throw new AnalyzePortfolioError('模型多次達到輸出長度上限，未儲存截斷報告。請稍後重試。', 502);
 }
 
 function getDefaultAnalysisMaxTokens(category: AnalysisCategory) {

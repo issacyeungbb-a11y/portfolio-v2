@@ -1253,7 +1253,7 @@ function buildQuarterlyAnalysisQuestion(params) {
     trendSections || "\u672A\u6709\u8DB3\u5920\u4E09\u500B\u6708\u8DA8\u52E2\u8CC7\u6599\u3002"
   ].join("\n");
 }
-async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId, delivery = "scheduled", overwriteSession = false, periodStartDate, periodEndDate) {
+async function saveScheduledAnalysis(response, title, allocationSummary, reportFactsPayload, sessionDocId, delivery = "scheduled", overwriteSession = false, periodStartDate, periodEndDate, generationJobId) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
   const sanitizedReportFactsPayload = reportFactsPayload ? sanitizeForFirestore(reportFactsPayload) : void 0;
@@ -1286,6 +1286,7 @@ async function saveScheduledAnalysis(response, title, allocationSummary, reportF
     periodStartDate,
     periodEndDate
   });
+  if (generationJobId) Object.assign(sessionPayload, { generationJobId });
   if (sessionDocId) {
     const sessionRef = portfolioRef.collection("analysisSessions").doc(sessionDocId);
     if (overwriteSession) {
@@ -1374,6 +1375,8 @@ async function runMonthlyAssetAnalysis(options = {}) {
     return {
       ok: true,
       skipped: true,
+      sessionDocId: monthlySessionTarget.docId,
+      isTimeoutFallback: false,
       category: "asset_analysis",
       title,
       route: MONTHLY_ROUTE,
@@ -1408,7 +1411,7 @@ async function runMonthlyAssetAnalysis(options = {}) {
     title,
     question,
     conversationContext: "",
-    maxTokens: 3500,
+    maxTokens: 8e3,
     assets,
     snapshotHashOverride: currentSnapshotHash,
     delivery: options.delivery ?? "scheduled"
@@ -1442,13 +1445,16 @@ async function runMonthlyAssetAnalysis(options = {}) {
       options.delivery ?? "scheduled",
       options.overwriteExisting === true,
       previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
-      currentSnapshot.date
+      currentSnapshot.date,
+      options.generationJobId
     );
   } catch (error) {
     if (!options.overwriteExisting && isFirestoreAlreadyExistsError(error)) {
       return {
         ok: true,
         skipped: true,
+        sessionDocId: monthlySessionTarget.docId,
+        isTimeoutFallback: false,
         category: "asset_analysis",
         title,
         route: MONTHLY_ROUTE,
@@ -1470,21 +1476,23 @@ async function runMonthlyAssetAnalysis(options = {}) {
     cacheKey: response.cacheKey,
     replacedExisting: existingMonthlyAnalysis && options.overwriteExisting === true,
     legacyCollision: monthlySessionTarget.collisionWithLegacy,
+    sessionDocId: monthlySessionTarget.docId,
+    isTimeoutFallback: response.isTimeoutFallback === true,
     message: monthlySessionTarget.collisionWithLegacy ? "\u5DF2\u751F\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\uFF1B\u5075\u6E2C\u5230\u820A\u5236\u540C\u540D\u6587\u4EF6\uFF0C\u4ECA\u6B21\u5DF2\u5BEB\u5165 v2 \u6587\u4EF6\uFF0C\u820A\u5236\u6587\u4EF6\u9700\u4EBA\u624B\u8655\u7406\u3002" : void 0
   };
 }
-async function runManualMonthlyAssetAnalysis() {
+async function runManualMonthlyAssetAnalysis(generationJobId) {
   if (!canGenerateMonthlyAnalysisNow()) {
     throw new ScheduledAnalysisError(
       `\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u6703\u55BA\u6BCF\u6708 1 \u865F\u9999\u6E2F\u6642\u9593 ${String(MONTHLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, "0")}:00 \u4E4B\u5F8C\u5148\u53EF\u624B\u52D5\u751F\u6210\u3002`,
       400
     );
   }
-  const result = await runMonthlyAssetAnalysis({ overwriteExisting: true, delivery: "manual" });
+  const result = await runMonthlyAssetAnalysis({ overwriteExisting: true, delivery: "manual", generationJobId });
   return {
     ...result,
     route: MONTHLY_ROUTE,
-    message: typeof result.message === "string" ? result.message : result.replacedExisting ? "\u5DF2\u91CD\u65B0\u751F\u6210\u4E26\u8986\u84CB\u672C\u6708\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002" : "\u5DF2\u5B8C\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002"
+    message: typeof result.message === "string" ? result.message : result.isTimeoutFallback ? "\u6A21\u578B\u56DE\u61C9\u903E\u6642\uFF0C\u5DF2\u5132\u5B58\u7C21\u5316\u6708\u5831\uFF1B\u53EF\u7A0D\u5F8C\u91CD\u65B0\u751F\u6210\u5B8C\u6574\u5831\u544A\u3002" : result.replacedExisting ? "\u5DF2\u91CD\u65B0\u751F\u6210\u4E26\u8986\u84CB\u672C\u6708\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002" : "\u5DF2\u5B8C\u6210\u6BCF\u6708\u8CC7\u7522\u5206\u6790\u3002"
   };
 }
 async function runQuarterlyAssetReport() {
@@ -1666,6 +1674,7 @@ export {
   buildReportDataQualitySummary,
   buildReportFactsPayload,
   buildScheduledAnalysisTimeoutFallback,
+  canGenerateMonthlyAnalysisNow,
   getCoveredMonthKey,
   getCoveredMonthLabel,
   getCoveredMonthlyAnalysisSessionDocId,

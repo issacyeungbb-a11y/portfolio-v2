@@ -302,7 +302,7 @@ function getQuarterStartMonth(month: number) {
   return Math.floor((month - 1) / 3) * 3 + 1;
 }
 
-function canGenerateMonthlyAnalysisNow(date = new Date()) {
+export function canGenerateMonthlyAnalysisNow(date = new Date()) {
   const { day, hour } = getHongKongDateParts(date);
   return day > 1 || (day === 1 && hour >= MONTHLY_MANUAL_RELEASE_HOUR_HKT);
 }
@@ -1874,6 +1874,7 @@ async function saveScheduledAnalysis(
   overwriteSession = false,
   periodStartDate?: string,
   periodEndDate?: string,
+  generationJobId?: string,
 ) {
   const db = getFirebaseAdminDb();
   const portfolioRef = db.collection(SHARED_PORTFOLIO_COLLECTION).doc(SHARED_PORTFOLIO_DOC_ID);
@@ -1911,6 +1912,8 @@ async function saveScheduledAnalysis(
     periodStartDate,
     periodEndDate,
   });
+
+  if (generationJobId) Object.assign(sessionPayload, { generationJobId });
 
   if (sessionDocId) {
     const sessionRef = portfolioRef.collection('analysisSessions').doc(sessionDocId);
@@ -2013,7 +2016,7 @@ async function runScheduledCategoryAnalysis(params: {
 }
 
 export async function runMonthlyAssetAnalysis(
-  options: { overwriteExisting?: boolean; delivery?: 'manual' | 'scheduled' } = {},
+  options: { overwriteExisting?: boolean; delivery?: 'manual' | 'scheduled'; generationJobId?: string } = {},
 ) {
   const liveAssets = await readAdminPortfolioAssets();
   const currentSnapshot = await readCurrentMonthStartSnapshot();
@@ -2042,6 +2045,8 @@ export async function runMonthlyAssetAnalysis(
     return {
       ok: true,
       skipped: true,
+      sessionDocId: monthlySessionTarget.docId,
+      isTimeoutFallback: false,
       category: 'asset_analysis' as const,
       title,
       route: MONTHLY_ROUTE,
@@ -2079,7 +2084,7 @@ export async function runMonthlyAssetAnalysis(
     title,
     question,
     conversationContext: '',
-    maxTokens: 3500,
+    maxTokens: 8000,
     assets,
     snapshotHashOverride: currentSnapshotHash,
     delivery: options.delivery ?? 'scheduled',
@@ -2114,12 +2119,15 @@ export async function runMonthlyAssetAnalysis(
       options.overwriteExisting === true,
       previousMonthSnapshot?.date ?? getPreviousMonthStartDate(),
       currentSnapshot.date,
+      options.generationJobId,
     );
   } catch (error) {
     if (!options.overwriteExisting && isFirestoreAlreadyExistsError(error)) {
       return {
         ok: true,
         skipped: true,
+        sessionDocId: monthlySessionTarget.docId,
+        isTimeoutFallback: false,
         category: 'asset_analysis' as const,
         title,
         route: MONTHLY_ROUTE,
@@ -2143,13 +2151,15 @@ export async function runMonthlyAssetAnalysis(
     cacheKey: response.cacheKey,
     replacedExisting: existingMonthlyAnalysis && options.overwriteExisting === true,
     legacyCollision: monthlySessionTarget.collisionWithLegacy,
+    sessionDocId: monthlySessionTarget.docId,
+    isTimeoutFallback: response.isTimeoutFallback === true,
     message: monthlySessionTarget.collisionWithLegacy
       ? '已生成每月資產分析；偵測到舊制同名文件，今次已寫入 v2 文件，舊制文件需人手處理。'
       : undefined,
   };
 }
 
-export async function runManualMonthlyAssetAnalysis() {
+export async function runManualMonthlyAssetAnalysis(generationJobId?: string) {
   if (!canGenerateMonthlyAnalysisNow()) {
     throw new ScheduledAnalysisError(
       `每月資產分析會喺每月 1 號香港時間 ${String(MONTHLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, '0')}:00 之後先可手動生成。`,
@@ -2157,12 +2167,14 @@ export async function runManualMonthlyAssetAnalysis() {
     );
   }
 
-  const result = await runMonthlyAssetAnalysis({ overwriteExisting: true, delivery: 'manual' });
+  const result = await runMonthlyAssetAnalysis({ overwriteExisting: true, delivery: 'manual', generationJobId });
   return {
     ...result,
     route: MONTHLY_ROUTE,
     message: typeof result.message === 'string'
       ? result.message
+      : result.isTimeoutFallback
+      ? '模型回應逾時，已儲存簡化月報；可稍後重新生成完整報告。'
       : result.replacedExisting
       ? '已重新生成並覆蓋本月每月資產分析。'
       : '已完成每月資產分析。',

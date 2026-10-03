@@ -213,6 +213,8 @@ export interface AnalysisSession {
   reportFactsPayload?: ReportFactsPayload;
   updatedAt: string;
   createdAt?: string;
+  generationJobId?: string;
+  isTimeoutFallback?: boolean;
 }
 
 export interface ReportDataQualitySummary {
