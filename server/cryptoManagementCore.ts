@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
+import { cryptoPlatforms } from '../src/lib/cryptoPlatforms.js';
 import type { CryptoCoin, CryptoFunding, CryptoManagementState, CryptoPosition, CryptoValuation } from '../src/types/cryptoManagement';
 
 export function checksum(value: unknown) {
@@ -16,6 +17,11 @@ const text = (value: unknown, label: string, required = true) => {
 export function validateState(state: CryptoManagementState) {
   if (!state || !Array.isArray(state.coins) || !Array.isArray(state.positions) || !Array.isArray(state.liabilities) || !Array.isArray(state.funding)) throw new Error('管理資料格式不正確。');
   if (state.coins.length > 100 || state.positions.length + state.liabilities.length > 200 || state.funding.length > 1000) throw new Error('記錄數量超出上限。');
+  if (state.platforms !== undefined) {
+    if (!Array.isArray(state.platforms)) throw new Error('平台資料格式不正確。');
+    state.platforms = state.platforms.map(p => text(p, '平台'));
+    if (new Set(state.platforms).size !== state.platforms.length) throw new Error('平台名稱重複。');
+  }
   const symbols = new Set<string>();
   for (const coin of state.coins) {
     coin.symbol = text(coin.symbol, '代號').toUpperCase();
@@ -50,6 +56,8 @@ export function validateState(state: CryptoManagementState) {
     number(row.usd, '美元', row.type === 'adjustment');
   }
   if (principal(state.funding) < 0) throw new Error('本金不能低於零。');
+  state.platforms = cryptoPlatforms(state);
+  if (state.platforms.length > 100) throw new Error('平台數量超出上限。');
   return state;
 }
 export function principal(funding: CryptoFunding[]) {

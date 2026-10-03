@@ -27,6 +27,7 @@ export interface CryptoManagementState {
   version: number;
   migratedAt: string;
   sourceChecksum: string;
+  platforms?: string[];
   coins: CryptoCoin[];
   positions: CryptoPosition[];
   liabilities: CryptoPosition[];

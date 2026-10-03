@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { QUOTE_FRESHNESS_WINDOW_MS } from "./priceFreshness.js";
+import { cryptoPlatforms } from "../src/lib/cryptoPlatforms.js";
 function checksum(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
@@ -14,6 +15,11 @@ const text = (value, label, required = true) => {
 function validateState(state) {
   if (!state || !Array.isArray(state.coins) || !Array.isArray(state.positions) || !Array.isArray(state.liabilities) || !Array.isArray(state.funding)) throw new Error("\u7BA1\u7406\u8CC7\u6599\u683C\u5F0F\u4E0D\u6B63\u78BA\u3002");
   if (state.coins.length > 100 || state.positions.length + state.liabilities.length > 200 || state.funding.length > 1e3) throw new Error("\u8A18\u9304\u6578\u91CF\u8D85\u51FA\u4E0A\u9650\u3002");
+  if (state.platforms !== void 0) {
+    if (!Array.isArray(state.platforms)) throw new Error("\u5E73\u53F0\u8CC7\u6599\u683C\u5F0F\u4E0D\u6B63\u78BA\u3002");
+    state.platforms = state.platforms.map((p) => text(p, "\u5E73\u53F0"));
+    if (new Set(state.platforms).size !== state.platforms.length) throw new Error("\u5E73\u53F0\u540D\u7A31\u91CD\u8907\u3002");
+  }
   const symbols = /* @__PURE__ */ new Set();
   for (const coin of state.coins) {
     coin.symbol = text(coin.symbol, "\u4EE3\u865F").toUpperCase();
@@ -48,6 +54,8 @@ function validateState(state) {
     number(row.usd, "\u7F8E\u5143", row.type === "adjustment");
   }
   if (principal(state.funding) < 0) throw new Error("\u672C\u91D1\u4E0D\u80FD\u4F4E\u65BC\u96F6\u3002");
+  state.platforms = cryptoPlatforms(state);
+  if (state.platforms.length > 100) throw new Error("\u5E73\u53F0\u6578\u91CF\u8D85\u51FA\u4E0A\u9650\u3002");
   return state;
 }
 function principal(funding) {

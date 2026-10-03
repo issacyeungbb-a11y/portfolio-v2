@@ -24,6 +24,7 @@ const rootDir = resolve(__dirname, '..');
 
 // server 端 runtime 會 import 嘅 src 共用模組（有 committed .js 產物）
 const SHARED_SRC_MODULES = [
+  'src/lib/cryptoPlatforms.ts',
   'src/lib/currency.ts',
   'src/lib/holdings.ts',
   'src/lib/portfolio/assetChange.ts',
