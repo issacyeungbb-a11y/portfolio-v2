@@ -13,14 +13,14 @@
 .cm-tabs { display:flex; gap:6px; border-bottom:1px solid var(--cm-border); overflow-x:auto; padding:0 4px; }
 .cm-tabs button { background:none; border:0; border-bottom:3px solid transparent; border-radius:0; color:var(--cm-muted); padding:15px 18px; font:inherit; font-size:14px; white-space:nowrap; cursor:pointer; }
 .cm-tabs .active { color:#4338ca; border-color:#6366f1; font-weight:700; }
-.cm-table-scroll { overflow-x:auto; width:100%; margin-top:16px; }
+.cm-table-scroll { overflow-x:auto; width:100%; margin-top:10px; }
 .cm-table { border-collapse:collapse; width:100%; text-align:left; font-size:13px; white-space:nowrap; }
-.cm-table th,.cm-table td { padding:14px 16px; border-bottom:1px solid #edf0f5; }
+.cm-table th,.cm-table td { padding:6px 10px; border-bottom:1px solid #edf0f5; }
 .cm-table thead th { color:var(--cm-muted); font-size:12px; font-weight:600; background:#f8fafc; }
 .cm-table tbody tr:hover { background:#fafbfe; }
 .cm-table tbody th { font-weight:600; }
 .cm-numeric { text-align:right; font-variant-numeric:tabular-nums; }
-.cm-tag { display:inline-block; color:#4d5e75; background:#f0f4f9; padding:5px 9px; border-radius:6px; font-size:12px; }
+.cm-tag { display:inline-block; color:#4d5e75; background:#f0f4f9; padding:3px 7px; border-radius:6px; font-size:12px; }
 .cm-source-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:12px; margin-top:18px; }
 .cm-source-card { text-align:left; background:#f8fafc; border:1px solid var(--cm-border); padding:18px; border-radius:12px; cursor:pointer; display:flex; flex-direction:column; gap:10px; color:inherit; }
 .cm-source-card span,.cm-audit span { color:var(--cm-muted); font-size:12px; }
@@ -54,9 +54,17 @@
 .cm-category-select { display:flex; flex-direction:column; gap:8px; color:var(--cm-muted); font-size:13px; }
 .cm-category-select select { border:1px solid var(--cm-border); border-radius:9px; padding:10px 12px; font:inherit; min-width:200px; max-width:100%; background:white; color:#172338; }
 .cm-category-controls .cm-search { flex:1; min-width:0; margin:0; flex-direction:column; align-items:stretch; gap:8px; }
-.cm-position-group { border-top:1px solid var(--cm-border); padding-top:22px; margin-top:24px; }
-.cm-position-group h3 { margin:0; font-size:18px; overflow-wrap:anywhere; }
+.cm-position-group { border-top:1px solid var(--cm-border); padding-top:12px; margin-top:14px; }
+.cm-position-group h3 { margin:0; font-size:16px; overflow-wrap:anywhere; }
 .cm-position-group h3 small { margin-left:10px; color:var(--cm-muted); font-size:13px; font-weight:400; }
 .cm-page select:focus-visible { outline:3px solid #818cf8; outline-offset:3px; }
 @media(max-width:760px) { .cm-category-controls { flex-direction:column; align-items:stretch; } .cm-category-switch button { flex:1; } .cm-category-select select { width:100%; min-width:0; } }
 @media(max-width:760px) { .cm-search { flex-direction:column; align-items:stretch; gap:8px; } .cm-search input { min-width:0; width:100%; box-sizing:border-box; } .cm-mobile-hint { display:block; } }
+
+/* Compact holdings rows while keeping mobile controls easy to use. */
+.cm-table .button { min-height:28px; padding:5px 10px; font-size:12px; box-shadow:none; }
+.cm-position-group .section-heading { align-items:center; gap:8px; margin-bottom:4px; }
+.cm-position-group .cm-caption { margin:3px 0; }
+.cm-position-group .cm-actions { gap:6px; }
+.cm-position-group .cm-actions .button { min-height:30px; padding:6px 10px; font-size:12px; box-shadow:none; }
+@media(max-width:760px) { .cm-table .button,.cm-position-group .cm-actions .button { min-height:32px; } .cm-position-group .cm-mobile-hint { margin:6px 0; } }
