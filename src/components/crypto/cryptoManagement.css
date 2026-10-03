@@ -68,3 +68,22 @@
 .cm-position-group .cm-actions { gap:6px; }
 .cm-position-group .cm-actions .button { min-height:30px; padding:6px 10px; font-size:12px; box-shadow:none; }
 @media(max-width:760px) { .cm-table .button,.cm-position-group .cm-actions .button { min-height:32px; } .cm-position-group .cm-mobile-hint { margin:6px 0; } }
+
+.cm-movement-editor fieldset { border:0; padding:0; margin:0; min-width:0; }
+.cm-movement-editor label,.cm-movement-filters label { display:flex; flex-direction:column; gap:6px; color:var(--cm-muted); font-size:13px; }
+.cm-movement-editor input,.cm-movement-editor select,.cm-movement-editor textarea,.cm-movement-filters input,.cm-movement-filters select { width:100%; box-sizing:border-box; border:1px solid var(--cm-border); border-radius:8px; background:white; color:#172338; padding:9px 10px; font:inherit; min-width:0; }
+.cm-movement-editor textarea { min-height:65px; resize:vertical; }
+.cm-full-width { grid-column:1 / -1; }
+.cm-editor-actions { justify-content:flex-end; margin-top:16px; }
+.cm-movement-preview { padding:12px 14px; margin:14px 0; border:1px solid var(--cm-border); border-radius:10px; background:#f8fafc; font-size:13px; }
+.cm-movement-preview p,.cm-movement-detail p { margin:7px 0; }
+.cm-positive { color:#087b66; font-weight:600; }
+.cm-negative { color:#a32b37; font-weight:600; }
+.cm-movement-filters { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin:16px 0; }
+.cm-movement-table td { vertical-align:top; }
+.cm-movement-table td:nth-child(4) { white-space:normal; min-width:180px; overflow-wrap:anywhere; }
+.cm-movement-detail { white-space:normal; min-width:240px; max-width:440px; padding:4px 0; line-height:1.7; overflow-wrap:anywhere; }
+.cm-page summary { cursor:pointer; color:#4338ca; font-size:13px; }
+.cm-opening { margin-top:18px; padding-top:12px; border-top:1px solid var(--cm-border); }
+.cm-movement-editor input:focus-visible,.cm-movement-editor select:focus-visible,.cm-movement-editor textarea:focus-visible { outline:3px solid #818cf8; outline-offset:2px; }
+@media(max-width:760px) { .cm-movement-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } .cm-movement-filters label:first-child { grid-column:1 / -1; } .cm-movement-detail { min-width:200px; } }

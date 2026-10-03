@@ -4,6 +4,7 @@ import { getFirebaseAdminDb, getSharedPortfolioDocRef } from "./firebaseAdmin.js
 import { getGoogleSheetsAccessToken, readSheetValues } from "./cryptoMonthlySync.js";
 import { generatePriceUpdates, getCoinGeckoConfig } from "./updatePrices.js";
 import { aggregate, checksum, monthlyMetrics, parseCryptoSheet, validateState, valueCrypto } from "./cryptoManagementCore.js";
+import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from "./cryptoMovementStore.js";
 const SHEET = "1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4";
 const metaRef = () => getSharedPortfolioDocRef().collection("cryptoManagement").doc("current");
 const iso = (v) => typeof v === "string" ? v : v?.toDate?.().toISOString() ?? "";
@@ -93,6 +94,37 @@ function syncAssets(transaction, state, stored, seedQuotes = {}, previousState) 
 async function runCryptoManagement(payload) {
   const action = payload.action ?? "read";
   if (action === "read") return readCryptoManagement();
+  if (action === "read-movements") {
+    const ref2 = getSharedPortfolioDocRef();
+    let query = ref2.collection("cryptoMovements").orderBy("createdAt", "desc").orderBy("__name__", "desc").limit(101);
+    if (payload.cursor) {
+      const cursor = payload.cursor;
+      if (typeof cursor.createdAt !== "string" || !Number.isFinite(Date.parse(cursor.createdAt)) || typeof cursor.id !== "string" || !/^[a-zA-Z0-9_-]{8,80}$/.test(cursor.id)) throw new CryptoManagementError("\u7D00\u9304\u5206\u9801\u683C\u5F0F\u4E0D\u6B63\u78BA\u3002");
+      query = query.startAfter(cursor.createdAt, cursor.id);
+    }
+    const [history, opening] = await Promise.all([query.get(), ref2.collection("cryptoMovementOpening").doc("current").get()]);
+    const docs = history.docs.slice(0, 100);
+    const last = docs.at(-1);
+    return { entries: docs.map((d) => ({ ...d.data(), id: d.id })), opening: opening.exists ? opening.data() : null, nextCursor: history.size > 100 && last ? { createdAt: last.data().createdAt, id: last.id } : null };
+  }
+  if (action === "record-movement") {
+    const operationId2 = payload.operationId;
+    if (typeof operationId2 !== "string" || !/^[a-zA-Z0-9_-]{8,80}$/.test(operationId2)) throw new CryptoManagementError("\u64CD\u4F5C ID \u7121\u6548\u3002");
+    const ref2 = getSharedPortfolioDocRef();
+    try {
+      await getFirebaseAdminDb().runTransaction((tx) => commitCryptoMovement(tx, {
+        meta: metaRef(),
+        movement: ref2.collection("cryptoMovements").doc(operationId2),
+        audit: ref2.collection("cryptoManagementAudit").doc(operationId2),
+        opening: ref2.collection("cryptoMovementOpening").doc("current"),
+        assets: ref2.collection("assets")
+      }, payload, (next, stored, previous) => syncAssets(tx, next, stored, {}, previous)));
+    } catch (e) {
+      if (e instanceof CryptoMovementConflict) throw new CryptoManagementError(e.message, 409);
+      throw e;
+    }
+    return readCryptoManagement();
+  }
   if (action === "update-prices") {
     const meta = await metaRef().get();
     if (!meta.exists || meta.data()?.version !== payload.expectedVersion) throw new CryptoManagementError("\u6301\u5009\u5DF2\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u3002", 409);
@@ -176,6 +208,7 @@ async function runCryptoManagement(payload) {
     if (!migration && (!previous || payload.expectedVersion !== previous.version)) throw new CryptoManagementError("\u8CC7\u6599\u5DF2\u88AB\u5176\u4ED6\u64CD\u4F5C\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u518D\u4FEE\u6539\u3002", 409);
     const next = migration ? { ...migration.parsed, version: 1, migratedAt: (/* @__PURE__ */ new Date()).toISOString(), sourceChecksum: migration.sourceChecksum } : { ...submitted, version: previous.version + 1, migratedAt: previous.migratedAt, sourceChecksum: previous.sourceChecksum };
     validateState(next);
+    if (previous && action === "save") assertRecordedPositions(previous, next, payload.platformRename);
     tx.set(metaRef(), next);
     syncAssets(tx, next, stored, seedQuotes, previous);
     if (previous) {

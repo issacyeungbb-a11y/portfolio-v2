@@ -4,6 +4,7 @@ import { getFirebaseAdminDb, getSharedPortfolioDocRef } from './firebaseAdmin.js
 import { getGoogleSheetsAccessToken, readSheetValues } from './cryptoMonthlySync.js';
 import { generatePriceUpdates, getCoinGeckoConfig } from './updatePrices.js';
 import { aggregate, checksum, monthlyMetrics, parseCryptoSheet, validateState, valueCrypto } from './cryptoManagementCore.js';
+import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from './cryptoMovementStore.js';
 import type { CryptoManagementState } from '../src/types/cryptoManagement';
 
 const SHEET = '1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4';
@@ -75,6 +76,33 @@ function syncAssets(transaction: FirebaseFirestore.Transaction, state: CryptoMan
 export async function runCryptoManagement(payload: Record<string, unknown>) {
   const action = payload.action ?? 'read';
   if (action === 'read') return readCryptoManagement();
+  if (action === 'read-movements') {
+    const ref = getSharedPortfolioDocRef();
+    let query = ref.collection('cryptoMovements').orderBy('createdAt', 'desc').orderBy('__name__', 'desc').limit(101);
+    if (payload.cursor) {
+      const cursor = payload.cursor as { createdAt?: string; id?: string };
+      if (typeof cursor.createdAt !== 'string' || !Number.isFinite(Date.parse(cursor.createdAt)) || typeof cursor.id !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(cursor.id)) throw new CryptoManagementError('紀錄分頁格式不正確。');
+      query = query.startAfter(cursor.createdAt, cursor.id);
+    }
+    const [history, opening] = await Promise.all([query.get(), ref.collection('cryptoMovementOpening').doc('current').get()]);
+    const docs = history.docs.slice(0, 100); const last = docs.at(-1);
+    return { entries: docs.map(d => ({ ...d.data(), id: d.id })), opening: opening.exists ? opening.data() : null, nextCursor: history.size > 100 && last ? { createdAt: last.data().createdAt, id: last.id } : null };
+  }
+  if (action === 'record-movement') {
+    const operationId = payload.operationId;
+    if (typeof operationId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(operationId)) throw new CryptoManagementError('操作 ID 無效。');
+    const ref = getSharedPortfolioDocRef();
+    try {
+      await getFirebaseAdminDb().runTransaction(tx => commitCryptoMovement(tx, {
+        meta: metaRef(), movement: ref.collection('cryptoMovements').doc(operationId), audit: ref.collection('cryptoManagementAudit').doc(operationId),
+        opening: ref.collection('cryptoMovementOpening').doc('current'), assets: ref.collection('assets'),
+      }, payload, (next, stored, previous) => syncAssets(tx, next, stored, {}, previous)));
+    } catch (e) {
+      if (e instanceof CryptoMovementConflict) throw new CryptoManagementError(e.message, 409);
+      throw e;
+    }
+    return readCryptoManagement();
+  }
   if (action === 'update-prices') {
     const meta = await metaRef().get();
     if (!meta.exists || meta.data()?.version !== payload.expectedVersion) throw new CryptoManagementError('持倉已更新，請重新整理。', 409);
@@ -156,6 +184,7 @@ export async function runCryptoManagement(payload: Record<string, unknown>) {
     if (!migration && (!previous || payload.expectedVersion !== previous.version)) throw new CryptoManagementError('資料已被其他操作更新，請重新整理再修改。', 409);
     const next: CryptoManagementState = migration ? { ...migration.parsed, version: 1, migratedAt: new Date().toISOString(), sourceChecksum: migration.sourceChecksum } : { ...submitted!, version: previous!.version + 1, migratedAt: previous!.migratedAt, sourceChecksum: previous!.sourceChecksum };
     validateState(next);
+    if (previous && action === 'save') assertRecordedPositions(previous, next, payload.platformRename);
     tx.set(metaRef(), next);
     syncAssets(tx, next, stored, seedQuotes, previous);
     if (previous) {

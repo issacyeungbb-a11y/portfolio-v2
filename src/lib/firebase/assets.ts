@@ -443,7 +443,7 @@ export async function updatePortfolioAsset(assetId: string, payload: PortfolioAs
   const normalized = normalizePortfolioAssetInput(payload);
   const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
 
-  if ((await getDoc(assetRef)).data()?.managedCrypto) throw new Error('Crypto 數量請於「持倉管理中心」修改。');
+  if ((await getDoc(assetRef)).data()?.managedCrypto) throw new Error('Crypto 數量請於「Crypto 變動」記錄買賣、轉移或質押往來。');
   await updateDoc(assetRef, {
     ...normalized,
     updatedAt: serverTimestamp(),
@@ -461,7 +461,7 @@ export async function deletePortfolioAsset(assetId: string) {
   }
 
   const assetRef = doc(getSharedAssetsCollectionRef(), assetId);
-  if ((await getDoc(assetRef)).data()?.managedCrypto) throw new Error('Crypto 持倉請於「持倉管理中心」移除。');
+  if ((await getDoc(assetRef)).data()?.managedCrypto) throw new Error('Crypto 持倉請於「Crypto 變動」記錄賣出或轉出。');
   await updateDoc(assetRef, {
     archivedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

@@ -50,3 +50,46 @@ export interface CryptoManagementResponse {
   audit: Array<{ id: string; action: string; reason: string; at: string; version: number }>;
   sourceArchive: Array<{ id: string; title: string; rows: number }>;
 }
+
+export type CryptoMovementType = 'buy' | 'sell' | 'transfer' | 'transfer_in' | 'transfer_out' | 'stake' | 'unstake' | 'staking_reward';
+export interface CryptoMovementInput {
+  type: CryptoMovementType;
+  date: string;
+  symbol: string;
+  quantity: number;
+  sourcePositionId?: string;
+  destinationPositionId?: string;
+  destination?: { custodian: string; status: '可用' | '質押'; network: string };
+  counterparty?: string;
+  unitPrice?: number;
+  fees?: number;
+  quoteCurrency?: string;
+  settlementPositionId?: string;
+  note: string;
+}
+export interface CryptoMovementLeg {
+  positionId: string;
+  symbol: string;
+  custodian: string;
+  status: string;
+  network: string;
+  delta: number;
+  before: number;
+  after: number;
+}
+export interface CryptoMovementEntry extends CryptoMovementInput {
+  id: string;
+  createdAt: string;
+  version: number;
+  legs: CryptoMovementLeg[];
+  totalAmount: number | null;
+  sourceLabel: string;
+  destinationLabel: string;
+  sourceCustodian: string;
+  destinationCustodian: string;
+}
+export interface CryptoMovementHistory {
+  entries: CryptoMovementEntry[];
+  nextCursor: { createdAt: string; id: string } | null;
+  opening: { at: string; version: number; positions: CryptoPosition[] } | null;
+}
