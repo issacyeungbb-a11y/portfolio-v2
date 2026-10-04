@@ -24,6 +24,29 @@ export function cryptoMovementDestinationStatuses(type: CryptoMovementType, sour
   if (type === 'transfer' && source) { const s = cryptoAssetStatus(source.status); return s === '質押所賺' ? [s, '可用'] : [s]; }
   return cryptoAssetStatuses;
 }
+// Choose a valid existing destination, or prepare a new status on the same platform.
+export function cryptoMovementDefaultDestination(state: CryptoManagementState, type: CryptoMovementType, symbol: string, source?: CryptoPosition) {
+  const status = cryptoMovementDestinationStatuses(type, source)[0];
+  const candidates = state.positions.filter(p => p.symbol === symbol && (!sourceRequired(type) || p.id !== source?.id) && cryptoAssetStatus(p.status) === status);
+  const samePlatform = candidates.find(p => p.custodian === source?.custodian && p.network === source?.network);
+  const target = type === 'transfer'
+    ? candidates.find(p => p.custodian !== source?.custodian) ?? candidates[0]
+    : samePlatform ?? (!source ? candidates[0] : undefined);
+  return {
+    destinationPositionId: target?.id ?? '',
+    custodian: target?.custodian ?? (type === 'transfer' ? '' : source?.custodian ?? cryptoPlatformsForDestination(state)),
+    status, network: target?.network ?? source?.network ?? '',
+  };
+}
+function cryptoPlatformsForDestination(state: CryptoManagementState) {
+  return state.platforms?.[0] ?? state.positions[0]?.custodian ?? '';
+}
+export function cryptoMovementDefaultNote(input: CryptoMovementInput, state: CryptoManagementState) {
+  const source = state.positions.find(p => p.id === input.sourcePositionId);
+  const destination = state.positions.find(p => p.id === input.destinationPositionId);
+  const target = destination ? positionLabel(destination) : input.destination ? `${input.destination.custodian} · ${input.symbol} · ${input.destination.status}` : input.counterparty;
+  return `${cryptoMovementLabels[input.type]} ${input.quantity} ${input.symbol}${source ? ` · ${positionLabel(source)}` : input.counterparty ? ` · ${input.counterparty}` : ''}${target ? ` → ${target}` : ''}`.slice(0, 300);
+}
 const amount = (value: unknown, label: string, positive = true) => {
   if (typeof value !== 'number' || !Number.isFinite(value) || value > 1e15 || (positive ? value <= 0 : value < 0)) throw new Error(`${label}必須是有效${positive ? '正' : '非負'}數字。`);
   return value;

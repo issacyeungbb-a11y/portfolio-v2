@@ -30,6 +30,27 @@ function cryptoMovementDestinationStatuses(type, source) {
   }
   return cryptoAssetStatuses;
 }
+function cryptoMovementDefaultDestination(state, type, symbol, source) {
+  const status = cryptoMovementDestinationStatuses(type, source)[0];
+  const candidates = state.positions.filter((p) => p.symbol === symbol && (!sourceRequired(type) || p.id !== source?.id) && cryptoAssetStatus(p.status) === status);
+  const samePlatform = candidates.find((p) => p.custodian === source?.custodian && p.network === source?.network);
+  const target = type === "transfer" ? candidates.find((p) => p.custodian !== source?.custodian) ?? candidates[0] : samePlatform ?? (!source ? candidates[0] : void 0);
+  return {
+    destinationPositionId: target?.id ?? "",
+    custodian: target?.custodian ?? (type === "transfer" ? "" : source?.custodian ?? cryptoPlatformsForDestination(state)),
+    status,
+    network: target?.network ?? source?.network ?? ""
+  };
+}
+function cryptoPlatformsForDestination(state) {
+  return state.platforms?.[0] ?? state.positions[0]?.custodian ?? "";
+}
+function cryptoMovementDefaultNote(input, state) {
+  const source = state.positions.find((p) => p.id === input.sourcePositionId);
+  const destination = state.positions.find((p) => p.id === input.destinationPositionId);
+  const target = destination ? positionLabel(destination) : input.destination ? `${input.destination.custodian} \xB7 ${input.symbol} \xB7 ${input.destination.status}` : input.counterparty;
+  return `${cryptoMovementLabels[input.type]} ${input.quantity} ${input.symbol}${source ? ` \xB7 ${positionLabel(source)}` : input.counterparty ? ` \xB7 ${input.counterparty}` : ""}${target ? ` \u2192 ${target}` : ""}`.slice(0, 300);
+}
 const amount = (value, label, positive = true) => {
   if (typeof value !== "number" || !Number.isFinite(value) || value > 1e15 || (positive ? value <= 0 : value < 0)) throw new Error(`${label}\u5FC5\u9808\u662F\u6709\u6548${positive ? "\u6B63" : "\u975E\u8CA0"}\u6578\u5B57\u3002`);
   return value;
@@ -125,6 +146,8 @@ function planCryptoMovement(state, raw, newPositionId, today) {
 }
 export {
   addCryptoQuantity2 as addCryptoQuantity,
+  cryptoMovementDefaultDestination,
+  cryptoMovementDefaultNote,
   cryptoMovementDestinationStatuses,
   cryptoMovementLabels,
   cryptoMovementSources,

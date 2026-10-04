@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { addCryptoQuantity, cryptoMovementLabels, planCryptoMovement } from '../src/lib/cryptoMovements.ts';
+import { addCryptoQuantity, cryptoMovementLabels, planCryptoMovement, cryptoMovementDefaultDestination, cryptoMovementDefaultNote } from '../src/lib/cryptoMovements.ts';
 import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from '../server/cryptoMovementStore.js';
 import { saveCryptoPlatform } from '../src/lib/cryptoPlatforms.ts';
 import { validateState } from '../server/cryptoManagementCore.js';
@@ -164,4 +164,38 @@ test('stale versions or failed asset synchronization leave every durable documen
   assert.deepEqual(store.db, before);
   await assert.rejects(store.run({ expectedVersion: 4, operationId: 'operation_123', movement: input() }, true), /asset sync failed/);
   assert.deepEqual(store.db, before);
+});
+
+
+test('movement form defaults choose another platform for transfers and the matching same-platform status for locks', () => {
+  const state = fixture(); const source = state.positions[0];
+  const transfer = cryptoMovementDefaultDestination(state, 'transfer', 'BTC', source);
+  assert.equal(transfer.destinationPositionId, 'btc_exchange');
+  assert.equal(cryptoMovementDefaultDestination(state, 'buy', 'BTC', source).destinationPositionId, 'btc_wallet');
+  assert.equal(cryptoMovementDefaultDestination(state, 'transfer_in', 'BTC', source).destinationPositionId, 'btc_wallet');
+  assert.doesNotThrow(() => plan(state, input({ ...transfer, destinationPositionId: transfer.destinationPositionId })));
+  assert.equal(cryptoMovementDefaultDestination(state, 'stake', 'BTC', source).destinationPositionId, 'btc_staked');
+  assert.equal(cryptoMovementDefaultDestination(state, 'unstake', 'BTC', state.positions[1]).destinationPositionId, 'btc_wallet');
+  const lock = cryptoMovementDefaultDestination(state, 'collateral_lock', 'BTC', source);
+  assert.equal(lock.destinationPositionId, ''); assert.equal(lock.custodian, 'Wallet'); assert.equal(lock.status, '鎖定(抵押)');
+  const locked = plan(state, input({ type: 'collateral_lock', destinationPositionId: '', destination: lock }));
+  assert.equal(cryptoMovementDefaultDestination(locked.state, 'collateral_unlock', 'BTC', locked.state.positions.at(-1)).destinationPositionId, 'btc_wallet');
+  const isolated = { ...state, positions: [source] };
+  const missing = cryptoMovementDefaultDestination(isolated, 'transfer', 'BTC', source);
+  assert.equal(missing.destinationPositionId, ''); assert.equal(missing.custodian, '');
+});
+test('blank optional form notes generate a meaningful durable operation description', async () => {
+  const state = fixture(); const movement = input(); const note = cryptoMovementDefaultNote(movement, state);
+  assert.match(note, /資產轉移 0.2 BTC/); assert.match(note, /Wallet/); assert.match(note, /Exchange/);
+  const store = fakeStore();
+  await store.run({ action: 'record-movement', expectedVersion: 4, operationId: 'operation_123', movement: { ...movement, note } });
+  assert.equal((store.db.get('movement') as { note: string }).note, note);
+  assert.equal((store.db.get('audit') as { reason: string }).reason, note);
+  assert.deepEqual(store.db.get('locked-month'), { locked: true, totalHkd: 100 });
+});
+test('reward destination defaults keep earnings separate even when the principal can compound', () => {
+  const state = fixture(); const destination = cryptoMovementDefaultDestination(state, 'staking_reward', 'BTC', state.positions[1]);
+  assert.equal(destination.destinationPositionId, ''); assert.equal(destination.status, '質押所賺'); assert.equal(destination.custodian, 'Wallet');
+  const result = plan(state, input({ type: 'staking_reward', sourcePositionId: 'btc_staked', destinationPositionId: '', destination }));
+  assert.equal(result.state.positions[1].quantity, 3); assert.equal(result.legs[0].status, '質押所賺');
 });
