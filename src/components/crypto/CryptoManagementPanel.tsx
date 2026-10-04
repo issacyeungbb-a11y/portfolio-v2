@@ -4,6 +4,9 @@ import { callPortfolioFunction } from '../../lib/api/vercelFunctions';
 import type { CryptoCoin, CryptoFunding, CryptoManagementResponse, CryptoManagementState, CryptoPosition } from '../../types/cryptoManagement';
 import { cryptoPlatforms, filterCryptoPositions, saveCryptoPlatform } from '../../lib/cryptoPlatforms';
 import { CryptoAddDialog } from './CryptoAddDialog';
+import { CryptoHoldingsTable } from './CryptoHoldingsTable';
+import { CryptoRewardLinkDialog } from './CryptoRewardLinkDialog';
+import { CryptoStakingRewardsDialog } from './CryptoStakingRewardsDialog';
 import { CryptoCoinSidebar } from './CryptoCoinSidebar';
 import { CryptoMovementsPage } from '../../pages/CryptoMovementsPage';
 import { cryptoAssetStatuses, summarizeCryptoCoins } from '../../lib/cryptoClassification';
@@ -37,6 +40,8 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [rewardLinkId, setRewardLinkId] = useState('');
+  const [rewardEditor, setRewardEditor] = useState<{ parentId: string; action: 'increase' | 'release' } | null>(null);
   const [addMode, setAddMode] = useState<'asset' | 'coin' | null>(null);
   const [reason, setReason] = useState('');
   const [preview, setPreview] = useState<{ sourceChecksum: string; state: CryptoManagementState; differences: Array<{ symbol: string; quantity: number; previousQuantity: number }>; sourceArchive: Array<{ title: string; rows: number }> } | null>(null);
@@ -125,10 +130,8 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
           </div>}
         {!state.coins.length && <p className="cm-caption">可在「新增平台／資產」總表先新增幣種，再建立持倉。</p>}
         <p className="cm-mobile-hint">可左右滑動表格查看所有欄位</p>
-        {groups.length > 0 && <div className="cm-table-scroll"><table className="cm-table cm-holdings-table"><thead><tr><th>平台／錢包</th><th>幣種</th><th className="cm-numeric">數量</th><th>狀態</th><th>網絡</th><th>操作</th></tr></thead><tbody>{groups.flatMap(group => group.rows.length ? group.rows.map((r, i) => <tr key={r.id} className={i === 0 ? 'cm-group-start' : ''}>
-          {(category !== 'platform' || i === 0) && <td className="cm-platform-cell" rowSpan={category === 'platform' ? group.rows.length : 1}><button className="cm-platform-name" disabled={busy} title="平台設定" aria-label={`設定 ${r.custodian} 平台`} onClick={() => editPlatform(r.custodian)}>{r.custodian}</button></td>}
-          <th scope="row">{r.symbol}</th><td className="cm-numeric">{number(r.quantity)}</td><td><span className="cm-tag" data-status={r.status}>{r.status}</span></td><td>{r.network || '—'}</td><td><button className="button button-secondary" disabled={busy} aria-label={`查看 ${r.symbol} ${r.custodian} 往來`} onClick={() => recordMovement(r)}>往來</button></td>
-        </tr>) : [<tr key={`empty_${group.name}`}><td>{category === 'platform' ? <button className="cm-platform-name" disabled={busy} aria-label={`設定 ${group.name} 平台`} onClick={() => editPlatform(group.name)}>{group.name}</button> : '—'}</td><th scope="row">{category === 'coin' ? group.name : '—'}</th><td colSpan={3} className="cm-caption">未有持倉</td><td><button className="button button-secondary" disabled={busy} onClick={() => { setSelection(group.name); setAddMode('asset'); }}>新增資產</button></td></tr>])}</tbody></table></div>}
+        {groups.length > 0 && <CryptoHoldingsTable state={state} groups={groups} category={category} busy={busy} onPlatform={editPlatform} onMovement={recordMovement} onLink={reward => setRewardLinkId(reward.id)} onRewards={(parent, action) => setRewardEditor({ parentId: parent.id, action })} onAdd={name => { setSelection(name); setAddMode('asset'); }} />}
+
         {!groups.length && <p className="cm-caption">{search.trim() ? '沒有符合搜尋條件的持倉。' : `未有${category === 'platform' ? '平台' : '幣種'}，可在上方新增。`}</p>}
         </div></div>
       </section>}
@@ -140,6 +143,8 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
       {tab === 'source' && <><section className="card"><h2>遷移來源備份</h2><p className="cm-caption">遷移時間：{dateLabel(state.migratedAt)}。以下為遷移當時原表值，保留來源內容供查閱。</p><div className="cm-source-grid">{data.sourceArchive.map(s => <button className="cm-source-card" key={s.id} disabled={busy} onClick={() => void operate(async () => { const result = await api({ action: 'source', id: s.id }) as { source: typeof source }; setSource(result.source); })}><strong>{s.title}</strong><span>{s.rows} 行 · 查看原表</span></button>)}</div></section><section className="card"><h2>最近操作紀錄</h2><div className="cm-audit">{data.audit.map(a => <article key={a.id}><strong>{a.reason}</strong><span>{dateLabel(a.at)} · 版本 {a.version}</span></article>)}</div></section></>}
       <p className="cm-caption cm-footer">目前版本 {state.version} · Crypto 數量以此頁為準 · 資產頁每日價格更新照常運作</p>
     </>}
+    {state && rewardLinkId && state.positions.find(p => p.id === rewardLinkId) && <CryptoRewardLinkDialog state={state} reward={state.positions.find(p => p.id === rewardLinkId)!} onUpdated={setData} onClose={() => setRewardLinkId('')} />}
+    {state && rewardEditor && state.positions.find(p => p.id === rewardEditor.parentId) && <CryptoStakingRewardsDialog state={state} parent={state.positions.find(p => p.id === rewardEditor.parentId)!} initialAction={rewardEditor.action} onUpdated={setData} onClose={() => setRewardEditor(null)} />}
     {state && addMode && <CryptoAddDialog state={state} initialMode={addMode} platform={category === 'platform' ? selected : ''} symbol={category === 'coin' ? selected : ''} onUpdated={(result, text) => { setData(result); if (text) setMessage(text); }} onClose={() => setAddMode(null)} />}
     <dialog ref={closeDialog} className="cm-dialog" onCancel={e => { if (busy) e.preventDefault(); }}>
       <form onSubmit={e => { e.preventDefault(); void operate(async () => {

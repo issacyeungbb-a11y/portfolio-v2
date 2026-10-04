@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { cryptoAssetStatuses, cryptoAssetStatus, normalizeCryptoPlatform, normalizeCryptoState, summarizeCryptoCoins } from '../src/lib/cryptoClassification.ts';
+import { cryptoAssetStatuses, cryptoAssetStatus, normalizeCryptoPlatform, normalizeCryptoState, summarizeCryptoCoins, stakingRewardQuantity, linkStakingReward } from '../src/lib/cryptoClassification.ts';
 import { cryptoPlatforms, saveCryptoPlatform } from '../src/lib/cryptoPlatforms.ts';
 import { assertRecordedPositions } from '../server/cryptoMovementStore.js';
+import { validateState } from '../server/cryptoManagementCore.js';
 import type { CryptoManagementState } from '../src/types/cryptoManagement.ts';
 const fixture = (): CryptoManagementState => ({
   version: 8, migratedAt: '', sourceChecksum: '', platforms: ['CoolWallet', 'CoolWallet（賺幣）'],
@@ -40,4 +41,24 @@ test('coin quantities aggregate all platforms and four statuses without duplicat
   assert.deepEqual(btc.byStatus, { '可用': .1, '鎖定(質押)': .2, '鎖定(抵押)': .3, '質押所賺': .01 });
   assert.equal(summary[1].quantity, 0); // liabilities are not silently subtracted from held coin units
   assert.equal(summarizeCryptoCoins(normalizeCryptoState(state))[0].quantity, btc.quantity);
+});
+
+
+test('legacy rewards infer a unique parent but never guess between identical staking holdings', () => {
+  const state = fixture(); const normalized = normalizeCryptoState(state);
+  assert.equal(normalized.positions[3].stakingPositionId, 'staked'); assert.equal(stakingRewardQuantity(normalized, 'staked'), .01);
+  state.positions.push({ ...state.positions[1], id: 'other_stake', quantity: 1 });
+  const ambiguous = normalizeCryptoState(state);
+  assert.equal(ambiguous.positions[3].stakingPositionId, undefined);
+  assert.equal(stakingRewardQuantity(ambiguous, 'staked'), 0); assert.equal(stakingRewardQuantity(ambiguous, 'other_stake'), 0);
+  const linked = linkStakingReward(ambiguous, 'rewards', 'other_stake');
+  assert.equal(stakingRewardQuantity(linked, 'other_stake'), .01);
+  assert.deepEqual(linked.positions.map(p => [p.id,p.quantity]), ambiguous.positions.map(p => [p.id,p.quantity]));
+  assert.throws(() => assertRecordedPositions(ambiguous, linked));
+  assert.doesNotThrow(() => assertRecordedPositions(ambiguous, linked, undefined, { positionId: 'rewards', parentId: 'other_stake' }));
+  const tampered = structuredClone(linked); tampered.positions[3].quantity = 99;
+  assert.throws(() => assertRecordedPositions(ambiguous, tampered, undefined, { positionId: 'rewards', parentId: 'other_stake' }));
+  assert.doesNotThrow(() => validateState(linked));
+  assert.throws(() => linkStakingReward(ambiguous, 'rewards', 'available'));
+  const malformed = structuredClone(linked); malformed.positions[3].stakingPositionId = 'collateral'; assert.throws(() => validateState(malformed));
 });

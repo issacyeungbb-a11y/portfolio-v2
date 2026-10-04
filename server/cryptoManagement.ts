@@ -185,7 +185,7 @@ export async function runCryptoManagement(payload: Record<string, unknown>) {
     if (!migration && (!previous || payload.expectedVersion !== previous.version)) throw new CryptoManagementError('資料已被其他操作更新，請重新整理再修改。', 409);
     const next: CryptoManagementState = migration ? { ...migration.parsed, version: 1, migratedAt: new Date().toISOString(), sourceChecksum: migration.sourceChecksum } : { ...submitted!, version: previous!.version + 1, migratedAt: previous!.migratedAt, sourceChecksum: previous!.sourceChecksum };
     validateState(next);
-    if (previous && action === 'save') assertRecordedPositions(previous, next, payload.platformRename);
+    if (previous && action === 'save') assertRecordedPositions(previous, next, payload.platformRename, payload.stakingRewardLink);
     tx.set(metaRef(), next);
     syncAssets(tx, next, stored, seedQuotes, previous);
     if (previous) {

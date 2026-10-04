@@ -10,12 +10,34 @@ function cryptoAssetStatus(value) {
   return "\u53EF\u7528";
 }
 function normalizeCryptoState(state) {
-  return {
+  const normalized = {
     ...state,
     platforms: [...new Set([...state.platforms ?? [], ...state.positions.map((p) => p.custodian), ...state.liabilities.map((p) => p.custodian)].map(normalizeCryptoPlatform))],
     positions: state.positions.map((p) => ({ ...p, custodian: normalizeCryptoPlatform(p.custodian), status: cryptoAssetStatus(p.status) })),
     liabilities: state.liabilities.map((p) => ({ ...p, custodian: normalizeCryptoPlatform(p.custodian) }))
   };
+  normalized.positions = normalized.positions.map((p) => {
+    if (p.status !== "\u8CEA\u62BC\u6240\u8CFA" || p.stakingPositionId) return p;
+    const candidates = normalized.positions.filter((parent) => parent.status === "\u9396\u5B9A(\u8CEA\u62BC)" && parent.symbol === p.symbol && parent.custodian === p.custodian);
+    const sameNetwork = candidates.filter((parent) => parent.network === p.network);
+    const matches = sameNetwork.length ? sameNetwork : candidates;
+    return matches.length === 1 ? { ...p, stakingPositionId: matches[0].id } : p;
+  });
+  return normalized;
+}
+function stakingRewards(state, parentId) {
+  return normalizeCryptoState(state).positions.filter((p) => p.status === "\u8CEA\u62BC\u6240\u8CFA" && p.stakingPositionId === parentId);
+}
+function stakingRewardQuantity(state, parentId) {
+  return stakingRewards(state, parentId).reduce((total, p) => addCryptoQuantity(total, p.quantity), 0);
+}
+function linkStakingReward(state, positionId, parentId) {
+  const next = normalizeCryptoState(state);
+  const reward = next.positions.find((p) => p.id === positionId);
+  const parent = next.positions.find((p) => p.id === parentId);
+  if (!reward || reward.status !== "\u8CEA\u62BC\u6240\u8CFA" || !parent || parent.status !== "\u9396\u5B9A(\u8CEA\u62BC)" || parent.custodian !== reward.custodian || parent.symbol !== reward.symbol) throw new Error("\u8ACB\u9078\u64C7\u540C\u5E73\u53F0\u3001\u540C\u5E63\u7A2E\u7684\u8CEA\u62BC\u6301\u5009\u3002");
+  reward.stakingPositionId = parentId;
+  return next;
 }
 function decimalParts(value) {
   const [mantissa, exponent = "0"] = value.toString().split("e");
@@ -53,8 +75,11 @@ export {
   cryptoAssetStatuses,
   isCollateralPosition,
   isSpendablePosition,
+  linkStakingReward,
   multiplyCryptoQuantity,
   normalizeCryptoPlatform,
   normalizeCryptoState,
+  stakingRewardQuantity,
+  stakingRewards,
   summarizeCryptoCoins
 };

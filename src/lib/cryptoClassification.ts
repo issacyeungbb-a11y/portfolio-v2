@@ -12,12 +12,35 @@ export function cryptoAssetStatus(value: string): CryptoAssetStatus {
   return '可用';
 }
 export function normalizeCryptoState(state: CryptoManagementState): CryptoManagementState {
-  return {
+  const normalized = {
     ...state,
     platforms: [...new Set([...(state.platforms ?? []), ...state.positions.map(p => p.custodian), ...state.liabilities.map(p => p.custodian)].map(normalizeCryptoPlatform))],
     positions: state.positions.map(p => ({ ...p, custodian: normalizeCryptoPlatform(p.custodian), status: cryptoAssetStatus(p.status) })),
     liabilities: state.liabilities.map(p => ({ ...p, custodian: normalizeCryptoPlatform(p.custodian) })),
   };
+  // Infer only an unambiguous legacy relationship; never divide an existing balance.
+  normalized.positions = normalized.positions.map(p => {
+    if (p.status !== '質押所賺' || p.stakingPositionId) return p;
+    const candidates = normalized.positions.filter(parent => parent.status === '鎖定(質押)' && parent.symbol === p.symbol && parent.custodian === p.custodian);
+    const sameNetwork = candidates.filter(parent => parent.network === p.network);
+    const matches = sameNetwork.length ? sameNetwork : candidates;
+    return matches.length === 1 ? { ...p, stakingPositionId: matches[0].id } : p;
+  });
+  return normalized;
+}
+export function stakingRewards(state: CryptoManagementState, parentId: string) {
+  return normalizeCryptoState(state).positions.filter(p => p.status === '質押所賺' && p.stakingPositionId === parentId);
+}
+export function stakingRewardQuantity(state: CryptoManagementState, parentId: string) {
+  return stakingRewards(state, parentId).reduce((total, p) => addCryptoQuantity(total, p.quantity), 0);
+}
+export function linkStakingReward(state: CryptoManagementState, positionId: string, parentId: string): CryptoManagementState {
+  const next = normalizeCryptoState(state);
+  const reward = next.positions.find(p => p.id === positionId);
+  const parent = next.positions.find(p => p.id === parentId);
+  if (!reward || reward.status !== '質押所賺' || !parent || parent.status !== '鎖定(質押)' || parent.custodian !== reward.custodian || parent.symbol !== reward.symbol) throw new Error('請選擇同平台、同幣種的質押持倉。');
+  reward.stakingPositionId = parentId;
+  return next;
 }
 function decimalParts(value: number): [bigint, number] {
   const [mantissa, exponent = '0'] = value.toString().split('e');

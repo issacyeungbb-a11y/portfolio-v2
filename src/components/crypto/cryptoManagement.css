@@ -138,3 +138,16 @@
 .cm-movement-editor input:focus-visible,.cm-movement-editor select:focus-visible,.cm-movement-editor textarea:focus-visible { outline:3px solid #818cf8; outline-offset:2px; }
 @media(max-width:760px) { .cm-movement-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } .cm-movement-filters label:first-child { grid-column:1 / -1; } .cm-movement-detail { min-width:200px; } }
 @media(max-width:760px) { .cm-operation-groups { grid-template-columns:1fr; } .cm-operation-options { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+
+.cm-reward-branch > th,.cm-reward-branch > td { background:#f5f8ff; }
+.cm-reward-branch th { white-space:nowrap; }
+.cm-branch-name { display:block; color:#44649a; font-size:12px; padding-left:8px; }
+.cm-reward-branch th small { display:block; font-weight:400; color:var(--cm-muted); font-size:10px; padding-left:23px; margin-top:3px; }
+.cm-reward-actions { display:flex; gap:6px; }
+.cm-unlinked-reward { display:block; color:var(--cm-muted); font-size:10px; margin-top:4px; }
+.cm-reward-context { display:flex; flex-direction:column; gap:5px; margin:0 0 16px; font-size:13px; }
+.cm-reward-context span { color:var(--cm-muted); font-size:12px; }
+.cm-reward-balances { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:13px; margin-bottom:18px; background:#f5f8ff; border-radius:10px; }
+.cm-reward-balances span { display:block; font-size:11px; color:var(--cm-muted); margin-bottom:6px; }
+.cm-reward-balances strong { font-size:16px; overflow-wrap:anywhere; }
+.cm-staking-reward-dialog .cm-add-fields > .cm-caption { line-height:1.7; }

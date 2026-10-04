@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
+import { cryptoAssetStatus } from '../src/lib/cryptoClassification.js';
 import { cryptoPlatforms } from '../src/lib/cryptoPlatforms.js';
 import type { CryptoCoin, CryptoFunding, CryptoManagementState, CryptoPosition, CryptoValuation } from '../src/types/cryptoManagement';
 
@@ -47,6 +48,11 @@ export function validateState(state: CryptoManagementState) {
     row.network = text(row.network, '網絡', false);
     row.collateralSymbol = text(row.collateralSymbol, '抵押資產', false).toUpperCase();
     if (row.collateralSymbol && !symbols.has(row.collateralSymbol)) throw new Error('抵押資產必須是已設定幣種。');
+  }
+  for (const row of [...state.positions, ...state.liabilities]) {
+    if (row.stakingPositionId === undefined) continue;
+    const parent = state.positions.find(p => p.id === row.stakingPositionId);
+    if (!state.positions.includes(row) || row.status !== '質押所賺' || !parent || cryptoAssetStatus(parent.status) !== '鎖定(質押)' || parent.custodian !== row.custodian || parent.symbol !== row.symbol) throw new Error('質押所賺必須關聯同平台、同幣種的質押持倉。');
   }
   for (const row of state.funding) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(row.date) || new Date(`${row.date}T00:00:00Z`).toISOString().slice(0, 10) !== row.date) throw new Error('資金日期無效。');

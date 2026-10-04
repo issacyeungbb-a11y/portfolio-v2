@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { callPortfolioFunction, PortfolioFunctionHttpError } from '../lib/api/vercelFunctions';
 import { cryptoPlatforms } from '../lib/cryptoPlatforms';
 import { cryptoMovementLabels, destinationRequired, isStakedPosition, planCryptoMovement, positionLabel, sourceRequired, cryptoMovementSources, cryptoMovementDestinationStatuses, cryptoMovementDefaultDestination, cryptoMovementDefaultNote } from '../lib/cryptoMovements';
-import { cryptoAssetStatus, isCollateralPosition, isSpendablePosition, normalizeCryptoPlatform } from '../lib/cryptoClassification';
+import { cryptoAssetStatus, isCollateralPosition, isSpendablePosition, normalizeCryptoPlatform, stakingRewards } from '../lib/cryptoClassification';
 import type { CryptoAssetStatus, CryptoManagementResponse, CryptoManagementState, CryptoMovementHistory, CryptoMovementInput, CryptoMovementType } from '../types/cryptoManagement';
 import { CryptoMovementActions, cryptoMovementHelp } from '../components/crypto/CryptoMovementActions';
 import '../components/crypto/cryptoManagement.css';
@@ -46,12 +46,13 @@ export function CryptoMovementsPage({ embedded = false, onUpdated }: { embedded?
   const settlementOptions = state?.positions.filter(p => p.symbol !== draft.symbol && isSpendablePosition(p)) ?? [];
   const quoteCurrency = state?.positions.find(p => p.id === draft.settlementPositionId)?.symbol ?? 'USD';
   const newStatus = allowedStatuses.includes(draft.status) ? draft.status : allowedStatuses[0];
+  const automaticRelease = draft.type === 'staking_reward_release';
   const input = useMemo<CryptoMovementInput>(() => { const movement: CryptoMovementInput = { type: draft.type, date: draft.date, symbol: draft.symbol, quantity: Number(draft.quantity), note: draft.note,
     ...(needsSource ? { sourcePositionId: draft.sourcePositionId } : {}),
-    ...(needsDestination ? draft.destinationPositionId ? { destinationPositionId: draft.destinationPositionId } : { destination: { custodian: draft.custodian, status: newStatus, network: draft.network } } : {}),
+    ...(needsDestination && !automaticRelease ? draft.destinationPositionId ? { destinationPositionId: draft.destinationPositionId } : { destination: { custodian: draft.custodian, status: newStatus, network: draft.network } } : {}),
     ...(['transfer_in', 'transfer_out'].includes(draft.type) ? { counterparty: draft.counterparty } : {}),
     ...(trade ? { unitPrice: Number(draft.unitPrice), fees: draft.fees === '' ? 0 : Number(draft.fees), quoteCurrency, ...(draft.settlementPositionId ? { settlementPositionId: draft.settlementPositionId } : {}) } : {}),
-  }; return { ...movement, note: draft.note.trim() || (state ? cryptoMovementDefaultNote(movement, state) : '') }; }, [draft, needsSource, needsDestination, newStatus, trade, quoteCurrency, state]);
+  }; return { ...movement, note: draft.note.trim() || (state ? cryptoMovementDefaultNote(movement, state) : '') }; }, [draft, needsSource, needsDestination, newStatus, trade, quoteCurrency, state, automaticRelease]);
   const preview = useMemo(() => {
     if (!state || !editing) return { result: null, error: '' };
     try { return { result: planCryptoMovement(state, input, 'preview_new_position', today()), error: '' }; }
@@ -126,13 +127,14 @@ export function CryptoMovementsPage({ embedded = false, onUpdated }: { embedded?
   if (!draft.symbol) missingFields.push('幣種');
   if (!draft.quantity || !Number.isFinite(Number(draft.quantity)) || Number(draft.quantity) <= 0) missingFields.push('往來數量（大於 0）');
   if (needsSource && !draft.sourcePositionId) missingFields.push(draft.type === 'staking_reward' ? '質押來源' : '來源持倉');
-  if (needsDestination && !draft.destinationPositionId && !draft.custodian.trim()) missingFields.push('目的地平台');
+  if (needsDestination && !automaticRelease && !draft.destinationPositionId && !draft.custodian.trim()) missingFields.push('目的地平台');
   if (['transfer_in', 'transfer_out'].includes(draft.type) && !draft.counterparty.trim()) missingFields.push(draft.type === 'transfer_in' ? '外部來源' : '外部目的地');
   if (trade && (!draft.unitPrice || Number(draft.unitPrice) <= 0)) missingFields.push('成交單價（大於 0）');
   const validationMessage = missingFields.length ? `請填寫：${missingFields.join('、')}。` : preview.error;
+  const rewardPositionIds = new Set(state && positionFilter ? stakingRewards(state, positionFilter).map(p => p.id) : []);
   const filtered = history.entries.filter(entry => (!typeFilter || entry.type === typeFilter) && (!coinFilter || entry.symbol === coinFilter || entry.legs.some(l => l.symbol === coinFilter))
     && (!platformFilter || normalizeCryptoPlatform(entry.sourceCustodian) === platformFilter || normalizeCryptoPlatform(entry.destinationCustodian) === platformFilter || entry.legs.some(l => normalizeCryptoPlatform(l.custodian) === platformFilter)) && (!from || entry.date >= from) && (!to || entry.date <= to)
-    && (!positionFilter || entry.sourcePositionId === positionFilter || entry.destinationPositionId === positionFilter || entry.legs.some(l => l.positionId === positionFilter)));
+    && (!positionFilter || entry.stakingPositionId === positionFilter || entry.legs.some(l => rewardPositionIds.has(l.positionId)) || entry.sourcePositionId === positionFilter || entry.destinationPositionId === positionFilter || entry.legs.some(l => l.positionId === positionFilter)));
   const historyPlatforms = [...new Set(history.entries.flatMap(entry => [entry.sourceCustodian, entry.destinationCustodian, ...entry.legs.map(l => l.custodian)].filter(Boolean).map(normalizeCryptoPlatform)))].sort((a, b) => a.localeCompare(b, 'zh-HK'));
   function exportRecords() {
     const blob = new Blob([JSON.stringify({ opening: history.opening, entries: filtered }, null, 2)], { type: 'application/json' });
@@ -155,8 +157,8 @@ export function CryptoMovementsPage({ embedded = false, onUpdated }: { embedded?
         <label>幣種<select value={draft.symbol} onChange={e => changeOperation(draft.type, e.target.value, '')}>{state.coins.map(c => <option key={c.symbol} value={c.symbol}>{c.symbol} · {c.name}</option>)}</select></label>
         <label>往來數量<input required type="number" min="0" step="any" value={draft.quantity} onChange={e => update('quantity', e.target.value)} /></label>
         {needsSource && <label>{draft.type === 'staking_reward' ? '質押來源' : '來源持倉'}<select required aria-label={draft.type === 'staking_reward' ? '質押來源' : '來源持倉'} aria-describedby="cm-source-hint" value={draft.sourcePositionId} onChange={e => changeOperation(draft.type, draft.symbol, e.target.value, false)}><option value="">選擇來源持倉</option>{sources.map(p => <option key={p.id} value={p.id}>{positionLabel(p)} · {number(p.quantity)}</option>)}</select><span id="cm-source-hint" className="cm-field-hint">{source && <span>{draft.type === 'staking_reward' ? '質押本金' : '目前數量'}：{number(source.quantity)} {source.symbol}{draft.type !== 'staking_reward' ? '；輸入本次操作數量，並非新的總數。' : '；收益只會增加去向持倉。'}</span>}{!sources.length && <span className="cm-field-hint cm-negative">此幣種沒有符合操作的來源持倉，請選其他幣種或操作。</span>}</span></label>}
-        {needsDestination && <label>{draft.type === 'staking_reward' ? '收益去向' : '目的地持倉'}<select value={draft.destinationPositionId} onChange={e => update('destinationPositionId', e.target.value)}><option value="">新增目的地持倉</option>{destinations.map(p => <option key={p.id} value={p.id}>{positionLabel(p)} · {number(p.quantity)}</option>)}</select></label>}
-        {needsDestination && !draft.destinationPositionId && <><label>目的地平台<input required maxLength={160} list="cm-destination-platforms" value={draft.custodian} onChange={e => update('custodian', e.target.value)} /><datalist id="cm-destination-platforms">{cryptoPlatforms(state).map(p => <option key={p} value={p} />)}</datalist></label><label>目的地狀態<select value={newStatus} disabled={allowedStatuses.length === 1} onChange={e => update('status', e.target.value)}>{allowedStatuses.map(s => <option key={s} value={s}>{s}</option>)}</select></label><label>目的地網絡<input maxLength={160} value={draft.network} onChange={e => update('network', e.target.value)} /></label></>}
+        {needsDestination && !automaticRelease && <label>{draft.type === 'staking_reward' ? '收益去向' : '目的地持倉'}<select value={draft.destinationPositionId} onChange={e => update('destinationPositionId', e.target.value)}><option value="">新增目的地持倉</option>{destinations.map(p => <option key={p.id} value={p.id}>{positionLabel(p)} · {number(p.quantity)}</option>)}</select></label>}
+        {needsDestination && !automaticRelease && !draft.destinationPositionId && <><label>目的地平台<input required maxLength={160} list="cm-destination-platforms" value={draft.custodian} onChange={e => update('custodian', e.target.value)} /><datalist id="cm-destination-platforms">{cryptoPlatforms(state).map(p => <option key={p} value={p} />)}</datalist></label><label>目的地狀態<select value={newStatus} disabled={allowedStatuses.length === 1} onChange={e => update('status', e.target.value)}>{allowedStatuses.map(s => <option key={s} value={s}>{s}</option>)}</select></label><label>目的地網絡<input maxLength={160} value={draft.network} onChange={e => update('network', e.target.value)} /></label></>}
         {['transfer_in', 'transfer_out'].includes(draft.type) && <label>外部{draft.type === 'transfer_in' ? '來源' : '目的地'}<input required maxLength={160} value={draft.counterparty} onChange={e => update('counterparty', e.target.value)} placeholder="例如另一個未在本系統記錄的錢包" /></label>}
         {trade && <><label>{draft.type === 'buy' ? '付款方式' : '收款方式'}<select value={draft.settlementPositionId} onChange={e => update('settlementPositionId', e.target.value)}><option value="">外部法幣 USD</option>{settlementOptions.map(p => <option key={p.id} value={p.id}>{positionLabel(p)} · {number(p.quantity)}</option>)}</select></label><label>成交單價（{quoteCurrency}）<input required type="number" min="0" step="any" value={draft.unitPrice} onChange={e => update('unitPrice', e.target.value)} /></label><label>手續費（{quoteCurrency}）<input type="number" min="0" step="any" value={draft.fees} onChange={e => update('fees', e.target.value)} /></label></>}
         <label className="cm-full-width">備註（選填）<textarea maxLength={300} value={draft.note} onChange={e => update('note', e.target.value)} placeholder="可補充交易資訊；留空亦會自動記錄操作類型、平台及數量。" /></label>

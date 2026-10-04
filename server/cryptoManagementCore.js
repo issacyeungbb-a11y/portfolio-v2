@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { QUOTE_FRESHNESS_WINDOW_MS } from "./priceFreshness.js";
+import { cryptoAssetStatus } from "../src/lib/cryptoClassification.js";
 import { cryptoPlatforms } from "../src/lib/cryptoPlatforms.js";
 function checksum(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -45,6 +46,11 @@ function validateState(state) {
     row.network = text(row.network, "\u7DB2\u7D61", false);
     row.collateralSymbol = text(row.collateralSymbol, "\u62B5\u62BC\u8CC7\u7522", false).toUpperCase();
     if (row.collateralSymbol && !symbols.has(row.collateralSymbol)) throw new Error("\u62B5\u62BC\u8CC7\u7522\u5FC5\u9808\u662F\u5DF2\u8A2D\u5B9A\u5E63\u7A2E\u3002");
+  }
+  for (const row of [...state.positions, ...state.liabilities]) {
+    if (row.stakingPositionId === void 0) continue;
+    const parent = state.positions.find((p) => p.id === row.stakingPositionId);
+    if (!state.positions.includes(row) || row.status !== "\u8CEA\u62BC\u6240\u8CFA" || !parent || cryptoAssetStatus(parent.status) !== "\u9396\u5B9A(\u8CEA\u62BC)" || parent.custodian !== row.custodian || parent.symbol !== row.symbol) throw new Error("\u8CEA\u62BC\u6240\u8CFA\u5FC5\u9808\u95DC\u806F\u540C\u5E73\u53F0\u3001\u540C\u5E63\u7A2E\u7684\u8CEA\u62BC\u6301\u5009\u3002");
   }
   for (const row of state.funding) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(row.date) || (/* @__PURE__ */ new Date(`${row.date}T00:00:00Z`)).toISOString().slice(0, 10) !== row.date) throw new Error("\u8CC7\u91D1\u65E5\u671F\u7121\u6548\u3002");

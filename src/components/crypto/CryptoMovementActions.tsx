@@ -6,6 +6,7 @@ export const cryptoMovementHelp: Record<CryptoMovementType, string> = {
   unstake: '鎖定(質押) → 可用，幣種總數不變。',
   collateral_lock: '可動用資產 → 鎖定(抵押)，幣種總數不變。',
   collateral_unlock: '鎖定(抵押) → 可用，幣種總數不變。',
+  staking_reward_release: '將尚未解除的質押所賺轉回同一平台的可用資產；質押本金保持不變。',
   staking_reward: '新增已收到的質押收益；本金不會扣減，可另列「質押所賺」或繼續質押。',
   buy: '買入幣種，增加目的地持倉；請填成交單價及付款方式。',
   sell: '出售可動用資產，扣減來源持倉；請填成交單價及收款方式。鎖定資產須先解除。',
@@ -14,13 +15,14 @@ export const cryptoMovementHelp: Record<CryptoMovementType, string> = {
   transfer_out: '轉到系統外的平台／錢包，扣減持倉；請填外部目的地。',
 };
 const groups: Array<{ label: string; types: CryptoMovementType[] }> = [
-  { label: '資產狀態與收益', types: ['stake', 'unstake', 'collateral_lock', 'collateral_unlock', 'staking_reward'] },
+  { label: '資產狀態與收益', types: ['stake', 'unstake', 'collateral_lock', 'collateral_unlock', 'staking_reward', 'staking_reward_release'] },
   { label: '買賣交易', types: ['buy', 'sell'] },
   { label: '平台／錢包轉移', types: ['transfer', 'transfer_in', 'transfer_out'] },
 ];
 const captions: Record<CryptoMovementType, string> = {
   stake: '可動用 → 鎖定(質押)', unstake: '鎖定(質押) → 可用',
   collateral_lock: '可動用 → 鎖定(抵押)', collateral_unlock: '鎖定(抵押) → 可用',
+  staking_reward_release: '質押所賺 → 可用',
   staking_reward: '記錄已收到的質押所賺', buy: '購入幣種', sell: '變賣幣種',
   transfer: '已記錄的平台之間', transfer_in: '系統外 → 持倉', transfer_out: '持倉 → 系統外',
 };

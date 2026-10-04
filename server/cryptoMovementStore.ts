@@ -1,17 +1,22 @@
 import { planCryptoMovement } from '../src/lib/cryptoMovements.js';
 import { saveCryptoPlatform } from '../src/lib/cryptoPlatforms.js';
 import { checksum, validateState } from './cryptoManagementCore.js';
-import { normalizeCryptoState } from '../src/lib/cryptoClassification.js';
+import { normalizeCryptoState, linkStakingReward } from '../src/lib/cryptoClassification.js';
 import type { CryptoManagementState, CryptoMovementInput, CryptoPosition } from '../src/types/cryptoManagement';
 
-export function assertRecordedPositions(previous: CryptoManagementState, next: CryptoManagementState, rename?: unknown) {
+export function assertRecordedPositions(previous: CryptoManagementState, next: CryptoManagementState, rename?: unknown, stakingRewardLink?: unknown) {
   let expected = normalizeCryptoState(previous);
   if (rename !== undefined) {
     const r = rename as { previousName?: string; name?: string };
     if (!r || typeof r.previousName !== 'string' || typeof r.name !== 'string') throw new Error('平台改名格式不正確。');
     expected = saveCryptoPlatform(expected, r.name, r.previousName);
   }
-  const canonical = (rows: CryptoPosition[]) => [...rows].sort((a, b) => a.id.localeCompare(b.id)).map(p => ({ id: p.id, symbol: p.symbol, custodian: p.custodian, quantity: p.quantity, status: p.status, network: p.network, collateralSymbol: p.collateralSymbol }));
+  if (stakingRewardLink !== undefined) {
+    const link = stakingRewardLink as { positionId?: string; parentId?: string };
+    if (!link || typeof link.positionId !== 'string' || typeof link.parentId !== 'string') throw new Error('質押收益關聯格式不正確。');
+    expected = linkStakingReward(expected, link.positionId, link.parentId);
+  }
+  const canonical = (rows: CryptoPosition[]) => [...rows].sort((a, b) => a.id.localeCompare(b.id)).map(p => ({ id: p.id, symbol: p.symbol, custodian: p.custodian, quantity: p.quantity, status: p.status, network: p.network, collateralSymbol: p.collateralSymbol, stakingPositionId: p.stakingPositionId ?? '' }));
   if (checksum(canonical(expected.positions)) !== checksum(canonical(normalizeCryptoState(next).positions))) throw new Error('持倉數量、平台及鎖定狀態請透過 Crypto 變動記錄交易或轉移。');
 }
 

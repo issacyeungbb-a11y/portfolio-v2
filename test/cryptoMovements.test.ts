@@ -14,7 +14,7 @@ const input = (overrides: Partial<CryptoMovementInput> = {}): CryptoMovementInpu
 const plan = (state: CryptoManagementState, movement: CryptoMovementInput) => planCryptoMovement(state, movement, 'new_position', TODAY);
 
 test('only actual trade, transfer and staking types are accepted', () => {
-  assert.equal(Object.keys(cryptoMovementLabels).length, 10);
+  assert.equal(Object.keys(cryptoMovementLabels).length, 11);
   assert.throws(() => plan(fixture(), input({ type: 'adjustment' } as unknown as Partial<CryptoMovementInput>)));
   assert.throws(() => plan(fixture(), input({ type: '__proto__' } as unknown as Partial<CryptoMovementInput>)));
 });
@@ -198,4 +198,50 @@ test('reward destination defaults keep earnings separate even when the principal
   assert.equal(destination.destinationPositionId, ''); assert.equal(destination.status, '質押所賺'); assert.equal(destination.custodian, 'Wallet');
   const result = plan(state, input({ type: 'staking_reward', sourcePositionId: 'btc_staked', destinationPositionId: '', destination }));
   assert.equal(result.state.positions[1].quantity, 3); assert.equal(result.legs[0].status, '質押所賺');
+});
+
+
+test('simple staking reward actions inherit their parent platform and preserve principal', () => {
+  const state = fixture();
+  const earned = plan(state, input({ type: 'staking_reward', sourcePositionId: 'btc_staked', destinationPositionId: undefined, quantity: .3 }));
+  const reward = earned.state.positions.find(p => p.status === '質押所賺')!;
+  assert.equal(reward.stakingPositionId, 'btc_staked'); assert.equal(reward.custodian, 'Wallet'); assert.equal(reward.quantity, .3);
+  assert.equal(earned.state.positions[1].quantity, 3); assert.equal(earned.input.stakingPositionId, 'btc_staked');
+  const released = plan(earned.state, input({ type: 'staking_reward_release', sourcePositionId: 'btc_staked', destinationPositionId: undefined, quantity: .1 }));
+  assert.equal(released.state.positions[0].quantity, 2.1);
+  assert.equal(released.state.positions[1].quantity, 3);
+  assert.equal(released.state.positions.find(p => p.id === reward.id)?.quantity, .2);
+  assert.equal(released.legs.length, 2); assert.equal(released.input.stakingPositionId, 'btc_staked');
+  assert.throws(() => plan(earned.state, input({ type: 'staking_reward_release', sourcePositionId: 'btc_staked', quantity: .4 })), /不可超過/);
+  assert.throws(() => plan(state, input({ type: 'staking_reward', sourcePositionId: 'btc_staked', destinationPositionId: '', destination: { custodian: 'Exchange', status: '質押所賺', network: '' } })), /對應質押/);
+});
+test('identical platform and coin staking parents keep their reward balances separate', () => {
+  const state = fixture(); state.positions.push(row('second_stake', 'BTC', 'Wallet', 1, '鎖定(質押)'));
+  const first = plan(state, input({ type: 'staking_reward', sourcePositionId: 'btc_staked', destinationPositionId: undefined, quantity: .1 }));
+  assert.equal(cryptoMovementDefaultDestination(first.state, 'staking_reward', 'BTC', state.positions[1]).destinationPositionId, 'new_position');
+  assert.equal(cryptoMovementDefaultDestination(first.state, 'staking_reward', 'BTC', state.positions.at(-1)).destinationPositionId, '');
+  const second = planCryptoMovement(first.state, input({ type: 'staking_reward', sourcePositionId: 'second_stake', destinationPositionId: undefined, quantity: .2 }), 'second_reward', TODAY);
+  assert.equal(second.state.positions.filter(p => p.status === '質押所賺').length, 2);
+  const released = plan(second.state, input({ type: 'staking_reward_release', sourcePositionId: 'second_stake', quantity: .15 }));
+  assert.equal(released.state.positions.find(p => p.stakingPositionId === 'btc_staked')?.quantity, .1);
+  assert.equal(released.state.positions.find(p => p.stakingPositionId === 'second_stake')?.quantity, .05);
+  assert.equal(released.state.positions.find(p => p.id === 'second_stake')?.quantity, 1);
+});
+test('release consumes multiple legacy reward rows once and remains possible after all principal was unstaked', () => {
+  const state = fixture(); state.positions[1].quantity = 0;
+  state.positions.push({ ...row('earn1', 'BTC', 'Wallet', .1, '質押所賺'), stakingPositionId: 'btc_staked' }, { ...row('earn2', 'BTC', 'Wallet', .2, '質押所賺'), stakingPositionId: 'btc_staked' });
+  const released = plan(state, input({ type: 'staking_reward_release', sourcePositionId: 'btc_staked', quantity: .25 }));
+  assert.equal(released.legs.length, 3); assert.equal(released.state.positions[0].quantity, 2.25);
+  assert.equal(released.state.positions.find(p => p.id === 'earn1')?.quantity, 0);
+  assert.equal(released.state.positions.find(p => p.id === 'earn2')?.quantity, .05);
+  assert.equal(released.state.positions[1].quantity, 0); assert.doesNotThrow(() => validateState(released.state));
+});
+test('reward parent and release legs persist atomically with idempotent retries', async () => {
+  const store = fakeStore(); const state = fixture();
+  state.positions.push({ ...row('earn1', 'BTC', 'Wallet', .2, '質押所賺'), stakingPositionId: 'btc_staked' }); store.db.set('meta', state);
+  const payload = { action: 'record-movement', expectedVersion: 4, operationId: 'operation_123', movement: input({ type: 'staking_reward_release', sourcePositionId: 'btc_staked', quantity: .1 }) };
+  assert.equal(await store.run(payload), 4); const after = structuredClone(store.db);
+  assert.equal(await store.run(payload), 0); assert.deepEqual(store.db, after);
+  assert.equal((store.db.get('movement') as { stakingPositionId: string }).stakingPositionId, 'btc_staked');
+  assert.deepEqual(store.db.get('locked-month'), { locked: true, totalHkd: 100 });
 });

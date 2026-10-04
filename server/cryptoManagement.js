@@ -209,7 +209,7 @@ async function runCryptoManagement(payload) {
     if (!migration && (!previous || payload.expectedVersion !== previous.version)) throw new CryptoManagementError("\u8CC7\u6599\u5DF2\u88AB\u5176\u4ED6\u64CD\u4F5C\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u518D\u4FEE\u6539\u3002", 409);
     const next = migration ? { ...migration.parsed, version: 1, migratedAt: (/* @__PURE__ */ new Date()).toISOString(), sourceChecksum: migration.sourceChecksum } : { ...submitted, version: previous.version + 1, migratedAt: previous.migratedAt, sourceChecksum: previous.sourceChecksum };
     validateState(next);
-    if (previous && action === "save") assertRecordedPositions(previous, next, payload.platformRename);
+    if (previous && action === "save") assertRecordedPositions(previous, next, payload.platformRename, payload.stakingRewardLink);
     tx.set(metaRef(), next);
     syncAssets(tx, next, stored, seedQuotes, previous);
     if (previous) {

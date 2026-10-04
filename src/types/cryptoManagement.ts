@@ -15,6 +15,7 @@ export interface CryptoPosition {
   status: string;
   network: string;
   collateralSymbol: string;
+  stakingPositionId?: string;
 }
 export interface CryptoFunding {
   id: string;
@@ -52,13 +53,14 @@ export interface CryptoManagementResponse {
   sourceArchive: Array<{ id: string; title: string; rows: number }>;
 }
 
-export type CryptoMovementType = 'buy' | 'sell' | 'transfer' | 'transfer_in' | 'transfer_out' | 'stake' | 'unstake' | 'staking_reward' | 'collateral_lock' | 'collateral_unlock';
+export type CryptoMovementType = 'buy' | 'sell' | 'transfer' | 'transfer_in' | 'transfer_out' | 'stake' | 'unstake' | 'staking_reward' | 'staking_reward_release' | 'collateral_lock' | 'collateral_unlock';
 export interface CryptoMovementInput {
   type: CryptoMovementType;
   date: string;
   symbol: string;
   quantity: number;
   sourcePositionId?: string;
+  stakingPositionId?: string;
   destinationPositionId?: string;
   destination?: { custodian: string; status: CryptoAssetStatus; network: string };
   counterparty?: string;

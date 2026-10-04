@@ -1,4 +1,4 @@
-import { addCryptoQuantity, multiplyCryptoQuantity, cryptoAssetStatus, cryptoAssetStatuses, isSpendablePosition, isCollateralPosition, normalizeCryptoPlatform, normalizeCryptoState } from "./cryptoClassification.js";
+import { addCryptoQuantity, multiplyCryptoQuantity, cryptoAssetStatus, cryptoAssetStatuses, isSpendablePosition, isCollateralPosition, normalizeCryptoPlatform, normalizeCryptoState, stakingRewards, stakingRewardQuantity } from "./cryptoClassification.js";
 import { addCryptoQuantity as addCryptoQuantity2 } from "./cryptoClassification.js";
 const cryptoMovementLabels = {
   buy: "\u8CB7\u5165",
@@ -10,19 +10,20 @@ const cryptoMovementLabels = {
   unstake: "\u89E3\u9664\u8CEA\u62BC",
   staking_reward: "\u8CEA\u62BC\u6536\u76CA",
   collateral_lock: "\u6295\u5165\u62B5\u62BC",
-  collateral_unlock: "\u89E3\u9664\u62B5\u62BC"
+  collateral_unlock: "\u89E3\u9664\u62B5\u62BC",
+  staking_reward_release: "\u89E3\u9664\u8CEA\u62BC\u6536\u76CA"
 };
-const sourceRequired = (type) => ["sell", "transfer", "transfer_out", "stake", "unstake", "staking_reward", "collateral_lock", "collateral_unlock"].includes(type);
+const sourceRequired = (type) => ["sell", "transfer", "transfer_out", "stake", "unstake", "staking_reward", "staking_reward_release", "collateral_lock", "collateral_unlock"].includes(type);
 const destinationRequired = (type) => !["sell", "transfer_out"].includes(type);
 const isStakedPosition = (row) => cryptoAssetStatus(row.status) === "\u9396\u5B9A(\u8CEA\u62BC)";
 const positionLabel = (row) => `${row.custodian} \xB7 ${row.symbol} \xB7 ${row.status}${row.network ? ` \xB7 ${row.network}` : ""}`;
 function cryptoMovementSources(state, type, symbol) {
-  return state.positions.filter((p) => p.symbol === symbol && (p.quantity > 0 || type === "staking_reward") && (["unstake", "staking_reward"].includes(type) ? isStakedPosition(p) : type === "collateral_unlock" ? isCollateralPosition(p) : ["stake", "collateral_lock", "sell"].includes(type) ? isSpendablePosition(p) : true));
+  return state.positions.filter((p) => p.symbol === symbol && (p.quantity > 0 || ["staking_reward", "staking_reward_release"].includes(type)) && (type === "staking_reward_release" ? isStakedPosition(p) && stakingRewardQuantity(state, p.id) > 0 : ["unstake", "staking_reward"].includes(type) ? isStakedPosition(p) : type === "collateral_unlock" ? isCollateralPosition(p) : ["stake", "collateral_lock", "sell"].includes(type) ? isSpendablePosition(p) : true));
 }
 function cryptoMovementDestinationStatuses(type, source) {
   if (type === "stake") return ["\u9396\u5B9A(\u8CEA\u62BC)"];
   if (type === "collateral_lock") return ["\u9396\u5B9A(\u62B5\u62BC)"];
-  if (["unstake", "collateral_unlock", "buy"].includes(type)) return ["\u53EF\u7528"];
+  if (["unstake", "collateral_unlock", "buy", "staking_reward_release"].includes(type)) return ["\u53EF\u7528"];
   if (type === "staking_reward") return ["\u8CEA\u62BC\u6240\u8CFA", "\u9396\u5B9A(\u8CEA\u62BC)", "\u53EF\u7528"];
   if (type === "transfer" && source) {
     const s = cryptoAssetStatus(source.status);
@@ -32,7 +33,7 @@ function cryptoMovementDestinationStatuses(type, source) {
 }
 function cryptoMovementDefaultDestination(state, type, symbol, source) {
   const status = cryptoMovementDestinationStatuses(type, source)[0];
-  const candidates = state.positions.filter((p) => p.symbol === symbol && (!sourceRequired(type) || p.id !== source?.id) && cryptoAssetStatus(p.status) === status);
+  const candidates = normalizeCryptoState(state).positions.filter((p) => p.symbol === symbol && (!sourceRequired(type) || p.id !== source?.id) && cryptoAssetStatus(p.status) === status && (type !== "staking_reward" || p.stakingPositionId === source?.id));
   const samePlatform = candidates.find((p) => p.custodian === source?.custodian && p.network === source?.network);
   const target = type === "transfer" ? candidates.find((p) => p.custodian !== source?.custodian) ?? candidates[0] : samePlatform ?? (!source ? candidates[0] : void 0);
   return {
@@ -76,12 +77,24 @@ function planCryptoMovement(state, raw, newPositionId, today) {
   const source = sourceRequired(input.type) ? next.positions.find((p) => p.id === raw.sourcePositionId && p.symbol === input.symbol) : void 0;
   if (sourceRequired(input.type) && !source) throw new Error("\u8ACB\u9078\u64C7\u6B64\u5E63\u7A2E\u7684\u4F86\u6E90\u6301\u5009\u3002");
   if (source) input.sourcePositionId = source.id;
-  if (["unstake", "staking_reward"].includes(input.type) && source && !isStakedPosition(source)) throw new Error("\u4F86\u6E90\u5FC5\u9808\u662F\u8CEA\u62BC\u6301\u5009\u3002");
+  if (["unstake", "staking_reward", "staking_reward_release"].includes(input.type) && source && !isStakedPosition(source)) throw new Error("\u4F86\u6E90\u5FC5\u9808\u662F\u8CEA\u62BC\u6301\u5009\u3002");
+  if (raw.stakingPositionId !== void 0 && (!source || raw.stakingPositionId !== source.id || !["staking_reward", "staking_reward_release"].includes(input.type))) throw new Error("\u8CEA\u62BC\u6536\u76CA\u95DC\u806F\u683C\u5F0F\u4E0D\u6B63\u78BA\u3002");
+  if (source && ["staking_reward", "staking_reward_release"].includes(input.type)) input.stakingPositionId = source.id;
   if (["stake", "collateral_lock", "sell"].includes(input.type) && source && !isSpendablePosition(source)) throw new Error("\u8ACB\u5148\u8A18\u9304\u89E3\u9664\u8CEA\u62BC\u6216\u89E3\u9664\u62B5\u62BC\uFF0C\u518D\u4F7F\u7528\u53EF\u52D5\u7528\u6301\u5009\u3002");
   if (input.type === "collateral_unlock" && source && !isCollateralPosition(source)) throw new Error("\u4F86\u6E90\u5FC5\u9808\u662F\u9396\u5B9A(\u62B5\u62BC)\u6301\u5009\u3002");
   let destination;
   if (destinationRequired(input.type)) {
-    if (raw.destinationPositionId) {
+    if (input.type === "staking_reward_release" || input.type === "staking_reward" && !raw.destinationPositionId && !raw.destination) {
+      if (!source) throw new Error("\u8ACB\u9078\u64C7\u8CEA\u62BC\u6301\u5009\u3002");
+      const status = input.type === "staking_reward_release" ? "\u53EF\u7528" : "\u8CEA\u62BC\u6240\u8CFA";
+      destination = next.positions.find((p) => p.symbol === source.symbol && p.custodian === source.custodian && p.status === status && p.network === source.network && !p.collateralSymbol && (status !== "\u8CEA\u62BC\u6240\u8CFA" || p.stakingPositionId === source.id));
+      if (!destination) {
+        if (!/^[a-zA-Z0-9_-]{1,80}$/.test(newPositionId) || next.positions.some((p) => p.id === newPositionId)) throw new Error("\u65B0\u6301\u5009 ID \u7121\u6548\u3002");
+        destination = { id: newPositionId, symbol: source.symbol, custodian: source.custodian, status, network: source.network, quantity: 0, collateralSymbol: "", ...status === "\u8CEA\u62BC\u6240\u8CFA" ? { stakingPositionId: source.id } : {} };
+        next.positions.push(destination);
+      }
+      input.destinationPositionId = destination.id;
+    } else if (raw.destinationPositionId) {
       destination = next.positions.find((p) => p.id === raw.destinationPositionId && p.symbol === input.symbol);
       if (!destination) throw new Error("\u627E\u4E0D\u5230\u76EE\u7684\u5730\u6301\u5009\u3002");
       input.destinationPositionId = destination.id;
@@ -89,7 +102,7 @@ function planCryptoMovement(state, raw, newPositionId, today) {
       if (!raw.destination) throw new Error("\u8ACB\u9078\u64C7\u76EE\u7684\u5730\u6216\u586B\u5BEB\u65B0\u6301\u5009\u8CC7\u6599\u3002");
       const details = { custodian: normalizeCryptoPlatform(cleanText(raw.destination.custodian, "\u76EE\u7684\u5730\u5E73\u53F0")), status: cryptoAssetStatus(raw.destination.status), network: cleanText(raw.destination.network, "\u7DB2\u7D61", false) };
       if (![...cryptoAssetStatuses, "\u8CEA\u62BC", "\u62B5\u62BC"].includes(raw.destination.status)) throw new Error("\u8ACB\u9078\u64C7\u6709\u6548\u7684\u56DB\u7A2E\u8CC7\u7522\u72C0\u614B\u3002");
-      destination = next.positions.find((p) => p.symbol === input.symbol && p.custodian === details.custodian && p.status === details.status && p.network === details.network && !p.collateralSymbol);
+      destination = next.positions.find((p) => p.symbol === input.symbol && p.custodian === details.custodian && p.status === details.status && p.network === details.network && !p.collateralSymbol && (input.type !== "staking_reward" || details.status !== "\u8CEA\u62BC\u6240\u8CFA" || p.stakingPositionId === source?.id));
       if (!destination) {
         if (!/^[a-zA-Z0-9_-]{1,80}$/.test(newPositionId) || next.positions.some((p) => p.id === newPositionId)) throw new Error("\u65B0\u6301\u5009 ID \u7121\u6548\u3002");
         destination = { id: newPositionId, symbol: input.symbol, ...details, quantity: 0, collateralSymbol: "" };
@@ -101,6 +114,10 @@ function planCryptoMovement(state, raw, newPositionId, today) {
     if (["unstake", "collateral_unlock", "buy"].includes(input.type) && cryptoAssetStatus(destination.status) !== "\u53EF\u7528") throw new Error("\u76EE\u7684\u5730\u5FC5\u9808\u662F\u53EF\u7528\u6301\u5009\u3002");
     if (input.type === "collateral_lock" && !isCollateralPosition(destination)) throw new Error("\u6295\u5165\u62B5\u62BC\u7684\u76EE\u7684\u5730\u5FC5\u9808\u662F\u9396\u5B9A(\u62B5\u62BC)\u6301\u5009\u3002");
     if (input.type === "staking_reward" && isCollateralPosition(destination)) throw new Error("\u8CEA\u62BC\u6536\u76CA\u4E0D\u80FD\u76F4\u63A5\u8A08\u5165\u62B5\u62BC\u672C\u91D1\u3002");
+    if (input.type === "staking_reward" && destination.status === "\u8CEA\u62BC\u6240\u8CFA" && source) {
+      if (destination.custodian !== source.custodian || destination.stakingPositionId && destination.stakingPositionId !== source.id) throw new Error("\u8CEA\u62BC\u6240\u8CFA\u5FC5\u9808\u7559\u5728\u5C0D\u61C9\u8CEA\u62BC\u6301\u5009\u7684\u5E73\u53F0\u3002");
+      destination.stakingPositionId = source.id;
+    }
     if (input.type === "transfer" && source && cryptoAssetStatus(source.status) !== cryptoAssetStatus(destination.status) && !(cryptoAssetStatus(source.status) === "\u8CEA\u62BC\u6240\u8CFA" && cryptoAssetStatus(destination.status) === "\u53EF\u7528")) throw new Error("\u9396\u5B9A\u72C0\u614B\u6539\u8B8A\u8ACB\u9078\u64C7\u6295\u5165\u6216\u89E3\u9664\u8CEA\u62BC\uFF0F\u62B5\u62BC\u3002");
     if (source?.id === destination.id && input.type !== "staking_reward") throw new Error("\u4F86\u6E90\u8207\u76EE\u7684\u5730\u4E0D\u80FD\u662F\u540C\u4E00\u7B46\u6301\u5009\u3002");
   }
@@ -116,7 +133,19 @@ function planCryptoMovement(state, raw, newPositionId, today) {
     legs.push({ positionId: row.id, symbol: row.symbol, custodian: row.custodian, status: row.status, network: row.network, delta, before: row.quantity, after });
     row.quantity = after;
   }
-  if (source && input.type !== "staking_reward") change(source, -input.quantity);
+  if (input.type === "staking_reward_release" && source) {
+    const rewards = stakingRewards(next, source.id).sort((a, b) => a.id.localeCompare(b.id));
+    if (stakingRewardQuantity(next, source.id) < input.quantity) throw new Error("\u89E3\u9664\u6578\u91CF\u4E0D\u53EF\u8D85\u904E\u5C1A\u672A\u89E3\u9664\u7684\u8CEA\u62BC\u6240\u8CFA\u3002");
+    let remaining = input.quantity;
+    for (const reward of rewards) {
+      if (!remaining) break;
+      const row = next.positions.find((p) => p.id === reward.id);
+      const quantity = Math.min(row.quantity, remaining);
+      if (quantity) change(row, -quantity);
+      remaining = addCryptoQuantity(remaining, -quantity);
+    }
+    sourceLabel = `${source.custodian} \xB7 ${source.symbol} \xB7 \u8CEA\u62BC\u6240\u8CFA`;
+  } else if (source && input.type !== "staking_reward") change(source, -input.quantity);
   if (destination) change(destination, input.quantity);
   let totalAmount = null;
   if (["buy", "sell"].includes(input.type)) {
