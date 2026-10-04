@@ -5,6 +5,7 @@ import { getGoogleSheetsAccessToken, readSheetValues } from './cryptoMonthlySync
 import { generatePriceUpdates, getCoinGeckoConfig } from './updatePrices.js';
 import { aggregate, checksum, monthlyMetrics, parseCryptoSheet, validateState, valueCrypto } from './cryptoManagementCore.js';
 import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from './cryptoMovementStore.js';
+import { normalizeCryptoState } from '../src/lib/cryptoClassification.js';
 import type { CryptoManagementState } from '../src/types/cryptoManagement';
 
 const SHEET = '1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4';
@@ -20,7 +21,7 @@ function quotesFromAssets(docs: Awaited<ReturnType<typeof assets>>['docs']) {
 export async function readCryptoManagement() {
   const ref = getSharedPortfolioDocRef();
   const [meta, assetDocs, audit, archive, drafts] = await Promise.all([metaRef().get(), assets(), ref.collection('cryptoManagementAudit').orderBy('at', 'desc').limit(30).get(), ref.collection('cryptoSourceArchive').get(), ref.collection('cryptoMonthlyDrafts').orderBy('month', 'desc').limit(1).get()]);
-  const state = meta.exists ? meta.data() as CryptoManagementState : null;
+  const state = meta.exists ? normalizeCryptoState(meta.data() as CryptoManagementState) : null;
   return { state, valuation: state ? valueCrypto(state, quotesFromAssets(assetDocs.docs)) : null, draft: drafts.docs[0] ? { month: drafts.docs[0].data().month, warnings: drafts.docs[0].data().warnings, updatedAt: drafts.docs[0].data().updatedAt } : null, audit: audit.docs.map(d => ({ id: d.id, action: d.data().action, reason: d.data().reason, at: d.data().at, version: d.data().version })), sourceArchive: archive.docs.map(d => ({ id: d.id, title: d.data().title, rows: d.data().values.length })) };
 }
 async function readMigrationSource() {
@@ -157,7 +158,7 @@ export async function runCryptoManagement(payload: Record<string, unknown>) {
   }
   const migration = action === 'migrate' ? await previewCryptoMigration() : null;
   if (migration && migration.sourceChecksum !== payload.sourceChecksum) throw new CryptoManagementError('來源已改變，請重新核對遷移預覽。', 409);
-  const submitted = action === 'save' ? JSON.parse(JSON.stringify(payload.state)) as CryptoManagementState : null;
+  const submitted = action === 'save' ? normalizeCryptoState(JSON.parse(JSON.stringify(payload.state)) as CryptoManagementState) : null;
   if (submitted) validateState(submitted);
   const seedQuotes: Record<string, { price: number; at: string }> = {};
   if (migration) {

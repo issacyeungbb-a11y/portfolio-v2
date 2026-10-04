@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { callPortfolioFunction } from '../../lib/api/vercelFunctions';
 import { cryptoPlatforms, saveCryptoPlatform } from '../../lib/cryptoPlatforms';
 import { isStakedPosition, planCryptoMovement, positionLabel, sourceRequired } from '../../lib/cryptoMovements';
-import type { CryptoCoin, CryptoManagementResponse, CryptoManagementState, CryptoMovementInput, CryptoMovementType } from '../../types/cryptoManagement';
+import { cryptoAssetStatuses, cryptoAssetStatus, isSpendablePosition, isCollateralPosition } from '../../lib/cryptoClassification';
+import type { CryptoAssetStatus, CryptoCoin, CryptoManagementResponse, CryptoManagementState, CryptoMovementInput, CryptoMovementType } from '../../types/cryptoManagement';
 
 type Mode = 'asset' | 'platform' | 'coin';
-type Status = '可用' | '質押';
+type Status = CryptoAssetStatus;
 type Props = {
   state: CryptoManagementState;
   initialMode?: Mode;
@@ -17,12 +18,17 @@ type Props = {
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 const number = (n: number) => new Intl.NumberFormat('zh-HK', { maximumFractionDigits: 18 }).format(n);
 const origins: Record<Status, Array<[CryptoMovementType, string]>> = {
-  可用: [['transfer_in', '外部轉入'], ['buy', '買入'], ['transfer', '現有可用持倉轉移'], ['unstake', '解除質押轉入'], ['staking_reward', '質押收益轉入']],
-  質押: [['stake', '由可用持倉投入質押'], ['transfer_in', '外部質押資產轉入'], ['transfer', '現有質押持倉轉移'], ['staking_reward', '增加質押收益']],
+  '可用': [['transfer_in', '外部轉入'], ['buy', '買入'], ['transfer', '現有可動用持倉轉移'], ['unstake', '解除質押轉入'], ['collateral_unlock', '解除抵押轉入'], ['staking_reward', '質押收益轉入']],
+  '鎖定(質押)': [['stake', '由可動用持倉投入質押'], ['transfer_in', '外部質押資產轉入'], ['transfer', '現有質押持倉轉移'], ['staking_reward', '收益繼續質押']],
+  '鎖定(抵押)': [['collateral_lock', '由可動用持倉投入抵押'], ['transfer_in', '外部抵押資產轉入'], ['transfer', '現有抵押持倉轉移']],
+  '質押所賺': [['staking_reward', '記錄質押所賺'], ['transfer_in', '外部質押收益轉入'], ['transfer', '現有質押收益轉移']],
 };
 function sourcesFor(state: CryptoManagementState, symbol: string, type: CryptoMovementType, status: Status) {
   return state.positions.filter(p => p.symbol === symbol && (p.quantity > 0 || type === 'staking_reward')
-    && (type === 'stake' ? !isStakedPosition(p) : ['unstake', 'staking_reward'].includes(type) ? isStakedPosition(p) : isStakedPosition(p) === (status === '質押')));
+    && (['stake', 'collateral_lock'].includes(type) ? isSpendablePosition(p)
+      : ['unstake', 'staking_reward'].includes(type) ? isStakedPosition(p)
+      : type === 'collateral_unlock' ? isCollateralPosition(p)
+      : cryptoAssetStatus(p.status) === status || (status === '可用' && cryptoAssetStatus(p.status) === '質押所賺')));
 }
 
 export function CryptoAddDialog({ state, initialMode = 'asset', platform = '', symbol: initialSymbol = '', onUpdated, onClose }: Props) {
@@ -76,7 +82,8 @@ export function CryptoAddDialog({ state, initialMode = 'asset', platform = '', s
   }
   function changeStatus(nextStatus: Status) {
     setStatus(nextStatus);
-    const nextType = nextStatus === '質押' && sourcesFor(state, symbol, 'stake', nextStatus).length ? 'stake' : 'transfer_in';
+    const preferred = nextStatus === '鎖定(質押)' ? 'stake' : nextStatus === '鎖定(抵押)' ? 'collateral_lock' : nextStatus === '質押所賺' ? 'staking_reward' : 'transfer_in';
+    const nextType = sourceRequired(preferred) && !sourcesFor(state, symbol, preferred, nextStatus).length ? 'transfer_in' : preferred;
     changeOrigin(nextType, nextStatus);
   }
   async function cancel() {
@@ -132,25 +139,25 @@ export function CryptoAddDialog({ state, initialMode = 'asset', platform = '', s
       {message && <p className="cm-caption" role="status">{message}</p>}
       <fieldset disabled={disabled} className="cm-add-fields">
         {mode === 'asset' && (state.coins.length ? <>
-          <p className="cm-caption">可以在現有平台新增可用或質押資產；同平台、幣種、狀態及網絡的持倉會合併數量。</p>
+          <p className="cm-caption">可以在現有平台新增四種狀態的資產；同平台、幣種、狀態及網絡的持倉會合併數量。</p>
           <div className="cm-form-grid">
             <label>平台／錢包<select required value={newPlatform ? '__new_platform__' : custodian} onChange={e => { const create = e.target.value === '__new_platform__'; setNewPlatform(create); setCustodian(create ? '' : e.target.value); }}><option value="">選擇現有平台</option>{platforms.map(p => <option key={p} value={p}>{p}</option>)}<option value="__new_platform__">＋ 新增平台</option></select></label>
             {newPlatform && <label>新平台名稱<input required maxLength={160} value={custodian} onChange={e => setCustodian(e.target.value)} /></label>}
             <label>幣種<select value={symbol} onChange={e => { setSymbol(e.target.value); changeOrigin(type, status, e.target.value); setSettlementId(''); }}>{state.coins.map(c => <option key={c.symbol} value={c.symbol}>{c.symbol} · {c.name}</option>)}</select></label>
-            <label>資產狀態<select value={status} onChange={e => changeStatus(e.target.value as Status)}><option value="可用">可用（非質押）</option><option value="質押">質押</option></select></label>
+            <label>資產狀態<select value={status} onChange={e => changeStatus(e.target.value as Status)}>{cryptoAssetStatuses.map(s => <option key={s} value={s}>{s}</option>)}</select></label>
             <label>資產來源<select value={type} onChange={e => changeOrigin(e.target.value as CryptoMovementType)}>{origins[status].map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label>
             <label>新增數量<input required type="number" min="0" step="any" value={quantity} onChange={e => setQuantity(e.target.value)} /></label>
             <label>發生日期<input required type="date" max={today()} value={date} onChange={e => setDate(e.target.value)} /></label>
             <label>網絡（選填）<input maxLength={160} value={network} onChange={e => setNetwork(e.target.value)} /></label>
             {needsSource && <label>{type === 'staking_reward' ? '質押收益來源' : '來源持倉'}<select required value={sourceId} onChange={e => setSourceId(e.target.value)}><option value="">選擇來源持倉</option>{sources.map(p => <option key={p.id} value={p.id}>{positionLabel(p)} · {number(p.quantity)}</option>)}</select></label>}
             {type === 'transfer_in' && <label>外部來源<input required maxLength={160} value={counterparty} onChange={e => setCounterparty(e.target.value)} placeholder="例如原有質押平台或另一個錢包" /></label>}
-            {type === 'buy' && <><label>結算持倉<select value={settlementId} onChange={e => setSettlementId(e.target.value)}><option value="">外部法幣 USD</option>{state.positions.filter(p => p.symbol !== symbol && !isStakedPosition(p)).map(p => <option key={p.id} value={p.id}>{positionLabel(p)}</option>)}</select></label><label>成交單價（{quoteCurrency}）<input required type="number" min="0" step="any" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} /></label><label>手續費（{quoteCurrency}）<input type="number" min="0" step="any" value={fees} onChange={e => setFees(e.target.value)} /></label></>}
+            {type === 'buy' && <><label>結算持倉<select value={settlementId} onChange={e => setSettlementId(e.target.value)}><option value="">外部法幣 USD</option>{state.positions.filter(p => p.symbol !== symbol && isSpendablePosition(p)).map(p => <option key={p.id} value={p.id}>{positionLabel(p)}</option>)}</select></label><label>成交單價（{quoteCurrency}）<input required type="number" min="0" step="any" value={unitPrice} onChange={e => setUnitPrice(e.target.value)} /></label><label>手續費（{quoteCurrency}）<input type="number" min="0" step="any" value={fees} onChange={e => setFees(e.target.value)} /></label></>}
           </div>
           {type === 'buy' && !settlementId && <p className="cm-caption">外部法幣只記錄成交金額，累計入金仍在「資金紀錄」管理。</p>}
           {needsSource && !sources.length && <p className="cm-caption">未有符合狀態的來源持倉；如資產由系統以外轉入，請選擇外部轉入。</p>}
-        </> : <p className="cm-caption">請先在「新增幣種」建立幣種，再新增可用或質押資產。</p>)}
+        </> : <p className="cm-caption">請先在「新增幣種」建立幣種，再新增資產。</p>)}
         {mode === 'platform' && <><p className="cm-caption">只建立平台選項，不增加資產數量；儲存後可接着新增資產。</p><label>新平台名稱<input required maxLength={160} value={platformName} onChange={e => setPlatformName(e.target.value)} /></label></>}
-        {mode === 'coin' && <><p className="cm-caption">先建立幣種及價格來源，然後新增可用或質押持倉。</p><div className="cm-form-grid"><label>幣種代號<input required maxLength={24} value={coinSymbol} onChange={e => setCoinSymbol(e.target.value)} /></label><label>幣種名稱<input required maxLength={160} value={coinName} onChange={e => setCoinName(e.target.value)} /></label><label>價格來源<select value={priceSource} onChange={e => setPriceSource(e.target.value as CryptoCoin['priceSource'])}><option value="coingecko">CoinGecko</option><option value="manual">手動確認</option></select></label>{priceSource === 'coingecko' ? <label>CoinGecko ID<input required maxLength={160} value={priceSourceId} onChange={e => setPriceSourceId(e.target.value)} /></label> : <label>已確認美元單價（可留空待補）<input type="number" min="0" step="any" value={manualPrice} onChange={e => setManualPrice(e.target.value)} /></label>}</div></>}
+        {mode === 'coin' && <><p className="cm-caption">先建立幣種及價格來源，然後新增持倉。</p><div className="cm-form-grid"><label>幣種代號<input required maxLength={24} value={coinSymbol} onChange={e => setCoinSymbol(e.target.value)} /></label><label>幣種名稱<input required maxLength={160} value={coinName} onChange={e => setCoinName(e.target.value)} /></label><label>價格來源<select value={priceSource} onChange={e => setPriceSource(e.target.value as CryptoCoin['priceSource'])}><option value="coingecko">CoinGecko</option><option value="manual">手動確認</option></select></label>{priceSource === 'coingecko' ? <label>CoinGecko ID<input required maxLength={160} value={priceSourceId} onChange={e => setPriceSourceId(e.target.value)} /></label> : <label>已確認美元單價（可留空待補）<input type="number" min="0" step="any" value={manualPrice} onChange={e => setManualPrice(e.target.value)} /></label>}</div></>}
         {(mode !== 'asset' || state.coins.length > 0) && <label className="cm-reason">{mode === 'asset' ? '往來說明' : '新增說明'}<textarea required minLength={2} maxLength={300} value={note} onChange={e => setNote(e.target.value)} /></label>}
       </fieldset>
       {mode === 'asset' && preview.result && <div className="cm-movement-preview"><strong>儲存後的持倉數量</strong>{preview.result.legs.map(l => <p key={l.positionId}>{l.custodian} · {l.symbol} · {l.status}：{number(l.before)} <span className={l.delta > 0 ? 'cm-positive' : 'cm-negative'}>{l.delta > 0 ? '+' : '−'}{number(Math.abs(l.delta))}</span> → <strong>{number(l.after)}</strong></p>)}{preview.result.totalAmount !== null && <p>支付 {number(preview.result.totalAmount)} {quoteCurrency}（已含手續費）</p>}</div>}

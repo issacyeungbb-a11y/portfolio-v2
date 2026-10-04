@@ -1,15 +1,16 @@
 import { planCryptoMovement } from "../src/lib/cryptoMovements.js";
 import { saveCryptoPlatform } from "../src/lib/cryptoPlatforms.js";
 import { checksum, validateState } from "./cryptoManagementCore.js";
+import { normalizeCryptoState } from "../src/lib/cryptoClassification.js";
 function assertRecordedPositions(previous, next, rename) {
-  let expected = previous;
+  let expected = normalizeCryptoState(previous);
   if (rename !== void 0) {
     const r = rename;
     if (!r || typeof r.previousName !== "string" || typeof r.name !== "string") throw new Error("\u5E73\u53F0\u6539\u540D\u683C\u5F0F\u4E0D\u6B63\u78BA\u3002");
-    expected = saveCryptoPlatform(previous, r.name, r.previousName);
+    expected = saveCryptoPlatform(expected, r.name, r.previousName);
   }
   const canonical = (rows) => [...rows].sort((a, b) => a.id.localeCompare(b.id)).map((p) => ({ id: p.id, symbol: p.symbol, custodian: p.custodian, quantity: p.quantity, status: p.status, network: p.network, collateralSymbol: p.collateralSymbol }));
-  if (checksum(canonical(expected.positions)) !== checksum(canonical(next.positions))) throw new Error("\u6301\u5009\u6578\u91CF\u3001\u5E73\u53F0\u53CA\u8CEA\u62BC\u72C0\u614B\u8ACB\u900F\u904E Crypto \u8B8A\u52D5\u8A18\u9304\u4EA4\u6613\u6216\u8F49\u79FB\u3002");
+  if (checksum(canonical(expected.positions)) !== checksum(canonical(normalizeCryptoState(next).positions))) throw new Error("\u6301\u5009\u6578\u91CF\u3001\u5E73\u53F0\u53CA\u9396\u5B9A\u72C0\u614B\u8ACB\u900F\u904E Crypto \u8B8A\u52D5\u8A18\u9304\u4EA4\u6613\u6216\u8F49\u79FB\u3002");
 }
 class CryptoMovementConflict extends Error {
 }

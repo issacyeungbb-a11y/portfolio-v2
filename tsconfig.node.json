@@ -15,6 +15,7 @@
     "src/lib/api/mockFunctionResponses.ts",
     "src/lib/currency.ts",
     "src/lib/cryptoPlatforms.ts",
+    "src/lib/cryptoClassification.ts",
     "src/lib/cryptoMovements.ts",
     "src/lib/dates.ts",
     "src/lib/holdings.ts",

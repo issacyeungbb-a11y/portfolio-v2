@@ -1,6 +1,12 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, useSearchParams } from 'react-router-dom';
 
 import { AppShell } from '../layout/AppShell';
+
+function LegacyCryptoMovementsRedirect() {
+  const [params] = useSearchParams();
+  const next = new URLSearchParams(params); next.set('tab', 'movements');
+  return <Navigate to={`/crypto-history?${next}`} replace />;
+}
 
 export const router = createBrowserRouter([
   // Standalone tool route — outside AppShell, no sidebar/topbar/bottomnav
@@ -79,15 +85,12 @@ export const router = createBrowserRouter([
           Component: (await import('../pages/CryptoHistoryPage')).CryptoHistoryPage,
         }),
         handle: {
-          title: 'Crypto 歷史',
+          title: '持倉管理中心',
         },
       },
       {
         path: 'crypto-movements',
-        lazy: async () => ({
-          Component: (await import('../pages/CryptoMovementsPage')).CryptoMovementsPage,
-        }),
-        handle: { title: 'Crypto 變動' },
+        element: <LegacyCryptoMovementsRedirect />,
       },
       {
         path: 'transactions',

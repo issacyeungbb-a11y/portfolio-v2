@@ -77,6 +77,33 @@
 .cm-add-dialog footer { margin-top:16px; }
 .cm-add-dialog .cm-movement-preview { margin-top:0; }
 
+.cm-coin-layout { display:grid; grid-template-columns:190px minmax(0,1fr); gap:20px; align-items:start; margin-top:18px; }
+.cm-coin-detail { min-width:0; }
+.cm-coin-sidebar { position:sticky; top:16px; border:1px solid var(--cm-border); border-radius:12px; padding:10px; background:#f8fafc; }
+.cm-coin-sidebar-heading { padding:4px 5px 10px; }
+.cm-coin-sidebar h3 { margin:0 0 4px; font-size:14px; }
+.cm-coin-sidebar-heading span,.cm-coin-name,.cm-coin-total small { color:var(--cm-muted); font-size:11px; }
+.cm-coin-all { width:100%; padding:8px; border:1px solid transparent; border-radius:8px; background:transparent; text-align:left; font:inherit; font-size:12px; cursor:pointer; }
+.cm-coin-list { display:grid; gap:6px; margin-top:6px; max-height:65vh; overflow:auto; }
+.cm-coin-total { display:grid; grid-template-columns:1fr auto; gap:4px; width:100%; padding:10px; border:1px solid var(--cm-border); border-radius:9px; background:white; text-align:left; font:inherit; color:#172338; cursor:pointer; }
+.cm-coin-total strong { font-size:13px; }
+.cm-coin-quantity { grid-column:1 / -1; font-size:19px; font-weight:700; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.cm-coin-total small { grid-column:1 / -1; }
+.cm-coin-total.active,.cm-coin-all.active { border-color:#6366f1; background:#eef0ff; }
+.cm-selected-coin { display:flex; gap:16px; justify-content:space-between; flex-wrap:wrap; padding:12px 14px; border:1px solid var(--cm-border); border-radius:10px; margin-bottom:10px; }
+.cm-selected-coin h3 { margin:0 0 3px; font-size:16px; }
+.cm-selected-coin h3 small,.cm-selected-quantity small { font-size:12px; font-weight:400; color:var(--cm-muted); }
+.cm-selected-quantity { display:block; font-size:23px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.cm-selected-coin dl { display:grid; grid-template-columns:repeat(2,minmax(90px,1fr)); gap:8px 18px; margin:0; }
+.cm-selected-coin dt { font-size:11px; color:var(--cm-muted); }
+.cm-selected-coin dd { margin:3px 0 0; font-size:13px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+.cm-holdings-table .cm-tag[data-status="可用"] { background:#e8f5ef; color:#12674f; }
+.cm-holdings-table .cm-tag[data-status="鎖定(質押)"] { background:#eeebfc; color:#5941a6; }
+.cm-holdings-table .cm-tag[data-status="鎖定(抵押)"] { background:#fff3de; color:#8b5e0e; }
+.cm-holdings-table .cm-tag[data-status="質押所賺"] { background:#e9f2ff; color:#2e5b9b; }
+@media(max-width:900px) { .cm-coin-layout { grid-template-columns:160px minmax(0,1fr); gap:12px; } }
+@media(max-width:760px) { .cm-coin-layout { grid-template-columns:1fr; } .cm-coin-sidebar { position:static; } .cm-coin-list { display:flex; overflow-x:auto; max-height:none; padding-bottom:4px; } .cm-coin-total { flex:0 0 145px; } .cm-selected-coin { flex-direction:column; } }
+
 .cm-movement-editor fieldset { border:0; padding:0; margin:0; min-width:0; }
 .cm-movement-editor label,.cm-movement-filters label { display:flex; flex-direction:column; gap:6px; color:var(--cm-muted); font-size:13px; }
 .cm-movement-editor input,.cm-movement-editor select,.cm-movement-editor textarea,.cm-movement-filters input,.cm-movement-filters select { width:100%; box-sizing:border-box; border:1px solid var(--cm-border); border-radius:8px; background:white; color:#172338; padding:9px 10px; font:inherit; min-width:0; }

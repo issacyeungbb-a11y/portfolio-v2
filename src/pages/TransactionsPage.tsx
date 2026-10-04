@@ -329,7 +329,7 @@ export function TransactionsPage() {
 
   return (
     <div className="page-stack">
-      <p className="table-hint">Crypto 的交易、轉移及質押往來可在 <Link to="/crypto-movements">Crypto 變動</Link> 查看及記錄。</p>
+      <p className="table-hint">Crypto 的交易、轉移及質押往來可在 <Link to="/crypto-history?tab=movements">持倉管理中心 · Crypto 變動</Link> 查看及記錄。</p>
       {error ? <p className="status-message status-message-error">{error}</p> : null}
       {allHoldingsError ? <p className="status-message status-message-error">{allHoldingsError}</p> : null}
       {priceReviewsError ? <p className="status-message status-message-error">{priceReviewsError}</p> : null}

@@ -5,6 +5,7 @@ import { getGoogleSheetsAccessToken, readSheetValues } from "./cryptoMonthlySync
 import { generatePriceUpdates, getCoinGeckoConfig } from "./updatePrices.js";
 import { aggregate, checksum, monthlyMetrics, parseCryptoSheet, validateState, valueCrypto } from "./cryptoManagementCore.js";
 import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from "./cryptoMovementStore.js";
+import { normalizeCryptoState } from "../src/lib/cryptoClassification.js";
 const SHEET = "1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4";
 const metaRef = () => getSharedPortfolioDocRef().collection("cryptoManagement").doc("current");
 const iso = (v) => typeof v === "string" ? v : v?.toDate?.().toISOString() ?? "";
@@ -29,7 +30,7 @@ function quotesFromAssets(docs) {
 async function readCryptoManagement() {
   const ref = getSharedPortfolioDocRef();
   const [meta, assetDocs, audit, archive, drafts] = await Promise.all([metaRef().get(), assets(), ref.collection("cryptoManagementAudit").orderBy("at", "desc").limit(30).get(), ref.collection("cryptoSourceArchive").get(), ref.collection("cryptoMonthlyDrafts").orderBy("month", "desc").limit(1).get()]);
-  const state = meta.exists ? meta.data() : null;
+  const state = meta.exists ? normalizeCryptoState(meta.data()) : null;
   return { state, valuation: state ? valueCrypto(state, quotesFromAssets(assetDocs.docs)) : null, draft: drafts.docs[0] ? { month: drafts.docs[0].data().month, warnings: drafts.docs[0].data().warnings, updatedAt: drafts.docs[0].data().updatedAt } : null, audit: audit.docs.map((d) => ({ id: d.id, action: d.data().action, reason: d.data().reason, at: d.data().at, version: d.data().version })), sourceArchive: archive.docs.map((d) => ({ id: d.id, title: d.data().title, rows: d.data().values.length })) };
 }
 async function readMigrationSource() {
@@ -180,7 +181,7 @@ async function runCryptoManagement(payload) {
   }
   const migration = action === "migrate" ? await previewCryptoMigration() : null;
   if (migration && migration.sourceChecksum !== payload.sourceChecksum) throw new CryptoManagementError("\u4F86\u6E90\u5DF2\u6539\u8B8A\uFF0C\u8ACB\u91CD\u65B0\u6838\u5C0D\u9077\u79FB\u9810\u89BD\u3002", 409);
-  const submitted = action === "save" ? JSON.parse(JSON.stringify(payload.state)) : null;
+  const submitted = action === "save" ? normalizeCryptoState(JSON.parse(JSON.stringify(payload.state))) : null;
   if (submitted) validateState(submitted);
   const seedQuotes = {};
   if (migration) {

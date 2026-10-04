@@ -6,6 +6,7 @@ export interface CryptoCoin {
   manualPriceUsd: number | null;
   manualPriceAt: string | null;
 }
+export type CryptoAssetStatus = '可用' | '鎖定(質押)' | '鎖定(抵押)' | '質押所賺';
 export interface CryptoPosition {
   id: string;
   symbol: string;
@@ -51,7 +52,7 @@ export interface CryptoManagementResponse {
   sourceArchive: Array<{ id: string; title: string; rows: number }>;
 }
 
-export type CryptoMovementType = 'buy' | 'sell' | 'transfer' | 'transfer_in' | 'transfer_out' | 'stake' | 'unstake' | 'staking_reward';
+export type CryptoMovementType = 'buy' | 'sell' | 'transfer' | 'transfer_in' | 'transfer_out' | 'stake' | 'unstake' | 'staking_reward' | 'collateral_lock' | 'collateral_unlock';
 export interface CryptoMovementInput {
   type: CryptoMovementType;
   date: string;
@@ -59,7 +60,7 @@ export interface CryptoMovementInput {
   quantity: number;
   sourcePositionId?: string;
   destinationPositionId?: string;
-  destination?: { custodian: string; status: '可用' | '質押'; network: string };
+  destination?: { custodian: string; status: CryptoAssetStatus; network: string };
   counterparty?: string;
   unitPrice?: number;
   fees?: number;
