@@ -20,9 +20,11 @@ function quotesFromAssets(docs: Awaited<ReturnType<typeof assets>>['docs']) {
 }
 export async function readCryptoManagement() {
   const ref = getSharedPortfolioDocRef();
-  const [meta, assetDocs, audit, archive, drafts] = await Promise.all([metaRef().get(), assets(), ref.collection('cryptoManagementAudit').orderBy('at', 'desc').limit(30).get(), ref.collection('cryptoSourceArchive').get(), ref.collection('cryptoMonthlyDrafts').orderBy('month', 'desc').limit(1).get()]);
+  const [meta, assetDocs, audit, archive, drafts, portfolio] = await Promise.all([metaRef().get(), assets(), ref.collection('cryptoManagementAudit').orderBy('at', 'desc').limit(30).get(), ref.collection('cryptoSourceArchive').get(), ref.collection('cryptoMonthlyDrafts').orderBy('month', 'desc').limit(1).get(), ref.get()]);
   const state = meta.exists ? normalizeCryptoState(meta.data() as CryptoManagementState) : null;
-  return { state, valuation: state ? valueCrypto(state, quotesFromAssets(assetDocs.docs)) : null, draft: drafts.docs[0] ? { month: drafts.docs[0].data().month, warnings: drafts.docs[0].data().warnings, updatedAt: drafts.docs[0].data().updatedAt } : null, audit: audit.docs.map(d => ({ id: d.id, action: d.data().action, reason: d.data().reason, at: d.data().at, version: d.data().version })), sourceArchive: archive.docs.map(d => ({ id: d.id, title: d.data().title, rows: d.data().values.length })) };
+  const fx = portfolio.data()?.fxRates;
+  const displayFx = { usdHkd: typeof fx?.USD === 'number' && Number.isFinite(fx.USD) && fx.USD > 0 ? fx.USD : null, updatedAt: iso(fx?.updatedAt) };
+  return { state, displayFx, valuation: state ? valueCrypto(state, quotesFromAssets(assetDocs.docs)) : null, draft: drafts.docs[0] ? { month: drafts.docs[0].data().month, warnings: drafts.docs[0].data().warnings, updatedAt: drafts.docs[0].data().updatedAt } : null, audit: audit.docs.map(d => ({ id: d.id, action: d.data().action, reason: d.data().reason, at: d.data().at, version: d.data().version })), sourceArchive: archive.docs.map(d => ({ id: d.id, title: d.data().title, rows: d.data().values.length })) };
 }
 async function readMigrationSource() {
   const token = await getGoogleSheetsAccessToken();

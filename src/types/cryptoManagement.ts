@@ -46,6 +46,7 @@ export interface CryptoValuation {
   withdrawnUsd: number;
 }
 export interface CryptoManagementResponse {
+  displayFx?: { usdHkd: number | null; updatedAt: string };
   draft?: { month: string; warnings: string[]; updatedAt: string } | null;
   state: CryptoManagementState | null;
   valuation: CryptoValuation | null;
