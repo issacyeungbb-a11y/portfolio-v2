@@ -62,6 +62,31 @@ test('external transfers require a counterparty and record exactly one changing 
   assert.equal(outbound.legs.length, 1); assert.equal(outbound.legs[0].after, 1.8);
   assert.throws(() => plan(fixture(), input({ type: 'transfer_out' })));
 });
+test('new staking holdings distinguish internal staking from external assets and merge repeated arrivals', () => {
+  const destination = { custodian: 'New staking platform', status: '質押' as const, network: 'Bitcoin' };
+  const internal = plan(fixture(), input({ type: 'stake', quantity: .5, destinationPositionId: '', destination }));
+  assert.equal(internal.state.positions[0].quantity, 1.5);
+  assert.equal(internal.state.positions.reduce((sum, p) => sum + (p.symbol === 'BTC' ? p.quantity : 0), 0), 6);
+  const external = plan(fixture(), input({ type: 'transfer_in', quantity: .5, destinationPositionId: '', destination, counterparty: 'Original external wallet' }));
+  assert.equal(external.state.positions[0].quantity, 2);
+  assert.equal(external.legs[0].status, '質押');
+  const again = plan(external.state, input({ type: 'transfer_in', quantity: .25, destinationPositionId: '', destination, counterparty: 'Original external wallet' }));
+  assert.equal(again.state.positions.length, external.state.positions.length);
+  assert.equal(again.state.positions.find(p => p.custodian === destination.custodian)?.quantity, .75);
+});
+test('staking assets can be added on an existing platform without replacing its available assets or creating another platform', () => {
+  const state = fixture();
+  const destination = { custodian: 'Exchange', status: '質押' as const, network: '' };
+  const first = plan(state, input({ type: 'transfer_in', quantity: .5, destinationPositionId: '', destination, counterparty: 'External staking wallet' }));
+  assert.deepEqual(first.state.platforms, state.platforms);
+  assert.equal(first.state.positions.find(p => p.id === 'btc_exchange')?.quantity, 1);
+  assert.equal(first.state.positions.find(p => p.custodian === 'Exchange' && p.status === '質押')?.quantity, .5);
+  const second = plan(first.state, input({ type: 'stake', quantity: .25, destinationPositionId: '', destination }));
+  assert.deepEqual(second.state.platforms, state.platforms);
+  assert.equal(second.state.positions.length, first.state.positions.length);
+  assert.equal(second.state.positions.find(p => p.custodian === 'Exchange' && p.status === '質押')?.quantity, .75);
+  assert.equal(second.state.positions.find(p => p.id === 'btc_wallet')?.quantity, 1.75);
+});
 test('invalid dates, missing identities, self transfers, negative, excessive and nonnumeric quantities are rejected', () => {
   for (const overrides of [{ date: '2026-02-31' }, { date: '2026-10-04' }, { sourcePositionId: 'missing' }, { destinationPositionId: 'missing' }, { destinationPositionId: 'usdt' }, { destinationPositionId: 'btc_wallet' }, { quantity: -1 }, { quantity: 0 }, { quantity: 3 }, { quantity: NaN }, { quantity: Infinity }, { note: '' }, { symbol: 'UNKNOWN' }, { quantity: '1' }]) {
     assert.throws(() => plan(fixture(), input(overrides as Partial<CryptoMovementInput>)));
