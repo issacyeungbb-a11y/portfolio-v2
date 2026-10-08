@@ -28,7 +28,7 @@ function getGeminiAnalyzeModel(requestedModel) {
 }
 function getClaudeAnalyzeModel() {
   const model = process.env.CLAUDE_ANALYZE_MODEL?.trim() || CLAUDE_ANALYZE_MODEL;
-  return model === "claude-opus-5" ? model : CLAUDE_ANALYZE_MODEL;
+  return model === "claude-opus-5-5" ? model : CLAUDE_ANALYZE_MODEL;
 }
 function getGeminiApiKey() {
   const apiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_API_KEY?.trim();
@@ -68,6 +68,9 @@ function sanitizeNumber(value) {
   return null;
 }
 function sanitizeAnalysisModel(value) {
+  if (value === "claude-opus-5") {
+    return "claude-opus-5-5";
+  }
   if (isValidAnalysisModel(value)) {
     return value;
   }
@@ -1586,7 +1589,7 @@ async function runPortfolioAnalysisRequest(request, options) {
   );
   const provider = getModelProvider(request.analysisModel);
   const resolvedMaxTokens = options?.maxTokens ?? (isGeneralQuestion ? getGeneralQuestionMaxTokens(intent) : getDefaultAnalysisMaxTokens(request.category));
-  const resolvedModel = request.analysisModel === "claude-opus-5" ? getClaudeAnalyzeModel() : getGeminiAnalyzeModel(request.analysisModel);
+  const resolvedModel = request.analysisModel === "claude-opus-5-5" ? getClaudeAnalyzeModel() : getGeminiAnalyzeModel(request.analysisModel);
   let raw;
   let timedOutGeneralFallback = null;
   try {

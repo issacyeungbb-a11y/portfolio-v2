@@ -138,14 +138,14 @@ test('buildScheduledAnalysisTimeoutFallback returns savable partial monthly anal
     category: 'asset_analysis',
     analysisQuestion: 'monthly question',
     analysisBackground: 'monthly background',
-    analysisModel: 'claude-opus-5',
+    analysisModel: 'claude-opus-5-5',
   });
   const error = new Error('The operation was aborted due to timeout');
   error.name = 'AbortError';
 
   const response = buildScheduledAnalysisTimeoutFallback(request, {
     title: '2026年6月每月資產分析',
-    model: 'claude-opus-5',
+    model: 'claude-opus-5-5',
     category: 'asset_analysis',
     error,
   });
@@ -191,7 +191,7 @@ test('buildReportFactsPayload includes netExternalFlowCoveragePct and cashFlowWa
       slices: [],
     } as never,
     allocationsByCurrency: [],
-    model: 'claude-opus-5',
+    model: 'claude-opus-5-5',
     provider: 'anthropic',
     snapshotHash: 'snapshot-hash',
     dataQualitySummary: {
@@ -282,7 +282,7 @@ test('buildReportFactsPayload groups duplicate assets across accounts', () => {
       slices: [],
     } as never,
     allocationsByCurrency: [],
-    model: 'claude-opus-5',
+    model: 'claude-opus-5-5',
     provider: 'anthropic',
     snapshotHash: 'snapshot-hash',
     dataQualitySummary: {
@@ -387,7 +387,7 @@ test('sanitizeForFirestore removes undefined recursively from report facts paylo
       slices: [],
     } as never,
     allocationsByCurrency: [],
-    model: 'claude-opus-5',
+    model: 'claude-opus-5-5',
     provider: 'anthropic',
     snapshotHash: 'snapshot-hash',
     dataQualitySummary: {
@@ -438,7 +438,7 @@ test('buildAnalysisSessionWritePayload sanitizes reportFactsPayload before write
       category: 'asset_analysis',
       analysisQuestion: 'question',
       answer: 'answer',
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
       provider: 'anthropic',
       snapshotHash: 'snapshot-hash',
       cacheKey: 'cache-key',
@@ -487,7 +487,7 @@ test('buildAnalysisSessionWritePayload sanitizes reportFactsPayload before write
       ],
       allocationByType: [],
       allocationByCurrency: [],
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
       provider: 'anthropic',
       snapshotHash: 'snapshot-hash',
       promptVersion: 'v1',
@@ -516,7 +516,7 @@ test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write
     report: 'report',
     currentSnapshotHash: 'snapshot-hash',
     searchSummary: 'summary',
-    model: 'claude-opus-5',
+    model: 'claude-opus-5-5',
     provider: 'anthropic',
     isTimeoutFallback: true,
     reportFactsPayload: {
@@ -556,7 +556,7 @@ test('buildQuarterlyReportWritePayload sanitizes reportFactsPayload before write
       ],
       allocationByType: [],
       allocationByCurrency: [],
-      model: 'claude-opus-5',
+      model: 'claude-opus-5-5',
       provider: 'anthropic',
       snapshotHash: 'snapshot-hash',
       promptVersion: 'v1',

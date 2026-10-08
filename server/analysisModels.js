@@ -1,5 +1,5 @@
 const GEMINI_ANALYZE_MODEL = process.env.GEMINI_ANALYZE_MODEL?.trim() || "gemini-3.1-pro-preview";
-const CLAUDE_ANALYZE_MODEL = process.env.CLAUDE_ANALYZE_MODEL?.trim() || "claude-opus-5";
+const CLAUDE_ANALYZE_MODEL = process.env.CLAUDE_ANALYZE_MODEL?.trim() || "claude-opus-5-5";
 const GROUNDED_GEMINI_MODEL = process.env.GROUNDED_GEMINI_MODEL?.trim() || "gemini-2.5-flash";
 const DEFAULT_ANALYSIS_MODEL = process.env.DEFAULT_ANALYSIS_MODEL?.trim() || "gemini-3.1-pro-preview";
 const GROUNDED_SEARCH_FALLBACK_MODELS = ["gemini-2.5-pro", "gemini-3.1-pro-preview"];
@@ -8,9 +8,9 @@ const MODEL_REGISTRY = {
     provider: "google",
     label: "Google Gemini 3.1 Pro Preview"
   },
-  "claude-opus-5": {
+  "claude-opus-5-5": {
     provider: "anthropic",
-    label: "Claude Opus 5"
+    label: "Claude Opus 5.5"
   }
 };
 function resolveModelProvider(model) {
