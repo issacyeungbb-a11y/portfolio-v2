@@ -23,6 +23,7 @@ export interface QuarterlyReport {
   model: string;
   provider: string;
   isTimeoutFallback?: boolean;
+  generationJobId?: string;
   currentSnapshotHash?: string;
   previousSnapshotDate?: string;
   allocationSummary?: ReportAllocationSummary;
@@ -57,6 +58,7 @@ function normalizeQuarterlyReport(
     model: typeof value.model === 'string' ? value.model : '',
     provider: typeof value.provider === 'string' ? value.provider : '',
     isTimeoutFallback: value.isTimeoutFallback === true,
+    generationJobId: typeof value.generationJobId === 'string' ? value.generationJobId : undefined,
     currentSnapshotHash:
       typeof value.currentSnapshotHash === 'string' && value.currentSnapshotHash.trim()
         ? value.currentSnapshotHash

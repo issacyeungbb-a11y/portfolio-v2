@@ -34,7 +34,7 @@ test('quarterly report is manual-only and not registered as a cron job', async (
   const vercelConfig = JSON.parse(vercelConfigSource);
 
   assert.equal(apiFiles.includes('cron-quarterly-report.ts'), false);
-  assert.match(manualSource, /runManualQuarterlyAssetReport/);
+  assert.match(manualSource, /runQuarterlyAnalysisJob/);
   assert.match(functionConfigSource, /\/api\/manual-quarterly-report/);
   assert.equal(vercelConfig.functions['api/manual-quarterly-report.ts'].maxDuration, 300);
   assert.equal(vercelConfig.functions['api/cron-quarterly-report.ts'], undefined);

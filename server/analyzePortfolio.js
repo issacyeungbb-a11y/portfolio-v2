@@ -1322,7 +1322,7 @@ async function analyzeWithClaude(systemPrompt, userPrompt, model, maxTokens = 18
       }
       const value = item;
       return value.type === "text" && typeof value.text === "string" ? value.text : "";
-    }).join("\n");
+    }).filter(Boolean).join("\n");
     console.info("[analyzePortfolio] Claude completion", {
       requestId: response.headers.get("request-id"),
       model,
@@ -1336,7 +1336,7 @@ async function analyzeWithClaude(systemPrompt, userPrompt, model, maxTokens = 18
     if (payload.stop_reason !== "max_tokens") {
       throw new AnalyzePortfolioError(`\u6A21\u578B\u672A\u5B8C\u6210\u56DE\u61C9\uFF08${String(payload.stop_reason ?? "unknown")}\uFF09\uFF0C\u672A\u5132\u5B58\u622A\u65B7\u5831\u544A\u3002`, 502);
     }
-    messages.push({ role: "assistant", content: text }, {
+    messages.push({ role: "assistant", content }, {
       role: "user",
       content: "\u4E0A\u4E00\u6BB5\u56E0\u8F38\u51FA\u9577\u5EA6\u4E0A\u9650\u800C\u4E2D\u65B7\u3002\u8ACB\u5F9E\u6700\u5F8C\u4E00\u500B\u5B57\u5143\u4E4B\u5F8C\u63A5\u7E8C\u5B8C\u6210\uFF0C\u53EA\u8F38\u51FA\u5269\u9918\u5167\u5BB9\uFF0C\u4E0D\u8981\u91CD\u8907\u5DF2\u8F38\u51FA\u7684\u6587\u5B57\u3001\u4E0D\u8981\u52A0\u5165\u5F15\u8A00\u6216\u65B0\u7684\u4EE3\u78BC\u570D\u6B04\u3002"
     });

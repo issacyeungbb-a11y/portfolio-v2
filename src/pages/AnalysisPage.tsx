@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 
@@ -24,9 +24,9 @@ import {
   updateQuarterlyReportPdfUrl,
   type QuarterlyReport,
 } from '../lib/firebase/quarterlyReports';
-import { callPortfolioFunction, PortfolioFunctionHttpError, isRetryablePortfolioFunctionError } from '../lib/api/vercelFunctions';
-import type { MonthlyAnalysisJob } from '../types/monthlyAnalysisJob';
-import { findCompletedMonthlyJobSession, getMonthlyReportPeriod } from '../lib/portfolio/monthlyAnalysisJob';
+import { callPortfolioFunction } from '../lib/api/vercelFunctions';
+import { usePeriodicReportGeneration } from '../hooks/usePeriodicReportGeneration';
+import { getMonthlyReportPeriod } from '../lib/portfolio/monthlyAnalysisJob';
 import {
   buildPortfolioAnalysisRequest,
   createPortfolioAnalysisCacheKey,
@@ -137,18 +137,6 @@ function getPreviousCompletedQuarterLabel(date = new Date()) {
   return `${previousQuarterYear}年Q${previousQuarterNumber}`;
 }
 
-function canGenerateMonthlyAnalysisNow(date = new Date()) {
-  const { day, hour } = getHongKongDateParts(date);
-  return day > 1 || (day === 1 && hour >= 8);
-}
-
-function canGenerateQuarterlyReportNow(date = new Date()) {
-  const { month, day, hour } = getHongKongDateParts(date);
-  const quarterStartMonth = Math.floor((month - 1) / 3) * 3 + 1;
-  const isQuarterOpeningMonth = month === quarterStartMonth;
-  return isQuarterOpeningMonth && (day > 1 || (day === 1 && hour >= 9));
-}
-
 function isMonthlyAnalysisRecord(title: string) {
   const normalized = title.trim();
 
@@ -203,12 +191,10 @@ export function AnalysisPage() {
   const [reportsError, setReportsError] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
   const [generatingReportId, setGeneratingReportId] = useState<string | null>(null);
-  const [generatingPeriodicReport, setGeneratingPeriodicReport] = useState<'monthly' | 'quarterly' | null>(null);
   const [deletingMonthlyAnalysisId, setDeletingMonthlyAnalysisId] = useState<string | null>(null);
   const [deletingQuarterlyReportId, setDeletingQuarterlyReportId] = useState<string | null>(null);
   const [reportActionMessage, setReportActionMessage] = useState<string | null>(null);
   const [reportActionError, setReportActionError] = useState<string | null>(null);
-  const [monthlyJobId, setMonthlyJobId] = useState<string | null>(null);
   const [currentTimeMs, setCurrentTimeMs] = useState(() => Date.now());
   const [displayCurrency] = useDisplayCurrency();
 
@@ -330,10 +316,7 @@ export function AnalysisPage() {
     [currentMonthPeriod, monthlyAnalysisSessions],
   );
   const hasCurrentMonthAnalysis = currentMonthAnalysis != null;
-  const canGenerateCurrentMonthAnalysis = useMemo(
-    () => canGenerateMonthlyAnalysisNow(currentTime),
-    [currentTime],
-  );
+  const canGenerateCurrentMonthAnalysis = true;
 
   useEffect(() => {
     if (monthlyAnalysisSessions.length === 0) {
@@ -348,80 +331,18 @@ export function AnalysisPage() {
     );
   }, [monthlyAnalysisSessions]);
 
-  const completeMonthlyGeneration = useCallback((sessionDocId: string, isTimeoutFallback = false, message?: string) => {
-    setSelectedMonthlyAnalysisId(sessionDocId);
-    setReportActionError(null);
-    setReportActionMessage(message ?? (isTimeoutFallback
-      ? '模型回應逾時，已儲存簡化月報；可稍後重新生成完整報告。'
-      : '月報已完成並儲存。'));
-    setMonthlyJobId(null);
-    setGeneratingPeriodicReport(null);
-  }, []);
-
-  // Firestore can confirm completion even if the status request disconnects.
-  useEffect(() => {
-    if (!monthlyJobId) return;
-    const saved = findCompletedMonthlyJobSession(monthlyAnalysisSessions, monthlyJobId);
-    if (saved) completeMonthlyGeneration(saved.id, saved.isTimeoutFallback);
-  }, [monthlyAnalysisSessions, monthlyJobId, completeMonthlyGeneration]);
-
-  // Resume a running job after a refresh instead of starting a second model call.
-  useEffect(() => {
-    let active = true;
-    void callPortfolioFunction('monthly-analysis-status').then((payload) => {
-      const job = (payload as { job: MonthlyAnalysisJob | null }).job;
-      if (!active || job?.status !== 'running') return;
-      setMonthlyJobId(job.id);
-      setGeneratingPeriodicReport('monthly');
-      setReportActionMessage('月報正在背景生成，完成後會自動顯示。');
-    }).catch(() => { /* The generate action reports access/network errors. */ });
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    if (!monthlyJobId) return;
-    let active = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const poll = async () => {
-      try {
-        const payload = await callPortfolioFunction('monthly-analysis-status', { jobId: monthlyJobId }) as { job: MonthlyAnalysisJob };
-        if (!active) return;
-        const job = payload.job;
-        if (job.status === 'succeeded' && job.sessionDocId) {
-          completeMonthlyGeneration(job.sessionDocId, job.isTimeoutFallback, job.message);
-          return;
-        }
-        if (job.status === 'failed') {
-          setReportActionMessage(null);
-          setReportActionError(job.message ?? '月報生成失敗，請稍後再試。');
-          setMonthlyJobId(null);
-          setGeneratingPeriodicReport(null);
-          return;
-        }
-      } catch (error) {
-        if (!active) return;
-        if (error instanceof PortfolioFunctionHttpError && error.status === 404) {
-          const payload = await callPortfolioFunction('monthly-analysis-status').catch(() => null) as { job: MonthlyAnalysisJob | null } | null;
-          if (!active) return;
-          if (payload?.job?.status === 'running') {
-            setMonthlyJobId(payload.job.id);
-            return;
-          }
-        }
-        if (!isRetryablePortfolioFunctionError(error)) {
-          setReportActionMessage(null);
-          setReportActionError(error instanceof Error ? error.message : '查詢月報狀態失敗。');
-          setMonthlyJobId(null);
-          setGeneratingPeriodicReport(null);
-          return;
-        }
-        setReportActionMessage('連線暫時中斷，月報仍在背景處理，正在重新確認。');
-      }
-      if (active) timer = setTimeout(poll, 3000);
-    };
-    void poll();
-    return () => { active = false; clearTimeout(timer); };
-  }, [monthlyJobId, completeMonthlyGeneration]);
+  const monthlyGeneration = usePeriodicReportGeneration({
+    kind: 'monthly', records: monthlyAnalysisSessions,
+    onComplete: setSelectedMonthlyAnalysisId,
+    onMessage: setReportActionMessage, onError: setReportActionError,
+  });
+  const quarterlyGeneration = usePeriodicReportGeneration({
+    kind: 'quarterly', records: reports,
+    onComplete: setSelectedReportId,
+    onMessage: setReportActionMessage, onError: setReportActionError,
+  });
+  const generatingPeriodicReport = monthlyGeneration.running ? 'monthly'
+    : quarterlyGeneration.running ? 'quarterly' : null;
 
   const selectedReport = useMemo(
     () => reports.find((report) => report.id === selectedReportId) ?? null,
@@ -431,10 +352,7 @@ export function AnalysisPage() {
     () => reports.find((report) => report.quarter === currentQuarterLabel) ?? null,
     [currentQuarterLabel, reports],
   );
-  const canGenerateCurrentQuarterReport = useMemo(
-    () => canGenerateQuarterlyReportNow(currentTime) && (currentQuarterReport == null || currentQuarterReport.isTimeoutFallback === true),
-    [currentQuarterReport, currentTime],
-  );
+  const canGenerateCurrentQuarterReport = true;
   const selectedQuarterlyReportThread = useMemo(
     () =>
       selectedReport
@@ -567,56 +485,13 @@ export function AnalysisPage() {
   async function handleGenerateMonthlyAnalysisReport() {
     setAnalysisError(null);
     setAnalysisSuccess(null);
-    setReportActionError(null);
-    setReportActionMessage('月報正在背景生成，通常需要 1–3 分鐘，完成後會自動顯示。');
-    setGeneratingPeriodicReport('monthly');
-    const jobId = crypto.randomUUID();
-
-    try {
-      // Reuse this ID if the acceptance response is lost. The server deduplicates
-      // both retries of this POST and different clicks for the same month.
-      let response: { job: MonthlyAnalysisJob } | undefined;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        try {
-          response = await callPortfolioFunction('manual-monthly-analysis', { jobId }) as { job: MonthlyAnalysisJob };
-          break;
-        } catch (error) {
-          if (!isRetryablePortfolioFunctionError(error) || attempt === 1) throw error;
-        }
-      }
-      setMonthlyJobId(response!.job.id);
-    } catch (error) {
-      if (isRetryablePortfolioFunctionError(error)) {
-        setMonthlyJobId(jobId);
-        setReportActionMessage('連線暫時中斷，正在確認月報工作有否開始。');
-        return;
-      }
-      setReportActionMessage(null);
-      setReportActionError(error instanceof Error ? error.message : '生成每月資產分析失敗，請稍後再試。');
-      setGeneratingPeriodicReport(null);
-    }
+    await monthlyGeneration.start();
   }
 
-  async function handleGenerateQuarterlyReport(overwrite = false) {
+  async function handleGenerateQuarterlyReport() {
     setAnalysisError(null);
     setAnalysisSuccess(null);
-    setReportActionError(null);
-    setReportActionMessage(null);
-    setGeneratingPeriodicReport('quarterly');
-
-    try {
-      const response = (await callPortfolioFunction(
-        'manual-quarterly-report',
-        overwrite ? { overwrite: true } : {},
-      )) as {
-        message?: string;
-      };
-      setReportActionMessage(response.message ?? '已開始生成季度報告。');
-    } catch (error) {
-      setReportActionError(error instanceof Error ? error.message : '生成季度報告失敗，請稍後再試。');
-    } finally {
-      setGeneratingPeriodicReport(null);
-    }
+    await quarterlyGeneration.start();
   }
 
   async function handleDeleteMonthlyAnalysisReport(session: AnalysisSession) {
@@ -726,18 +601,10 @@ export function AnalysisPage() {
     setAnalysisSuccess('已複製目前內容。');
   }
 
-  const monthlyStatusText = canGenerateMonthlyAnalysisNow(currentTime)
-    ? hasCurrentMonthAnalysis
-      ? '本月月報已生成，可重新生成。'
-      : '本月可生成。'
-    : '每月 1 號上午 8 時後可生成。';
-  const quarterlyStatusText = canGenerateQuarterlyReportNow(currentTime)
-    ? currentQuarterReport
-      ? currentQuarterReport.isTimeoutFallback
-        ? '本季報告為簡化版，可重新生成完整報告。'
-        : '本季季報已生成。'
-      : '本季可生成。'
-    : '每季首月 1 號上午 9 時後可生成。';
+  const monthlyStatusText = hasCurrentMonthAnalysis
+    ? '本月月報已生成，可隨時重新生成。' : '可隨時生成上一個完整月份嘅月報。';
+  const quarterlyStatusText = currentQuarterReport
+    ? '本季季報已生成，可隨時重新生成。' : '可隨時生成上一個完整季度嘅季報。';
 
   return (
     <div className="page-stack analysis-page">
@@ -770,7 +637,7 @@ export function AnalysisPage() {
               className="button button-primary"
               type="button"
               onClick={() => void handleGenerateMonthlyAnalysisReport()}
-              disabled={!canGenerateCurrentMonthAnalysis || generatingPeriodicReport === 'monthly'}
+              disabled={generatingPeriodicReport !== null}
             >
               {generatingPeriodicReport === 'monthly'
                 ? '生成中...'
@@ -782,13 +649,13 @@ export function AnalysisPage() {
             <button
               className="button button-primary"
               type="button"
-              onClick={() => void handleGenerateQuarterlyReport(currentQuarterReport?.isTimeoutFallback === true)}
-              disabled={!canGenerateCurrentQuarterReport || generatingPeriodicReport === 'quarterly'}
+              onClick={() => void handleGenerateQuarterlyReport()}
+              disabled={generatingPeriodicReport !== null}
             >
               {generatingPeriodicReport === 'quarterly'
                 ? '生成中...'
-                : currentQuarterReport?.isTimeoutFallback
-                  ? '重新生成完整報告'
+                : currentQuarterReport
+                  ? '重新生成季報'
                   : '生成季報'}
             </button>
           )}
@@ -849,7 +716,7 @@ export function AnalysisPage() {
           canGenerateCurrentQuarterReport={canGenerateCurrentQuarterReport}
           onGeneratePdf={(report) => void handleGeneratePdf(report)}
           onDeleteReport={(report) => void handleDeleteQuarterlyReport(report)}
-          onRegenerateFullReport={() => void handleGenerateQuarterlyReport(true)}
+          onRegenerateFullReport={() => void handleGenerateQuarterlyReport()}
           onSelectedReportIdChange={setSelectedReportId}
           onCopyReport={handleCopyCurrentResponse}
           onFollowUpQuestionChange={setFollowUpQuestion}

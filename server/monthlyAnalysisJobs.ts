@@ -110,6 +110,9 @@ export async function runMonthlyAnalysisJob(
   const now = dependencies.now ?? Date.now;
   let result: Awaited<ReturnType<typeof runManualMonthlyAssetAnalysis>>;
   try {
+    if (getCoveredMonthKey(new Date(now())) !== job.coveredMonthKey) {
+      throw new Error('報告月份已切換，請重新生成新月份月報。');
+    }
     result = await (dependencies.runAnalysis ?? runManualMonthlyAssetAnalysis)(job.id);
   } catch (error) {
     console.error('[monthlyAnalysisJob] failed', { jobId: job.id, error: error instanceof Error ? error.message : 'unknown_error' });

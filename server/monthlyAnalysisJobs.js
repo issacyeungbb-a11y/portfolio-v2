@@ -85,6 +85,9 @@ async function runMonthlyAnalysisJob(job, dependencies = {}) {
   const now = dependencies.now ?? Date.now;
   let result;
   try {
+    if (getCoveredMonthKey(new Date(now())) !== job.coveredMonthKey) {
+      throw new Error("\u5831\u544A\u6708\u4EFD\u5DF2\u5207\u63DB\uFF0C\u8ACB\u91CD\u65B0\u751F\u6210\u65B0\u6708\u4EFD\u6708\u5831\u3002");
+    }
     result = await (dependencies.runAnalysis ?? runManualMonthlyAssetAnalysis)(job.id);
   } catch (error) {
     console.error("[monthlyAnalysisJob] failed", { jobId: job.id, error: error instanceof Error ? error.message : "unknown_error" });

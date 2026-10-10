@@ -9,6 +9,7 @@ export type PortfolioFunctionKey =
   | 'extract-transactions'
   | 'manual-monthly-analysis'
   | 'monthly-analysis-status'
+  | 'quarterly-analysis-status'
   | 'manual-quarterly-report'
   | 'manual-capture-snapshot'
   | 'parse-assets-command'
@@ -28,6 +29,7 @@ export const portfolioFunctionConfig: Record<
   'extract-transactions': { path: '/api/extract-transactions', method: 'POST' },
   'manual-monthly-analysis': { path: '/api/cron-monthly-analysis', method: 'POST' },
   'monthly-analysis-status': { path: '/api/cron-monthly-analysis', method: 'GET' },
+  'quarterly-analysis-status': { path: '/api/manual-quarterly-report', method: 'GET' },
   'manual-quarterly-report': { path: '/api/manual-quarterly-report', method: 'POST' },
   'manual-capture-snapshot': { path: '/api/manual-capture-snapshot', method: 'POST' },
   'parse-assets-command': { path: '/api/parse-assets-command', method: 'POST' },
@@ -62,7 +64,7 @@ export async function callPortfolioFunction(
   payload?: unknown,
 ): Promise<unknown> {
   const config = portfolioFunctionConfig[key];
-  const statusJobId = key === 'monthly-analysis-status' && typeof payload === 'object' && payload !== null
+  const statusJobId = (key === 'monthly-analysis-status' || key === 'quarterly-analysis-status') && typeof payload === 'object' && payload !== null
     ? (payload as { jobId?: string }).jobId : undefined;
   const path = statusJobId ? `${config.path}?jobId=${encodeURIComponent(statusJobId)}` : config.path;
   const requestId =
@@ -91,6 +93,8 @@ export async function callPortfolioFunction(
   try {
     response = await fetch(path, {
       method: config.method,
+      signal: (key.includes('analysis-status') || key === 'manual-monthly-analysis' || key === 'manual-quarterly-report')
+        ? AbortSignal.timeout(20_000) : undefined,
       headers,
       body: config.method === 'POST' ? JSON.stringify(payload ?? {}) : undefined,
     });

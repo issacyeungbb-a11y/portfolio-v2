@@ -27,7 +27,7 @@ test('Claude max_tokens continuation preserves the original question and joins t
   assert.equal(result, '最後一句中途接續完成。');
   assert.equal(bodies[1].messages[0].content, 'original question');
   assert.equal(bodies[1].messages[1].role, 'assistant');
-  assert.equal(bodies[1].messages[1].content, '最後一句中');
+  assert.deepEqual(bodies[1].messages[1].content, [{ type: 'text', text: '最後一句中' }]);
   assert.equal(bodies[1].max_tokens, 8000);
 });
 
@@ -49,4 +49,19 @@ test('continuations share one deadline rather than resetting a full model timeou
 test('refusal and missing completion metadata do not overwrite a report with partial text', async () => {
   await assert.rejects(analyzeWithClaude('system', 'question', 'claude-opus-5-5', 8000, 120000,
     (async () => response('未完成內容', 'refusal')) as typeof fetch), /模型未完成回應/);
+});
+
+
+test('Opus 5.5 continuation retains signed thinking blocks in the same conversation', async () => {
+  const blocks = [{ type: 'thinking', thinking: '', signature: 'signed-thinking' }, { type: 'text', text: '第一段' }];
+  const bodies: any[] = [];
+  const result = await analyzeWithClaude('system', 'question', 'claude-opus-5-5', 8000, 120000,
+    (async (_url: any, options: any) => {
+      bodies.push(JSON.parse(options.body));
+      return bodies.length === 1
+        ? new Response(JSON.stringify({ content: blocks, stop_reason: 'max_tokens' }))
+        : response('接續完成。', 'end_turn');
+    }) as typeof fetch);
+  assert.equal(result, '第一段接續完成。');
+  assert.deepEqual(bodies[1].messages[1].content, blocks);
 });

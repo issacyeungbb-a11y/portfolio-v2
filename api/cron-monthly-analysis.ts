@@ -6,7 +6,6 @@ import { readJsonBody, sendJson, type ApiRequest, type ApiResponse } from '../se
 // until the runtime build path is consolidated into a single maintained source.
 import {
   getScheduledAnalysisErrorResponse,
-  canGenerateMonthlyAnalysisNow,
 } from '../server/scheduledAnalysis.js';
 import { getMonthlyAnalysisJob, isMonthlyJobId, runMonthlyAnalysisJob, startMonthlyAnalysisJob } from '../server/monthlyAnalysisJobs.js';
 import {
@@ -39,10 +38,6 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       const job = await getMonthlyAnalysisJob(jobId);
       sendJson(response, jobId && !job ? 404 : 200, { ok: !jobId || Boolean(job), route, job,
         ...(!job && jobId ? { message: '找不到月報工作。' } : {}) });
-      return;
-    }
-    if (!canGenerateMonthlyAnalysisNow()) {
-      sendJson(response, 400, { ok: false, route, message: '每月 1 號香港時間 08:00 之後先可生成月報。' });
       return;
     }
     const body = await readJsonBody(request) as { jobId?: unknown } | null;

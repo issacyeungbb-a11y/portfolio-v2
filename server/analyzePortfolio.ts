@@ -1869,7 +1869,7 @@ export async function analyzeWithClaude(
 ) {
   const apiKey = getAnthropicApiKey();
   const deadline = Date.now() + timeoutMs;
-  const messages = [{ role: 'user', content: userPrompt }];
+  const messages: Array<{ role: string; content: string | unknown[] }> = [{ role: 'user', content: userPrompt }];
   let answer = '';
   for (let attempt = 0; attempt < 3; attempt += 1) {
     if (Date.now() >= deadline) throw new DOMException('分析模型回應逾時。', 'TimeoutError');
@@ -1913,6 +1913,7 @@ export async function analyzeWithClaude(
         const value = item as Record<string, unknown>;
         return value.type === 'text' && typeof value.text === 'string' ? value.text : '';
       })
+      .filter(Boolean)
       .join('\n');
     console.info('[analyzePortfolio] Claude completion', {
       requestId: response.headers.get('request-id'),
@@ -1927,7 +1928,7 @@ export async function analyzeWithClaude(
     // Continue in the same conversation instead of accepting a partial report.
     // Every continuation shares the original deadline, keeping the job inside
     // its function budget and retaining the old report if completion fails.
-    messages.push({ role: 'assistant', content: text }, {
+    messages.push({ role: 'assistant', content }, {
       role: 'user',
       content: '上一段因輸出長度上限而中斷。請從最後一個字元之後接續完成，只輸出剩餘內容，不要重複已輸出的文字、不要加入引言或新的代碼圍欄。',
     });

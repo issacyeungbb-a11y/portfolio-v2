@@ -47,9 +47,8 @@ const DEFAULT_DIAGNOSTIC_MODEL = 'claude-opus-5-5' as const;
 const DEFAULT_DIAGNOSTIC_FALLBACK_MODEL = 'gemini-3.1-pro-preview' as const;
 const PREFERRED_GROUNDED_SEARCH_MODEL = 'gemini-2.5-flash' as const;
 const GROUNDED_SEARCH_FALLBACK_MODELS = ['gemini-2.5-pro', 'gemini-3.1-pro-preview'] as const;
-const SCHEDULED_MODEL_TIMEOUT_MS = 120_000;
-const MONTHLY_MANUAL_RELEASE_HOUR_HKT = 8;
-const QUARTERLY_MANUAL_RELEASE_HOUR_HKT = 9;
+const SCHEDULED_MODEL_TIMEOUT_MS = 180_000;
+const GROUNDED_SEARCH_BUDGET_MS = 60_000;
 const MONTHLY_BASELINE_SNAPSHOT_TOLERANCE_DAYS = 5;
 export const SCHEDULED_ANALYSIS_LOGIC_VERSION = '2026-05-01-p0-round3';
 const REPORT_PROMPT_VERSION = '2026-05-01-p0-round3';
@@ -270,7 +269,7 @@ function getHongKongQuarterLabel(date = new Date()) {
   }).format(date)}年Q${getCurrentQuarterNumber(date)}`;
 }
 
-function getPreviousCompletedQuarterLabel(date = new Date()) {
+export function getPreviousCompletedQuarterLabel(date = new Date()) {
   const { year } = getHongKongDateParts(date);
   const currentQuarterNumber = getCurrentQuarterNumber(date);
   const previousQuarterNumber = currentQuarterNumber === 1 ? 4 : currentQuarterNumber - 1;
@@ -300,18 +299,6 @@ function getHongKongDateParts(date = new Date()) {
 
 function getQuarterStartMonth(month: number) {
   return Math.floor((month - 1) / 3) * 3 + 1;
-}
-
-export function canGenerateMonthlyAnalysisNow(date = new Date()) {
-  const { day, hour } = getHongKongDateParts(date);
-  return day > 1 || (day === 1 && hour >= MONTHLY_MANUAL_RELEASE_HOUR_HKT);
-}
-
-function canGenerateQuarterlyReportNow(date = new Date()) {
-  const { month, day, hour } = getHongKongDateParts(date);
-  const quarterStartMonth = getQuarterStartMonth(month);
-  const isQuarterOpeningMonth = month === quarterStartMonth;
-  return isQuarterOpeningMonth && (day > 1 || (day === 1 && hour >= QUARTERLY_MANUAL_RELEASE_HOUR_HKT));
 }
 
 async function resolveMonthlyAnalysisSessionTarget(params: {
@@ -405,34 +392,6 @@ async function hasExistingMonthlyAnalysis(params: {
   return !snapshot.empty;
 }
 
-async function hasExistingQuarterlyReport(quarter: string) {
-  const doc = await getFirebaseAdminDb()
-    .collection(SHARED_PORTFOLIO_COLLECTION)
-    .doc(SHARED_PORTFOLIO_DOC_ID)
-    .collection('quarterlyReports')
-    .doc(getQuarterlyReportDocId(quarter))
-    .get();
-
-  if (doc.exists) {
-    return {
-      exists: true,
-      isTimeoutFallback: doc.data()?.isTimeoutFallback === true,
-    };
-  }
-
-  const snapshot = await getFirebaseAdminDb()
-    .collection(SHARED_PORTFOLIO_COLLECTION)
-    .doc(SHARED_PORTFOLIO_DOC_ID)
-    .collection('quarterlyReports')
-    .where('quarter', '==', quarter)
-    .limit(1)
-    .get();
-
-  return {
-    exists: !snapshot.empty,
-    isTimeoutFallback: snapshot.docs[0]?.data()?.isTimeoutFallback === true,
-  };
-}
 
 function getPreviousQuarterEndDate(date = new Date()) {
   const { year, month } = getHongKongDateParts(date);
@@ -849,6 +808,7 @@ async function generateGeminiContentViaRest(args: {
   prompt: string;
   maxOutputTokens?: number;
   googleSearch?: boolean;
+  timeoutMs?: number;
 }) {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     args.model,
@@ -863,7 +823,7 @@ async function generateGeminiContentViaRest(args: {
       },
       ...(args.googleSearch ? { tools: [{ googleSearch: {} }] } : {}),
     }),
-    signal: AbortSignal.timeout(args.googleSearch ? 45_000 : 60_000),
+    signal: AbortSignal.timeout(args.timeoutMs ?? (args.googleSearch ? 45_000 : 60_000)),
   });
 
   const payload = (await response.json().catch(() => null)) as unknown;
@@ -884,12 +844,15 @@ async function generateGeminiContentViaRest(args: {
 async function generateGroundedSearchSummary(params: {
   assets: AdminAsset[];
   mode: 'monthly' | 'quarterly';
+  deadline?: number;
 }) {
   const prompt = getSearchSummaryPrompt(params);
   const candidates = getSearchModelCandidates();
   let lastError: unknown = null;
+  const deadline = Math.min(Date.now() + GROUNDED_SEARCH_BUDGET_MS, (params.deadline ?? Infinity) - 20_000);
 
   for (const model of candidates) {
+    if (Date.now() >= deadline) break;
     try {
       const response = await generateGeminiContentViaRest({
         apiKey: getGeminiApiKey(),
@@ -897,6 +860,7 @@ async function generateGroundedSearchSummary(params: {
         prompt,
         maxOutputTokens: 2500,
         googleSearch: true,
+        timeoutMs: Math.max(1, Math.min(45_000, deadline - Date.now())),
       });
 
       const summary = getGeminiResponseText(response);
@@ -1604,6 +1568,7 @@ export function buildQuarterlyReportWritePayload(params: {
   isTimeoutFallback?: boolean;
   allocationSummary?: ReportAllocationSummary;
   reportFactsPayload?: ReportFactsPayload;
+  generationJobId?: string;
 }) {
   const sanitizedReportFactsPayload = params.reportFactsPayload
     ? sanitizeForFirestore(params.reportFactsPayload)
@@ -1621,6 +1586,7 @@ export function buildQuarterlyReportWritePayload(params: {
     isTimeoutFallback: params.isTimeoutFallback === true,
     ...(params.allocationSummary ? { allocationSummary: params.allocationSummary } : {}),
     ...(sanitizedReportFactsPayload ? { reportFactsPayload: sanitizedReportFactsPayload } : {}),
+    ...(params.generationJobId ? { generationJobId: params.generationJobId } : {}),
     pdfUrl: '',
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
@@ -1941,6 +1907,7 @@ async function saveQuarterlyReport(params: {
   isTimeoutFallback?: boolean;
   allocationSummary?: ReportAllocationSummary;
   reportFactsPayload?: ReportFactsPayload;
+  generationJobId?: string;
 }) {
   const db = getFirebaseAdminDb();
 
@@ -1961,6 +1928,7 @@ async function runScheduledCategoryAnalysis(params: {
   assets?: AdminAsset[];
   snapshotHashOverride?: string;
   delivery?: 'manual' | 'scheduled';
+  deadline?: number;
 }) {
   const assets = params.assets ?? await readAdminPortfolioAssets();
 
@@ -1988,7 +1956,7 @@ async function runScheduledCategoryAnalysis(params: {
     response = await runPortfolioAnalysisRequest(request, {
       delivery: params.delivery ?? 'scheduled',
       maxTokens: params.maxTokens,
-      modelTimeoutMs: SCHEDULED_MODEL_TIMEOUT_MS,
+      modelTimeoutMs: Math.max(1, Math.min(SCHEDULED_MODEL_TIMEOUT_MS, (params.deadline ?? Infinity) - Date.now() - 10_000)),
     });
   } catch (error) {
     if (!isAbortTimeoutError(error)) {
@@ -2018,6 +1986,7 @@ async function runScheduledCategoryAnalysis(params: {
 export async function runMonthlyAssetAnalysis(
   options: { overwriteExisting?: boolean; delivery?: 'manual' | 'scheduled'; generationJobId?: string } = {},
 ) {
+  const deadline = Date.now() + 270_000;
   const liveAssets = await readAdminPortfolioAssets();
   const currentSnapshot = await readCurrentMonthStartSnapshot();
   if (!currentSnapshot) {
@@ -2067,6 +2036,7 @@ export async function runMonthlyAssetAnalysis(
   const searchSummary = await generateGroundedSearchSummary({
     assets,
     mode: 'monthly',
+    deadline,
   });
   const comparison = previousMonthSnapshot
     ? compareSnapshots(currentSnapshot, previousMonthSnapshot, {
@@ -2085,6 +2055,7 @@ export async function runMonthlyAssetAnalysis(
     question,
     conversationContext: '',
     maxTokens: 8000,
+    deadline,
     assets,
     snapshotHashOverride: currentSnapshotHash,
     delivery: options.delivery ?? 'scheduled',
@@ -2160,13 +2131,6 @@ export async function runMonthlyAssetAnalysis(
 }
 
 export async function runManualMonthlyAssetAnalysis(generationJobId?: string) {
-  if (!canGenerateMonthlyAnalysisNow()) {
-    throw new ScheduledAnalysisError(
-      `每月資產分析會喺每月 1 號香港時間 ${String(MONTHLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, '0')}:00 之後先可手動生成。`,
-      400,
-    );
-  }
-
   const result = await runMonthlyAssetAnalysis({ overwriteExisting: true, delivery: 'manual', generationJobId });
   return {
     ...result,
@@ -2181,7 +2145,8 @@ export async function runManualMonthlyAssetAnalysis(generationJobId?: string) {
   };
 }
 
-export async function runQuarterlyAssetReport() {
+export async function runQuarterlyAssetReport(generationJobId?: string) {
+  const deadline = Date.now() + 270_000;
   const liveAssets = await readAdminPortfolioAssets();
   const quarterEndDate = getPreviousQuarterEndDate();
   const quarterStartBaselineDate = getQuarterEndDateBefore(quarterEndDate);
@@ -2225,6 +2190,7 @@ export async function runQuarterlyAssetReport() {
   const searchSummary = await generateGroundedSearchSummary({
     assets,
     mode: 'quarterly',
+    deadline,
   });
   const quarter = getPreviousCompletedQuarterLabel();
   const title = `${quarter}資產報告`;
@@ -2249,7 +2215,8 @@ export async function runQuarterlyAssetReport() {
     title,
     question,
     conversationContext: '',
-    maxTokens: 5000,
+    maxTokens: 8000,
+    deadline,
     assets,
     snapshotHashOverride: currentSnapshotHash,
     delivery: 'manual',
@@ -2287,6 +2254,7 @@ export async function runQuarterlyAssetReport() {
 
   await saveQuarterlyReport({
     quarter,
+    generationJobId,
     generatedAt: response.generatedAt,
     report: response.answer,
     currentSnapshotHash,
@@ -2303,6 +2271,8 @@ export async function runQuarterlyAssetReport() {
     ok: true,
     category: 'asset_report' as const,
     title,
+    reportDocId: getQuarterlyReportDocId(quarter),
+    isTimeoutFallback: response.isTimeoutFallback === true,
     model: response.model,
     provider: response.provider,
     searchModel: searchSummary.model,
@@ -2315,36 +2285,21 @@ export async function runQuarterlyAssetReport() {
 }
 
 export async function runManualQuarterlyAssetReport(
-  options: { overwriteExisting?: boolean } = {},
+  options: { overwriteExisting?: boolean; generationJobId?: string; expectedQuarter?: string } = {},
 ) {
   const quarter = getPreviousCompletedQuarterLabel();
 
-  if (!canGenerateQuarterlyReportNow()) {
-    throw new ScheduledAnalysisError(
-      `季度報告只會喺每季完結後下一季首月（1、4、7、10 月）香港時間 ${String(QUARTERLY_MANUAL_RELEASE_HOUR_HKT).padStart(2, '0')}:00 之後先可手動生成。`,
-      400,
-    );
+  if (options.expectedQuarter && options.expectedQuarter !== quarter) {
+    throw new ScheduledAnalysisError('報告季度已切換，請重新生成新季度報告。', 409);
   }
 
-  const existingQuarterlyReport = await hasExistingQuarterlyReport(quarter);
-  if (!options.overwriteExisting && existingQuarterlyReport.exists) {
-    return {
-      ok: true,
-      skipped: true,
-      category: 'asset_report' as const,
-      title: `${quarter}資產報告`,
-      route: QUARTERLY_ROUTE,
-      message: existingQuarterlyReport.isTimeoutFallback
-        ? '本季現有報告為超時降級版本，可用覆蓋模式重新生成。'
-        : '今季季度報告已經生成，毋須重複建立。',
-    };
-  }
-
-  const result = await runQuarterlyAssetReport();
+  const result = await runQuarterlyAssetReport(options.generationJobId);
   return {
     ...result,
     route: QUARTERLY_ROUTE,
-    message: options.overwriteExisting ? '已重新生成並覆蓋季度報告。' : '已完成季度報告。',
+    message: result.isTimeoutFallback
+      ? '模型回應逾時，已儲存簡化季報；可重新生成完整報告。'
+      : options.overwriteExisting ? '已重新生成並覆蓋季度報告。' : '已完成季度報告。',
   };
 }
 
