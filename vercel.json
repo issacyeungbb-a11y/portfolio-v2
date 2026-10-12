@@ -28,6 +28,10 @@
   },
   "rewrites": [
     {
+      "source": "/assets",
+      "destination": "/index.html"
+    },
+    {
       "source": "/api/portfolio-public",
       "destination": "/api/health?portfolioPublic=1"
     },
