@@ -14,3 +14,7 @@ Crypto 歷史頁為日常管理入口。平台持倉、借貸、幣種價格設�
 正式環境使用 `/api/health?mode=crypto-management`，不新增 Vercel Function。候選規則須通過 Firebase 編譯驗證，並單獨發布，Git 推送不會自動發布 Firestore 規則。
 
 交付驗證包括型別／正式建置、回歸測試、獨立環境的新增修改移除操作、桌面與 390px 手機版面，以及遷移後後端與頁面回讀。未來月初排程是否實際執行，需以當日任務紀錄確認。
+
+2026-10-12 已核對並同步 15 個幣種，精確數量全部一致；既有價格、成本、76 筆交易、56 個歷史月結及其他帳戶均經前後比較確認未變。同步功能與缺價時仍顯示幣數的版本已部署（`279e4a59`），269 項回歸測試、型別與正式建置通過。
+
+直接開啟 `/assets` 曾被靜態資源路由攔截。`vercel.json` 已加入明確的頁面 rewrite；由於其 Git 部署取不到提交資料，正式環境另外發布了相同的 Vercel project routing rule：`Assets page document`，exact match `/assets` → `/index.html`，route ID `7eb8cbea-8334-426b-b112-e9c25fdd4ea1`，live version `a59377f4-ae22-4f9e-9bdf-96e3f8c5fa22`。此規則不匹配 `/assets/*`；正式網址的 `/assets`（包括 query）、Crypto 頁、入口程式與樣式均已回讀驗證。後續部署不需重建此規則；若移除它，須先確認部署本身的 rewrite 已正常生效。
