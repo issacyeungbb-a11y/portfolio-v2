@@ -35,6 +35,7 @@ type HoldingsSortKey =
   | 'accountSource';
 
 type HoldingsSortDirection = 'asc' | 'desc';
+const cryptoQuantityNumber = new Intl.NumberFormat('zh-HK', { maximumFractionDigits: 18 });
 
 export function HoldingsTable({
   holdings,
@@ -237,7 +238,9 @@ export function HoldingsTable({
                         {hasPendingPrice ? '待更新' : formatCurrencyRounded(marketValue, displayCurrency)}
                       </strong>
                       <span className={hasPendingPrice ? 'table-metric-secondary table-metric-reason' : 'table-metric-secondary'}>
-                        {hasPendingPrice
+                        {holding.managedCrypto && !isCashHolding
+                          ? `${cryptoQuantityNumber.format(holding.quantity)} ${holding.symbol}${hasPendingPrice ? ` · ${pendingReason || '價格待更新'}` : ''}`
+                          : hasPendingPrice
                           ? pendingReason || '價格過舊'
                           : isCashHolding
                             ? `${holding.currency} 現金`
