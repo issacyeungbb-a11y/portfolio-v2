@@ -45,7 +45,17 @@ export interface CryptoValuation {
   principalHkd: number;
   withdrawnUsd: number;
 }
+export interface CryptoAssetSyncStatus {
+  status: 'synced' | 'pending';
+  version: number;
+  checkedAt: string;
+  coinCount: number;
+  checksum: string;
+  differences: Array<{ symbol: string; expectedQuantity: number; assetQuantity: number | null; reason: string }>;
+  conflicts: string[];
+}
 export interface CryptoManagementResponse {
+  assetsSync?: CryptoAssetSyncStatus | null;
   displayFx?: { usdHkd: number | null; updatedAt: string };
   draft?: { month: string; warnings: string[]; updatedAt: string } | null;
   state: CryptoManagementState | null;

@@ -6,7 +6,8 @@ import {
 } from '../server/apiShared.js';
 import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
 import { readCryptoHistory } from '../server/cryptoHistory.js';
-import { runCryptoManagement, CryptoManagementError } from '../server/cryptoManagement.js';
+import { runCryptoManagement } from '../server/cryptoManagement.js';
+import { cryptoManagementErrorResponse } from '../server/cryptoManagementErrors.js';
 import {
   getCryptoMonthlySyncErrorResponse,
   runCryptoMonthlySync,
@@ -1068,7 +1069,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
       sendJson(response, 200, { ok: true, ...(await runCryptoManagement(body)) });
     } catch (error) {
       if (isPortfolioAccessError(error)) { const formatted = getPortfolioAccessErrorResponse(error, '/api/health'); sendJson(response, formatted.status, formatted.body); }
-      else sendJson(response, error instanceof CryptoManagementError ? error.status : 400, { ok: false, message: error instanceof Error ? error.message : 'Crypto 管理操作失敗。' });
+      else { const formatted = cryptoManagementErrorResponse(error); sendJson(response, formatted.status, formatted.body); }
     }
     return;
   }

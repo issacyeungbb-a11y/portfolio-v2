@@ -5,6 +5,7 @@ import type { CryptoCoin, CryptoFunding, CryptoManagementResponse, CryptoManagem
 import { cryptoPlatforms, filterCryptoPositions, saveCryptoPlatform } from '../../lib/cryptoPlatforms';
 import { CryptoAddDialog } from './CryptoAddDialog';
 import { CryptoHoldingsTable } from './CryptoHoldingsTable';
+import { CryptoAssetSyncStatus } from './CryptoAssetSyncStatus';
 import { CryptoRewardLinkDialog } from './CryptoRewardLinkDialog';
 import { CryptoStakingRewardsDialog } from './CryptoStakingRewardsDialog';
 import { CryptoCoinSidebar } from './CryptoCoinSidebar';
@@ -120,6 +121,7 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
       <section className="cm-kpis" aria-label="目前持倉概要">{[[displayValues?.complete ? '持倉總值' : '已定價持倉總值', displayMoney(v.grossUsd)], ['借貸負債', displayMoney(v.debtUsd)], [v.warnings.length ? '已定價淨值 · 尚有缺價' : '目前淨資產', displayMoney(v.netUsd)], ['累計本金', principalMoney]].map(([label, value]) => <article className="card" key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
       {currency === 'HKD' && !usdHkd && <p className="cm-alert" role="status">未有有效港元匯率，港幣估值暫列待補；可切換美金查看原幣估值。</p>}
       {v.warnings.length > 0 && <p className="cm-alert" role="status">{v.warnings.join('；')}。以上為已取得價格部分嘅估值；補齊有效價格前不能正式月結。</p>}
+      {data.assetsSync && <CryptoAssetSyncStatus status={data.assetsSync} onUpdated={setData} />}
       <nav className="cm-tabs" aria-label="Crypto 管理區域">{([['positions', '平台持倉'], ['movements', 'Crypto 變動'], ['liabilities', '借貸負債'], ['funding', '資金紀錄'], ['history', '月結歷史'], ['source', '來源與紀錄']] as Array<[Tab, string]>).map(([id, name]) => <button key={id} className={tab === id ? 'active' : ''} aria-pressed={tab === id} onClick={() => { setTab(id); setSearch(''); setSelection(''); setError(''); setMessage(''); }}>{name}</button>)}</nav>
       {tab === 'positions' && <section className="card">
         <div className="section-heading"><div><h2>持倉分類</h2><p className="cm-caption">單價沿用資產大表每日更新的價格；總值＝數量 × 單價。</p></div><div className="cm-actions">

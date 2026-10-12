@@ -2,6 +2,7 @@ import { planCryptoMovement } from "../src/lib/cryptoMovements.js";
 import { saveCryptoPlatform } from "../src/lib/cryptoPlatforms.js";
 import { checksum, validateState } from "./cryptoManagementCore.js";
 import { normalizeCryptoState, linkStakingReward } from "../src/lib/cryptoClassification.js";
+import { validateCryptoInput } from "./cryptoManagementErrors.js";
 function assertRecordedPositions(previous, next, rename, stakingRewardLink) {
   let expected = normalizeCryptoState(previous);
   if (rename !== void 0) {
@@ -29,9 +30,9 @@ async function commitCryptoMovement(tx, refs, payload, sync, now = /* @__PURE__ 
   const previous = meta.data();
   if (!previous || previous.version !== payload.expectedVersion) throw new CryptoMovementConflict("\u6301\u5009\u5DF2\u88AB\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u518D\u8A18\u9304\u5F80\u4F86\u3002");
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Hong_Kong", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-  const planned = planCryptoMovement(previous, payload.movement, `position_${checksum(payload.operationId).slice(0, 32)}`, today);
+  const planned = validateCryptoInput(() => planCryptoMovement(previous, payload.movement, `position_${checksum(payload.operationId).slice(0, 32)}`, today));
   const next = { ...planned.state, version: previous.version + 1 };
-  validateState(next);
+  validateCryptoInput(() => validateState(next));
   const at = now.toISOString();
   const entry = { ...planned.input, id: refs.movement.id, createdAt: at, version: next.version, legs: planned.legs, totalAmount: planned.totalAmount, sourceLabel: planned.sourceLabel, destinationLabel: planned.destinationLabel, sourceCustodian: planned.sourceCustodian, destinationCustodian: planned.destinationCustodian };
   sync(next, stored, previous);

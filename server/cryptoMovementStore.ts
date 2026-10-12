@@ -2,6 +2,7 @@ import { planCryptoMovement } from '../src/lib/cryptoMovements.js';
 import { saveCryptoPlatform } from '../src/lib/cryptoPlatforms.js';
 import { checksum, validateState } from './cryptoManagementCore.js';
 import { normalizeCryptoState, linkStakingReward } from '../src/lib/cryptoClassification.js';
+import { validateCryptoInput } from './cryptoManagementErrors.js';
 import type { CryptoManagementState, CryptoMovementInput, CryptoPosition } from '../src/types/cryptoManagement';
 
 export function assertRecordedPositions(previous: CryptoManagementState, next: CryptoManagementState, rename?: unknown, stakingRewardLink?: unknown) {
@@ -38,9 +39,9 @@ export async function commitCryptoMovement(
   const previous = meta.data() as CryptoManagementState | undefined;
   if (!previous || previous.version !== payload.expectedVersion) throw new CryptoMovementConflict('持倉已被更新，請重新整理再記錄往來。');
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
-  const planned = planCryptoMovement(previous, payload.movement as CryptoMovementInput, `position_${checksum(payload.operationId).slice(0, 32)}`, today);
+  const planned = validateCryptoInput(() => planCryptoMovement(previous, payload.movement as CryptoMovementInput, `position_${checksum(payload.operationId).slice(0, 32)}`, today));
   const next = { ...planned.state, version: previous.version + 1 };
-  validateState(next);
+  validateCryptoInput(() => validateState(next));
   const at = now.toISOString();
   const entry = { ...planned.input, id: refs.movement.id, createdAt: at, version: next.version, legs: planned.legs, totalAmount: planned.totalAmount, sourceLabel: planned.sourceLabel, destinationLabel: planned.destinationLabel, sourceCustodian: planned.sourceCustodian, destinationCustodian: planned.destinationCustodian };
   // All effects and the durable record commit together; a retry cannot apply a quantity twice.

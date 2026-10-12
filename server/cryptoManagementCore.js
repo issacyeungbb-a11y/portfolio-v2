@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { QUOTE_FRESHNESS_WINDOW_MS } from "./priceFreshness.js";
-import { cryptoAssetStatus } from "../src/lib/cryptoClassification.js";
+import { cryptoAssetStatus, addCryptoQuantity } from "../src/lib/cryptoClassification.js";
 import { cryptoPlatforms } from "../src/lib/cryptoPlatforms.js";
 function checksum(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -68,7 +68,11 @@ function principal(funding) {
   return funding.filter((r) => r.type !== "withdrawal").reduce((sum, r) => sum + r.hkd, 0);
 }
 function aggregate(rows) {
-  return rows.reduce((result, row) => ({ ...result, [row.symbol]: (result[row.symbol] ?? 0) + row.quantity }), {});
+  return rows.reduce((result, row) => {
+    result[row.symbol] = addCryptoQuantity(result[row.symbol] ?? 0, row.quantity);
+    if (!Number.isFinite(result[row.symbol]) || result[row.symbol] > 1e15) throw new Error(`${row.symbol} \u5408\u8A08\u6578\u91CF\u8D85\u51FA\u4E0A\u9650\u3002`);
+    return result;
+  }, {});
 }
 function valueCrypto(state, quotes, now = Date.now()) {
   const quantities = aggregate(state.positions);

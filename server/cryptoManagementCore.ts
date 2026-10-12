@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { QUOTE_FRESHNESS_WINDOW_MS } from './priceFreshness.js';
-import { cryptoAssetStatus } from '../src/lib/cryptoClassification.js';
+import { cryptoAssetStatus, addCryptoQuantity } from '../src/lib/cryptoClassification.js';
 import { cryptoPlatforms } from '../src/lib/cryptoPlatforms.js';
 import type { CryptoCoin, CryptoFunding, CryptoManagementState, CryptoPosition, CryptoValuation } from '../src/types/cryptoManagement';
 
@@ -70,7 +70,11 @@ export function principal(funding: CryptoFunding[]) {
   return funding.filter(r => r.type !== 'withdrawal').reduce((sum, r) => sum + r.hkd, 0);
 }
 export function aggregate(rows: CryptoPosition[]) {
-  return rows.reduce<Record<string, number>>((result, row) => ({ ...result, [row.symbol]: (result[row.symbol] ?? 0) + row.quantity }), {});
+  return rows.reduce<Record<string, number>>((result, row) => {
+    result[row.symbol] = addCryptoQuantity(result[row.symbol] ?? 0, row.quantity);
+    if (!Number.isFinite(result[row.symbol]) || result[row.symbol] > 1e15) throw new Error(`${row.symbol} 合計數量超出上限。`);
+    return result;
+  }, {});
 }
 export function valueCrypto(state: CryptoManagementState, quotes: Record<string, { price: number; at: string }>, now = Date.now()): CryptoValuation {
   const quantities = aggregate(state.positions);

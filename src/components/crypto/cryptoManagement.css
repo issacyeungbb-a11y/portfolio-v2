@@ -1,4 +1,11 @@
 .cm-page { --cm-border: #dde5ee; --cm-muted: #627184; }
+.cm-sync-status { display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px; padding:12px 16px; border:1px solid #cbe4db; background:#f0f8f4; border-radius:10px; font-size:13px; }
+.cm-sync-status > div { flex:1; }
+.cm-sync-status strong,.cm-sync-status span { display:block; }
+.cm-sync-status span { margin-top:4px; color:var(--cm-muted); font-size:12px; }
+.cm-sync-status details,.cm-sync-status > p { flex-basis:100%; margin:0; }
+.cm-sync-pending { background:#fff9eb; border-color:#eed8aa; }
+.cm-sync-status details p { margin:6px 0; overflow-wrap:anywhere; }
 .cm-heading { display:flex; align-items:center; justify-content:space-between; gap:24px; padding:28px; }
 .cm-heading h2 { font-size:26px; margin:8px 0; letter-spacing:-.5px; }
 .cm-heading p,.cm-caption { color:var(--cm-muted); font-size:13px; line-height:1.7; margin:6px 0; }

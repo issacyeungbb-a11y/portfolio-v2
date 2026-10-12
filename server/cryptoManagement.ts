@@ -4,27 +4,26 @@ import { getFirebaseAdminDb, getSharedPortfolioDocRef } from './firebaseAdmin.js
 import { getGoogleSheetsAccessToken, readSheetValues } from './cryptoMonthlySync.js';
 import { generatePriceUpdates, getCoinGeckoConfig } from './updatePrices.js';
 import { aggregate, checksum, monthlyMetrics, parseCryptoSheet, validateState, valueCrypto } from './cryptoManagementCore.js';
+import { cryptoAssetQuotes, planCryptoAssetSync, commitCryptoAssetReconciliation, CryptoAssetSyncConflict } from './cryptoAssetSync.js';
 import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from './cryptoMovementStore.js';
 import { normalizeCryptoState } from '../src/lib/cryptoClassification.js';
+import { CryptoManagementError, validateCryptoInput } from './cryptoManagementErrors.js';
+export { CryptoManagementError } from './cryptoManagementErrors.js';
 import type { CryptoManagementState } from '../src/types/cryptoManagement';
 
 const SHEET = '1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4';
 const metaRef = () => getSharedPortfolioDocRef().collection('cryptoManagement').doc('current');
 const iso = (v: unknown) => typeof v === 'string' ? v : (v as { toDate?: () => Date })?.toDate?.().toISOString() ?? '';
-export class CryptoManagementError extends Error { constructor(message: string, public status = 400) { super(message); } }
 async function assets() { return getSharedPortfolioDocRef().collection('assets').get(); }
-function quotesFromAssets(docs: Awaited<ReturnType<typeof assets>>['docs']) {
-  const quotes: Record<string, { price: number; at: string }> = {};
-  for (const doc of docs) { const a = doc.data(); if (a.accountSource === 'Crypto' && a.assetType === 'crypto' && !a.archivedAt && a.currency === 'USD') quotes[a.symbol] = { price: a.currentPrice, at: iso(a.priceAsOf) }; }
-  return quotes;
-}
+function assetRows(docs: Awaited<ReturnType<typeof assets>>['docs']) { return docs.map(doc => ({ id: doc.id, data: doc.data() })); }
+function quotesFromAssets(docs: Awaited<ReturnType<typeof assets>>['docs']) { return cryptoAssetQuotes(assetRows(docs)); }
 export async function readCryptoManagement() {
   const ref = getSharedPortfolioDocRef();
   const [meta, assetDocs, audit, archive, drafts, portfolio] = await Promise.all([metaRef().get(), assets(), ref.collection('cryptoManagementAudit').orderBy('at', 'desc').limit(30).get(), ref.collection('cryptoSourceArchive').get(), ref.collection('cryptoMonthlyDrafts').orderBy('month', 'desc').limit(1).get(), ref.get()]);
   const state = meta.exists ? normalizeCryptoState(meta.data() as CryptoManagementState) : null;
   const fx = portfolio.data()?.fxRates;
   const displayFx = { usdHkd: typeof fx?.USD === 'number' && Number.isFinite(fx.USD) && fx.USD > 0 ? fx.USD : null, updatedAt: iso(fx?.updatedAt) };
-  return { state, displayFx, valuation: state ? valueCrypto(state, quotesFromAssets(assetDocs.docs)) : null, draft: drafts.docs[0] ? { month: drafts.docs[0].data().month, warnings: drafts.docs[0].data().warnings, updatedAt: drafts.docs[0].data().updatedAt } : null, audit: audit.docs.map(d => ({ id: d.id, action: d.data().action, reason: d.data().reason, at: d.data().at, version: d.data().version })), sourceArchive: archive.docs.map(d => ({ id: d.id, title: d.data().title, rows: d.data().values.length })) };
+  return { state, displayFx, assetsSync: state ? planCryptoAssetSync(state, assetRows(assetDocs.docs), { quantityOnly: true }).status : null, valuation: state ? valueCrypto(state, quotesFromAssets(assetDocs.docs)) : null, draft: drafts.docs[0] ? { month: drafts.docs[0].data().month, warnings: drafts.docs[0].data().warnings, updatedAt: drafts.docs[0].data().updatedAt } : null, audit: audit.docs.map(d => ({ id: d.id, action: d.data().action, reason: d.data().reason, at: d.data().at, version: d.data().version })), sourceArchive: archive.docs.map(d => ({ id: d.id, title: d.data().title, rows: d.data().values.length })) };
 }
 async function readMigrationSource() {
   const token = await getGoogleSheetsAccessToken();
@@ -50,16 +49,11 @@ export async function previewCryptoMigration() {
   return { ...source, differences: Object.entries(quantities).map(([symbol, quantity]) => ({ symbol, quantity, previousQuantity: stored.docs.filter(d => d.data().accountSource === 'Crypto' && !d.data().archivedAt && d.data().symbol === symbol).reduce((sum, d) => sum + (d.data().assetType === 'cash' ? d.data().currentPrice : d.data().quantity), 0) })) };
 }
 function syncAssets(transaction: FirebaseFirestore.Transaction, state: CryptoManagementState, stored: Awaited<ReturnType<typeof assets>>, seedQuotes: Record<string, { price: number; at: string }> = {}, previousState?: CryptoManagementState) {
-  const ref = getSharedPortfolioDocRef(); const quantities = aggregate(state.positions); const now = new Date().toISOString();
-  const chosen = new Set<string>();
+  const ref = getSharedPortfolioDocRef(); const now = new Date().toISOString();
+  const planned = validateCryptoInput(() => planCryptoAssetSync(state, assetRows(stored.docs), { previous: previousState, quotes: seedQuotes, at: now }));
+  if (planned.status.conflicts.length) throw new CryptoManagementError(planned.status.conflicts.join('；'), 409);
+  for (const write of planned.writes) transaction.set(ref.collection('assets').doc(write.id), { ...write.patch, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   for (const coin of state.coins) {
-    const previous = stored.docs.find(d => d.data().accountSource === 'Crypto' && d.data().symbol === coin.symbol && !d.data().archivedAt && d.data().assetType === 'crypto') ?? stored.docs.find(d => d.data().managedCrypto && d.data().assetType === 'crypto' && d.data().symbol === coin.symbol);
-    const doc = previous?.ref ?? ref.collection('assets').doc(`crypto_${coin.symbol}`);
-    chosen.add(doc.id);
-    const quote = seedQuotes[coin.symbol];
-    const oldCoin = previousState?.coins.find(c => c.symbol === coin.symbol);
-    const changedSource = oldCoin && (oldCoin.priceSource !== coin.priceSource || oldCoin.priceSourceId !== coin.priceSourceId);
-    transaction.set(doc, { name: coin.name, symbol: coin.symbol, accountSource: 'Crypto', assetType: 'crypto', currency: 'USD', quantity: quantities[coin.symbol] ?? 0, averageCost: previous?.data().averageCost ?? 0, managedCrypto: true, managedManualPrice: coin.priceSource === 'manual', archivedAt: (quantities[coin.symbol] ?? 0) > 0 ? null : now, updatedAt: FieldValue.serverTimestamp(), ...(coin.priceSource === 'manual' ? { currentPrice: coin.manualPriceUsd ?? 0, priceAsOf: coin.manualPriceAt ?? null } : quote ? { currentPrice: quote.price, priceAsOf: quote.at, lastPriceUpdatedAt: now } : !previous || changedSource ? { currentPrice: 0, priceAsOf: null } : {}) }, { merge: true });
     if (coin.priceSource === 'coingecko') transaction.set(ref.collection('coinIdOverrides').doc(coin.symbol), { ticker: coin.symbol, coinId: coin.priceSourceId, coinSymbol: coin.symbol, coinName: coin.name, marketCapRank: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   }
   const valuation = valueCrypto(state, { ...quotesFromAssets(stored.docs), ...seedQuotes });
@@ -71,7 +65,6 @@ function syncAssets(transaction: FirebaseFirestore.Transaction, state: CryptoMan
     if (!raw || !(raw.price > 0)) throw new CryptoManagementError(`${debt.symbol} 借貸未有價格，請先更新價格。`, 409);
     debtUsd += debt.quantity * raw.price;
   }
-  for (const d of stored.docs) { const a = d.data(); if (a.accountSource === 'Crypto' && !a.archivedAt && !chosen.has(d.id) && d.id !== 'crypto_liabilities') transaction.set(d.ref, { archivedAt: now, managedCrypto: true, migrationRetired: true }, { merge: true }); }
   transaction.set(ref.collection('assets').doc('crypto_liabilities'), { name: 'Crypto 借貸負債', symbol: 'CRYPTO-DEBT', accountSource: 'Crypto', assetType: 'cash', currency: 'USD', quantity: 1, averageCost: 0, currentPrice: -debtUsd, managedCrypto: true, managedCryptoLiability: true, archivedAt: null, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   transaction.set(ref.collection('accountPrincipals').doc('Crypto'), { accountSource: 'Crypto', currency: 'HKD', principalAmount: valuation.principalHkd, updatedAt: FieldValue.serverTimestamp(), managedCrypto: true }, { merge: true });
   transaction.set(ref.collection('accountValuationOverrides').doc('Crypto'), { active: false, retiredAt: now, retiredReason: 'canonical_quantities' }, { merge: true });
@@ -90,6 +83,14 @@ export async function runCryptoManagement(payload: Record<string, unknown>) {
     const [history, opening] = await Promise.all([query.get(), ref.collection('cryptoMovementOpening').doc('current').get()]);
     const docs = history.docs.slice(0, 100); const last = docs.at(-1);
     return { entries: docs.map(d => ({ ...d.data(), id: d.id })), opening: opening.exists ? opening.data() : null, nextCursor: history.size > 100 && last ? { createdAt: last.data().createdAt, id: last.id } : null };
+  }
+  if (action === 'reconcile-assets') {
+    const operationId = payload.operationId;
+    if (typeof operationId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(operationId) || typeof payload.expectedAssetsChecksum !== 'string') throw new CryptoManagementError('同步資料格式不正確。');
+    const ref = getSharedPortfolioDocRef();
+    try { await getFirebaseAdminDb().runTransaction(tx => commitCryptoAssetReconciliation(tx, { meta: metaRef(), audit: ref.collection('cryptoManagementAudit').doc(operationId), assets: ref.collection('assets') }, payload)); }
+    catch (e) { if (e instanceof CryptoAssetSyncConflict) throw new CryptoManagementError(e.message, 409); throw e; }
+    return readCryptoManagement();
   }
   if (action === 'record-movement') {
     const operationId = payload.operationId;
@@ -160,8 +161,8 @@ export async function runCryptoManagement(payload: Record<string, unknown>) {
   }
   const migration = action === 'migrate' ? await previewCryptoMigration() : null;
   if (migration && migration.sourceChecksum !== payload.sourceChecksum) throw new CryptoManagementError('來源已改變，請重新核對遷移預覽。', 409);
-  const submitted = action === 'save' ? normalizeCryptoState(JSON.parse(JSON.stringify(payload.state)) as CryptoManagementState) : null;
-  if (submitted) validateState(submitted);
+  const submitted = action === 'save' ? validateCryptoInput(() => normalizeCryptoState(JSON.parse(JSON.stringify(payload.state)) as CryptoManagementState)) : null;
+  if (submitted) validateCryptoInput(() => validateState(submitted));
   const seedQuotes: Record<string, { price: number; at: string }> = {};
   if (migration) {
     const { baseUrl, headers } = getCoinGeckoConfig();
@@ -186,8 +187,8 @@ export async function runCryptoManagement(payload: Record<string, unknown>) {
     if (migration && previous) throw new CryptoManagementError('已完成遷移，不能再次覆蓋。', 409);
     if (!migration && (!previous || payload.expectedVersion !== previous.version)) throw new CryptoManagementError('資料已被其他操作更新，請重新整理再修改。', 409);
     const next: CryptoManagementState = migration ? { ...migration.parsed, version: 1, migratedAt: new Date().toISOString(), sourceChecksum: migration.sourceChecksum } : { ...submitted!, version: previous!.version + 1, migratedAt: previous!.migratedAt, sourceChecksum: previous!.sourceChecksum };
-    validateState(next);
-    if (previous && action === 'save') assertRecordedPositions(previous, next, payload.platformRename, payload.stakingRewardLink);
+    validateCryptoInput(() => validateState(next));
+    if (previous && action === 'save') validateCryptoInput(() => assertRecordedPositions(previous, next, payload.platformRename, payload.stakingRewardLink));
     tx.set(metaRef(), next);
     syncAssets(tx, next, stored, seedQuotes, previous);
     if (previous) {
