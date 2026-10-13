@@ -38,10 +38,6 @@ const trendRanges: Array<{ value: TrendRange; label: string }> = [
   { value: '30d', label: '30日' },
 ];
 
-function parseDateKey(date: string) {
-  return new Date(`${date}T00:00:00+08:00`);
-}
-
 function formatDateChip(dateKey: string) {
   try {
     return new Intl.DateTimeFormat('zh-HK', {
@@ -135,11 +131,11 @@ function buildDateTicks(series: PortfolioPerformancePoint[]) {
 }
 
 function buildCalendarGrid(dateKey: string) {
-  const monthStart = parseDateKey(`${dateKey.slice(0, 7)}-01`);
-  const firstWeekday = monthStart.getDay();
-  const year = monthStart.getFullYear();
-  const month = monthStart.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // 直接用日期字串計，唔經瀏覽器時區，否則喺香港以外時區會計錯星期同日數。
+  const year = Number(dateKey.slice(0, 4));
+  const month = Number(dateKey.slice(5, 7)) - 1;
+  const firstWeekday = new Date(Date.UTC(year, month, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const cells: Array<{ day?: number; dateKey?: string }> = [];
 
   for (let index = 0; index < firstWeekday; index += 1) {
