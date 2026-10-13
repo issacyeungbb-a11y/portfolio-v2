@@ -1,71 +1,73 @@
 # Firebase Security Checklist
 
-## 1. Authentication
+## 1. How access works
 
-- Enable `Authentication` -> `Sign-in method` -> `Anonymous`
+1. The login screen sends the shared access code to `POST /api/health?mode=unlock`.
+2. The server compares it with `PORTFOLIO_ACCESS_CODE` (falls back to `VITE_PORTFOLIO_ACCESS_CODE`
+   for older Vercel setups). A wrong code waits 800 ms and returns 401.
+3. On success the server returns a Firebase custom token for the shared user
+   `portfolio-shared-access` with the claim `portfolioAccess: true`.
+4. The browser signs in with that token. Firestore rules only allow reads and writes when
+   `request.auth.token.portfolioAccess == true`.
+5. The typed code is kept in `localStorage` (`portfolio_access_code_v2`) and sent as the
+   `x-portfolio-access-code` header to protected API routes.
 
-## 2. Cloud Firestore
+The access code is never bundled into the frontend. `test/accessSecurity.test.mjs` fails if
+frontend code reads `VITE_PORTFOLIO_ACCESS_CODE`, reads `import.meta.env` with a dynamic key
+(which would inline every `VITE_*` value), or if any rule grants access unconditionally.
 
-- Create `Build` -> `Firestore Database`
-- Publish the rules in [`firebase/firestore.rules`](/Users/yinwaiyeung/Documents/Playground/Portfolio_V2/firebase/firestore.rules)
+## 2. Firebase console
 
-## 3. Server-side Firebase Admin credentials
+- `Authentication` must be enabled for the project (custom-token sign-in needs it; no
+  sign-in provider has to be switched on for custom tokens).
+- Publish [`firebase/firestore.rules`](../firebase/firestore.rules) **after** the matching app
+  version is live. Publishing the rules first locks out the running site, because older
+  builds read Firestore without signing in.
+  - Console: Firestore Database → Rules → paste the file → Publish.
+  - CLI: `npx firebase-tools deploy --only firestore:rules --project <project-id>`.
 
-Vercel Functions now verify Firebase ID tokens for:
+## 3. Vercel environment variables
 
-- `/api/extract-assets`
-- `/api/update-prices`
-- `/api/analyze`
+Server-side only (never prefix with `VITE_`):
 
-Set one of these in Vercel Project Settings -> Environment Variables:
+- `PORTFOLIO_ACCESS_CODE` — shared access code.
+- `CRON_SECRET` — Vercel Cron sends `Authorization: Bearer <secret>`; cron routes refuse to
+  run when it is missing.
+- Firebase Admin credentials, one of:
+  - `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`, or
+  - `FIREBASE_ADMIN_PROJECT_ID`, `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY`.
+  The service account signs the custom tokens above.
 
-### Option A
+Frontend (public by design; protection comes from the rules):
 
-- `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`
+- `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`,
+  `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
 
-### Option B
+See [`.env.example`](../.env.example) for the full list, including AI and CoinGecko keys.
 
-- `FIREBASE_ADMIN_PROJECT_ID`
-- `FIREBASE_ADMIN_CLIENT_EMAIL`
-- `FIREBASE_ADMIN_PRIVATE_KEY`
+## 4. Data covered by the rules
 
-Do not put Firebase Admin credentials in `VITE_*` variables.
+Everything lives under `portfolio/app`. Every rule requires the `portfolioAccess` claim; on top
+of that:
 
-## 3.1 Cron security
+- Crypto-account assets, principals and cash flows can only be changed by the server once
+  `cryptoManagement/current` exists, except price fields on managed coins.
+- `accountValuationOverrides` and `cryptoAssetSyncs` are read-only for the browser.
+- Deletes are only allowed for non-Crypto assets, `analysisSessions`, `quarterlyReports` and
+  `assetTransactions`.
+- Server routes use Firebase Admin, which bypasses the rules.
 
-For daily auto price updates, also set:
+## 5. Public read-only API
 
-- `CRON_SECRET`
+`/api/portfolio-public` and `/api/portfolio-transactions-public` require the same access code
+as a `?code=` query parameter. Query strings can end up in logs, so share these URLs only with
+trusted tools and change the code if a URL leaks.
 
-Vercel Cron will call `/api/cron-update-prices` with this secret. Keep it only in server-side env vars.
+## 6. Changing the access code
 
-## 4. Frontend env vars
-
-Keep the existing Firebase Web SDK variables:
-
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_STORAGE_BUCKET`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID`
-- `VITE_FIREBASE_APP_ID`
-
-## 5. Current Firestore collections covered by rules
-
-- `users/{uid}`
-- `users/{uid}/assets/{assetId}`
-- `users/{uid}/priceUpdateReviews/{assetId}`
-- `users/{uid}/analysisCache/{snapshotHash}`
-
-For the shared portfolio path now in use, asset delete also requires published rules allowing:
-
-- `portfolio/app/assets/{assetId}` -> `delete`
-- `portfolio/app/analysisSessions/{sessionId}` -> `delete`
-- `portfolio/app/quarterlyReports/{reportId}` -> `delete`
-
-## 6. Still to add later
-
-When you implement screenshot import history or Storage-backed uploads, add rules for:
-
-- `users/{uid}/imports/{importId}`
-- Firebase Storage upload paths
+1. Update `PORTFOLIO_ACCESS_CODE` in Vercel and redeploy.
+2. Devices that are already signed in keep their Firebase session, so if the old code leaked
+   also end those sessions: Firebase console → Authentication → Users →
+   `portfolio-shared-access` → Delete user. It is recreated on the next successful unlock.
+   Tokens already issued can still be used for up to one hour.
+3. Every device then has to enter the new code once.
