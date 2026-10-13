@@ -21,6 +21,14 @@ function App() {
     );
   }
 
+  if (status === 'checking') {
+    return (
+      <div className="app-auth-shell" aria-busy="true">
+        <div className="skeleton skeleton-card" style={{ width: 'min(100%, 34rem)' }} />
+      </div>
+    );
+  }
+
   if (status !== 'unlocked') {
     return (
       <div className="app-auth-shell">
@@ -30,7 +38,7 @@ function App() {
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              unlock(accessCodeInput);
+              void unlock(accessCodeInput);
             }}
           >
             <label className="form-field">
@@ -42,14 +50,15 @@ function App() {
                 placeholder="輸入存取碼"
                 autoComplete="current-password"
                 enterKeyHint="go"
+                disabled={status === 'unlocking'}
               />
             </label>
 
             {error ? <p className="status-message status-message-error">{error}</p> : null}
 
             <div className="form-actions">
-              <button className="button button-primary" type="submit">
-                進入投資組合
+              <button className="button button-primary" type="submit" disabled={status === 'unlocking'}>
+                {status === 'unlocking' ? '驗證中...' : '進入投資組合'}
               </button>
             </div>
           </form>

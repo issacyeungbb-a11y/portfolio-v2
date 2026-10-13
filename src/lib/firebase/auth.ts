@@ -70,6 +70,15 @@ function waitForInitialAuthState() {
   return authReadyPromise;
 }
 
+// 等 Firebase 由本機還原上次登入狀態；未設定 Firebase 時當作未登入。
+export async function getRestoredFirebaseUser() {
+  if (!hasFirebaseConfig) {
+    return null;
+  }
+
+  return waitForInitialAuthState();
+}
+
 export async function ensureAnonymousSession() {
   if (!hasFirebaseConfig) {
     throw createMissingConfigError();

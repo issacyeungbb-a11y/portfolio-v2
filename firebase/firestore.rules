@@ -2,92 +2,97 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // 只有經伺服器驗證共享存取碼、帶 portfolioAccess claim 嘅登入先可以讀寫。
+    function hasPortfolioAccess() {
+      return request.auth != null && request.auth.token.portfolioAccess == true;
+    }
+
     match /portfolio/{portfolioId} {
-      allow read, create, update: if true;
+      allow read, create, update: if hasPortfolioAccess();
       allow delete: if false;
 
       match /assets/{assetId} {
         function managerActive() { return exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current); }
-        allow read: if true;
-        allow create: if request.resource.data.accountSource != 'Crypto' || !managerActive();
-        allow update: if (resource.data.accountSource != 'Crypto' && request.resource.data.accountSource != 'Crypto') || !managerActive() ||
+        allow read: if hasPortfolioAccess();
+        allow create: if hasPortfolioAccess() && (request.resource.data.accountSource != 'Crypto' || !managerActive());
+        allow update: if hasPortfolioAccess() && ((resource.data.accountSource != 'Crypto' && request.resource.data.accountSource != 'Crypto') || !managerActive() ||
           (resource.data.get('managedCrypto', false) && !resource.data.get('managedManualPrice', false) &&
            request.resource.data.currency == 'USD' &&
-           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentPrice', 'currency', 'updatedAt', 'lastPriceUpdatedAt', 'priceAsOf', 'priceSource', 'priceSourceName', 'priceSourceUrl']));
-        allow delete: if resource.data.accountSource != 'Crypto' || !managerActive();
+           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentPrice', 'currency', 'updatedAt', 'lastPriceUpdatedAt', 'priceAsOf', 'priceSource', 'priceSourceName', 'priceSourceUrl'])));
+        allow delete: if hasPortfolioAccess() && (resource.data.accountSource != 'Crypto' || !managerActive());
 
         match /priceHistory/{entryId} {
-          allow read, create, update: if true;
+          allow read, create, update: if hasPortfolioAccess();
           allow delete: if false;
         }
       }
 
       match /priceUpdateReviews/{assetId} {
-        allow read, create, update: if true;
+        allow read, create, update: if hasPortfolioAccess();
         allow delete: if false;
       }
 
       match /analysisCache/{snapshotHash} {
-        allow read, create, update: if true;
+        allow read, create, update: if hasPortfolioAccess();
         allow delete: if false;
       }
 
       match /analysisSessions/{sessionId} {
-        allow read, create, update: if true;
-        allow delete: if true;
+        allow read, create, update: if hasPortfolioAccess();
+        allow delete: if hasPortfolioAccess();
       }
 
       match /analysisThreads/{threadId} {
-        allow read, create, update: if true;
+        allow read, create, update: if hasPortfolioAccess();
         allow delete: if false;
 
         match /turns/{turnId} {
-          allow read, create, update: if true;
+          allow read, create, update: if hasPortfolioAccess();
           allow delete: if false;
         }
       }
 
       match /quarterlyReports/{reportId} {
-        allow read, create, update: if true;
-        allow delete: if true;
+        allow read, create, update: if hasPortfolioAccess();
+        allow delete: if hasPortfolioAccess();
       }
 
       match /analysisSettings/{settingId} {
-        allow read, create, update: if true;
+        allow read, create, update: if hasPortfolioAccess();
         allow delete: if false;
       }
 
       match /portfolioSnapshots/{snapshotId} {
-        allow read, create, update: if true;
+        allow read, create, update: if hasPortfolioAccess();
         allow delete: if false;
       }
 
       match /accountPrincipals/{accountSource} {
-        allow read: if true;
-        allow create, update: if accountSource != 'Crypto' || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current);
+        allow read: if hasPortfolioAccess();
+        allow create, update: if hasPortfolioAccess() && (accountSource != 'Crypto' || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current));
         allow delete: if false;
       }
 
       match /accountCashFlows/{entryId} {
-        allow read: if true;
-        allow create: if request.resource.data.accountSource != 'Crypto' || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current);
-        allow update: if (resource.data.accountSource != 'Crypto' && request.resource.data.accountSource != 'Crypto') || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current);
+        allow read: if hasPortfolioAccess();
+        allow create: if hasPortfolioAccess() && (request.resource.data.accountSource != 'Crypto' || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current));
+        allow update: if hasPortfolioAccess() && ((resource.data.accountSource != 'Crypto' && request.resource.data.accountSource != 'Crypto') || !exists(/databases/$(database)/documents/portfolio/$(portfolioId)/cryptoManagement/current));
         allow delete: if false;
       }
 
       match /accountValuationOverrides/{accountSource} {
-        allow read: if true;
+        allow read: if hasPortfolioAccess();
         allow create, update, delete: if false;
       }
 
       match /cryptoAssetSyncs/{syncId} {
-        allow read: if true;
+        allow read: if hasPortfolioAccess();
         allow create, update, delete: if false;
       }
 
       match /assetTransactions/{entryId} {
-        allow read, create, update: if true;
-        allow delete: if true;
+        allow read, create, update: if hasPortfolioAccess();
+        allow delete: if hasPortfolioAccess();
       }
     }
   }

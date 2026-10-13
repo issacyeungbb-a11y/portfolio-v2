@@ -148,6 +148,6 @@ test('the protected read-only route reuses health and preserves the 12-function 
   // This remains an acknowledged risk until the browser app has authenticated writes.
   assert.match(
     rulesSource,
-    /match \/assetTransactions\/\{entryId\}[\s\S]*allow read, create, update: if true;[\s\S]*allow delete: if true;/,
+    /match \/assetTransactions\/\{entryId\}[\s\S]*allow read, create, update: if hasPortfolioAccess\(\);[\s\S]*allow delete: if hasPortfolioAccess\(\);/,
   );
 });

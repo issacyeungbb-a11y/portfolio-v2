@@ -26,6 +26,7 @@ import {
   isPortfolioAccessError,
   getPortfolioAccessErrorResponse,
 } from '../server/requirePortfolioAccess.js';
+import { createPortfolioAccessToken } from '../server/portfolioUnlock.js';
 
 const PUBLIC_PORTFOLIO_ROUTE = '/api/portfolio-public';
 const PUBLIC_TRANSACTIONS_ROUTE = '/api/portfolio-transactions-public';
@@ -1059,6 +1060,25 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   }
 
   const mode = readMode(request);
+
+  if (mode === 'unlock') {
+    response.setHeader('Cache-Control', 'private, no-store');
+    if (request.method !== 'POST') { sendJson(response, 405, { message: 'Method not allowed' }); return; }
+    try {
+      await requirePortfolioAccess(request, '/api/health');
+      sendJson(response, 200, { ok: true, token: await createPortfolioAccessToken() });
+    } catch (error) {
+      if (isPortfolioAccessError(error)) {
+        // 拖慢逐個試存取碼
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        const formatted = getPortfolioAccessErrorResponse(error, '/api/health');
+        sendJson(response, formatted.status, formatted.body);
+      } else {
+        sendJson(response, 500, { ok: false, message: error instanceof Error ? error.message : '未能建立登入憑證。' });
+      }
+    }
+    return;
+  }
 
   if (mode === 'crypto-management') {
     response.setHeader('Cache-Control', 'private, no-store');

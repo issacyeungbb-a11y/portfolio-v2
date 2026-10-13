@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import {
-  configuredPortfolioAccessCode,
-  hasConfiguredPortfolioAccessCode,
+  getCurrentPortfolioAccessCode,
 } from '../lib/access/accessCode';
 
 // ---------------------------------------------------------------------------
@@ -486,8 +485,8 @@ const CHECKS: {
 ];
 
 export function SystemDiagnosticsPage() {
-  const accessCode = configuredPortfolioAccessCode;
-  const hasCode = hasConfiguredPortfolioAccessCode;
+  const accessCode = getCurrentPortfolioAccessCode();
+  const hasCode = accessCode.length > 0;
 
   return (
     <div
@@ -544,7 +543,7 @@ export function SystemDiagnosticsPage() {
               color: 'var(--caution)',
             }}
           >
-            ⚠ 未設定 VITE_PORTFOLIO_ACCESS_CODE。diagnose 請求將無 access code，可能返回 401。
+            ⚠ 本機未有已驗證嘅存取碼，請返回主頁重新輸入，否則診斷請求會返回 401。
           </div>
         )}
 

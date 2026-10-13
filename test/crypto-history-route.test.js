@@ -97,14 +97,15 @@ test('Vercel serves SPA routes directly without swallowing API or static asset p
   const vercelConfig = JSON.parse(
     await readFile(new URL('../vercel.json', import.meta.url), 'utf8'),
   );
-  const spaRewrite = vercelConfig.rewrites.find(
+  const spaRewrites = vercelConfig.rewrites.filter(
     (rewrite) => rewrite.destination === '/index.html',
   );
 
-  assert.deepEqual(spaRewrite, {
-    source: '/((?!api/|api$|.*\\..*).*)',
-    destination: '/index.html',
-  });
+  // 通用 SPA 規則唔可以吞咗 API 或靜態檔案路徑。
+  assert.ok(spaRewrites.some((rewrite) => rewrite.source === '/((?!api/|api$|.*\\..*).*)'));
+  // /assets 同 Vite 打包資料夾同名，要獨立指返 index.html；但只限完全相同路徑，唔可以影響 /assets/*.js。
+  assert.ok(spaRewrites.some((rewrite) => rewrite.source === '/assets'));
+  assert.ok(spaRewrites.every((rewrite) => !rewrite.source.startsWith('/api')));
 });
 
 test('crypto history KPI amounts stay on one line and scale to their card width', async () => {
@@ -146,10 +147,10 @@ test('server reader and importer stay inside independent crypto collections', as
   assert.doesNotMatch(rulesSource, /cryptoMonthlySnapshots|cryptoHistoricalImports/);
   assert.match(
     rulesSource,
-    /match \/accountValuationOverrides\/\{accountSource\} \{\s*allow read: if true;\s*allow create, update, delete: if false;/s,
+    /match \/accountValuationOverrides\/\{accountSource\} \{\s*allow read: if hasPortfolioAccess\(\);\s*allow create, update, delete: if false;/s,
   );
   assert.match(
     rulesSource,
-    /match \/cryptoAssetSyncs\/\{syncId\} \{\s*allow read: if true;\s*allow create, update, delete: if false;/s,
+    /match \/cryptoAssetSyncs\/\{syncId\} \{\s*allow read: if hasPortfolioAccess\(\);\s*allow create, update, delete: if false;/s,
   );
 });

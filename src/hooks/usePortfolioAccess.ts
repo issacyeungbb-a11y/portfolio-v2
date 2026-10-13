@@ -1,64 +1,81 @@
 import { useEffect, useState } from 'react';
 
 import {
-  clearAccessCodeVerification,
-  getPortfolioAccessCodeErrorMessage,
-  getStoredAccessCodeVerification,
+  PortfolioAccessDeniedError,
+  getCurrentPortfolioAccessCode,
   hasConfiguredPortfolioAccessCode,
-  persistAccessCodeVerification,
-  verifyPortfolioAccessCode,
+  hasPortfolioAccessSession,
+  lockPortfolio,
+  unlockPortfolio,
 } from '../lib/access/accessCode';
 
-type PortfolioAccessStatus = 'locked' | 'unlocked' | 'error';
+type PortfolioAccessStatus = 'checking' | 'locked' | 'unlocking' | 'unlocked' | 'error';
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof PortfolioAccessDeniedError) return error.message;
+  return error instanceof Error ? error.message : '未能驗證存取碼，請稍後再試。';
+}
 
 export function usePortfolioAccess() {
-  const [status, setStatus] = useState<PortfolioAccessStatus>(() => {
-    if (!hasConfiguredPortfolioAccessCode) {
-      return 'error';
-    }
-
-    return getStoredAccessCodeVerification() ? 'unlocked' : 'locked';
-  });
-  const [error, setError] = useState<string | null>(() =>
-    hasConfiguredPortfolioAccessCode ? null : getPortfolioAccessCodeErrorMessage(),
-  );
+  const [status, setStatus] = useState<PortfolioAccessStatus>('checking');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!hasConfiguredPortfolioAccessCode) {
-      setStatus('error');
-      setError(getPortfolioAccessCodeErrorMessage());
-      return;
+    let isActive = true;
+
+    async function restore() {
+      try {
+        if (await hasPortfolioAccessSession()) {
+          if (isActive) setStatus('unlocked');
+          return;
+        }
+
+        // 有記住存取碼但登入憑證已失效：自動重新驗證一次。
+        const storedCode = getCurrentPortfolioAccessCode();
+        if (storedCode) {
+          await unlockPortfolio(storedCode);
+          if (isActive) setStatus('unlocked');
+          return;
+        }
+
+        if (isActive) setStatus('locked');
+      } catch (restoreError) {
+        if (restoreError instanceof PortfolioAccessDeniedError) {
+          await lockPortfolio().catch(() => undefined);
+        }
+        if (isActive) {
+          setStatus('locked');
+          setError(getErrorMessage(restoreError));
+        }
+      }
     }
 
-    if (getStoredAccessCodeVerification()) {
-      setStatus('unlocked');
-      setError(null);
-    }
+    void restore();
+
+    return () => {
+      isActive = false;
+    };
   }, []);
 
-  function unlock(input: string) {
-    if (!hasConfiguredPortfolioAccessCode) {
-      setStatus('error');
-      setError(getPortfolioAccessCodeErrorMessage());
-      return false;
-    }
-
-    if (!verifyPortfolioAccessCode(input)) {
-      setStatus('locked');
-      setError(getPortfolioAccessCodeErrorMessage());
-      return false;
-    }
-
-    persistAccessCodeVerification();
-    setStatus('unlocked');
+  async function unlock(input: string) {
+    setStatus('unlocking');
     setError(null);
-    return true;
+
+    try {
+      await unlockPortfolio(input);
+      setStatus('unlocked');
+      return true;
+    } catch (unlockError) {
+      setStatus('locked');
+      setError(getErrorMessage(unlockError));
+      return false;
+    }
   }
 
-  function lock() {
-    clearAccessCodeVerification();
-    setStatus(hasConfiguredPortfolioAccessCode ? 'locked' : 'error');
-    setError(hasConfiguredPortfolioAccessCode ? null : getPortfolioAccessCodeErrorMessage());
+  async function lock() {
+    await lockPortfolio().catch(() => undefined);
+    setStatus('locked');
+    setError(null);
   }
 
   return {

@@ -35,6 +35,30 @@ export default defineConfig(({ mode }) => {
             if (request.method === 'POST' && pathname === '/api/health') {
               const requestUrl = new URL(request.url ?? '/api/health', 'http://localhost');
 
+              if (requestUrl.searchParams.get('mode') === 'unlock') {
+                const {
+                  getPortfolioAccessErrorResponse,
+                  isPortfolioAccessError,
+                  requirePortfolioAccess,
+                } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');
+                try {
+                  await requirePortfolioAccess(request, '/api/health');
+                  const { createPortfolioAccessToken } = await server.ssrLoadModule('/server/portfolioUnlock.ts');
+                  sendJson(response, 200, { ok: true, token: await createPortfolioAccessToken() });
+                } catch (error) {
+                  if (isPortfolioAccessError(error)) {
+                    const formatted = getPortfolioAccessErrorResponse(error, '/api/health');
+                    sendJson(response, formatted.status, formatted.body);
+                    return;
+                  }
+                  sendJson(response, 500, {
+                    ok: false,
+                    message: error instanceof Error ? error.message : '未能建立登入憑證。',
+                  });
+                }
+                return;
+              }
+
               if (requestUrl.searchParams.get('mode') === 'crypto-sync') {
                 try {
                   const { requirePortfolioAccess } = await server.ssrLoadModule('/server/requirePortfolioAccess.ts');

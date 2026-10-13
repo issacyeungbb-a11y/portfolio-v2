@@ -81,7 +81,7 @@ export async function callPortfolioFunction(
     const accessCode = getCurrentPortfolioAccessCode();
 
     if (!accessCode) {
-      throw new Error('尚未設定共享存取碼，請先設定 VITE_PORTFOLIO_ACCESS_CODE。');
+      throw new Error('未有已驗證嘅共享存取碼，請重新整理頁面再輸入。');
     }
 
     headers['x-portfolio-access-code'] = accessCode;

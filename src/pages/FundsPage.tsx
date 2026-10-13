@@ -398,9 +398,9 @@ export function FundsPage() {
           <div className="setting-row compact-settings-content">
             <div>
               <strong>目前模式</strong>
-              <p>{accessStatus === 'unlocked' ? '已解鎖' : accessStatus === 'locked' ? '已鎖定' : '錯誤'}</p>
+              <p>{accessStatus === 'unlocked' ? '已解鎖' : accessStatus === 'checking' ? '檢查中' : '已鎖定'}</p>
             </div>
-            <button className="button button-secondary" type="button" onClick={lock}>
+            <button className="button button-secondary" type="button" onClick={() => void lock().then(() => window.location.reload())}>
               重新鎖定此裝置
             </button>
           </div>
