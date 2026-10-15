@@ -1,7 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { classifyIntent, intentNeedsExternalSearch } from '../server/analysisIntent.ts';
-import { isValidAnalysisModel, MODEL_REGISTRY, GEMINI_ANALYZE_MODEL, CLAUDE_ANALYZE_MODEL } from '../server/analysisModels.ts';
+import { isValidAnalysisModel, MODEL_REGISTRY } from '../server/analysisModels.ts';
+
+// Defaults must be tested independently of the deployment's configured models.
+// A child process avoids changing environment variables shared by other tests.
+function readModelDefaults() {
+  const env = { ...process.env };
+  delete env.GEMINI_ANALYZE_MODEL;
+  delete env.CLAUDE_ANALYZE_MODEL;
+  const moduleUrl = new URL('../server/analysisModels.ts', import.meta.url).href;
+  const child = spawnSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e',
+    `const m = await import(${JSON.stringify(moduleUrl)}); console.log(JSON.stringify([m.GEMINI_ANALYZE_MODEL, m.CLAUDE_ANALYZE_MODEL]));`,
+  ], { env, encoding: 'utf8', timeout: 10_000 });
+  assert.equal(child.status, 0, child.stderr);
+  return JSON.parse(child.stdout) as [string, string];
+}
 
 // ---------------------------------------------------------------------------
 // 1. portfolio_only — must NOT trigger external search
@@ -97,11 +112,11 @@ test('isValidAnalysisModel: claude-opus-5-5 is valid', () => {
 });
 
 test('GEMINI_ANALYZE_MODEL defaults to gemini-3.1-pro-preview', () => {
-  assert.equal(isValidAnalysisModel(GEMINI_ANALYZE_MODEL), true);
+  assert.equal(readModelDefaults()[0], 'gemini-3.1-pro-preview');
 });
 
 test('CLAUDE_ANALYZE_MODEL defaults to claude-opus-5-5', () => {
-  assert.equal(isValidAnalysisModel(CLAUDE_ANALYZE_MODEL), true);
+  assert.equal(readModelDefaults()[1], 'claude-opus-5-5');
 });
 
 // ---------------------------------------------------------------------------
