@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/gen-price-freshness.mjs && node scripts/build-shared-js.mjs",
+    "prebuild": "node scripts/gen-price-freshness.mjs && node scripts/build-shared-js.mjs && npm run check:server-runtime",
     "build": "tsc -b && vite build",
     "build:fast": "vite build",
     "typecheck": "tsc -b",
@@ -17,7 +17,8 @@
     "diagnose:coingecko": "node scripts/checkCoinGeckoCrypto.mjs",
     "crypto-history:preview": "node scripts/import-crypto-history.mjs",
     "crypto-history:apply": "node scripts/import-crypto-history.mjs --apply",
-    "gen-freshness": "node scripts/gen-price-freshness.mjs"
+    "gen-freshness": "node scripts/gen-price-freshness.mjs",
+    "check:server-runtime": "node scripts/check-server-runtime.mjs"
   },
   "dependencies": {
     "@google/genai": "^1.46.0",
@@ -39,5 +40,10 @@
     "esbuild": "^0.28.1",
     "typescript": "^5.6.3",
     "vite": "^5.4.10"
+  },
+  "overrides": {
+    "jwks-rsa": {
+      "jose": "^5.10.0"
+    }
   }
 }
