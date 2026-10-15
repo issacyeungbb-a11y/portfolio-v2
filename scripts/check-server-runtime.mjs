@@ -57,6 +57,7 @@ try {
     for (const [file, method, url] of [
       ['health', 'POST', '/api/health?mode=crypto-management'],
       ['health', 'POST', '/api/health?mode=unlock'],
+      ['health', 'GET', '/api/health?mode=diagnose'],
       ['update-prices', 'POST', '/api/update-prices'],
       ['manual-capture-snapshot', 'POST', '/api/manual-capture-snapshot'],
       ['cron-daily-update', 'GET', '/api/cron-daily-update'],

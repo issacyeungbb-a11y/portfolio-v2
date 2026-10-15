@@ -1,4 +1,6 @@
 import { useState, useCallback } from 'react';
+import { callPortfolioFunction } from '../lib/api/vercelFunctions';
+import { parseSystemDiagnoseResponse } from '../lib/api/systemDiagnose';
 
 export interface DiagnoseStepResult {
   ok: boolean;
@@ -79,16 +81,14 @@ export interface SystemDiagnoseResult {
     yahooFinance: DiagnoseStepResult;
     coinGecko: DiagnoseStepResult;
     pendingReviews: DiagnoseStepResult;
+    snapshotQualityTrend: DiagnoseStepResult;
     systemRuns: DiagnoseStepResult;
     dailyJob: DiagnoseStepResult;
   };
 }
 
-async function fetchSystemDiagnoseData(): Promise<SystemDiagnoseResult | null> {
-  const response = await fetch('/api/health?mode=diagnose', { method: 'GET' });
-  const text = await response.text();
-  if (!text) return null;
-  return JSON.parse(text) as SystemDiagnoseResult;
+async function fetchSystemDiagnoseData(): Promise<SystemDiagnoseResult> {
+  return parseSystemDiagnoseResponse(await callPortfolioFunction('diagnose'));
 }
 
 export function useSystemDiagnose() {
@@ -100,6 +100,7 @@ export function useSystemDiagnose() {
   const run = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setResult(null);
 
     try {
       const data = await fetchSystemDiagnoseData();

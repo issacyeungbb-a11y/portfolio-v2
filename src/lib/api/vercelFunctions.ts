@@ -2,6 +2,7 @@ import { getCurrentPortfolioAccessCode } from '../access/accessCode';
 
 export type PortfolioFunctionKey =
   | 'health'
+  | 'diagnose'
   | 'crypto-history'
   | 'crypto-history-sync'
   | 'crypto-management'
@@ -22,6 +23,7 @@ export const portfolioFunctionConfig: Record<
   { path: string; method: 'GET' | 'POST' }
 > = {
   health: { path: '/api/health', method: 'GET' },
+  diagnose: { path: '/api/health?mode=diagnose', method: 'GET' },
   'crypto-history': { path: '/api/health?mode=crypto-history', method: 'GET' },
   'crypto-history-sync': { path: '/api/health?mode=crypto-sync', method: 'POST' },
   'crypto-management': { path: '/api/health?mode=crypto-management', method: 'POST' },

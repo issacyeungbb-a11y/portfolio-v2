@@ -321,6 +321,7 @@ export function SystemDiagnosticsPanel() {
             <StepRow name="Yahoo Finance" step={result.steps.yahooFinance} />
             <StepRow name="CoinGecko" step={result.steps.coinGecko} />
             <StepRow name="待審核項目" step={result.steps.pendingReviews} />
+            <StepRow name="快照連續性" step={result.steps.snapshotQualityTrend} />
             <StepRow name="系統執行記錄" step={result.steps.systemRuns} />
             <StepRow name="今日任務狀態" step={result.steps.dailyJob} />
           </div>
