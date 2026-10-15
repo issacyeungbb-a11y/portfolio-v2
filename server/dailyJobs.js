@@ -68,7 +68,7 @@ async function acquireDailyJobLock(dateKey, trigger) {
     });
   } catch (error) {
     console.warn("[dailyJobs] acquireDailyJobLock error:", error);
-    return { acquired: false, reason: "locked" };
+    throw error;
   }
 }
 async function updateDailyJob(dateKey, update) {
@@ -76,6 +76,7 @@ async function updateDailyJob(dateKey, update) {
     await getDailyJobRef(dateKey).update(update);
   } catch (error) {
     console.warn("[dailyJobs] updateDailyJob error:", error);
+    throw error;
   }
 }
 async function addProcessedAssets(dateKey, assetIds) {
@@ -99,6 +100,7 @@ async function markUpdateDone(dateKey, lockToken, stats) {
     });
   } catch (error) {
     console.warn("[dailyJobs] markUpdateDone error:", error);
+    throw error;
   }
 }
 async function updateSnapshotStatus(dateKey, status, extra = {}) {
@@ -120,6 +122,7 @@ async function finalizeDailyJob(dateKey, lockToken, success, errorMessage) {
     });
   } catch (error) {
     console.warn("[dailyJobs] finalizeDailyJob error:", error);
+    throw error;
   }
 }
 async function readRecentDailyJobs(count = 7) {

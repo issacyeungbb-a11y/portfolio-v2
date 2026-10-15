@@ -137,7 +137,7 @@ export async function acquireDailyJobLock(
     })) as LockAcquireResult;
   } catch (error) {
     console.warn('[dailyJobs] acquireDailyJobLock error:', error);
-    return { acquired: false, reason: 'locked' };
+    throw error;
   }
 }
 
@@ -146,6 +146,7 @@ export async function updateDailyJob(dateKey: string, update: Record<string, unk
     await getDailyJobRef(dateKey).update(update);
   } catch (error) {
     console.warn('[dailyJobs] updateDailyJob error:', error);
+    throw error;
   }
 }
 
@@ -172,6 +173,7 @@ export async function markUpdateDone(dateKey: string, lockToken: string, stats: 
     });
   } catch (error) {
     console.warn('[dailyJobs] markUpdateDone error:', error);
+    throw error;
   }
 }
 
@@ -204,6 +206,7 @@ export async function finalizeDailyJob(
     });
   } catch (error) {
     console.warn('[dailyJobs] finalizeDailyJob error:', error);
+    throw error;
   }
 }
 

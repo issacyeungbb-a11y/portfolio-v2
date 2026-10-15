@@ -3,6 +3,7 @@ import { after, afterEach, mock, test } from 'node:test';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import { acquireDailyJobLock, markUpdateDone } from '../server/dailyJobs.js';
+import { buildSnapshotReadinessSummary } from '../server/cronCaptureSnapshot.js';
 import { isDailyJobComplete, resolveDailySnapshotOutcome, snapshotContinuity, snapshotRescueAssetIds } from '../server/dailySnapshotState.js';
 
 // Real document references, with only the transaction transport replaced.
@@ -103,4 +104,27 @@ test('snapshot rescue retries stale and failed prices but keeps fresh prices, ca
     { id: 'manual', assetType: 'crypto', managedManualPrice: true },
     { id: 'cash', assetType: 'cash' },
   ], '2026-10-15', ['failed']), ['stale', 'failed', 'missing']);
+});
+
+test('a fully fresh snapshot readiness summary contains no undefined Firestore values', () => {
+  const summary = buildSnapshotReadinessSummary({
+    totalAssets: 48, readyAssets: 48, staleAssets: [], fallbackAssetCount: 0,
+    missingAssetCount: 0, coveragePct: 100, pendingReviewCount: 0,
+    softPendingReviewCount: 0, hardPendingReviewCount: 0, isReady: true,
+    canUseFallback: true, valueWeightedHighRisk: false, staleValuePct: 0,
+    largestStaleAssetSymbol: undefined, largestStaleAssetPct: undefined,
+    valueWeightedGuardUnavailable: false,
+  } as Parameters<typeof buildSnapshotReadinessSummary>[0]);
+  assert.ok(Object.values(summary).every(value => value !== undefined));
+  assert.equal(summary.isReady, true);
+  assert.equal(summary.coveragePct, 100);
+});
+
+test('database errors cannot masquerade as an active lock or successful status persistence', async () => {
+  mock.method(db, 'runTransaction', async () => { throw new Error('Firestore unavailable'); });
+  await assert.rejects(acquireDailyJobLock('2026-10-15', 'rescue'), /Firestore unavailable/);
+  await assert.rejects(markUpdateDone('2026-10-15', 'owner', {
+    appliedCount: 48, pendingReviewCount: 0, coveragePct: 100, processCoveragePct: 100,
+    fxUsingFallback: false, coinGeckoSyncStatus: 'ok', totalAssets: 48,
+  }), /Firestore unavailable/);
 });

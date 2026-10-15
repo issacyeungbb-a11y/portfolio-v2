@@ -102,8 +102,8 @@ function buildSnapshotReadinessSummary(readiness) {
     canUseFallback: readiness.canUseFallback,
     valueWeightedHighRisk: readiness.valueWeightedHighRisk,
     staleValuePct: readiness.staleValuePct,
-    largestStaleAssetSymbol: readiness.largestStaleAssetSymbol,
-    largestStaleAssetPct: readiness.largestStaleAssetPct,
+    ...readiness.largestStaleAssetSymbol !== void 0 ? { largestStaleAssetSymbol: readiness.largestStaleAssetSymbol } : {},
+    ...readiness.largestStaleAssetPct !== void 0 ? { largestStaleAssetPct: readiness.largestStaleAssetPct } : {},
     valueWeightedGuardUnavailable: readiness.valueWeightedGuardUnavailable
   };
 }
@@ -446,6 +446,7 @@ function getCronSnapshotErrorResponse(error, route = CRON_ROUTE) {
   };
 }
 export {
+  buildSnapshotReadinessSummary,
   getCronSnapshotErrorResponse,
   runManualDailySnapshot,
   runScheduledDailySnapshot,

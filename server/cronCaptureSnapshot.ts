@@ -135,7 +135,7 @@ function createSnapshotStepTimings() {
   };
 }
 
-function buildSnapshotReadinessSummary(
+export function buildSnapshotReadinessSummary(
   readiness: Awaited<ReturnType<typeof verifyAssetsReadyForDailySnapshot>>,
 ): SnapshotReadinessSummary {
   const hardPendingTolerance = Math.max(2, Math.floor(readiness.totalAssets * 0.05));
@@ -156,8 +156,8 @@ function buildSnapshotReadinessSummary(
     canUseFallback: readiness.canUseFallback,
     valueWeightedHighRisk: readiness.valueWeightedHighRisk,
     staleValuePct: readiness.staleValuePct,
-    largestStaleAssetSymbol: readiness.largestStaleAssetSymbol,
-    largestStaleAssetPct: readiness.largestStaleAssetPct,
+    ...(readiness.largestStaleAssetSymbol !== undefined ? { largestStaleAssetSymbol: readiness.largestStaleAssetSymbol } : {}),
+    ...(readiness.largestStaleAssetPct !== undefined ? { largestStaleAssetPct: readiness.largestStaleAssetPct } : {}),
     valueWeightedGuardUnavailable: readiness.valueWeightedGuardUnavailable,
   };
 }
