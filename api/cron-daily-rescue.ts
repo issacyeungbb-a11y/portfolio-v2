@@ -16,7 +16,7 @@ export default async function handler(request: ApiRequest, response: ApiResponse
   try {
     verifyCronRequest(request.headers.authorization);
     const result = await runDailyUpdate('rescue');
-    sendJson(response, 200, result);
+    sendJson(response, result.ok === false ? 503 : 200, result);
   } catch (error) {
     const formatted = getDailyUpdateErrorResponse(error, route);
     sendJson(response, formatted.status, formatted.body);

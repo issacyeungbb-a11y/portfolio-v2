@@ -1,6 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getFirebaseAdminDb } from "./firebaseAdmin.js";
 import { randomUUID } from "crypto";
+import { isDailyJobComplete } from "./dailySnapshotState.js";
 const DAILY_JOBS_COLLECTION = "portfolio";
 const DAILY_JOBS_DOC = "app";
 const DAILY_JOBS_SUBCOLLECTION = "dailyJobs";
@@ -18,11 +19,15 @@ async function acquireDailyJobLock(dateKey, trigger) {
   const lockToken = randomUUID();
   try {
     return await db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const [doc, snapshot] = await Promise.all([
+        tx.get(ref),
+        tx.get(getFirebaseAdminDb().collection("portfolio").doc("app").collection("portfolioSnapshots").doc(`daily-${dateKey}`))
+      ]);
       if (!doc.exists) {
         tx.set(ref, {
           date: dateKey,
           status: "running",
+          priceUpdateCompleted: false,
           trigger,
           lockToken,
           lockAcquiredAt: FieldValue.serverTimestamp(),
@@ -51,8 +56,7 @@ async function acquireDailyJobLock(dateKey, trigger) {
         return { acquired: true, lockToken, existingJob: null };
       }
       const data = doc.data();
-      const snapshotDone = data.snapshotStatus === "completed" || data.snapshotStatus === "skipped";
-      if (data.status === "completed" && snapshotDone) {
+      if (isDailyJobComplete(data, snapshot.exists)) {
         return { acquired: false, reason: "already_completed" };
       }
       const lockAcquiredMs = data.lockAcquiredAt?.toMillis?.() ?? 0;
@@ -91,7 +95,7 @@ async function markUpdateDone(dateKey, lockToken, stats) {
     await db.runTransaction(async (tx) => {
       const doc = await tx.get(getDailyJobRef(dateKey));
       if (!doc.exists || doc.data().lockToken !== lockToken) return;
-      tx.update(getDailyJobRef(dateKey), { status: "update_done", ...stats });
+      tx.update(getDailyJobRef(dateKey), { status: "update_done", priceUpdateCompleted: true, ...stats });
     });
   } catch (error) {
     console.warn("[dailyJobs] markUpdateDone error:", error);

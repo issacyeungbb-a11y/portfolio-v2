@@ -13,6 +13,7 @@ import {
   runCryptoMonthlySync,
 } from '../server/cryptoMonthlySync.js';
 import { readDailyJob } from '../server/dailyJobs.js';
+import { isDailyJobComplete, snapshotContinuity } from '../server/dailySnapshotState.js';
 import {
   parsePublicTransactionQuery,
   readPublicPortfolioTransactions,
@@ -462,7 +463,7 @@ type CronLagAlert = {
  */
 const LAG_ALERT_HOUR_HKT = 10; // hours (24-hour, HKT)
 
-function buildCronLagAlert(job: { status: string; snapshotStatus?: string | null } | null): CronLagAlert {
+function buildCronLagAlert(job: { status: string; snapshotStatus?: string | null; snapshotExists?: boolean } | null): CronLagAlert {
   const now = new Date();
   const hktHour = Number(
     new Intl.DateTimeFormat('en-CA', {
@@ -482,7 +483,7 @@ function buildCronLagAlert(job: { status: string; snapshotStatus?: string | null
   const expectedCompleteBy = `${String(LAG_ALERT_HOUR_HKT).padStart(2, '0')}:00 HKT`;
   const jobStatus = job?.status ?? null;
   const snapshotStatus = job?.snapshotStatus ?? null;
-  const isCompleted = jobStatus === 'completed' && (snapshotStatus === 'completed' || snapshotStatus === 'skipped');
+  const isCompleted = isDailyJobComplete(job, job?.snapshotExists === true);
   const isPastAlertTime = hktHour >= LAG_ALERT_HOUR_HKT;
   const isLagging = isPastAlertTime && !isCompleted;
 
@@ -500,14 +501,14 @@ function getDurationMs(startedAt: number) {
 }
 
 async function runStep(
-  runner: () => Promise<{ detail: string; data?: unknown }>,
+  runner: () => Promise<{ ok?: boolean; detail: string; data?: unknown }>,
 ): Promise<DiagnoseStepResult> {
   const startedAt = Date.now();
 
   try {
     const result = await runner();
     return {
-      ok: true,
+      ok: result.ok ?? true,
       durationMs: getDurationMs(startedAt),
       detail: result.detail,
       data: result.data,
@@ -892,11 +893,17 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
       },
       { strict: 0, fallback: 0, missing: 0 },
     );
+    const continuity = snapshotContinuity(snapshot.docs.map(doc => String(doc.data().date ?? doc.id.replace(/^daily-/, ''))), getHongKongDateKey());
+    const latestCapturedAt = snapshot.docs[0]?.data().capturedAt;
+    const missingDueDates = continuity.missingDatesLast7Days.filter(date => date < getHongKongDateKey() || buildCronLagAlert(null).isLagging);
 
     return {
-      detail: `最近 7 個快照：strict ${counts.strict}、fallback ${counts.fallback}、missing ${counts.missing}。`,
+      ok: missingDueDates.length === 0,
+      detail: `最近快照日期：${continuity.latestSnapshotDate ?? '無紀錄'}；最近 7 日缺少 ${continuity.missingDatesLast7Days.length} 日（${continuity.missingDatesLast7Days.join('、') || '無'}）。最近 7 個快照：strict ${counts.strict}、fallback ${counts.fallback}。`,
       data: {
         last7Days: counts,
+        ...continuity,
+        latestCapturedAt: latestCapturedAt?.toDate?.().toISOString() ?? latestCapturedAt ?? null,
       },
     };
   });
@@ -958,12 +965,16 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
 
   const dailyJob = await runStep(async () => {
     const dateKey = getHongKongDateKey();
-    const job = await readDailyJob(dateKey);
+    const [job, snapshot] = await Promise.all([
+      readDailyJob(dateKey),
+      getFirebaseAdminDb().collection('portfolio').doc('app').collection('portfolioSnapshots').doc(`daily-${dateKey}`).get(),
+    ]);
 
     if (!job) {
       return {
+        ok: !buildCronLagAlert(null).isLagging,
         detail: `今日（${dateKey}）尚無每日任務記錄。`,
-        data: { dateKey, status: null },
+        data: { dateKey, status: null, snapshotExists: snapshot.exists },
       };
     }
 
@@ -975,13 +986,16 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
       pending: '等待中',
     };
 
-    const detail = job.status === 'completed'
+    const detail = job.status === 'completed' && !snapshot.exists
+      ? '每日任務標記完成，但今日快照文件不存在，仍需救援重試。'
+      : job.status === 'completed'
       ? `今日任務完成：applied=${job.appliedCount} pending=${job.pendingReviewCount} coverage=${job.coveragePct}% snapshot=${job.snapshotStatus}`
       : job.status === 'failed'
         ? `今日任務失敗：${job.lastError ?? '未知錯誤'}`
         : `今日任務狀態：${statusLabel[job.status] ?? job.status}`;
 
     return {
+      ok: isDailyJobComplete(job, snapshot.exists) || !buildCronLagAlert(null).isLagging,
       detail,
       data: {
         dateKey,
@@ -991,6 +1005,7 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
         pendingReviewCount: job.pendingReviewCount,
         coveragePct: job.coveragePct,
         snapshotStatus: job.snapshotStatus,
+        snapshotExists: snapshot.exists,
         snapshotSkipReason: job.snapshotSkipReason ?? null,
         snapshotReadinessSummary: job.snapshotReadinessSummary ?? null,
         fxUsingFallback: job.fxUsingFallback,
@@ -1020,11 +1035,9 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
   const failedSteps = Object.values(steps).length - passedSteps;
 
   // P2-4: Build cron lag alert from the dailyJob step data
-  const jobData = dailyJob.ok
-    ? (dailyJob.data as { status?: string; snapshotStatus?: string | null } | undefined)
-    : null;
+  const jobData = dailyJob.data as { status?: string; snapshotStatus?: string | null; snapshotExists?: boolean } | undefined;
   const cronLagAlert = buildCronLagAlert(
-    jobData?.status ? { status: jobData.status, snapshotStatus: jobData.snapshotStatus ?? null } : null,
+    jobData?.status ? { status: jobData.status, snapshotStatus: jobData.snapshotStatus ?? null, snapshotExists: jobData.snapshotExists } : null,
   );
 
   let ai: DiagnoseResponse['ai'];

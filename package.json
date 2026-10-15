@@ -5,14 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node scripts/gen-price-freshness.mjs && node scripts/build-shared-js.mjs && npm run check:server-runtime",
+    "prebuild": "npm test && node scripts/gen-price-freshness.mjs && npm run check:server-runtime",
     "build": "tsc -b && vite build",
     "build:fast": "vite build",
     "typecheck": "tsc -b",
     "gen:shared-js": "node scripts/build-shared-js.mjs",
     "pretest": "node scripts/build-shared-js.mjs",
     "test": "node --experimental-strip-types --test",
-    "ci": "npm test && npm run build",
+    "ci": "npm run build",
     "preview": "vite preview",
     "diagnose:coingecko": "node scripts/checkCoinGeckoCrypto.mjs",
     "crypto-history:preview": "node scripts/import-crypto-history.mjs",
@@ -24,7 +24,7 @@
     "@google/genai": "^1.46.0",
     "@vercel/functions": "^3.9.11",
     "firebase": "^12.11.0",
-    "firebase-admin": "^14.5.0",
+    "firebase-admin": "14.5.0",
     "jspdf": "^4.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -43,7 +43,10 @@
   },
   "overrides": {
     "jwks-rsa": {
-      "jose": "^5.10.0"
+      "jose": "5.10.0"
     }
+  },
+  "engines": {
+    "node": "24.x"
   }
 }

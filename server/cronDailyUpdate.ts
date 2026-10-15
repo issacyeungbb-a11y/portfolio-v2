@@ -7,6 +7,7 @@ import { writeSystemRun } from './systemRuns.js';
 import { runScheduledDailySnapshot } from './cronCaptureSnapshot.js';
 import { runCryptoMonthlySync } from './cryptoMonthlySync.js';
 import { closeCryptoMonth, refreshManagedCrypto } from './cryptoManagement.js';
+import { resolveDailySnapshotOutcome, snapshotRescueAssetIds } from './dailySnapshotState.js';
 // Re-export verifyCronRequest from cronAuth (dedicated auth module) so API routes
 // can keep their existing imports while avoiding a circular dep with cronCaptureSnapshot.
 export { verifyCronRequest } from './cronAuth.js';
@@ -225,17 +226,17 @@ async function runSnapshotPhase(
   });
   try {
     const result = await runScheduledDailySnapshot(fxRates, holdings) as Record<string, unknown>;
-    const finalStatus = result.skipped ? 'skipped' : 'completed';
-    if (finalStatus === 'skipped') {
-      await updateSnapshotStatus(dateKey, 'skipped', {
-        snapshotSkipReason: typeof result.snapshotSkipReason === 'string' ? result.snapshotSkipReason : null,
-        snapshotReadinessSummary: result.snapshotReadinessSummary ?? null,
-      });
-    }
+    const snapshot = await getFirebaseAdminDb().collection('portfolio').doc('app')
+      .collection('portfolioSnapshots').doc(`daily-${dateKey}`).get();
+    const outcome = resolveDailySnapshotOutcome(result, snapshot.exists);
+    const finalStatus = outcome.status;
     await updateSnapshotStatus(dateKey, finalStatus, {
       snapshotFinishedAt: FieldValue.serverTimestamp(),
+      snapshotError: outcome.error,
+      snapshotSkipReason: result.snapshotSkipReason ?? null,
+      snapshotReadinessSummary: result.snapshotReadinessSummary ?? null,
     });
-    return result;
+    return { ...result, snapshotExists: snapshot.exists, failed: !outcome.ok, ...(outcome.error ? { error: outcome.error } : {}) };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     await updateSnapshotStatus(dateKey, 'failed', {
@@ -296,10 +297,8 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
     });
     failedSet.clear();
   }
-  const updateAlreadyDone = existingJob?.status === 'update_done' || existingJob?.status === 'completed';
-  const snapshotAlreadyDone =
-    existingJob?.snapshotStatus === 'completed' ||
-    existingJob?.snapshotStatus === 'skipped';
+  let updateAlreadyDone = existingJob?.priceUpdateCompleted === true || existingJob?.status === 'update_done' || existingJob?.status === 'completed';
+  let snapshotAlreadyDone = false;
 
   let appliedCount = existingJob?.appliedCount ?? 0;
   let pendingReviewCount = existingJob?.pendingReviewCount ?? 0;
@@ -313,6 +312,16 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
   let snapshotFxRates: FxRates | undefined;
 
   try {
+    snapshotAlreadyDone = (await getFirebaseAdminDb().collection('portfolio').doc('app')
+      .collection('portfolioSnapshots').doc(`daily-${dateKey}`).get()).exists;
+    if (trigger === 'rescue' && existingJob && !snapshotAlreadyDone) {
+      const retryIds = snapshotRescueAssetIds(await readAdminPortfolioAssets(), dateKey, existingJob.failedAssets ?? []);
+      if (retryIds.length > 0) {
+        retryIds.forEach(id => processedSet.delete(id));
+        updateAlreadyDone = false;
+        await updateDailyJob(dateKey, { processedAssets: [...processedSet], priceUpdateCompleted: false });
+      }
+    }
     // 3. Update phase (skip if already done)
     if (!updateAlreadyDone) {
       const allAssets = await readAdminPortfolioAssets();
@@ -449,11 +458,19 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
       await new Promise<void>((r) => setTimeout(r, 2000));
       snapshotHoldings = await readAdminPortfolioAssets();
       snapshotResult = await runSnapshotPhase(dateKey, snapshotFxRates, snapshotHoldings);
+    } else {
+      await updateSnapshotStatus(dateKey, 'skipped', {
+        snapshotSkipReason: 'snapshot_already_exists',
+        snapshotFinishedAt: FieldValue.serverTimestamp(),
+        snapshotError: null,
+      });
     }
 
     // 5. Finalize
     const durationMs = getDurationMs(startedAt);
-    await finalizeDailyJob(dateKey, lockToken, true);
+    const snapshotSucceeded = snapshotAlreadyDone || (snapshotResult?.snapshotExists === true && !snapshotResult?.failed);
+    const snapshotError = snapshotSucceeded ? null : String(snapshotResult?.error ?? '每日快照未有建立，等待救援重試。');
+    await finalizeDailyJob(dateKey, lockToken, snapshotSucceeded, snapshotError ?? undefined);
 
     // 6. Write legacy systemRun record (for backward compat with health/diagnose UI)
     await writeSystemRun({
@@ -465,7 +482,7 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
       appliedCount, pendingCount: pendingReviewCount,
       coinGeckoSyncStatus, coveragePct, fxUsingFallback,
       isRescueRun: trigger === 'rescue',
-      errorMessage: null, ok: true,
+      errorMessage: snapshotError, ok: snapshotSucceeded,
     });
 
     const snapshotDesc = snapshotAlreadyDone
@@ -479,7 +496,7 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
     console.info(`[${route}] 完成`, { appliedCount, pendingReviewCount, coveragePct, durationMs });
 
     return {
-      ok: true, route, message, dateKey, cryptoMonthlyClose,
+      ok: snapshotSucceeded, route, message, dateKey, cryptoMonthlyClose,
       appliedCount, pendingReviewCount, coveragePct,
       fxUsingFallback, coinGeckoSyncStatus,
       snapshotStatus: snapshotAlreadyDone

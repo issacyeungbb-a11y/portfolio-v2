@@ -45,8 +45,29 @@ try {
     for (const route of ${JSON.stringify(routes)}) {
       const module = await import(new URL(route.replace(/\\.ts$/, '.mjs'), import.meta.url));
       assert.equal(typeof module.default, 'function', route + ' must export a handler');
+      let body;
+      const response = { statusCode: 0, setHeader() {}, end(value) { body = JSON.parse(value); } };
+      await module.default({ method: 'OPTIONS', url: '/api/' + route.replace(/\\.ts$/, ''), headers: {} }, response);
+      assert.equal(response.statusCode, 405, route + ' request dispatch');
+      assert.equal(typeof body.ok, 'boolean', route + ' JSON response');
     }
-    console.log('[server-runtime] Firebase Auth signing and ' + ${routes.length} + ' API imports passed without require(esm)');
+    // Protected flows must fail closed before reaching real data or services.
+    process.env.PORTFOLIO_ACCESS_CODE = 'local-runtime-test-only';
+    process.env.CRON_SECRET = 'local-runtime-cron-only';
+    for (const [file, method, url] of [
+      ['health', 'POST', '/api/health?mode=crypto-management'],
+      ['health', 'POST', '/api/health?mode=unlock'],
+      ['update-prices', 'POST', '/api/update-prices'],
+      ['manual-capture-snapshot', 'POST', '/api/manual-capture-snapshot'],
+      ['cron-daily-update', 'GET', '/api/cron-daily-update'],
+      ['cron-daily-rescue', 'GET', '/api/cron-daily-rescue'],
+    ]) {
+      const module = await import(new URL(file + '.mjs', import.meta.url));
+      const response = { statusCode: 0, setHeader() {}, end(value) { assert.equal(JSON.parse(value).ok, false); } };
+      await module.default({ method, url, headers: {}, body: {} }, response);
+      assert.equal(response.statusCode, 401, url + ' must reject unauthenticated requests');
+    }
+    console.log('[server-runtime] Firebase Auth signing, ' + ${routes.length} + ' API handlers and protected requests passed without require(esm)');
   `);
   const result = spawnSync(process.execPath, ['--no-experimental-require-module', probe], {
     cwd: root,

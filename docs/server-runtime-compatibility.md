@@ -7,15 +7,18 @@ request handlers ran. Both Crypto management (`/api/health`) and asset
 price updates (`/api/update-prices`) consequently returned HTTP 500.
 
 Keep Firebase Admin 14 and scope the npm override to `jwks-rsa > jose`:
-`^5.10.0` provides the CommonJS entry point needed by that dependency.
+`5.10.0` provides the CommonJS entry point needed by that dependency.
 Do not replace other consumers' dependencies or weaken authentication.
 Revisit the override when upstream supports this loader without
 `require(esm)` interop. See the
 [upstream issue](https://github.com/auth0/node-jwks-rsa/issues/507).
 
-`npm run build` now runs `npm run check:server-runtime` before compilation.
+Firebase Admin is pinned to `14.5.0` and the Node runtime to `24.x`.
+`npm run build` runs the complete test suite and `npm run check:server-runtime` before compilation; a failure stops deployment.
 It bundles the existing 12 API entry points with external npm packages,
 then loads them with `--no-experimental-require-module` in a fresh process.
+It exercises HTTP method dispatch on all handlers and rejects unauthenticated
+requests to management, unlock, price update, snapshot and both cron routes.
 It also signs and verifies a Firebase custom token using an ephemeral local
 RSA key, including the `portfolioAccess` claim. It requires no credentials,
 network access or portfolio writes, and removes its temporary output.

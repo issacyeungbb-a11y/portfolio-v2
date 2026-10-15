@@ -1,6 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getFirebaseAdminDb } from './firebaseAdmin.js';
 import { randomUUID } from 'crypto';
+import { isDailyJobComplete } from './dailySnapshotState.js';
 
 const DAILY_JOBS_COLLECTION = 'portfolio';
 const DAILY_JOBS_DOC = 'app';
@@ -36,6 +37,7 @@ export interface SnapshotReadinessSummary {
 export interface DailyJobDocument {
   date: string;
   status: DailyJobStatus;
+  priceUpdateCompleted?: boolean;
   trigger: DailyJobTrigger;
   lockToken: string | null;
   lockAcquiredAt: unknown | null; // Firestore Timestamp
@@ -99,11 +101,14 @@ export async function acquireDailyJobLock(
 
   try {
     return (await db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
+      const [doc, snapshot] = await Promise.all([
+        tx.get(ref),
+        tx.get(getFirebaseAdminDb().collection('portfolio').doc('app').collection('portfolioSnapshots').doc(`daily-${dateKey}`)),
+      ]);
 
       if (!doc.exists) {
         tx.set(ref, {
-          date: dateKey, status: 'running', trigger, lockToken,
+          date: dateKey, status: 'running', priceUpdateCompleted: false, trigger, lockToken,
           lockAcquiredAt: FieldValue.serverTimestamp(),
           startedAt: FieldValue.serverTimestamp(),
           finishedAt: null, totalAssets: 0, processedAssets: [], failedAssets: [],
@@ -118,8 +123,7 @@ export async function acquireDailyJobLock(
       }
 
       const data = doc.data() as DailyJobDocument;
-      const snapshotDone = data.snapshotStatus === 'completed' || data.snapshotStatus === 'skipped';
-      if (data.status === 'completed' && snapshotDone) {
+      if (isDailyJobComplete(data, snapshot.exists)) {
         return { acquired: false, reason: 'already_completed' } as LockAcquireResult;
       }
 
@@ -164,7 +168,7 @@ export async function markUpdateDone(dateKey: string, lockToken: string, stats: 
     await db.runTransaction(async (tx) => {
       const doc = await tx.get(getDailyJobRef(dateKey));
       if (!doc.exists || (doc.data() as DailyJobDocument).lockToken !== lockToken) return;
-      tx.update(getDailyJobRef(dateKey), { status: 'update_done', ...stats });
+      tx.update(getDailyJobRef(dateKey), { status: 'update_done', priceUpdateCompleted: true, ...stats });
     });
   } catch (error) {
     console.warn('[dailyJobs] markUpdateDone error:', error);
