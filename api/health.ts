@@ -18,6 +18,7 @@ import {
   parsePublicTransactionQuery,
   readPublicPortfolioTransactions,
 } from '../server/portfolioTransactionsPublic.js';
+import { getFirebaseAdminDb } from '../server/firebaseAdmin.js';
 import {
   applyAccountValuationOverride,
   normalizeAccountValuationOverride,
@@ -47,28 +48,6 @@ type PublicAssetRecord = {
   unrealizedPct: number;
   priceAsOf: string;
   lastPriceUpdatedAt: string;
-};
-
-type FirestoreValue = {
-  stringValue?: string;
-  integerValue?: string;
-  doubleValue?: number;
-  booleanValue?: boolean;
-  timestampValue?: string;
-  nullValue?: null;
-};
-
-type FirestoreDocument = {
-  name: string;
-  fields?: Record<string, FirestoreValue>;
-};
-
-type FirestoreListResponse = {
-  documents?: FirestoreDocument[];
-  nextPageToken?: string;
-  error?: {
-    message?: string;
-  };
 };
 
 function readMode(request: ApiRequest) {
@@ -125,14 +104,6 @@ function getPublicPortfolioQueryCode(request: ApiRequest) {
   }
 }
 
-function getFirebaseProjectId() {
-  return (
-    process.env.VITE_FIREBASE_PROJECT_ID?.trim() ||
-    process.env.FIREBASE_ADMIN_PROJECT_ID?.trim() ||
-    ''
-  );
-}
-
 function toNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -142,46 +113,20 @@ function toStringValue(value: unknown) {
   return typeof value === 'string' ? value : '';
 }
 
-function getFirestoreDocumentId(name: string) {
-  return name.split('/').pop() ?? name;
-}
-
-function readFirestoreValue(value: FirestoreValue | undefined): unknown {
-  if (!value) {
-    return undefined;
+function toDateStringValue(value: unknown) {
+  if (typeof value === 'string') {
+    return value;
   }
 
-  if ('stringValue' in value) {
-    return value.stringValue ?? '';
-  }
+  const date =
+    value instanceof Date
+      ? value
+      : value && typeof value === 'object' && 'toDate' in value &&
+          typeof value.toDate === 'function'
+        ? value.toDate()
+        : null;
 
-  if ('integerValue' in value) {
-    return toNumber(value.integerValue);
-  }
-
-  if ('doubleValue' in value) {
-    return toNumber(value.doubleValue);
-  }
-
-  if ('booleanValue' in value) {
-    return value.booleanValue === true;
-  }
-
-  if ('timestampValue' in value) {
-    return value.timestampValue ?? '';
-  }
-
-  return undefined;
-}
-
-function readFirestoreFields(fields: Record<string, FirestoreValue> | undefined) {
-  const result: Record<string, unknown> = {};
-
-  for (const [key, value] of Object.entries(fields ?? {})) {
-    result[key] = readFirestoreValue(value);
-  }
-
-  return result;
+  return date instanceof Date && Number.isFinite(date.getTime()) ? date.toISOString() : '';
 }
 
 function isArchivedAsset(value: Record<string, unknown>) {
@@ -219,57 +164,35 @@ function buildPublicAsset(id: string, value: Record<string, unknown>): PublicAss
     marketValue,
     unrealizedPnl,
     unrealizedPct,
-    priceAsOf: toStringValue(value.priceAsOf),
-    lastPriceUpdatedAt: toStringValue(value.lastPriceUpdatedAt),
+    priceAsOf: toDateStringValue(value.priceAsOf),
+    lastPriceUpdatedAt: toDateStringValue(value.lastPriceUpdatedAt),
   };
 }
 
-async function fetchPublicAssetDocuments(projectId: string) {
-  const documents: FirestoreDocument[] = [];
-  let pageToken = '';
+async function fetchPublicAssetDocuments() {
+  const snapshot = await getFirebaseAdminDb()
+    .collection('portfolio')
+    .doc('app')
+    .collection('assets')
+    .get();
 
-  do {
-    const searchParams = new URLSearchParams({ pageSize: '100' });
-
-    if (pageToken) {
-      searchParams.set('pageToken', pageToken);
-    }
-
-    const firestoreUrl =
-      `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}` +
-      `/databases/(default)/documents/portfolio/app/assets?${searchParams.toString()}`;
-    const firestoreResponse = await fetch(firestoreUrl, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-    });
-    const payload = (await firestoreResponse.json()) as FirestoreListResponse;
-
-    if (!firestoreResponse.ok) {
-      throw new Error(payload.error?.message ?? 'Failed to load portfolio assets');
-    }
-
-    documents.push(...(payload.documents ?? []));
-    pageToken = payload.nextPageToken ?? '';
-  } while (pageToken);
-
-  return documents;
+  return snapshot.docs.map((document) => ({
+    id: document.id,
+    value: document.data() as Record<string, unknown>,
+  }));
 }
 
-async function fetchPublicCryptoValuationOverride(projectId: string) {
-  const firestoreUrl =
-    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(projectId)}` +
-    '/databases/(default)/documents/portfolio/app/accountValuationOverrides/Crypto';
-  const response = await fetch(firestoreUrl, { headers: { Accept: 'application/json' } });
-  if (response.status === 404) return null;
-  const payload = (await response.json()) as FirestoreDocument & {
-    error?: { message?: string };
-  };
-  if (!response.ok) {
-    throw new Error(payload.error?.message ?? 'Failed to load Crypto valuation override');
-  }
-  return normalizeAccountValuationOverride(readFirestoreFields(payload.fields));
+async function fetchPublicCryptoValuationOverride() {
+  const snapshot = await getFirebaseAdminDb()
+    .collection('portfolio')
+    .doc('app')
+    .collection('accountValuationOverrides')
+    .doc('Crypto')
+    .get();
+
+  return snapshot.exists
+    ? normalizeAccountValuationOverride(snapshot.data() as Record<string, unknown>)
+    : null;
 }
 
 function recalculatePublicAsset(asset: PublicAssetRecord): PublicAssetRecord {
@@ -309,21 +232,11 @@ async function handlePublicPortfolioRequest(request: ApiRequest, response: ApiRe
   }
 
   try {
-    const projectId = getFirebaseProjectId();
-
-    if (!projectId) {
-      throw new Error('Missing Firebase project id');
-    }
-
     const [documents, cryptoOverride] = await Promise.all([
-      fetchPublicAssetDocuments(projectId),
-      fetchPublicCryptoValuationOverride(projectId),
+      fetchPublicAssetDocuments(),
+      fetchPublicCryptoValuationOverride(),
     ]);
     const rawAssets = documents
-      .map((document) => ({
-        id: getFirestoreDocumentId(document.name),
-        value: readFirestoreFields(document.fields),
-      }))
       .filter((entry) => !isArchivedAsset(entry.value))
       .map((entry) => buildPublicAsset(entry.id, entry.value));
     const assets = applyAccountValuationOverride(rawAssets, cryptoOverride)
