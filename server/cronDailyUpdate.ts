@@ -6,7 +6,7 @@ import { runCoinGeckoCoinIdSync } from './syncCoinIds.js';
 import { writeSystemRun } from './systemRuns.js';
 import { runScheduledDailySnapshot } from './cronCaptureSnapshot.js';
 import { runCryptoMonthlySync } from './cryptoMonthlySync.js';
-import { closeCryptoMonth, refreshManagedCrypto } from './cryptoManagement.js';
+import { refreshManagedCrypto } from './cryptoManagement.js';
 import { resolveDailySnapshotOutcome, snapshotRescueAssetIds } from './dailySnapshotState.js';
 // Re-export verifyCronRequest from cronAuth (dedicated auth module) so API routes
 // can keep their existing imports while avoiding a circular dep with cronCaptureSnapshot.
@@ -449,7 +449,6 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
 
     // 4. Snapshot phase (skip if already done)
     await refreshManagedCrypto();
-    const cryptoMonthlyClose = await closeCryptoMonth(true);
     // P0-1: 傳入主流程 fxRates，snapshot 優先使用相同匯率（無需再次 fetch）
     // P2 修補：等 Firestore 寫入收斂，避免 update phase batch commit 後即刻再讀
     //   priceUpdateReviews 時仲睇到舊嘅 pending 狀態（eventual consistency race）。
@@ -496,7 +495,7 @@ export async function runDailyUpdate(trigger: 'scheduled' | 'rescue'): Promise<R
     console.info(`[${route}] 完成`, { appliedCount, pendingReviewCount, coveragePct, durationMs });
 
     return {
-      ok: snapshotSucceeded, route, message, dateKey, cryptoMonthlyClose,
+      ok: snapshotSucceeded, route, message, dateKey,
       appliedCount, pendingReviewCount, coveragePct,
       fxUsingFallback, coinGeckoSyncStatus,
       snapshotStatus: snapshotAlreadyDone

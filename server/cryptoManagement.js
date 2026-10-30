@@ -1,13 +1,13 @@
-import { randomUUID } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { getFirebaseAdminDb, getSharedPortfolioDocRef } from "./firebaseAdmin.js";
 import { getGoogleSheetsAccessToken, readSheetValues } from "./cryptoMonthlySync.js";
 import { generatePriceUpdates, getCoinGeckoConfig } from "./updatePrices.js";
-import { aggregate, checksum, monthlyMetrics, parseCryptoSheet, validateState, valueCrypto } from "./cryptoManagementCore.js";
+import { aggregate, checksum, parseCryptoSheet, validateState, valueCrypto } from "./cryptoManagementCore.js";
 import { cryptoAssetQuotes, planCryptoAssetSync, commitCryptoAssetReconciliation, CryptoAssetSyncConflict } from "./cryptoAssetSync.js";
 import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from "./cryptoMovementStore.js";
 import { normalizeCryptoState } from "../src/lib/cryptoClassification.js";
 import { CryptoManagementError, validateCryptoInput } from "./cryptoManagementErrors.js";
+import { commitManualCryptoMonth } from "./cryptoMonthClose.js";
 import { CryptoManagementError as CryptoManagementError2 } from "./cryptoManagementErrors.js";
 const SHEET = "1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4";
 const metaRef = () => getSharedPortfolioDocRef().collection("cryptoManagement").doc("current");
@@ -161,10 +161,7 @@ async function runCryptoManagement(payload) {
     return { sourceChecksum: preview.sourceChecksum, state: preview.parsed, differences: preview.differences, sourceArchive: preview.archive.map((a) => ({ title: a.title, rows: a.values.length })) };
   }
   if (action === "close-month") {
-    const allowLate = payload.lateConfirmation === "CONFIRM_CURRENT_DATE_CLOSE";
-    const reason2 = typeof payload.reason === "string" ? payload.reason.trim() : "";
-    if (allowLate && (reason2.length < 2 || reason2.length > 300)) throw new CryptoManagementError("\u88DC\u8A18\u6708\u7D50\u5FC5\u9808\u586B\u5BEB\u539F\u56E0\u3002");
-    const result = await closeCryptoMonth(false, payload.expectedVersion, { allowLate, reason: reason2 });
+    const result = await closeCryptoMonth(payload.expectedVersion);
     return { result, ...await readCryptoManagement() };
   }
   if (!["migrate", "save"].includes(String(action))) throw new CryptoManagementError("\u672A\u77E5\u7BA1\u7406\u64CD\u4F5C\u3002");
@@ -230,48 +227,9 @@ async function refreshManagedCrypto() {
     return meta.exists;
   });
 }
-async function closeCryptoMonth(automatic, expectedVersion, options = {}) {
-  const now = /* @__PURE__ */ new Date();
-  const date = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Hong_Kong", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-  const month = date.slice(0, 7);
+async function closeCryptoMonth(expectedVersion) {
   const ref = getSharedPortfolioDocRef();
-  const snapshotRef = ref.collection("cryptoMonthlySnapshots").doc(`monthly-${month}`);
-  return getFirebaseAdminDb().runTransaction(async (tx) => {
-    const [meta, existing, stored, portfolio, snapshots] = await Promise.all([tx.get(metaRef()), tx.get(snapshotRef), tx.get(ref.collection("assets")), tx.get(ref), tx.get(ref.collection("cryptoMonthlySnapshots").orderBy("month", "desc").limit(1))]);
-    if (!meta.exists) return { status: "not-migrated" };
-    if (existing.exists) return { status: "locked", month };
-    const state = meta.data();
-    if (!automatic && expectedVersion !== state.version) throw new CryptoManagementError("\u6301\u5009\u5DF2\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u518D\u6708\u7D50\u3002", 409);
-    const late = date.slice(-2) !== "01";
-    if (late && (automatic || !options.allowLate)) return { status: "waiting-first-day", month, message: "\u672A\u6709\u7576\u6708\u6708\u521D\u5FEB\u7167\u3002\u5982\u9700\u88DC\u8A18\uFF0C\u5FC5\u9808\u78BA\u8A8D\u4EE5\u4ECA\u65E5\u5BE6\u969B\u8CC7\u6599\u8A18\u9304\uFF0C\u4E0D\u80FD\u56DE\u586B\u6708\u521D\u6216\u6539\u5BEB\u820A\u6708\u4EFD\u3002" };
-    const valuation = valueCrypto(state, quotesFromAssets(stored.docs));
-    const fxData = portfolio.data()?.fxRates;
-    const fx = fxData?.USD;
-    const fxAt = iso(fxData?.updatedAt);
-    const warnings = [...valuation.warnings];
-    if (!(fx > 0) || !fxAt || now.getTime() - Date.parse(fxAt) > 48 * 36e5) warnings.push("\u6E2F\u5143\u532F\u7387\u5F85\u66F4\u65B0");
-    const draftRef = ref.collection("cryptoMonthlyDrafts").doc(month);
-    if (warnings.length) {
-      tx.set(draftRef, { month, warnings, valuation, managementVersion: state.version, updatedAt: now.toISOString() });
-      return { status: "blocked", month, warnings };
-    }
-    const previousSnapshot = snapshots.docs[0]?.data();
-    const metrics = monthlyMetrics(valuation, fx, previousSnapshot?.currentNetUsd ?? previousSnapshot?.performanceTotalUsd ?? null);
-    const totalHkd = metrics.totalHkd;
-    const previousTotal = previousSnapshot?.currentNetUsd ?? previousSnapshot?.performanceTotalUsd;
-    const allocations = { BTC: 0, ETH: 0, ADA: 0, USDT: 0, OTHER: 0 };
-    const values = Object.fromEntries(Object.entries(valuation.quantities).map(([symbol, quantity]) => [symbol, quantity * (valuation.prices[symbol] ?? 0)]));
-    for (const debt of state.liabilities) {
-      const symbol = debt.collateralSymbol || debt.symbol;
-      values[symbol] = (values[symbol] ?? 0) - debt.quantity * (valuation.prices[debt.symbol] ?? 0);
-    }
-    for (const [symbol, value] of Object.entries(values)) allocations[symbol in allocations ? symbol : "OTHER"] += valuation.netUsd ? value / valuation.netUsd : 0;
-    const snapshot = { month, snapshotDate: date, snapshotTimestamp: now.toISOString(), locked: true, currentNetUsd: valuation.netUsd, cumulativeWithdrawnUsd: valuation.withdrawnUsd, performanceTotalUsd: valuation.netUsd, totalHkd, btcEquivalent: valuation.prices.BTC ? valuation.netUsd / valuation.prices.BTC : null, principalHkd: valuation.principalHkd, returnHkd: totalHkd - valuation.principalHkd, returnPct: valuation.principalHkd ? totalHkd / valuation.principalHkd - 1 : 0, monthOverMonthPct: previousTotal > 0 ? valuation.netUsd / previousTotal - 1 : null, usdHkdRate: fx, allocations, historicalHoldings: Object.entries(values).map(([symbol, valueUsd]) => ({ rawLabel: symbol, normalizedLabel: symbol, valueUsd })), historicalQuantities: state.positions.map((p) => ({ rawLabel: p.symbol, symbol: p.symbol, platform: p.custodian, quantity: p.quantity })), prices: Object.entries(valuation.prices).map(([symbol, priceUsd]) => ({ rawLabel: symbol, symbol, priceUsd })), liabilities: state.liabilities, sourceType: "system_management", sourceSpreadsheetId: "", sourceSpreadsheetTitle: "", sourceSheet: "", sourceRange: "", importBatchId: "", importedAt: now.toISOString(), updatedAt: now.toISOString(), sourceChecksum: checksum({ state, valuation, fx }), dataQuality: "verified", warnings: [], rawSourceValues: { managementVersion: state.version, valuationBasis: "net_assets_withdrawals_separate" }, managementState: state };
-    tx.create(snapshotRef, { ...snapshot, ...metrics, prices: snapshot.prices.filter((p) => p.priceUsd !== null), ...late ? { dataQuality: "attention", warnings: [{ code: "LATE_CLOSE", message: `\u4EE5 ${date} \u5BE6\u969B\u6301\u5009\u53CA\u50F9\u683C\u88DC\u8A18\uFF0C\u4E26\u975E\u6708\u521D\u5FEB\u7167\u3002\u539F\u56E0\uFF1A${options.reason}`, severity: "warning" }] } : {} });
-    tx.delete(draftRef);
-    tx.create(ref.collection("cryptoManagementAudit").doc(randomUUID()), { action: "close-month", reason: automatic ? "\u6BCF\u6708 1 \u865F\u81EA\u52D5\u6708\u7D50" : late ? `\u88DC\u8A18\u7576\u6708\u6708\u7D50\uFF1A${options.reason}` : "\u624B\u52D5\u57F7\u884C\u7576\u6708\u6708\u7D50", at: now.toISOString(), version: state.version, month });
-    return { status: "created", month };
-  });
+  return getFirebaseAdminDb().runTransaction((tx) => commitManualCryptoMonth(tx, ref, expectedVersion));
 }
 export {
   CryptoManagementError2 as CryptoManagementError,

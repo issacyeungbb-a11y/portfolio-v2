@@ -17,6 +17,7 @@ export interface CryptoHistoricalQuantity {
   rawLabel: string;
   symbol: string;
   platform: string | null;
+  status?: string;
   quantity: number;
 }
 

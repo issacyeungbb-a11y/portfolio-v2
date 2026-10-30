@@ -6,7 +6,7 @@ import { runCoinGeckoCoinIdSync } from "./syncCoinIds.js";
 import { writeSystemRun } from "./systemRuns.js";
 import { runScheduledDailySnapshot } from "./cronCaptureSnapshot.js";
 import { runCryptoMonthlySync } from "./cryptoMonthlySync.js";
-import { closeCryptoMonth, refreshManagedCrypto } from "./cryptoManagement.js";
+import { refreshManagedCrypto } from "./cryptoManagement.js";
 import { resolveDailySnapshotOutcome, snapshotRescueAssetIds } from "./dailySnapshotState.js";
 import { verifyCronRequest } from "./cronAuth.js";
 import {
@@ -357,7 +357,6 @@ async function runDailyUpdate(trigger) {
       });
     }
     await refreshManagedCrypto();
-    const cryptoMonthlyClose = await closeCryptoMonth(true);
     let snapshotResult = null;
     if (!snapshotAlreadyDone) {
       await new Promise((r) => setTimeout(r, 2e3));
@@ -398,7 +397,6 @@ async function runDailyUpdate(trigger) {
       route,
       message,
       dateKey,
-      cryptoMonthlyClose,
       appliedCount,
       pendingReviewCount,
       coveragePct,

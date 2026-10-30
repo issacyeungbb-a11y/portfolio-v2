@@ -187,6 +187,7 @@ function SnapshotDetails({ snapshot }: { snapshot: CryptoMonthlySnapshot }) {
       <div className="section-heading">
         <div>
           <h2>{snapshot.month}</h2>
+          {snapshot.sourceType === 'system_management' && <p className="status-message">月結日期：{snapshot.snapshotDate} · {snapshot.rawSourceValues.closingMode === 'manual' ? '按當時平台持倉手動建立' : '按當時平台持倉建立'}</p>}
         </div>
         <StatusBadge
           label={getCryptoSnapshotQualityLabel(snapshot.dataQuality)}
@@ -224,7 +225,7 @@ function SnapshotDetails({ snapshot }: { snapshot: CryptoMonthlySnapshot }) {
                 <span key={entry.rawLabel}>
                   <span>
                     {entry.symbol}
-                    {entry.platform ? <small>{entry.platform}</small> : null}
+                    {entry.platform ? <small>{[entry.platform, entry.status].filter(Boolean).join(' · ')}</small> : null}
                   </span>
                   <strong>{number(entry.quantity, 8)}</strong>
                 </span>
@@ -262,7 +263,7 @@ function SnapshotDetails({ snapshot }: { snapshot: CryptoMonthlySnapshot }) {
             </div>
           ) : (
             <p className="status-message">
-              原始月結沒有可獨立確認的負債明細；不會由平台總值自行推算。
+              {snapshot.sourceType === 'system_management' ? '月結時沒有借貸負債。' : '原始月結沒有可獨立確認的負債明細；不會由平台總值自行推算。'}
             </p>
           )}
         </div>
@@ -271,8 +272,8 @@ function SnapshotDetails({ snapshot }: { snapshot: CryptoMonthlySnapshot }) {
       <div className="crypto-source-panel">
         <div>
           <span>來源</span>
-          <strong>{snapshot.sourceSheet}!{snapshot.sourceRange}</strong>
-          <small>{getCryptoSourceLabel(snapshot.sourceType)} · 批次 {snapshot.importBatchId}</small>
+          <strong>{snapshot.sourceType === 'system_management' ? '平台持倉、借貸及資金紀錄' : `${snapshot.sourceSheet}!${snapshot.sourceRange}`}</strong>
+          <small>{getCryptoSourceLabel(snapshot.sourceType)}{snapshot.importBatchId ? ` · 批次 ${snapshot.importBatchId}` : ''}</small>
         </div>
         <details>
           <summary>查看原始來源數值</summary>
