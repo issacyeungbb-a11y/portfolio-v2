@@ -22,7 +22,7 @@ export const CryptoHistoryTrendChart = memo(function CryptoHistoryTrendChart({ s
   const values = points.flatMap(p => [p.value, ...(mode === 'asset' ? [p.principal] : []), ...(mode === 'change' ? [0] : [])]).filter((v): v is number => v != null && Number.isFinite(v));
   if (!values.length) return <div ref={container}><p>所選範圍未有可比較數值。</p></div>;
   const rawMin = Math.min(...values), rawMax = Math.max(...values), pad = (rawMax - rawMin || Math.max(1, Math.abs(rawMax))) * .12;
-  const min = rawMin - pad, max = rawMax + pad;
+  const min = mode === 'asset' && rawMin >= 0 ? Math.max(0, rawMin - pad) : rawMin - pad, max = rawMax + pad;
   const x = (t: number) => left + (points.length === 1 ? .5 : (t - points[0].time) / (points[points.length - 1].time - points[0].time)) * (width - left - right);
   const y = (v: number) => top + (max - v) / (max - min) * (height - top - bottom);
   const active = points.find(p => p.snapshot.month === (hovered ?? selectedMonth)) ?? points[points.length - 1];

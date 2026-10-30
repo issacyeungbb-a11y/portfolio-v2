@@ -198,3 +198,6 @@
 .crypto-history-page .crypto-kpi-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
 .monthly-context .crypto-import-grid dd { overflow-wrap:anywhere; }
 @media(max-width:760px) { .crypto-history-page .crypto-kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .monthly-pagination { justify-content:center; } }
+
+.crypto-history-page .crypto-year-selector button,.monthly-range button { appearance:none; border:1px solid var(--border); background:var(--surface-strong); color:var(--text-muted); padding:8px 13px; border-radius:20px; font:inherit; font-size:13px; cursor:pointer; }
+.crypto-history-page .crypto-year-selector button.active,.monthly-range button.active { color:var(--accent); background:var(--surface-muted); border-color:var(--accent); }
