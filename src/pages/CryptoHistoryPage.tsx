@@ -306,6 +306,9 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
   const history = useCryptoHistory();
   const [year, setYear] = useState<CryptoHistoryYearFilter>('all');
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [range, setRange] = useState('all');
+  const [archiveSearch, setArchiveSearch] = useState('');
+  const [archivePage, setArchivePage] = useState(0);
   const [trendCurrency, setTrendCurrency] = useState<TrendCurrency>('HKD');
   const [syncStatus, setSyncStatus] = useState<'idle' | 'previewing' | 'applying'>('idle');
   const [syncPreview, setSyncPreview] = useState<CryptoSyncPreview | null>(null);
@@ -319,13 +322,29 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
     () => filterCryptoSnapshots(history.snapshots, year),
     [history.snapshots, year],
   );
+  const chartSnapshots = useMemo(() => {
+    if (range === 'all') return filteredSnapshots;
+    if (range === 'year') return filteredSnapshots.filter(s => s.month.startsWith(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric' }).format(new Date())));
+    const latest = history.snapshots[history.snapshots.length - 1]?.month;
+    if (!latest) return [];
+    const [y, m] = latest.split('-').map(Number);
+    const cutoff = y * 12 + m - 12;
+    return filteredSnapshots.filter(s => { const [a, b] = s.month.split('-').map(Number); return a * 12 + b > cutoff; });
+  }, [filteredSnapshots, history.snapshots, range]);
+  const archiveRows = [...filteredSnapshots].reverse().filter(s => s.month.includes(archiveSearch.trim()));
+  const pageCount = Math.max(1, Math.ceil(archiveRows.length / 12));
+  const currentPage = Math.min(archivePage, pageCount - 1);
+  const exportHistory = () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), snapshots: history.snapshots, latestImport: history.latestImport, latestSync: history.latestSync }, null, 2)], { type: 'application/json' }));
+    const a = document.createElement('a'); a.href = url; a.download = 'crypto-monthly-history.json'; a.click(); URL.revokeObjectURL(url);
+  };
   const activeSnapshot =
     filteredSnapshots.find((snapshot) => snapshot.month === selectedMonth) ??
     filteredSnapshots[filteredSnapshots.length - 1] ??
     null;
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
-      title: 'Crypto 歷史',
+      title: '加密資產月結',
       subtitle: managed ? '持倉在管理中心維護，以下保留各月份鎖定結果。' : 'Google Sheet 月結紀錄，不計入投資組合。',
       primaryStatus:
         history.status === 'ready'
@@ -515,6 +534,7 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
     <div className="page-stack crypto-history-page">
       <StatusMessages errors={history.errors} />
 
+      <section className="card monthly-intro"><div><span className="cm-eyebrow">MONTHLY STATEMENT</span><h2>月結總覽</h2><p className="cm-caption">{history.snapshots[0]?.month} — {history.snapshots[history.snapshots.length - 1]?.month} · {history.snapshots.length} 個月份 · 原始紀錄完整保留</p></div><button type="button" className="button button-secondary" onClick={exportHistory}>匯出全部月結</button></section>
       <section className="card crypto-history-toolbar">
         <div className="crypto-filter-controls">
           <div className="crypto-year-selector" aria-label="年份篩選">
@@ -527,6 +547,7 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
                 onClick={() => {
                   setYear(option);
                   setSelectedMonth(null);
+                  setArchivePage(0);
                 }}
               >
                 {option === 'all' ? '全部' : option}
@@ -555,17 +576,7 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
           <KpiCard
             label="月結總資產 HKD"
             value={money(activeSnapshot.totalHkd, 'HKD')}
-            hint={activeSnapshot.month}
-          />
-          <KpiCard
-            label="月結總資產 USD"
-            value={money(activeSnapshot.performanceTotalUsd, 'USD')}
-            hint="不扣提取／消費"
-          />
-          <KpiCard
-            label={activeSnapshot.sourceType === 'system_management' ? '月結淨資產 USD' : '原表逐項持倉 USD'}
-            value={money(activeSnapshot.currentNetUsd, 'USD')}
-            hint="資產減負債"
+            hint={`${activeSnapshot.month} · ${activeSnapshot.sourceType === 'system_management' ? '淨資產口徑' : '原表口徑'}`}
           />
           <KpiCard
             label="本金 HKD"
@@ -578,30 +589,16 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
             hint={`${percent(activeSnapshot.returnPct)} 回報率`}
             tone={activeSnapshot.returnHkd >= 0 ? 'positive' : 'negative'}
           />
-          <KpiCard
-            label="累計回報率"
-            value={percent(activeSnapshot.returnPct)}
-            hint={`上月變化 ${percent(activeSnapshot.monthOverMonthPct)}`}
-            tone={activeSnapshot.returnPct >= 0 ? 'positive' : 'negative'}
-          />
-          <KpiCard
-            label="累計提取／消費 USD"
-            value={money(activeSnapshot.cumulativeWithdrawnUsd, 'USD')}
-            hint="獨立列示，不重複計算"
-          />
-          <KpiCard
-            label="BTC 等值"
-            value={number(activeSnapshot.btcEquivalent, 6)}
-            hint={`匯率 ${number(activeSnapshot.usdHkdRate, 4)}`}
-          />
+          <KpiCard label="月度資產變化" value={percent(activeSnapshot.monthOverMonthPct)} hint="原紀錄 USD 比較口徑 · 包含資金變化" />
         </section>
       ) : null}
 
-      <section className="crypto-chart-grid">
+      <div className="monthly-range" aria-label="走勢時間範圍">{[['all', '全部期間'], ['year', '今年'], ['12', '近 12 個月']].map(([id, label]) => <button type="button" key={id} className={range === id ? 'chip active' : 'chip'} aria-pressed={range === id} onClick={() => setRange(id)}>{label}</button>)}<span className="cm-caption">與年份篩選共同套用</span></div>
+      <section className="crypto-chart-grid monthly-charts">
         <article className="card crypto-chart-card">
           <div className="section-heading">
             <div>
-              <h2>鎖定月結總值</h2>
+              <h2>月結總值與累計本金</h2>
             </div>
             <div className="crypto-currency-toggle" aria-label="走勢顯示貨幣">
               {(['HKD', 'USD'] as const).map((currency) => (
@@ -618,7 +615,7 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
             </div>
           </div>
           <CryptoHistoryTrendChart
-            snapshots={filteredSnapshots}
+            snapshots={chartSnapshots}
             mode="asset"
             currency={trendCurrency}
             selectedMonth={activeSnapshot?.month}
@@ -629,11 +626,11 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
         <article className="card crypto-chart-card">
           <div className="section-heading">
             <div>
-              <h2>回報走勢</h2>
+              <h2>累計回報走勢 · HKD</h2>
             </div>
           </div>
           <CryptoHistoryTrendChart
-            snapshots={filteredSnapshots}
+            snapshots={chartSnapshots}
             mode="return"
             selectedMonth={activeSnapshot?.month}
             onSelectMonth={selectMonth}
@@ -641,28 +638,16 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
         </article>
       </section>
 
-      {activeSnapshot ? (
-        <section className="card crypto-allocation-card">
-          <div className="section-heading">
-            <div>
-              <h2>{activeSnapshot.month} 資產分佈</h2>
-            </div>
-            <StatusBadge
-              label={getCryptoSnapshotQualityLabel(activeSnapshot.dataQuality)}
-              tone={getCryptoSnapshotQualityTone(activeSnapshot.dataQuality)}
-            />
-          </div>
-          <CryptoAllocationPanel snapshot={activeSnapshot} />
-        </section>
-      ) : null}
-
+      <article className="card crypto-chart-card"><h2>月度資產變化 · USD 比較口徑</h2><CryptoHistoryTrendChart snapshots={chartSnapshots} mode="change" selectedMonth={activeSnapshot?.month} onSelectMonth={selectMonth} /><p className="cm-caption">包含入金、提取及估值變動，並非扣除資金流後的投資回報。新舊計算口徑分段顯示，缺少月份不連線。</p></article>
+      {activeSnapshot ? <><section className="card monthly-context"><div className="section-heading"><h2>{activeSnapshot.month} 月結檔案</h2><StatusBadge label={activeSnapshot.locked ? '已鎖定' : '未鎖定'} tone={activeSnapshot.locked ? 'success' : 'warning'} /></div><p className="cm-caption">結算日期：{activeSnapshot.snapshotDate || '未有資料'} · {activeSnapshot.sourceType === 'system_management' ? '以當時平台持倉扣除負債，提取獨立列示' : '保留原表計算方式；與新平台持倉淨值口徑分開比較'}</p><dl className="crypto-import-grid"><div><dt>月結總值 USD</dt><dd>{money(activeSnapshot.performanceTotalUsd, 'USD')}</dd></div><div><dt>{activeSnapshot.sourceType === 'system_management' ? '月結淨資產 USD' : '原表逐項持倉 USD'}</dt><dd>{money(activeSnapshot.currentNetUsd, 'USD')}</dd></div><div><dt>累計提取／消費 USD</dt><dd>{money(activeSnapshot.cumulativeWithdrawnUsd, 'USD')}</dd></div><div><dt>BTC 等值</dt><dd>{number(activeSnapshot.btcEquivalent, 6)}</dd></div><div><dt>USD/HKD 匯率</dt><dd>{number(activeSnapshot.usdHkdRate, 4)}</dd></div><div><dt>原紀錄累計回報率</dt><dd>{percent(activeSnapshot.returnPct)}</dd></div></dl></section><SnapshotDetails snapshot={activeSnapshot} /></> : null}
       <section className="card crypto-records-card">
         <div className="section-heading">
           <div>
-            <h2>{year === 'all' ? '月結紀錄' : `${year} 年月結紀錄`}</h2>
+            <h2>{year === 'all' ? '完整歷史檔案' : `${year} 年月結檔案`}</h2>
           </div>
           <span className="chip chip-soft">{filteredSnapshots.length} 筆</span>
         </div>
+        <label className="monthly-search">搜尋月份<input type="search" placeholder="例如 2025-10" value={archiveSearch} onChange={e => { setArchiveSearch(e.target.value); setArchivePage(0); }} /></label>
         <div className="crypto-records-scroll">
           <table className="crypto-records-table">
             <thead>
@@ -672,13 +657,13 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
                 <th>本金</th>
                 <th>回報</th>
                 <th>回報率</th>
-                <th>上月變化</th>
+                <th>月度資產變化</th>
                 <th>資料品質</th>
                 <th>來源</th>
               </tr>
             </thead>
             <tbody>
-              {[...filteredSnapshots].reverse().map((snapshot) => (
+              {archiveRows.slice(currentPage * 12, currentPage * 12 + 12).map((snapshot) => (
                 <tr
                   key={snapshot.id}
                   className={snapshot.id === activeSnapshot?.id ? 'active' : ''}
@@ -707,9 +692,11 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
             </tbody>
           </table>
         </div>
+        {archiveRows.length === 0 && <p className="cm-caption">沒有符合的月份。</p>}
+        <div className="monthly-pagination"><button type="button" className="button button-secondary" disabled={currentPage === 0} onClick={() => setArchivePage(currentPage - 1)}>上一頁</button><span>第 {currentPage + 1} / {pageCount} 頁 · {archiveRows.length} 筆</span><button type="button" className="button button-secondary" disabled={currentPage >= pageCount - 1} onClick={() => setArchivePage(currentPage + 1)}>下一頁</button></div>
       </section>
 
-      {activeSnapshot ? <SnapshotDetails snapshot={activeSnapshot} /> : null}
+
 
       {!managed && <section className="card crypto-import-card">
         <div className="section-heading">

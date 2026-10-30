@@ -175,3 +175,26 @@
 .cm-selected-market span { display:block; font-size:11px; color:var(--cm-muted); margin-bottom:5px; }
 .cm-selected-market strong { font-size:15px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
 @media(max-width:760px) { .cm-heading > .cm-actions,.cm-currency-control { justify-content:flex-start; } .cm-currency-control { flex-wrap:wrap; } .cm-coin-layout { grid-template-columns:minmax(0,1fr); } .cm-coin-sidebar { min-width:0; } .cm-selected-coin { grid-template-columns:minmax(0,1fr); } .cm-selected-market { grid-row:auto; grid-template-columns:repeat(2,minmax(0,1fr)); } .cm-selected-market > div:last-child { grid-column:1 / -1; } }
+
+/* Monthly statement: historical snapshots remain read-only. */
+.monthly-intro { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+.monthly-intro h2 { margin:6px 0; }
+.monthly-range,.monthly-pagination { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.monthly-pagination { justify-content:flex-end; margin-top:18px; font-size:13px; }
+.monthly-search { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:16px 0; font-size:13px; }
+.monthly-search input { padding:9px 12px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text-main); max-width:100%; }
+.monthly-live summary { cursor:pointer; color:var(--text-muted); font-size:13px; }
+.monthly-live[open] .cm-kpis { margin-top:16px; }
+.monthly-chart-legend { display:flex; gap:20px; flex-wrap:wrap; color:var(--text-muted); font-size:12px; }
+.monthly-principal-key { color:var(--text-muted); }
+.monthly-charts.crypto-chart-grid { grid-template-columns:minmax(0,1fr); }
+.monthly-chart-stage.crypto-chart-stage,.monthly-chart-stage.crypto-chart-stage svg { height:260px; background:transparent; }
+.monthly-principal-line { stroke:var(--text-muted); stroke-dasharray:6 5; }
+.monthly-chart-dot,.monthly-change-bar { fill:var(--crypto-chart-line); }
+.monthly-change-bar[data-negative='true'] { fill:var(--danger); }
+.monthly-basis-boundary { stroke:var(--text-muted); stroke-dasharray:3 5; opacity:.5; }
+.monthly-axis-label { fill:var(--text-muted); font-size:12px; }
+.monthly-live .cm-kpis strong { white-space:nowrap; overflow-wrap:normal; font-size:clamp(14px,1.5vw,23px); }
+.crypto-history-page .crypto-kpi-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.monthly-context .crypto-import-grid dd { overflow-wrap:anywhere; }
+@media(max-width:760px) { .crypto-history-page .crypto-kpi-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .monthly-pagination { justify-content:center; } }

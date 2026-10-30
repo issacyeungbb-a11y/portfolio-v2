@@ -19,3 +19,6 @@ src/lib/**/*.js
 src/lib/**/*.d.ts
 src/types/*.js
 src/types/*.d.ts
+
+# Private local data backups
+.local-backups/

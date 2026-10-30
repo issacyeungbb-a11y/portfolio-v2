@@ -38,6 +38,14 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
   const [category, setCategory] = useState<'platform' | 'coin'>('platform');
   const [selection, setSelection] = useState('');
   const [historyRefresh, setHistoryRefresh] = useState(0);
+  const [monthLocked, setMonthLocked] = useState(false);
+  useEffect(() => {
+    if (tab !== 'history') return;
+    let active = true;
+    const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit' }).format(new Date());
+    void callPortfolioFunction('crypto-history').then(value => { if (active) setMonthLocked(((value as { snapshots?: Array<{ month: string; locked: boolean }> }).snapshots ?? []).some(s => s.month === month && s.locked)); }).catch(() => { if (active) setMonthLocked(false); });
+    return () => { active = false; };
+  }, [tab, historyRefresh]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -109,16 +117,18 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
   }
   const field = (key: string, label: string, type = 'text', required = true) => <label key={key}>{label}<input readOnly={editor?.kind === 'coins' && key === 'symbol' && state?.coins.some(c => c.symbol === editor.id)} required={required} type={type} list={key === 'custodian' ? 'cm-platform-options' : undefined} step={type === 'number' ? 'any' : undefined} maxLength={160} value={editor?.fields[key] ?? ''} onChange={e => setEditor(current => current ? { ...current, fields: { ...current.fields, [key]: e.target.value } } : current)} /></label>;
   const select = (key: string, label: string, options: Array<[string, string]>) => <label key={key}>{label}<select value={editor?.fields[key] ?? ''} onChange={e => setEditor(current => current ? { ...current, fields: { ...current.fields, [key]: e.target.value } } : current)}>{options.map(([value, name]) => <option key={value} value={value}>{name}</option>)}</select></label>;
+  const liveOverview = state && v ? <><section className="cm-kpis" aria-label="目前持倉概要">{[[displayValues?.complete ? '持倉總值' : '已定價持倉總值', displayMoney(v.grossUsd)], ['借貸負債', displayMoney(v.debtUsd)], [v.warnings.length ? '已定價淨值 · 尚有缺價' : '目前淨資產', displayMoney(v.netUsd)], ['累計本金', principalMoney]].map(([label, value]) => <article className="card" key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
+      {currency === 'HKD' && !usdHkd && <p className="cm-alert" role="status">未有有效港元匯率，港幣估值暫列待補；可切換美金查看原幣估值。</p>}
+      {v.warnings.length > 0 && <p className="cm-alert" role="status">{v.warnings.join('；')}。以上為已取得價格部分嘅估值；補齊有效價格前不能正式月結。</p>}
+      {data.assetsSync && <CryptoAssetSyncStatus status={data.assetsSync} onUpdated={setData} />}
+</> : null;
   return <div className="page-stack cm-page">
     <section className="card cm-heading"><div><span className="cm-eyebrow">CRYPTO · 管理與歷史</span><h2>持倉管理中心</h2><p>平台持倉決定幣數 · 資產頁每日更新價格 · 按平台持倉手動月結</p></div><div className="cm-actions"><div className="cm-currency-control"><span>持倉估值貨幣</span><div className="cm-category-switch" role="group" aria-label="持倉估值貨幣">{(['USD', 'HKD'] as const).map(code => <button key={code} type="button" className={currency === code ? 'active' : ''} aria-pressed={currency === code} onClick={() => setCurrency(code)}>{code === 'USD' ? '美金 USD' : '港幣 HKD'}</button>)}</div></div><Link className="button button-secondary" to="/assets">查看資產</Link><button className="button button-secondary" disabled={busy} onClick={() => void operate(refresh)}>重新整理</button>{state && <button className="button button-primary" disabled={busy} onClick={() => void operate(async () => { const result = await api({ action: 'update-prices', expectedVersion: state.version }) as CryptoManagementResponse & { priceUpdateSummary: { updated: number; pending: number } }; setData(result); setMessage(`已更新 ${result.priceUpdateSummary.updated} 個幣種，${result.priceUpdateSummary.pending} 個待核對；手動價格獨立處理。`); })}>{busy ? '處理中…' : '更新市場價格'}</button>}{state && <button className="button button-secondary" onClick={() => download('crypto-management-backup.json', data)}>匯出備份</button>}</div></section>
     {error && <p className="cm-alert cm-alert-error" role="alert">{error}</p>}{message && <p className="cm-alert" role="status">{message}</p>}
     {!data && !error && <section className="card" aria-busy="true">正在讀取 Crypto 管理資料…</section>}
     {data && !state && <section className="card cm-migration"><h2>將 Google Sheet 搬入系統</h2><p>核對平台持倉、借貸、資金紀錄，並保存 Crypto 來源分頁。現有鎖定月結會保留。</p><button className="button button-primary" disabled={busy} onClick={() => void operate(async () => { setPreview(await api({ action: 'preview-migration' }) as typeof preview); })}>{busy ? '正在核對來源…' : '核對遷移資料'}</button>{preview && <><div className="cm-stats"><span>{preview.state.positions.length} 筆持倉</span><span>{preview.state.liabilities.length} 筆借貸</span><span>{preview.state.funding.length} 筆資金</span><span>{preview.sourceArchive.length} 個來源分頁</span></div><div className="cm-table-scroll"><table className="cm-table"><thead><tr><th>幣種</th><th>現有數量</th><th>原表數量 → 新持倉</th></tr></thead><tbody>{preview.differences.map(r => <tr key={r.symbol}><th>{r.symbol}</th><td>{number(r.previousQuantity)}</td><td>{number(r.quantity)}</td></tr>)}</tbody></table></div><p className="cm-alert">PHOTON 價格維持待補。遷移後 Google Sheet 只作備份，系統將按實際幣數估值，提取／消費獨立列示。</p><button className="button button-primary" disabled={busy} onClick={() => void operate(async () => { setData(await api({ action: 'migrate', operationId: crypto.randomUUID(), sourceChecksum: preview.sourceChecksum, reason: '第三階段：核對原表後遷移到系統管理' }) as CryptoManagementResponse); setPreview(null); setMessage('遷移完成，請核對持倉及來源備份。'); })}>完成遷移並啟用系統管理</button></>}</section>}
     {state && v && <>
-      <section className="cm-kpis" aria-label="目前持倉概要">{[[displayValues?.complete ? '持倉總值' : '已定價持倉總值', displayMoney(v.grossUsd)], ['借貸負債', displayMoney(v.debtUsd)], [v.warnings.length ? '已定價淨值 · 尚有缺價' : '目前淨資產', displayMoney(v.netUsd)], ['累計本金', principalMoney]].map(([label, value]) => <article className="card" key={label}><span>{label}</span><strong>{value}</strong></article>)}</section>
-      {currency === 'HKD' && !usdHkd && <p className="cm-alert" role="status">未有有效港元匯率，港幣估值暫列待補；可切換美金查看原幣估值。</p>}
-      {v.warnings.length > 0 && <p className="cm-alert" role="status">{v.warnings.join('；')}。以上為已取得價格部分嘅估值；補齊有效價格前不能正式月結。</p>}
-      {data.assetsSync && <CryptoAssetSyncStatus status={data.assetsSync} onUpdated={setData} />}
+      {tab === 'history' ? <details className="card monthly-live"><summary>目前持倉估值 · 即時參考（並非歷史月結）</summary>{liveOverview}</details> : liveOverview}
       <nav className="cm-tabs" aria-label="Crypto 管理區域">{([['positions', '平台持倉'], ['movements', 'Crypto 變動'], ['liabilities', '借貸負債'], ['funding', '資金紀錄'], ['history', '月結歷史'], ['source', '來源與紀錄']] as Array<[Tab, string]>).map(([id, name]) => <button key={id} className={tab === id ? 'active' : ''} aria-pressed={tab === id} onClick={() => { setTab(id); setSearch(''); setSelection(''); setError(''); setMessage(''); }}>{name}</button>)}</nav>
       {tab === 'positions' && <section className="card">
         <div className="section-heading"><div><h2>持倉分類</h2><p className="cm-caption">單價沿用資產大表每日更新的價格；總值＝數量 × 單價。</p></div><div className="cm-actions">
@@ -152,13 +162,15 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
         <section className="card">
           <div className="section-heading">
             <div><h2>手動月結</h2><p className="cm-caption">每月由你手動執行，以平台持倉的實際幣數、現有有效價格、借貸及本金建立當月快照，記錄實際執行日期。提取另外列示；已鎖定月份保留原有紀錄。</p></div>
-            <button className="button button-primary" disabled={busy} onClick={() => void operate(async () => {
+            <button className="button button-primary" disabled={busy || monthLocked} onClick={() => void operate(async () => {
+              if (!window.confirm(`確認按目前平台持倉建立當月月結？\n持倉 ${state.positions.length} 筆 · 借貸 ${state.liabilities.length} 筆\n持倉總值 ${displayMoney(v.grossUsd)}\n借貸 ${displayMoney(v.debtUsd)}\n淨資產 ${displayMoney(v.netUsd)}\n本金 ${principalMoney}\n價格來源：資產頁現有報價及幣種手動價格；伺服器會檢查價格與匯率時效。\n已鎖定月份保留原紀錄。`)) return;
               const result = await api({ action: 'close-month', expectedVersion: state.version }) as CryptoManagementResponse & { result: { status: string; month?: string; warnings?: string[] } };
               setData(result);
               setHistoryRefresh(n => n + 1);
               setMessage(result.result.status === 'created' ? `已根據平台持倉建立 ${result.result.month} 月結，並記錄實際執行日期。` : result.result.status === 'locked' ? '當月已鎖定，沒有覆蓋。' : result.result.warnings?.join('；') || '未能建立月結，請重新整理管理資料。');
-            })}>{busy ? '正在處理…' : '執行當月月結'}</button>
+            })}>{monthLocked ? '本月已鎖定' : busy ? '正在處理…' : '執行當月月結'}</button>
           </div>
+          <details className="monthly-close-preview"><summary>月結前核對：平台持倉、價格及負債</summary><p className="cm-caption">淨資產 {displayMoney(v.netUsd)} · 本金 {principalMoney} · 提取 {displayMoney(v.withdrawnUsd)}<br />港元匯率：{usdHkd ?? '待補'} · 更新時間：{data.displayFx?.updatedAt ? dateLabel(data.displayFx.updatedAt) : '未有資料'}。市場報價時間會在執行時由伺服器核對，逾期或缺價只建立草稿。</p><div className="cm-table-scroll"><table className="cm-table"><thead><tr><th>類型</th><th>平台</th><th>幣種</th><th>數量</th><th>單價 USD</th><th>價格來源</th></tr></thead><tbody>{[...state.positions.map(p => ({ ...p, kind: '持倉' })), ...state.liabilities.map(p => ({ ...p, kind: '借貸' }))].map(p => <tr key={`${p.kind}-${p.id}`}><td>{p.kind}</td><td>{p.custodian}</td><td>{p.symbol}</td><td>{number(p.quantity)}</td><td>{v.prices[p.symbol] == null ? '待補' : money(v.prices[p.symbol]!)}</td><td>{state.coins.find(c => c.symbol === p.symbol)?.priceSource === 'manual' ? `手動 · ${state.coins.find(c => c.symbol === p.symbol)?.manualPriceAt || '未有時間'}` : '資產頁市場報價'}</td></tr>)}</tbody></table></div></details>
           {data.draft && <p className="cm-alert">{data.draft.month} 月結草稿：{data.draft.warnings.join('；')}。尚未鎖定正式月結；補齊資料後請再次手動執行。</p>}
         </section>
         <div key={historyRefresh}>{history}</div>
