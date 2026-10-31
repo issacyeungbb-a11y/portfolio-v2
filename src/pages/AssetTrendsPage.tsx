@@ -23,7 +23,9 @@ import {
   buildCalendarEntries,
   buildPerformanceOverview,
   buildPeriodTrend,
+  findDataCompleteStartDate,
   getAvailableTrendPeriods,
+  markOnboardingCalendarEntries,
   summarizeCalendarMonth,
   trendPeriodOptions,
   type TrendPeriod,
@@ -177,23 +179,36 @@ export function AssetTrendsPage() {
     todaySnapshotExists,
   );
 
-  const availablePeriods = getAvailableTrendPeriods(history, currentPoint);
+  // 開始記錄初期快照未包齊所有資產（輸入緊資產），呢段期間只作顯示，唔計收益。
+  const dataStartDate = findDataCompleteStartDate(history, cashFlows);
+  const availablePeriods = getAvailableTrendPeriods(history, currentPoint, dataStartDate);
   const activePeriod: TrendPeriod | null = availablePeriods.includes(selectedPeriod)
     ? selectedPeriod
     : availablePeriods.includes('all')
       ? 'all'
       : null;
-  const periodTrend = activePeriod ? buildPeriodTrend(history, currentPoint, cashFlows, activePeriod) : null;
+  const isAllPeriod = activePeriod === 'all';
+  const periodTrend = activePeriod ? buildPeriodTrend(history, currentPoint, cashFlows, activePeriod, dataStartDate) : null;
   const trendSeries = periodTrend?.series ?? [];
   const trendValues = trendSeries.map((point) => toDisplay(point.totalValue));
   const longSpan = trendSeries.length > 1 &&
     Number(trendSeries[trendSeries.length - 1].date.slice(0, 4)) * 12 + Number(trendSeries[trendSeries.length - 1].date.slice(5, 7)) -
       (Number(trendSeries[0].date.slice(0, 4)) * 12 + Number(trendSeries[0].date.slice(5, 7))) > 9;
-  const periodTone = !periodTrend || Math.round(periodTrend.marketChange) === 0
+  // 「全部」同頂部累計收益同一計法（現值減累計本金），唔受早期快照影響。
+  const headlineChangeHKD = isAllPeriod ? historicalReturnHKD : periodTrend?.marketChange ?? 0;
+  const headlinePct = isAllPeriod ? historicalReturnPct : periodTrend?.returnPct ?? 0;
+  const periodTone = !periodTrend || Math.round(headlineChangeHKD) === 0
     ? 'neutral'
-    : periodTrend.marketChange > 0 ? 'gain' : 'loss';
+    : headlineChangeHKD > 0 ? 'gain' : 'loss';
+  const onboardingUntilIndex = isAllPeriod && dataStartDate
+    ? trendSeries.findIndex((point) => point.date === dataStartDate)
+    : -1;
+  const isOnboardingDate = (dateKey: string) => Boolean(dataStartDate && dateKey <= dataStartDate);
 
-  const calendarEntries = buildCalendarEntries(history, todaySnapshotExists ? currentPoint : null, cashFlows);
+  const calendarEntries = markOnboardingCalendarEntries(
+    buildCalendarEntries(history, todaySnapshotExists ? currentPoint : null, cashFlows),
+    dataStartDate,
+  );
   const calendarMap = new Map(calendarEntries.map((entry) => [entry.date, entry]));
   const calendarMonthOptions = [...new Set([
     getMonthKey(currentPoint.date),
@@ -308,7 +323,9 @@ export function AssetTrendsPage() {
             <h2>期間表現</h2>
             {periodTrend ? (
               <p className="trends-caption">
-                {formatDateChip(periodTrend.startDate)} 收市 至 {formatDateChip(periodTrend.endDate)}
+                {isAllPeriod
+                  ? `記錄由 ${formatDateChip(trendSeries[0]?.date ?? periodTrend.startDate)} 開始 至 ${formatDateChip(periodTrend.endDate)}`
+                  : `${formatDateChip(periodTrend.startDate)} 收市 至 ${formatDateChip(periodTrend.endDate)}`}
               </p>
             ) : null}
           </div>
@@ -335,9 +352,9 @@ export function AssetTrendsPage() {
           <>
             <div className="trends-period-headline">
               <div>
-                <span>區間收益（已扣除資金流）</span>
-                <strong className={getToneClass(periodTrend.marketChange)}>{signedMoney(periodTrend.marketChange)}</strong>
-                <em className={getToneClass(periodTrend.marketChange)}>{formatPercent(periodTrend.returnPct)}</em>
+                <span>{isAllPeriod ? '累計收益（現值減累計本金）' : '區間收益（已扣除資金流）'}</span>
+                <strong className={getToneClass(headlineChangeHKD)}>{signedMoney(headlineChangeHKD)}</strong>
+                <em className={getToneClass(headlineChangeHKD)}>{formatPercent(headlinePct)}</em>
               </div>
             </div>
 
@@ -346,45 +363,82 @@ export function AssetTrendsPage() {
               tooltipTitles={trendSeries.map((point) => formatDateChip(point.date))}
               series={[{ id: 'total', label: '總資產', values: trendValues, variant: 'primary' }]}
               tone={periodTone}
-              baseline={trendValues[0] ?? null}
+              baseline={isAllPeriod ? toDisplay(performanceOverview.totalPrincipalHKD) : trendValues[0] ?? null}
+              shade={onboardingUntilIndex > 0 ? { untilIndex: onboardingUntilIndex, label: '建立資料期間・不計收益' } : null}
               formatValue={(value) => formatCurrencyRounded(value, displayCurrency)}
               ariaLabel={`資產走勢圖，${trendPeriodOptions.find((option) => option.value === activePeriod)?.label ?? ''}`}
               renderTooltip={(index) => {
                 const value = trendValues[index];
                 const fromStart = value - trendValues[0];
                 const fromPrevious = index > 0 ? value - trendValues[index - 1] : 0;
+                if (isOnboardingDate(trendSeries[index].date)) {
+                  return (
+                    <>
+                      <strong>{formatCurrencyRounded(value, displayCurrency)}</strong>
+                      <span>建立資料期間：快照未包齊所有資產，不計收益</span>
+                    </>
+                  );
+                }
                 return (
                   <>
                     <strong>{formatCurrencyRounded(value, displayCurrency)}</strong>
                     <span className={getToneClass(fromPrevious)}>較上一日 {formatSignedMoney(fromPrevious, displayCurrency)}</span>
-                    <span className={getToneClass(fromStart)}>較期初 {formatSignedMoney(fromStart, displayCurrency)}</span>
+                    {isAllPeriod ? null : (
+                      <span className={getToneClass(fromStart)}>較期初 {formatSignedMoney(fromStart, displayCurrency)}</span>
+                    )}
                   </>
                 );
               }}
             />
 
-            <dl className="trends-bridge" aria-label="期初至期末拆解">
-              <div>
-                <dt>期初估值</dt>
-                <dd>{money(periodTrend.startValue)}</dd>
-              </div>
-              <span aria-hidden="true">＋</span>
-              <div>
-                <dt>市場變動</dt>
-                <dd className={getToneClass(periodTrend.marketChange)}>{signedMoney(periodTrend.marketChange)}</dd>
-              </div>
-              <span aria-hidden="true">＋</span>
-              <div>
-                <dt>資金流</dt>
-                <dd className="flow-text">{signedMoney(periodTrend.netExternalFlow)}</dd>
-              </div>
-              <span aria-hidden="true">＝</span>
-              <div>
-                <dt>期末估值</dt>
-                <dd>{money(periodTrend.endValue)}</dd>
-              </div>
-            </dl>
-            <p className="trends-caption">虛線為期初估值；線色按區間收益（綠升紅跌）。資金流即入金及提取，不計作收益。</p>
+            {isAllPeriod ? (
+              <dl className="trends-bridge" aria-label="累計本金至現值拆解">
+                <div>
+                  <dt>累計本金</dt>
+                  <dd className="flow-text">{money(performanceOverview.totalPrincipalHKD)}</dd>
+                </div>
+                <span aria-hidden="true">＋</span>
+                <div>
+                  <dt>累計收益</dt>
+                  <dd className={getToneClass(historicalReturnHKD)}>{signedMoney(historicalReturnHKD)}</dd>
+                </div>
+                <span aria-hidden="true">＝</span>
+                <div>
+                  <dt>現值</dt>
+                  <dd>{money(currentPoint.totalValue)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <dl className="trends-bridge" aria-label="期初至期末拆解">
+                <div>
+                  <dt>期初估值</dt>
+                  <dd>{money(periodTrend.startValue)}</dd>
+                </div>
+                <span aria-hidden="true">＋</span>
+                <div>
+                  <dt>市場變動</dt>
+                  <dd className={getToneClass(periodTrend.marketChange)}>{signedMoney(periodTrend.marketChange)}</dd>
+                </div>
+                <span aria-hidden="true">＋</span>
+                <div>
+                  <dt>資金流</dt>
+                  <dd className="flow-text">{signedMoney(periodTrend.netExternalFlow)}</dd>
+                </div>
+                <span aria-hidden="true">＝</span>
+                <div>
+                  <dt>期末估值</dt>
+                  <dd>{money(periodTrend.endValue)}</dd>
+                </div>
+              </dl>
+            )}
+            <p className="trends-caption">
+              {isAllPeriod
+                ? '「全部」與頂部累計收益同一計法；虛線為累計本金。'
+                : '虛線為期初估值；線色按區間收益（綠升紅跌）。資金流即入金及提取，不計作收益。'}
+              {isAllPeriod && dataStartDate
+                ? ` 開始記錄初期（至 ${formatDateChip(dataStartDate)}）快照未包齊所有資產，該段只作顯示，不計收益，亦不會用作期初。`
+                : ''}
+            </p>
           </>
         ) : (
           <p className="trends-system-note">未有足夠快照資料，最少需要兩日快照先可以顯示走勢。</p>
@@ -475,7 +529,7 @@ export function AssetTrendsPage() {
             const entry = calendarMap.get(cell.dateKey);
             const isFuture = cell.dateKey > currentPoint.date;
             const change = entry ? toDisplay(entry.changeHKD) : 0;
-            const tone = !entry || Math.round(change) === 0 ? 'flat' : change > 0 ? 'gain' : 'loss';
+            const tone = entry?.onboarding ? 'onboarding' : !entry || Math.round(change) === 0 ? 'flat' : change > 0 ? 'gain' : 'loss';
             const heat = entry ? Math.min(1, Math.abs(entry.changeHKD) / calendarMaxAbsHKD) : 0;
 
             return (
@@ -483,10 +537,14 @@ export function AssetTrendsPage() {
                 key={cell.dateKey}
                 className={`trends-calendar-cell ${tone}${isFuture ? ' future' : ''}${cell.dateKey === currentPoint.date ? ' today' : ''}`}
                 style={{ '--heat': heat.toFixed(2) } as CSSProperties}
-                title={entry ? `${formatDateChip(cell.dateKey)}：${formatSignedMoney(change, displayCurrency)}` : undefined}
+                title={entry?.onboarding
+                  ? `${formatDateChip(cell.dateKey)}：建立資料期間，不計收益`
+                  : entry ? `${formatDateChip(cell.dateKey)}：${formatSignedMoney(change, displayCurrency)}` : undefined}
               >
                 <strong>{cell.day}</strong>
-                {entry ? <span>{formatCalendarChange(change)}</span> : !isFuture ? <span className="trends-calendar-no-data">—</span> : null}
+                {entry?.onboarding
+                  ? <span className="trends-calendar-no-data">建立期</span>
+                  : entry ? <span>{formatCalendarChange(change)}</span> : !isFuture ? <span className="trends-calendar-no-data">—</span> : null}
               </div>
             );
           })}
@@ -500,7 +558,12 @@ export function AssetTrendsPage() {
           <i style={{ '--heat': '0.4' } as CSSProperties} className="gain" />
           <i style={{ '--heat': '1' } as CSSProperties} className="gain" />
           <span>升</span>
-          <small>顏色深淺按當月最大單日變動比例</small>
+          <small>
+            顏色深淺按當月最大單日變動比例
+            {calendarEntries.some((entry) => entry.onboarding && getMonthKey(entry.date) === activeCalendarMonth)
+              ? '；斜紋為建立資料期間，不計收益'
+              : ''}
+          </small>
         </div>
 
         {status === 'loading' ? <p className="trends-system-note">同步中</p> : null}

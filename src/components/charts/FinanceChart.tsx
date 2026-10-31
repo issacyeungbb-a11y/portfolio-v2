@@ -29,6 +29,8 @@ interface FinanceLineChartProps extends ChartFrameProps {
   breaks?: boolean[];
   tone?: ChartTone;
   baseline?: number | null;
+  /** 由第一點至 untilIndex 加灰色底，標示唔計收益嘅期間（例如建立資料期間）。 */
+  shade?: { untilIndex: number; label: string } | null;
 }
 
 interface FinanceBarChartProps extends ChartFrameProps {
@@ -178,6 +180,7 @@ export function FinanceLineChart({
   breaks,
   tone = 'neutral',
   baseline = null,
+  shade = null,
   formatValue,
   formatAxis = defaultAxisFormat,
   renderTooltip,
@@ -211,6 +214,14 @@ export function FinanceLineChart({
             <stop offset="100%" className="fin-chart-area-end" />
           </linearGradient>
         </defs>
+        {shade && shade.untilIndex > 0 && count > 1 ? (
+          <g className="fin-chart-shade">
+            <rect x={geometry.left} y={padding.top} width={Math.max(0, x(Math.min(shade.untilIndex, count - 1)) - geometry.left)} height={geometry.plotHeight} />
+            {x(Math.min(shade.untilIndex, count - 1)) - geometry.left > 70 ? (
+              <text x={geometry.left + 6} y={padding.top + 14}>{shade.label}</text>
+            ) : null}
+          </g>
+        ) : null}
         <Axes geometry={geometry} labels={labels} width={width} height={height} formatAxis={formatAxis} />
         {baseline != null ? (
           <line className="fin-chart-baseline" x1={geometry.left} x2={width - padding.right} y1={y(baseline)} y2={y(baseline)} />

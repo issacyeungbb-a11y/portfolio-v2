@@ -7,9 +7,11 @@ import {
   buildPerformanceOverview,
   buildPeriodTrend,
   buildTransactionComparisonMaps,
+  findDataCompleteStartDate,
   buildTransactionOverview,
   getAvailableTrendPeriods,
   getMonthlyAnalysisPeriodKey,
+  markOnboardingCalendarEntries,
   selectLatestStoredAnalysis,
   sortMonthlyAnalysisSessions,
   summarizeCalendarMonth,
@@ -156,6 +158,80 @@ test('period trend uses the close before the period as its opening value', () =>
   assert.deepEqual(ytd?.series.map((entry) => entry.date), ['2025-12-31', '2026-01-02', '2026-07-10', '2026-07-24']);
   assert.equal(month?.startDate, '2026-01-02');
   assert.deepEqual(month?.series.map((entry) => entry.date), ['2026-01-02', '2026-07-10', '2026-07-24']);
+});
+
+function onboardingHistory() {
+  // 3/30 只輸入咗部分平台，4/1 先輸入齊；之後係正常市場變動，6/30 有一日 +20% 但已過咗建立期。
+  return [
+    point('2026-03-30', 550_000),
+    point('2026-03-31', 600_000),
+    point('2026-04-01', 1_600_000),
+    point('2026-04-02', 1_620_000),
+    point('2026-05-15', 1_700_000),
+    point('2026-06-29', 1_750_000),
+    point('2026-06-30', 2_100_000),
+    point('2026-07-15', 2_050_000),
+  ];
+}
+
+test('onboarding jumps in the first 60 days mark where complete data starts', () => {
+  assert.equal(findDataCompleteStartDate(onboardingHistory(), []), '2026-04-01');
+  assert.equal(findDataCompleteStartDate([point('2026-03-30', 1000), point('2026-03-31', 1010)], []), null);
+  // 細額平台後輸入（未過 15%）都會由「新資產出現」規則捉到。
+  const withHoldings = (date, total, assets) => ({
+    ...point(date, total),
+    holdings: assets.map(([assetId, marketValueHKD]) => ({ assetId, marketValueHKD })),
+  });
+  assert.equal(
+    findDataCompleteStartDate([
+      withHoldings('2026-03-30', 900, [['futu', 900]]),
+      withHoldings('2026-03-31', 1000, [['futu', 905], ['ib', 95]]),
+      withHoldings('2026-04-01', 1010, [['futu', 910], ['ib', 100]]),
+    ], []),
+    '2026-03-31',
+  );
+  // 用入金買入嘅新資產唔當係建立資料。
+  assert.equal(
+    findDataCompleteStartDate([
+      withHoldings('2026-03-30', 900, [['futu', 900]]),
+      withHoldings('2026-03-31', 1000, [['futu', 905], ['ib', 95]]),
+    ], [cashFlow({ amount: 95, date: '2026-03-31' })]),
+    null,
+  );
+  // 有入金紀錄嘅升幅唔當係建立資料。
+  assert.equal(
+    findDataCompleteStartDate([point('2026-03-30', 1000), point('2026-03-31', 1600)], [cashFlow({ amount: 600, date: '2026-03-31' })]),
+    null,
+  );
+});
+
+test('onboarding period never becomes an opening value and leaves later periods unchanged', () => {
+  const history = onboardingHistory();
+  const currentPoint = point('2026-07-24', 2_060_000);
+  const dataStart = findDataCompleteStartDate(history, []);
+  const withGuard = buildPeriodTrend(history, currentPoint, [], '1m', dataStart);
+  const withoutGuard = buildPeriodTrend(history, currentPoint, [], '1m');
+
+  assert.deepEqual(withGuard, withoutGuard);
+  assert.deepEqual(getAvailableTrendPeriods(history, currentPoint, dataStart), ['1w', '1m', '3m', 'all']);
+  assert.ok(!getAvailableTrendPeriods(history, currentPoint, dataStart).includes('6m'));
+
+  const all = buildPeriodTrend(history, currentPoint, [], 'all', dataStart);
+  assert.equal(all?.series[0].date, '2026-03-30');
+});
+
+test('calendar skips onboarding days and uses the first complete close as base', () => {
+  const history = onboardingHistory();
+  const entries = markOnboardingCalendarEntries(buildCalendarEntries(history, null, []), '2026-04-01');
+  const april = summarizeCalendarMonth(entries, '2026-04');
+  const march = summarizeCalendarMonth(entries, '2026-03');
+
+  assert.equal(entries.find((entry) => entry.date === '2026-04-01')?.onboarding, true);
+  assert.equal(entries.find((entry) => entry.date === '2026-04-01')?.changeHKD, 0);
+  assert.equal(april.pnlHKD, 20_000);
+  assert.equal(april.baseValueHKD, 1_600_000);
+  assert.equal(march.pnlHKD, 0);
+  assert.equal(summarizeCalendarMonth(entries, '2026-06').pnlHKD, 400_000);
 });
 
 test('daily calendar market change also excludes same-period cash flow', () => {

@@ -1840,6 +1840,11 @@ h3 {
   opacity: 0.75;
 }
 
+.trends-calendar-cell.onboarding {
+  background: repeating-linear-gradient(135deg, var(--surface-muted) 0 6px, transparent 6px 12px);
+  border-color: var(--border);
+}
+
 .trends-calendar-cell.empty,
 .trends-calendar-cell.future {
   background: transparent;
@@ -2033,6 +2038,16 @@ h3 {
 
 .fin-chart-dot.reference {
   stroke: var(--text-muted);
+}
+
+.fin-chart-shade rect {
+  fill: rgba(118, 96, 77, 0.08);
+}
+
+.fin-chart-shade text {
+  fill: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .fin-chart-overlay {
