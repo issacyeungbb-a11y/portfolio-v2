@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 
+import { FinanceLineChart } from '../components/charts/FinanceChart';
 import { CurrencyToggle } from '../components/ui/CurrencyToggle';
 import {
   convertCurrency,
@@ -21,22 +22,14 @@ import {
   buildAccountPrincipalOverview,
   buildCalendarEntries,
   buildPerformanceOverview,
-  buildTrendSeries,
+  buildPeriodTrend,
+  getAvailableTrendPeriods,
+  summarizeCalendarMonth,
+  trendPeriodOptions,
+  type TrendPeriod,
 } from '../lib/portfolio/overviewSelectors';
-import type {
-  PortfolioPerformancePoint,
-} from '../types/portfolio';
 
-type TrendRange = '1d' | '7d' | '30d';
-
-const chartWidth = 320;
-const chartHeight = 180;
-
-const trendRanges: Array<{ value: TrendRange; label: string }> = [
-  { value: '1d', label: '今日' },
-  { value: '7d', label: '7日' },
-  { value: '30d', label: '30日' },
-];
+const weekdayLabels = ['日', '一', '二', '三', '四', '五', '六'];
 
 function formatDateChip(dateKey: string) {
   try {
@@ -67,67 +60,16 @@ function getMonthKey(dateKey: string) {
   return dateKey.slice(0, 7);
 }
 
-function buildLinePath(values: number[], width: number, height: number) {
-  if (values.length === 0) {
-    return '';
-  }
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-
-  return values
-    .map((value, index) => {
-      const x = values.length === 1 ? width / 2 : (index / (values.length - 1)) * width;
-      const y = height - ((value - min) / range) * height;
-      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
-    })
-    .join(' ');
+function getToneClass(value: number) {
+  if (value > 0) return 'gain-text';
+  if (value < 0) return 'loss-text';
+  return '';
 }
 
-function buildTrendPoints(values: number[], width: number, height: number) {
-  if (values.length === 0) {
-    return [];
-  }
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-
-  return values.map((value, index) => ({
-    x: values.length === 1 ? width / 2 : (index / (values.length - 1)) * width,
-    y: height - ((value - min) / range) * height,
-    value,
-  }));
-}
-
-function buildValueTicks(values: number[]) {
-  if (values.length === 0) {
-    return [];
-  }
-
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-
-  if (min === max) {
-    return [max, max, max];
-  }
-
-  return [max, (max + min) / 2, min];
-}
-
-function buildDateTicks(series: PortfolioPerformancePoint[]) {
-  if (series.length <= 1) {
-    return series.map((point, index) => ({ index, label: point.date.slice(5) }));
-  }
-
-  const tickCount = Math.min(series.length, series.length >= 7 ? 4 : 3);
-  const ticks = Array.from({ length: tickCount }, (_, tickIndex) => {
-    const index = Math.round((tickIndex / (tickCount - 1)) * (series.length - 1));
-    return { index, label: series[index].date.slice(5) };
-  });
-
-  return ticks.filter((tick, index, list) => list.findIndex((entry) => entry.index === tick.index) === index);
+function formatSignedMoney(value: number, currency: string) {
+  const absolute = formatCurrencyRounded(Math.abs(value), currency);
+  if (Math.round(value) === 0) return absolute;
+  return `${value > 0 ? '+' : '-'}${absolute}`;
 }
 
 function buildCalendarGrid(dateKey: string) {
@@ -155,18 +97,19 @@ function buildCalendarGrid(dateKey: string) {
 }
 
 function formatCalendarChange(value: number) {
-  if (value === 0) {
+  const rounded = Math.round(value);
+  if (rounded === 0) {
     return '0';
   }
 
-  const sign = value > 0 ? '+' : '-';
-  const absolute = Math.abs(value);
+  const sign = rounded > 0 ? '+' : '-';
+  const absolute = Math.abs(rounded);
 
   if (absolute >= 10000) {
-    return `${sign}${Math.round(absolute / 10000)}萬`;
+    return `${sign}${(absolute / 10000).toFixed(absolute >= 1_000_000 ? 0 : 1)}萬`;
   }
 
-  return `${sign}${Math.round(absolute).toLocaleString('en-US')}`;
+  return `${sign}${absolute.toLocaleString('en-US')}`;
 }
 
 function formatSnapshotHint(value?: string) {
@@ -191,6 +134,10 @@ function formatSnapshotHint(value?: string) {
   }).format(date);
 }
 
+function formatAxisDate(dateKey: string, longSpan: boolean) {
+  return longSpan ? `${dateKey.slice(0, 4)}/${dateKey.slice(5, 7)}` : `${dateKey.slice(5, 7)}/${dateKey.slice(8, 10)}`;
+}
+
 export function AssetTrendsPage() {
   const { holdings: firestoreHoldings, status, error } = usePortfolioAssets();
   const { history, error: snapshotsError } = usePortfolioSnapshots();
@@ -198,9 +145,8 @@ export function AssetTrendsPage() {
   const { entries: cashFlows, error: cashFlowsError } = useAccountCashFlows();
   const { entries: principals, error: principalsError } = useAccountPrincipals();
   const [displayCurrency, setDisplayCurrency] = useDisplayCurrency();
-  const [selectedRange, setSelectedRange] = useState<TrendRange | null>('7d');
+  const [selectedPeriod, setSelectedPeriod] = useState<TrendPeriod>('1m');
   const [selectedCalendarMonth, setSelectedCalendarMonth] = useState<string | null>(null);
-  const [hoveredTrendIndex, setHoveredTrendIndex] = useState<number | null>(null);
 
   const holdings = recalculateHoldingAllocations(
     firestoreHoldings,
@@ -208,7 +154,9 @@ export function AssetTrendsPage() {
   );
   const currentPoint = createCurrentPortfolioPoint(holdings);
   const todaySnapshotExists = todaySnapshot.exists;
-  const totalValue = convertCurrency(currentPoint.totalValue, 'HKD', displayCurrency);
+  const toDisplay = (valueHKD: number) => convertCurrency(valueHKD, 'HKD', displayCurrency);
+  const money = (valueHKD: number) => formatCurrencyRounded(toDisplay(valueHKD), displayCurrency);
+  const signedMoney = (valueHKD: number) => formatSignedMoney(toDisplay(valueHKD), displayCurrency);
   const fundsOverview = buildAccountPrincipalOverview(principals, cashFlows, currentPoint.date);
   const performanceOverview = buildPerformanceOverview({
     history,
@@ -220,8 +168,7 @@ export function AssetTrendsPage() {
   const netExternalFlowTotalHKD = fundsOverview.netExternalFlowHKD;
   const historicalReturnHKD = performanceOverview.historicalReturnHKD;
   const historicalReturnPct = performanceOverview.historicalReturnPct;
-  const monthlyReturnHKD = performanceOverview.monthly?.marketChange ?? 0;
-  const monthlyReturnPct = performanceOverview.monthly?.returnPct ?? 0;
+  const monthly = performanceOverview.monthly;
   const todaySummary = calculateAssetChangeSummary(
     history,
     currentPoint,
@@ -229,34 +176,23 @@ export function AssetTrendsPage() {
     '1d',
     todaySnapshotExists,
   );
-  const rangeSummary =
-    selectedRange != null
-      ? calculateAssetChangeSummary(
-          history,
-          currentPoint,
-          cashFlows,
-          selectedRange,
-          todaySnapshotExists,
-        )
+
+  const availablePeriods = getAvailableTrendPeriods(history, currentPoint);
+  const activePeriod: TrendPeriod | null = availablePeriods.includes(selectedPeriod)
+    ? selectedPeriod
+    : availablePeriods.includes('all')
+      ? 'all'
       : null;
-  const trendSeries = selectedRange ? buildTrendSeries(history, currentPoint, selectedRange) : [];
-  const trendValues = trendSeries.map((point) => convertCurrency(point.totalValue, 'HKD', displayCurrency));
-  const linePath = buildLinePath(
-    trendValues,
-    chartWidth,
-    chartHeight,
-  );
-  const trendPoints = buildTrendPoints(trendValues, chartWidth, chartHeight);
-  const yAxisTicks = buildValueTicks(trendValues);
-  const xAxisTicks = buildDateTicks(trendSeries);
-  const hoveredTrendPoint =
-    hoveredTrendIndex == null || hoveredTrendIndex >= trendSeries.length
-      ? null
-      : {
-          point: trendSeries[hoveredTrendIndex],
-          value: trendValues[hoveredTrendIndex],
-          change: trendValues[hoveredTrendIndex] - (trendValues[hoveredTrendIndex - 1] ?? trendValues[hoveredTrendIndex]),
-        };
+  const periodTrend = activePeriod ? buildPeriodTrend(history, currentPoint, cashFlows, activePeriod) : null;
+  const trendSeries = periodTrend?.series ?? [];
+  const trendValues = trendSeries.map((point) => toDisplay(point.totalValue));
+  const longSpan = trendSeries.length > 1 &&
+    Number(trendSeries[trendSeries.length - 1].date.slice(0, 4)) * 12 + Number(trendSeries[trendSeries.length - 1].date.slice(5, 7)) -
+      (Number(trendSeries[0].date.slice(0, 4)) * 12 + Number(trendSeries[0].date.slice(5, 7))) > 9;
+  const periodTone = !periodTrend || Math.round(periodTrend.marketChange) === 0
+    ? 'neutral'
+    : periodTrend.marketChange > 0 ? 'gain' : 'loss';
+
   const calendarEntries = buildCalendarEntries(history, todaySnapshotExists ? currentPoint : null, cashFlows);
   const calendarMap = new Map(calendarEntries.map((entry) => [entry.date, entry]));
   const calendarMonthOptions = [...new Set([
@@ -267,13 +203,16 @@ export function AssetTrendsPage() {
     selectedCalendarMonth && calendarMonthOptions.includes(selectedCalendarMonth)
       ? selectedCalendarMonth
       : calendarMonthOptions[0] ?? getMonthKey(currentPoint.date);
+  const activeCalendarMonthIndex = calendarMonthOptions.indexOf(activeCalendarMonth);
   const calendarGrid = buildCalendarGrid(`${activeCalendarMonth}-01`);
-  const monthlyCalendarPnLHKD = calendarEntries
-    .filter((entry) => getMonthKey(entry.date) === activeCalendarMonth)
-    .reduce((sum, entry) => sum + entry.changeHKD, 0);
-  const selectedCalendarMonthStartValueHKD =
-    calendarEntries.find((entry) => getMonthKey(entry.date) === activeCalendarMonth)?.totalValueHKD ??
-    currentPoint.totalValue;
+  const calendarSummary = summarizeCalendarMonth(calendarEntries, activeCalendarMonth);
+  const calendarMaxAbsHKD = Math.max(
+    1,
+    ...calendarEntries
+      .filter((entry) => getMonthKey(entry.date) === activeCalendarMonth)
+      .map((entry) => Math.abs(entry.changeHKD)),
+  );
+
   const latestSnapshot = [...history]
     .filter((point) => Boolean(point.capturedAt))
     .sort((left, right) => (left.capturedAt ?? '').localeCompare(right.capturedAt ?? ''))
@@ -303,7 +242,7 @@ export function AssetTrendsPage() {
   }, [activeCalendarMonth, calendarMonthOptions, selectedCalendarMonth]);
 
   return (
-    <div className="page-stack">
+    <div className="page-stack trends-page">
       <div className="trends-alert-stack" aria-live="polite">
         {error ? <p className="trends-system-note error">{error}</p> : null}
         {snapshotsError ? <p className="trends-system-note error">{snapshotsError}</p> : null}
@@ -312,260 +251,217 @@ export function AssetTrendsPage() {
         {principalsError ? <p className="trends-system-note error">{principalsError}</p> : null}
       </div>
 
-      <section className="card trends-overview-card">
-        <div className="trends-toolbar">
-          <span className="table-hint">顯示幣別</span>
+      <section className="card trends-summary-card" aria-label="資產總覽">
+        <div className="trends-summary-head">
+          <div className="trends-summary-total">
+            <span className="trends-eyebrow">總資產估值</span>
+            <strong>{money(currentPoint.totalValue)}</strong>
+            {todaySummary ? (
+              <span className={`trends-change-pill ${getToneClass(todaySummary.marketChange)}`}>
+                今日 {signedMoney(todaySummary.marketChange)}
+                <em>{formatPercent(todaySummary.returnPct)}</em>
+              </span>
+            ) : (
+              <span className="trends-change-pill">今日快照待生成，收益暫不可用</span>
+            )}
+          </div>
           <CurrencyToggle value={displayCurrency} onChange={setDisplayCurrency} />
         </div>
 
-        <div className="trends-hero-stat">
-          <span className="trends-stat-label">總資產估值</span>
-          <strong>{formatCurrencyRounded(totalValue, displayCurrency)}</strong>
-          <p className="trends-today-return">
-            <span>今日收益</span>
-            <strong className={todaySummary ? (todaySummary.totalChange >= 0 ? 'positive-text' : 'caution-text') : 'table-hint'}>
-              {todaySummary
-                ? `${todaySummary.totalChange >= 0 ? '+' : ''}${formatCurrencyRounded(
-                    convertCurrency(todaySummary.totalChange, 'HKD', displayCurrency),
-                    displayCurrency,
-                  )} (${formatPercent(todaySummary.returnPct)})`
-                : '待今日快照'}
-            </strong>
-          </p>
-        </div>
+        <dl className="trends-metric-strip">
+          <div>
+            <dt>本月收益</dt>
+            {monthly ? (
+              <dd>
+                <strong className={getToneClass(monthly.marketChange)}>{signedMoney(monthly.marketChange)}</strong>
+                <small>{formatPercent(monthly.returnPct)} · 由 {formatDateChip(monthly.startDate)} 收市起計</small>
+              </dd>
+            ) : (
+              <dd><strong>—</strong><small>未有月初快照</small></dd>
+            )}
+          </div>
+          <div>
+            <dt>累計收益</dt>
+            <dd>
+              <strong className={getToneClass(historicalReturnHKD)}>{signedMoney(historicalReturnHKD)}</strong>
+              <small>{formatPercent(historicalReturnPct)} · 總值減累計本金</small>
+            </dd>
+          </div>
+          <div>
+            <dt>累計淨投入</dt>
+            <dd>
+              <strong className="flow-text">{signedMoney(netExternalFlowTotalHKD)}</strong>
+              <small>入金減提取 · 不計作收益</small>
+            </dd>
+          </div>
+        </dl>
 
-        <div className="trends-overview-grid trends-kpi-grid">
-          <div className="trends-overview-mini">
-            <span>本月收益</span>
-            <strong className={monthlyReturnHKD >= 0 ? 'positive-text' : 'caution-text'}>
-              {monthlyReturnHKD >= 0 ? '+' : ''}
-              {formatCurrencyRounded(convertCurrency(monthlyReturnHKD, 'HKD', displayCurrency), displayCurrency)}
-            </strong>
-            <small>{formatPercent(monthlyReturnPct)}</small>
-          </div>
-          <div className="trends-overview-mini">
-            <span>歷史收益</span>
-            <strong className={historicalReturnHKD >= 0 ? 'positive-text' : 'caution-text'}>
-              {historicalReturnHKD >= 0 ? '+' : ''}
-              {formatCurrencyRounded(
-                convertCurrency(historicalReturnHKD, 'HKD', displayCurrency),
-                displayCurrency,
-              )}
-            </strong>
-            <small>{formatPercent(historicalReturnPct)}</small>
-          </div>
-          <div className="trends-overview-mini">
-            <span>額外投入/提取</span>
-            <strong className={netExternalFlowTotalHKD >= 0 ? 'positive-text' : 'caution-text'}>
-              {netExternalFlowTotalHKD >= 0 ? '+' : ''}
-              {formatCurrencyRounded(
-                convertCurrency(netExternalFlowTotalHKD, 'HKD', displayCurrency),
-                displayCurrency,
-              )}
-            </strong>
-            <small>累計資金流</small>
-          </div>
-        </div>
-        <div className="trends-snapshot-status">
-          <span>最新快照</span>
-          <strong>{latestSnapshotLabel}</strong>
+        <p className="trends-snapshot-line">
+          最新快照 {latestSnapshotLabel}
           {latestSnapshotIsFallback ? <em>備援快照</em> : null}
-        </div>
+        </p>
       </section>
 
       <section className="card trends-chart-card">
-        <div className="section-heading">
+        <div className="trends-chart-head">
           <div>
-            <h2>期間走勢</h2>
-          </div>
-          <span className="chip chip-soft">{formatDateChip(currentPoint.date)}</span>
-        </div>
-
-        <div className="trends-range-row" role="tablist" aria-label="資產走勢期間">
-          {trendRanges.map((range) => (
-            <button
-              key={range.value}
-              className={selectedRange === range.value ? 'filter-chip active' : 'filter-chip'}
-              type="button"
-              onClick={() => setSelectedRange(range.value)}
-            >
-              {range.label}
-            </button>
-          ))}
-        </div>
-
-        {selectedRange && rangeSummary ? (
-          <div className="trends-reveal-panel">
-            <div className="trends-performance-grid">
-              <div className="trends-reveal-summary primary">
-                <span>{trendRanges.find((entry) => entry.value === selectedRange)?.label}區間變動</span>
-                <strong className={rangeSummary.totalChange >= 0 ? 'positive-text' : 'caution-text'}>
-                  {rangeSummary.totalChange >= 0 ? '+' : ''}
-                  {formatCurrencyRounded(
-                    convertCurrency(rangeSummary.totalChange, 'HKD', displayCurrency),
-                    displayCurrency,
-                  )}
-                </strong>
-                <small>{formatPercent(rangeSummary.returnPct)}</small>
-              </div>
-              <div className="trends-overview-mini">
-                <span>市場變動</span>
-                <strong className={rangeSummary.marketChange >= 0 ? 'positive-text' : 'caution-text'}>
-                  {rangeSummary.marketChange >= 0 ? '+' : ''}
-                  {formatCurrencyRounded(
-                    convertCurrency(rangeSummary.marketChange, 'HKD', displayCurrency),
-                    displayCurrency,
-                  )}
-                </strong>
-                <small>價格及持倉估值影響</small>
-              </div>
-              <div className="trends-overview-mini">
-                <span>資金流影響</span>
-                <strong className={rangeSummary.netExternalFlow >= 0 ? 'positive-text' : 'caution-text'}>
-                  {rangeSummary.netExternalFlow >= 0 ? '+' : ''}
-                  {formatCurrencyRounded(
-                    convertCurrency(rangeSummary.netExternalFlow, 'HKD', displayCurrency),
-                    displayCurrency,
-                  )}
-                </strong>
-                <small>額外投入/提取</small>
-              </div>
-            </div>
-
-            {trendSeries.length > 1 ? (
-              <div className="trends-period-bridge">
-                <span>期初估值</span>
-                <strong>
-                  {formatCurrencyRounded(
-                    convertCurrency(rangeSummary.startValue, 'HKD', displayCurrency),
-                    displayCurrency,
-                  )}
-                </strong>
-                <i aria-hidden="true">→</i>
-                <span>期末估值</span>
-                <strong>
-                  {formatCurrencyRounded(
-                    convertCurrency(rangeSummary.endValue, 'HKD', displayCurrency),
-                    displayCurrency,
-                  )}
-                </strong>
-              </div>
+            <h2>期間表現</h2>
+            {periodTrend ? (
+              <p className="trends-caption">
+                {formatDateChip(periodTrend.startDate)} 收市 至 {formatDateChip(periodTrend.endDate)}
+              </p>
             ) : null}
-
-            <div className="trends-chart-shell">
-              {trendSeries.length > 1 ? (
-                <div className="trends-chart-annotated">
-                  <div className="trends-chart-y-labels">
-                    {yAxisTicks.map((value, index) => (
-                      <span key={`${value}-${index}`}>{formatCurrencyRounded(value, displayCurrency)}</span>
-                    ))}
-                  </div>
-                  <svg viewBox="0 0 320 180" className="trends-line-chart" role="img" aria-label="資產走勢圖">
-                    {yAxisTicks.map((_, index) => {
-                      const y = (index / (yAxisTicks.length - 1)) * chartHeight;
-                      return <line key={index} className="trends-grid-line" x1="0" x2={chartWidth} y1={y} y2={y} />;
-                    })}
-                    <path d={linePath} />
-                    {trendPoints.map((point, index) => (
-                      <circle
-                        key={trendSeries[index].date}
-                        className="trends-hit-point"
-                        cx={point.x}
-                        cy={point.y}
-                        r="9"
-                        onMouseEnter={() => setHoveredTrendIndex(index)}
-                        onMouseLeave={() => setHoveredTrendIndex(null)}
-                        onFocus={() => setHoveredTrendIndex(index)}
-                        onBlur={() => setHoveredTrendIndex(null)}
-                        tabIndex={0}
-                      >
-                        <title>
-                          {`${formatDateChip(trendSeries[index].date)}｜總資產 ${formatCurrencyRounded(
-                            point.value,
-                            displayCurrency,
-                          )}｜當日變化 ${formatCurrencyRounded(
-                            point.value - (trendValues[index - 1] ?? point.value),
-                            displayCurrency,
-                          )}`}
-                        </title>
-                      </circle>
-                    ))}
-                    {trendPoints.length > 0 ? (
-                      <circle
-                        className="trends-latest-point"
-                        cx={trendPoints[trendPoints.length - 1].x}
-                        cy={trendPoints[trendPoints.length - 1].y}
-                        r="4.5"
-                      />
-                    ) : null}
-                  </svg>
-                  {hoveredTrendPoint ? (
-                    <div className="trends-chart-tooltip">
-                      <span>{formatDateChip(hoveredTrendPoint.point.date)}</span>
-                      <strong>{formatCurrencyRounded(hoveredTrendPoint.value, displayCurrency)}</strong>
-                      <small className={hoveredTrendPoint.change >= 0 ? 'positive-text' : 'caution-text'}>
-                        當日變化 {hoveredTrendPoint.change >= 0 ? '+' : ''}
-                        {formatCurrencyRounded(hoveredTrendPoint.change, displayCurrency)}
-                      </small>
-                    </div>
-                  ) : null}
-                  <div className="trends-chart-x-labels">
-                    {xAxisTicks.map((tick) => (
-                      <span key={`${tick.index}-${tick.label}`} style={{ left: `${(tick.index / (trendSeries.length - 1)) * 100}%` }}>
-                        {tick.label}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <p className="trends-system-note">未有足夠快照資料</p>
-              )}
-            </div>
           </div>
-        ) : selectedRange === '1d' ? (
-          <p className="trends-system-note warning">今日快照待生成，收益暫不可用</p>
-        ) : null}
+          {availablePeriods.length > 0 ? (
+            <div className="trends-period-switch" role="group" aria-label="資產走勢期間">
+              {trendPeriodOptions
+                .filter((option) => availablePeriods.includes(option.value))
+                .map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={activePeriod === option.value ? 'active' : ''}
+                    aria-pressed={activePeriod === option.value}
+                    onClick={() => setSelectedPeriod(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+            </div>
+          ) : null}
+        </div>
+
+        {periodTrend ? (
+          <>
+            <div className="trends-period-headline">
+              <div>
+                <span>區間收益（已扣除資金流）</span>
+                <strong className={getToneClass(periodTrend.marketChange)}>{signedMoney(periodTrend.marketChange)}</strong>
+                <em className={getToneClass(periodTrend.marketChange)}>{formatPercent(periodTrend.returnPct)}</em>
+              </div>
+            </div>
+
+            <FinanceLineChart
+              labels={trendSeries.map((point) => formatAxisDate(point.date, longSpan))}
+              tooltipTitles={trendSeries.map((point) => formatDateChip(point.date))}
+              series={[{ id: 'total', label: '總資產', values: trendValues, variant: 'primary' }]}
+              tone={periodTone}
+              baseline={trendValues[0] ?? null}
+              formatValue={(value) => formatCurrencyRounded(value, displayCurrency)}
+              ariaLabel={`資產走勢圖，${trendPeriodOptions.find((option) => option.value === activePeriod)?.label ?? ''}`}
+              renderTooltip={(index) => {
+                const value = trendValues[index];
+                const fromStart = value - trendValues[0];
+                const fromPrevious = index > 0 ? value - trendValues[index - 1] : 0;
+                return (
+                  <>
+                    <strong>{formatCurrencyRounded(value, displayCurrency)}</strong>
+                    <span className={getToneClass(fromPrevious)}>較上一日 {formatSignedMoney(fromPrevious, displayCurrency)}</span>
+                    <span className={getToneClass(fromStart)}>較期初 {formatSignedMoney(fromStart, displayCurrency)}</span>
+                  </>
+                );
+              }}
+            />
+
+            <dl className="trends-bridge" aria-label="期初至期末拆解">
+              <div>
+                <dt>期初估值</dt>
+                <dd>{money(periodTrend.startValue)}</dd>
+              </div>
+              <span aria-hidden="true">＋</span>
+              <div>
+                <dt>市場變動</dt>
+                <dd className={getToneClass(periodTrend.marketChange)}>{signedMoney(periodTrend.marketChange)}</dd>
+              </div>
+              <span aria-hidden="true">＋</span>
+              <div>
+                <dt>資金流</dt>
+                <dd className="flow-text">{signedMoney(periodTrend.netExternalFlow)}</dd>
+              </div>
+              <span aria-hidden="true">＝</span>
+              <div>
+                <dt>期末估值</dt>
+                <dd>{money(periodTrend.endValue)}</dd>
+              </div>
+            </dl>
+            <p className="trends-caption">虛線為期初估值；線色按區間收益（綠升紅跌）。資金流即入金及提取，不計作收益。</p>
+          </>
+        ) : (
+          <p className="trends-system-note">未有足夠快照資料，最少需要兩日快照先可以顯示走勢。</p>
+        )}
       </section>
 
       <section className="card trends-calendar-card">
-        <div className="section-heading">
+        <div className="trends-chart-head">
           <div>
             <h2>收益日曆</h2>
+            <p className="trends-caption">每日市場變動，已扣除當日入金及提取</p>
           </div>
-          <label className="trends-calendar-month-select">
-            <span className="visually-hidden">選擇收益日曆月份</span>
-            <select
-              value={activeCalendarMonth}
-              onChange={(event) => setSelectedCalendarMonth(event.target.value)}
-              aria-label="選擇收益日曆月份"
+          <div className="trends-month-nav">
+            <button
+              type="button"
+              aria-label="上一個月"
+              disabled={activeCalendarMonthIndex >= calendarMonthOptions.length - 1}
+              onClick={() => setSelectedCalendarMonth(calendarMonthOptions[activeCalendarMonthIndex + 1])}
             >
-              {calendarMonthOptions.map((monthKey) => (
-                <option key={monthKey} value={monthKey}>
-                  {formatMonthChip(monthKey)}
-                </option>
-              ))}
-            </select>
-          </label>
+              ‹
+            </button>
+            <label className="trends-calendar-month-select">
+              <span className="visually-hidden">選擇收益日曆月份</span>
+              <select
+                value={activeCalendarMonth}
+                onChange={(event) => setSelectedCalendarMonth(event.target.value)}
+                aria-label="選擇收益日曆月份"
+              >
+                {calendarMonthOptions.map((monthKey) => (
+                  <option key={monthKey} value={monthKey}>
+                    {formatMonthChip(monthKey)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              aria-label="下一個月"
+              disabled={activeCalendarMonthIndex <= 0}
+              onClick={() => setSelectedCalendarMonth(calendarMonthOptions[activeCalendarMonthIndex - 1])}
+            >
+              ›
+            </button>
+          </div>
         </div>
 
-        <p className="trends-calendar-summary">
-          當月收益{' '}
-          <span className={monthlyCalendarPnLHKD >= 0 ? 'positive-text' : 'caution-text'}>
-            {monthlyCalendarPnLHKD >= 0 ? '+' : ''}
-            {formatCurrencyRounded(
-              convertCurrency(monthlyCalendarPnLHKD, 'HKD', displayCurrency),
-              displayCurrency,
-            )}{' '}
-            ({formatPercent(
-              selectedCalendarMonthStartValueHKD === 0
-                ? 0
-                : (monthlyCalendarPnLHKD / selectedCalendarMonthStartValueHKD) * 100,
-            )})
-          </span>
-        </p>
+        <dl className="trends-calendar-stats">
+          <div>
+            <dt>當月收益</dt>
+            <dd className={getToneClass(calendarSummary.pnlHKD)}>
+              {signedMoney(calendarSummary.pnlHKD)} <small>{formatPercent(calendarSummary.returnPct)}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>升／跌日數</dt>
+            <dd>
+              <span className="gain-text">{calendarSummary.gainDays}</span>
+              {' ／ '}
+              <span className="loss-text">{calendarSummary.lossDays}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>最佳一日</dt>
+            <dd className={calendarSummary.best ? 'gain-text' : ''}>
+              {calendarSummary.best ? `${Number(calendarSummary.best.date.slice(8))}日 ${signedMoney(calendarSummary.best.changeHKD)}` : '—'}
+            </dd>
+          </div>
+          <div>
+            <dt>最差一日</dt>
+            <dd className={calendarSummary.worst ? 'loss-text' : ''}>
+              {calendarSummary.worst ? `${Number(calendarSummary.worst.date.slice(8))}日 ${signedMoney(calendarSummary.worst.changeHKD)}` : '—'}
+            </dd>
+          </div>
+        </dl>
 
-        <div className="trends-calendar-weekdays">
-          {['日', '一', '二', '三', '四', '五', '六'].map((label) => (
+        <div className="trends-calendar-weekdays" aria-hidden="true">
+          {weekdayLabels.map((label) => (
             <span key={label}>{label}</span>
           ))}
         </div>
@@ -573,20 +469,38 @@ export function AssetTrendsPage() {
         <div className="trends-calendar-grid">
           {calendarGrid.map((cell, index) => {
             if (!cell.dateKey || !cell.day) {
-              return <div key={`blank-${index}`} className="trends-calendar-cell empty" />;
+              return <div key={`blank-${index}`} className="trends-calendar-cell empty" aria-hidden="true" />;
             }
 
             const entry = calendarMap.get(cell.dateKey);
-            const change = entry ? convertCurrency(entry.changeHKD, 'HKD', displayCurrency) : 0;
-            const tone = !entry || change === 0 ? 'neutral' : change > 0 ? 'positive' : 'caution';
+            const isFuture = cell.dateKey > currentPoint.date;
+            const change = entry ? toDisplay(entry.changeHKD) : 0;
+            const tone = !entry || Math.round(change) === 0 ? 'flat' : change > 0 ? 'gain' : 'loss';
+            const heat = entry ? Math.min(1, Math.abs(entry.changeHKD) / calendarMaxAbsHKD) : 0;
 
             return (
-              <div key={cell.dateKey} className={`trends-calendar-cell ${tone}`}>
+              <div
+                key={cell.dateKey}
+                className={`trends-calendar-cell ${tone}${isFuture ? ' future' : ''}${cell.dateKey === currentPoint.date ? ' today' : ''}`}
+                style={{ '--heat': heat.toFixed(2) } as CSSProperties}
+                title={entry ? `${formatDateChip(cell.dateKey)}：${formatSignedMoney(change, displayCurrency)}` : undefined}
+              >
                 <strong>{cell.day}</strong>
-                {entry ? <span>{formatCalendarChange(change)}</span> : <span className="trends-calendar-no-data">無資料</span>}
+                {entry ? <span>{formatCalendarChange(change)}</span> : !isFuture ? <span className="trends-calendar-no-data">—</span> : null}
               </div>
             );
           })}
+        </div>
+
+        <div className="trends-heat-legend" aria-hidden="true">
+          <span>跌</span>
+          <i style={{ '--heat': '1' } as CSSProperties} className="loss" />
+          <i style={{ '--heat': '0.4' } as CSSProperties} className="loss" />
+          <i className="flat" />
+          <i style={{ '--heat': '0.4' } as CSSProperties} className="gain" />
+          <i style={{ '--heat': '1' } as CSSProperties} className="gain" />
+          <span>升</span>
+          <small>顏色深淺按當月最大單日變動比例</small>
         </div>
 
         {status === 'loading' ? <p className="trends-system-note">同步中</p> : null}

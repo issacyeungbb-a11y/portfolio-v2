@@ -109,26 +109,24 @@ test('Vercel serves SPA routes directly without swallowing API or static asset p
 });
 
 test('crypto history KPI amounts stay on one line and scale to their card width', async () => {
-  const styles = await readFile(new URL('../src/styles/global.css', import.meta.url), 'utf8');
-  const kpiRule = styles.match(/\.crypto-kpi > strong\s*\{([^}]*)\}/)?.[1] ?? '';
+  const styles = await readFile(new URL('../src/components/crypto/cryptoManagement.css', import.meta.url), 'utf8');
+  const kpiRule = styles.match(/\.monthly-kpis strong\s*\{([^}]*)\}/)?.[1] ?? '';
 
-  assert.match(styles, /\.crypto-kpi\s*\{[^}]*container-type:\s*inline-size/s);
+  assert.match(styles, /\.monthly-kpis > div\s*\{[^}]*container-type:\s*inline-size/s);
   assert.match(kpiRule, /font-size:\s*clamp\([^;]*cqi[^;]*\)/);
   assert.match(kpiRule, /white-space:\s*nowrap/);
   assert.match(kpiRule, /word-break:\s*normal/);
 });
 
-test('crypto allocation renders as an accessible pie chart', async () => {
+test('crypto allocation renders as an accessible donut chart', async () => {
   const [component, styles] = await Promise.all([
-    readFile(new URL('../src/components/crypto/CryptoAllocationPanel.tsx', import.meta.url), 'utf8'),
-    readFile(new URL('../src/styles/global.css', import.meta.url), 'utf8'),
+    readFile(new URL('../src/pages/CryptoHistoryPage.tsx', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/crypto/cryptoManagement.css', import.meta.url), 'utf8'),
   ]);
 
-  assert.match(component, /className="crypto-allocation-pie"/);
-  assert.match(component, /role="img"/);
+  assert.match(component, /className="monthly-donut"\s+role="img"/);
   assert.match(component, /conic-gradient/);
-  assert.doesNotMatch(component, /crypto-allocation-track/);
-  assert.match(styles, /\.crypto-allocation-pie\s*\{[^}]*aspect-ratio:\s*1[^}]*border-radius:\s*50%/s);
+  assert.match(styles, /\.monthly-donut\s*\{[^}]*aspect-ratio:\s*1[^}]*border-radius:\s*50%/s);
 });
 
 test('server reader and importer stay inside independent crypto collections', async () => {

@@ -162,9 +162,9 @@ export function buildPerformanceOverview(params: {
   const { history, currentPoint, cashFlows, principals, todaySnapshotExists } = params;
   const funds = buildAccountPrincipalOverview(principals, cashFlows, currentPoint.date);
   const monthStartDate = `${getMonthKey(currentPoint.date)}-01`;
-  const monthStartPoint = [...history]
-    .filter((point) => point.date >= monthStartDate && point.date <= currentPoint.date)
-    .sort((left, right) => left.date.localeCompare(right.date))[0] ?? null;
+  // 月初至今以上月最後一個快照做基準，令 1 號當日升跌都計入，同收益日曆一致；
+  // 未有上月快照（例如首月追蹤）先退回用本月第一個快照。
+  const monthStartPoint = findPeriodBasePoint(history, monthStartDate, currentPoint.date);
   const monthly = monthStartPoint
     ? calculatePerformanceBetweenPoints(monthStartPoint, currentPoint, cashFlows)
     : null;
@@ -242,6 +242,147 @@ export function buildCalendarEntries(
       totalValueHKD: point.totalValue,
     };
   });
+}
+
+export type TrendPeriod = '1w' | '1m' | '3m' | '6m' | 'ytd' | '1y' | 'all';
+
+export const trendPeriodOptions: Array<{ value: TrendPeriod; label: string }> = [
+  { value: '1w', label: '1週' },
+  { value: '1m', label: '1個月' },
+  { value: '3m', label: '3個月' },
+  { value: '6m', label: '6個月' },
+  { value: 'ytd', label: '今年' },
+  { value: '1y', label: '1年' },
+  { value: 'all', label: '全部' },
+];
+
+const trendPeriodDays: Partial<Record<TrendPeriod, number>> = {
+  '1w': 7,
+  '1m': 30,
+  '3m': 91,
+  '6m': 182,
+  '1y': 365,
+};
+
+// 純日期字串運算，唔經瀏覽器時區。
+function shiftDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+function dedupeByDate(points: PortfolioPerformancePoint[]) {
+  return [...points
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .reduce<Map<string, PortfolioPerformancePoint>>((map, point) => {
+      map.set(point.date, point);
+      return map;
+    }, new Map())
+    .values()];
+}
+
+/**
+ * 期間基準點：期間開始前最後一個快照（即上一期收市）；
+ * 冇更早快照時退回期間內第一個快照。
+ */
+export function findPeriodBasePoint(
+  history: PortfolioPerformancePoint[],
+  periodStartDate: string,
+  endDate: string,
+) {
+  const sorted = dedupeByDate([...history]).filter((point) => point.date <= endDate);
+  const before = sorted.filter((point) => point.date < periodStartDate);
+  return before[before.length - 1] ?? sorted.find((point) => point.date >= periodStartDate) ?? null;
+}
+
+function getTrendPeriodStartDate(period: TrendPeriod, currentDate: string, earliestDate: string) {
+  if (period === 'all') return earliestDate;
+  if (period === 'ytd') return `${currentDate.slice(0, 4)}-01-01`;
+  return shiftDateKey(currentDate, -(trendPeriodDays[period] ?? 30));
+}
+
+/** 只列出快照歷史足夠覆蓋嘅期間，避免「1年」其實只得幾個月資料。 */
+export function getAvailableTrendPeriods(
+  history: PortfolioPerformancePoint[],
+  currentPoint: PortfolioPerformancePoint,
+) {
+  const points = dedupeByDate([...history, currentPoint]);
+  if (points.length < 2) return [] as TrendPeriod[];
+  const earliestDate = points[0].date;
+
+  return trendPeriodOptions
+    .map((option) => option.value)
+    .filter((period) => {
+      if (period === 'all') return true;
+      const startDate = getTrendPeriodStartDate(period, currentPoint.date, earliestDate);
+      return period === 'ytd' ? earliestDate < startDate : earliestDate <= startDate;
+    });
+}
+
+export function buildPeriodTrend(
+  history: PortfolioPerformancePoint[],
+  currentPoint: PortfolioPerformancePoint,
+  cashFlows: AccountCashFlowEntry[],
+  period: TrendPeriod,
+) {
+  const points = dedupeByDate([...history, currentPoint]);
+  const earliestDate = points[0]?.date ?? currentPoint.date;
+  const startDate = getTrendPeriodStartDate(period, currentPoint.date, earliestDate);
+  const basePoint = period === 'ytd'
+    ? findPeriodBasePoint(history, startDate, currentPoint.date)
+    : [...points].reverse().find((point) => point.date <= startDate) ?? points[0] ?? null;
+
+  if (!basePoint) {
+    return null;
+  }
+
+  const series = points.filter((point) => point.date >= basePoint.date && point.date <= currentPoint.date);
+  const performance = calculatePerformanceBetweenPoints(basePoint, currentPoint, cashFlows);
+
+  return {
+    period,
+    startDate: basePoint.date,
+    endDate: currentPoint.date,
+    startValue: basePoint.totalValue,
+    endValue: currentPoint.totalValue,
+    series,
+    ...performance,
+  };
+}
+
+export function summarizeCalendarMonth(
+  entries: Array<{ date: string; changeHKD: number; totalValueHKD: number }>,
+  monthKey: string,
+) {
+  const sorted = [...entries].sort((left, right) => left.date.localeCompare(right.date));
+  const firstIndex = sorted.findIndex((entry) => getMonthKey(entry.date) === monthKey);
+
+  if (firstIndex === -1) {
+    return { pnlHKD: 0, baseValueHKD: 0, returnPct: 0, best: null, worst: null, gainDays: 0, lossDays: 0 };
+  }
+
+  const monthEntries = sorted.filter((entry) => getMonthKey(entry.date) === monthKey);
+  // 分母同「本月收益」一致：上月最後收市值；冇上月資料先用本月第一日。
+  const baseValueHKD = sorted[firstIndex - 1]?.totalValueHKD ?? sorted[firstIndex].totalValueHKD;
+  const pnlHKD = monthEntries.reduce((sum, entry) => sum + entry.changeHKD, 0);
+  const moving = monthEntries.filter((entry) => entry.changeHKD !== 0);
+  const best = moving.reduce<(typeof moving)[number] | null>(
+    (top, entry) => (entry.changeHKD > 0 && (!top || entry.changeHKD > top.changeHKD) ? entry : top),
+    null,
+  );
+  const worst = moving.reduce<(typeof moving)[number] | null>(
+    (bottom, entry) => (entry.changeHKD < 0 && (!bottom || entry.changeHKD < bottom.changeHKD) ? entry : bottom),
+    null,
+  );
+
+  return {
+    pnlHKD,
+    baseValueHKD,
+    returnPct: baseValueHKD === 0 ? 0 : (pnlHKD / baseValueHKD) * 100,
+    best,
+    worst,
+    gainDays: moving.filter((entry) => entry.changeHKD > 0).length,
+    lossDays: moving.filter((entry) => entry.changeHKD < 0).length,
+  };
 }
 
 export function buildAssetOverview(holdings: Holding[]) {
