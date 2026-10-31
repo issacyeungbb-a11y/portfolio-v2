@@ -39,13 +39,14 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
   const [selection, setSelection] = useState('');
   const [historyRefresh, setHistoryRefresh] = useState(0);
   const [monthLocked, setMonthLocked] = useState(false);
+  const closeMonth = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit' }).format(new Date());
   useEffect(() => {
     if (tab !== 'history') return;
     let active = true;
-    const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric', month: '2-digit' }).format(new Date());
+    const month = closeMonth;
     void callPortfolioFunction('crypto-history').then(value => { if (active) setMonthLocked(((value as { snapshots?: Array<{ month: string; locked: boolean }> }).snapshots ?? []).some(s => s.month === month && s.locked)); }).catch(() => { if (active) setMonthLocked(false); });
     return () => { active = false; };
-  }, [tab, historyRefresh]);
+  }, [tab, historyRefresh, closeMonth]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -159,9 +160,9 @@ export function CryptoManagementPanel({ history }: { history: ReactNode }) {
       {tab === 'positions' && category === 'coin' && <section className="card"><div className="section-heading"><div><h2>幣種合計與價格來源</h2><p className="cm-caption">新增幣種後即可記錄買入或轉入；手動價格需在 24 小時內更新方可月結。</p></div><button className="button button-secondary" disabled={busy} onClick={() => setAddMode('coin')}>新增幣種</button></div><div className="cm-table-scroll"><table className="cm-table"><thead><tr><th>幣種</th><th>名稱</th><th className="cm-numeric">總數量</th><th className="cm-numeric">單價（{currency}）</th><th className="cm-numeric">總值（{currency}）</th><th className="cm-numeric">佔 Crypto 持倉</th><th>價格來源</th><th>操作</th></tr></thead><tbody>{state.coins.filter(c => !selected || c.symbol === selected).map(c => <tr key={c.symbol}><th>{c.symbol}</th><td>{c.name}</td><td className="cm-numeric">{number(coinTotals.find(total => total.symbol === c.symbol)?.quantity ?? 0)}</td><td className="cm-numeric">{displayMoney(v.prices[c.symbol], true)}</td><td className="cm-numeric">{displayMoney(coinTotals.find(total => total.symbol === c.symbol)?.valueUsd ?? null)}</td><td className="cm-numeric">{formatCryptoAllocation(coinTotals.find(total => total.symbol === c.symbol)?.allocation ?? null)}</td><td>{c.priceSource === 'manual' ? '手動確認' : `CoinGecko · ${c.priceSourceId}`}</td><td><button className="button button-secondary" disabled={busy} aria-label={`設定 ${c.symbol}`} onClick={() => edit('coins', c)}>設定</button></td></tr>)}</tbody></table></div></section>}
       {tab === 'funding' && <section className="card"><div className="section-heading"><div><h2>入金、提取與調整</h2><p className="cm-caption">提取／消費獨立列示，不會重複加減現有持倉價值。累計提取 {money(v.withdrawnUsd)}。</p></div><button className="button button-primary" disabled={busy} onClick={() => edit('funding')}>新增資金紀錄</button></div><div className="cm-table-scroll"><table className="cm-table"><thead><tr><th>日期</th><th>說明</th><th>類型</th><th className="cm-numeric">HKD</th><th className="cm-numeric">USD</th><th>操作</th></tr></thead><tbody>{[...state.funding].sort((a, b) => b.date.localeCompare(a.date)).map(r => <tr key={r.id}><td>{r.date}</td><th>{r.source}</th><td>{r.type === 'deposit' ? '入金' : r.type === 'withdrawal' ? '提取／消費' : '本金調整'}</td><td className="cm-numeric">{number(r.hkd)}</td><td className="cm-numeric">{number(r.usd)}</td><td><button className="button button-secondary" disabled={busy} onClick={() => edit('funding', r)}>修改</button></td></tr>)}</tbody></table></div></section>}
       {tab === 'history' && <>
-        <section className="card">
-          <div className="section-heading">
-            <div><h2>手動月結</h2><p className="cm-caption">每月由你手動執行，以平台持倉的實際幣數、現有有效價格、借貸及本金建立當月快照，記錄實際執行日期。提取另外列示；已鎖定月份保留原有紀錄。</p></div>
+        <section className="card monthly-close-row">
+          <div className="monthly-close-main">
+            <div><h2>手動月結 <span className="monthly-close-status" data-locked={monthLocked || undefined}>本月 {closeMonth} · {monthLocked ? '已鎖定' : '未月結'}</span></h2><p className="cm-caption">按平台持倉實際幣數、有效價格、借貸及本金建立當月快照，並記錄執行日期；已鎖定月份不會覆蓋。</p></div>
             <button className="button button-primary" disabled={busy || monthLocked} onClick={() => void operate(async () => {
               if (!window.confirm(`確認按目前平台持倉建立當月月結？\n持倉 ${state.positions.length} 筆 · 借貸 ${state.liabilities.length} 筆\n持倉總值 ${displayMoney(v.grossUsd)}\n借貸 ${displayMoney(v.debtUsd)}\n淨資產 ${displayMoney(v.netUsd)}\n本金 ${principalMoney}\n價格來源：資產頁現有報價及幣種手動價格；伺服器會檢查價格與匯率時效。\n已鎖定月份保留原紀錄。`)) return;
               const result = await api({ action: 'close-month', expectedVersion: state.version }) as CryptoManagementResponse & { result: { status: string; month?: string; warnings?: string[] } };

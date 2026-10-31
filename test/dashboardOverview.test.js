@@ -5,11 +5,14 @@ import {
   buildAccountPrincipalOverview,
   buildCalendarEntries,
   buildPerformanceOverview,
+  buildPeriodTrend,
   buildTransactionComparisonMaps,
   buildTransactionOverview,
+  getAvailableTrendPeriods,
   getMonthlyAnalysisPeriodKey,
   selectLatestStoredAnalysis,
   sortMonthlyAnalysisSessions,
+  summarizeCalendarMonth,
 } from '../src/lib/portfolio/overviewSelectors.js';
 
 function point(date, totalValue) {
@@ -105,6 +108,54 @@ test('withdrawal reduces cumulative principal without becoming a negative invest
   assert.equal(overview.monthly?.marketChange, 20);
   assert.equal(overview.historicalReturnHKD, 20);
   assert.equal(overview.totalPrincipalHKD, 900);
+});
+
+test('monthly return starts from the previous month close so day one is included', () => {
+  const history = [point('2026-06-30', 1000), point('2026-07-01', 990), point('2026-07-02', 1005)];
+  const currentPoint = point('2026-07-03', 1010);
+  const overview = buildPerformanceOverview({
+    history,
+    currentPoint,
+    cashFlows: [],
+    principals: [],
+    todaySnapshotExists: true,
+  });
+  const calendar = summarizeCalendarMonth(buildCalendarEntries(history, currentPoint, []), '2026-07');
+
+  assert.equal(overview.monthly?.startDate, '2026-06-30');
+  assert.equal(overview.monthly?.marketChange, 10);
+  assert.equal(calendar.pnlHKD, overview.monthly?.marketChange);
+  assert.equal(calendar.baseValueHKD, 1000);
+  assert.equal(calendar.returnPct, overview.monthly?.returnPct);
+  assert.equal(calendar.worst?.date, '2026-07-01');
+  assert.equal(calendar.best?.date, '2026-07-02');
+});
+
+test('trend periods only appear when snapshot history covers them', () => {
+  const history = [point('2026-05-20', 900), point('2026-06-30', 1000), point('2026-07-10', 1050)];
+  const currentPoint = point('2026-07-24', 1100);
+
+  assert.deepEqual(getAvailableTrendPeriods(history, currentPoint), ['1w', '1m', 'all']);
+  assert.deepEqual(
+    getAvailableTrendPeriods([point('2025-12-31', 800), ...history], currentPoint),
+    ['1w', '1m', '3m', '6m', 'ytd', 'all'],
+  );
+  assert.deepEqual(getAvailableTrendPeriods([], currentPoint), []);
+});
+
+test('period trend uses the close before the period as its opening value', () => {
+  const history = [point('2025-12-31', 800), point('2026-01-02', 820), point('2026-07-10', 1050)];
+  const currentPoint = point('2026-07-24', 1100);
+  const ytd = buildPeriodTrend(history, currentPoint, [cashFlow({ amount: 100 })], 'ytd');
+  const month = buildPeriodTrend(history, currentPoint, [], '1m');
+
+  assert.equal(ytd?.startDate, '2025-12-31');
+  assert.equal(ytd?.startValue, 800);
+  assert.equal(ytd?.netExternalFlow, 100);
+  assert.equal(ytd?.marketChange, 200);
+  assert.deepEqual(ytd?.series.map((entry) => entry.date), ['2025-12-31', '2026-01-02', '2026-07-10', '2026-07-24']);
+  assert.equal(month?.startDate, '2026-01-02');
+  assert.deepEqual(month?.series.map((entry) => entry.date), ['2026-01-02', '2026-07-10', '2026-07-24']);
 });
 
 test('daily calendar market change also excludes same-period cash flow', () => {

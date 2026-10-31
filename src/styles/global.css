@@ -23,6 +23,12 @@
   --caution-soft: rgba(217, 119, 6, 0.12);
   --danger: #a64024;
   --danger-soft: rgba(166, 64, 36, 0.12);
+  /* 財務升跌：綠升紅跌；資金流（入金／提取）唔係收益，用中性色。 */
+  --gain: #15803d;
+  --gain-soft: rgba(21, 128, 61, 0.12);
+  --loss: #c0262d;
+  --loss-soft: rgba(192, 38, 45, 0.1);
+  --flow: #475569;
   --neutral: #6b7280;
   --neutral-soft: rgba(107, 114, 128, 0.12);
   --shadow-card: 0 4px 12px rgba(80, 55, 32, 0.04);
@@ -1477,284 +1483,130 @@ h3 {
   color: var(--caution);
 }
 
-.trends-overview-card,
+.trends-summary-card,
 .trends-chart-card,
 .trends-calendar-card {
   display: flex;
   flex-direction: column;
-  gap: 0.95rem;
+  gap: 1rem;
 }
 
-.trends-toolbar {
+.trends-summary-head,
+.trends-chart-head {
   display: flex;
-  flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 0.7rem;
-}
-
-.trends-hero-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 0.42rem;
-  padding: 1rem;
-  border-radius: 1.25rem;
-  border: 1px solid rgba(118, 96, 77, 0.1);
-  background:
-    linear-gradient(135deg, rgba(15, 118, 110, 0.08), transparent 54%),
-    rgba(255, 255, 255, 0.58);
-}
-
-.trends-hero-stat span,
-.trends-overview-mini span,
-.trends-reveal-summary span,
-.trends-calendar-summary,
-.trends-calendar-weekdays span {
-  color: var(--text-muted);
-}
-
-.trends-hero-stat strong {
-  font-size: clamp(1.55rem, 6vw, 2.5rem);
-  line-height: 1;
-}
-
-.trends-stat-label {
-  font-size: 0.82rem;
-  font-weight: 800;
-}
-
-.trends-today-return {
-  display: flex;
+  gap: 0.9rem;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.42rem;
-  font-size: 0.92rem;
 }
 
-.trends-today-return strong {
-  font-size: 1.02rem;
-  line-height: 1.15;
+.trends-chart-head h2 {
+  margin: 0;
 }
 
-.trends-overview-grid {
-  display: grid;
-  gap: 0.72rem;
-}
-
-.trends-kpi-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.trends-overview-mini {
+.trends-summary-total {
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
-  padding: 0.88rem 0.92rem;
-  border-radius: 1.15rem;
-  border: 1px solid rgba(118, 96, 77, 0.1);
-  background: rgba(255, 255, 255, 0.48);
+  gap: 0.45rem;
+  min-width: 0;
 }
 
-.trends-overview-mini strong {
-  font-size: 1.08rem;
-  line-height: 1.1;
-}
-
-.trends-overview-mini small,
-.trends-reveal-summary small {
+.trends-eyebrow {
   color: var(--text-muted);
   font-size: 0.82rem;
   font-weight: 700;
 }
 
-.trends-range-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem;
-}
-
-.trends-reveal-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-  padding: 0.88rem;
-  border-radius: 1.2rem;
-  border: 1px solid rgba(118, 96, 77, 0.1);
-  background: rgba(255, 255, 255, 0.46);
-}
-
-.trends-reveal-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 0.22rem;
-  padding: 0.88rem 0.92rem;
-  border-radius: 1.15rem;
-  border: 1px solid rgba(15, 118, 110, 0.12);
-  background: rgba(15, 118, 110, 0.06);
-}
-
-.trends-reveal-summary.primary {
-  background:
-    linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(255, 255, 255, 0.46));
-}
-
-.trends-reveal-summary strong {
-  font-size: 1.2rem;
+.trends-summary-total > strong {
+  font-size: clamp(1.9rem, 5vw, 2.6rem);
   line-height: 1.05;
+  letter-spacing: -0.02em;
 }
 
-.trends-performance-grid {
-  display: grid;
-  grid-template-columns: 1.2fr repeat(2, minmax(0, 1fr));
-  gap: 0.72rem;
-}
-
-.trends-period-bridge {
-  display: flex;
+.trends-change-pill {
+  display: inline-flex;
+  align-items: baseline;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 0.42rem;
-  padding: 0.62rem 0.72rem;
-  border: 1px solid rgba(118, 96, 77, 0.1);
-  border-radius: 0.95rem;
-  background: rgba(255, 250, 244, 0.72);
+  gap: 0.45rem;
+  width: fit-content;
+  padding: 0.3rem 0.7rem;
+  border-radius: var(--radius-pill);
+  background: var(--surface-muted);
   color: var(--text-muted);
-  font-size: 0.82rem;
-}
-
-.trends-period-bridge strong {
-  color: var(--text-main);
-}
-
-.trends-period-bridge i {
-  color: var(--accent);
-  font-style: normal;
+  font-size: 0.9rem;
   font-weight: 800;
 }
 
-.trends-chart-shell {
-  min-height: 12.8rem;
-  padding: 0.85rem 0.6rem 0.35rem;
-  border-radius: 1rem;
-  background:
-    linear-gradient(180deg, rgba(15, 118, 110, 0.08), rgba(15, 118, 110, 0.02)),
-    rgba(255, 255, 255, 0.55);
+.trends-change-pill.gain-text {
+  background: var(--gain-soft);
 }
 
-.trends-line-chart {
-  width: 100%;
-  height: 11rem;
-  overflow: visible;
+.trends-change-pill.loss-text {
+  background: var(--loss-soft);
 }
 
-.trends-line-chart path {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+.trends-change-pill em {
+  font-style: normal;
+  font-weight: 700;
+  opacity: 0.85;
 }
 
-.trends-grid-line {
-  stroke: rgba(118, 96, 77, 0.14);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
+.trends-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
-.trends-hit-point {
-  fill: transparent;
-  outline: none;
-}
-
-.trends-hit-point:focus-visible {
-  stroke: rgba(15, 118, 110, 0.35);
-  stroke-width: 2;
-}
-
-.trends-latest-point {
-  fill: var(--surface-strong);
-  stroke: var(--accent);
-  stroke-width: 3;
-}
-
-.trends-chart-tooltip {
-  position: absolute;
-  top: 0.65rem;
-  right: 0.65rem;
+.trends-metric-strip > div {
   display: flex;
   flex-direction: column;
-  gap: 0.12rem;
-  max-width: min(14rem, 72%);
-  padding: 0.55rem 0.65rem;
-  border: 1px solid rgba(118, 96, 77, 0.14);
-  border-radius: 0.78rem;
-  background: rgba(255, 252, 248, 0.94);
-  box-shadow: var(--shadow-card);
-  font-size: 0.78rem;
-  pointer-events: none;
+  gap: 0.3rem;
+  min-width: 0;
+  padding: 0.85rem 1rem;
 }
 
-.trends-chart-tooltip strong {
-  font-size: 0.95rem;
+.trends-metric-strip > div + div {
+  border-left: 1px solid var(--border);
 }
 
-.trends-calendar-card {
-  gap: 0.75rem;
-}
-
-.trends-calendar-month-select {
-  position: relative;
-}
-
-.trends-calendar-month-select select {
-  min-height: 2.35rem;
-  border: 1px solid rgba(118, 96, 77, 0.14);
-  border-radius: 999px;
-  background: var(--surface-strong);
-  color: var(--text-main);
-  padding: 0.42rem 2.15rem 0.42rem 0.9rem;
-  font-size: 0.85rem;
-  font-weight: 800;
-  box-shadow: var(--shadow-card);
-  appearance: none;
-}
-
-.trends-calendar-month-select::after {
-  content: "⌄";
-  position: absolute;
-  right: 0.85rem;
-  top: 50%;
-  color: var(--accent);
-  font-size: 0.95rem;
-  font-weight: 900;
-  pointer-events: none;
-  transform: translateY(-54%);
-}
-
-.trends-calendar-summary {
-  font-size: 0.92rem;
-}
-
-.trends-snapshot-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.42rem;
-  padding: 0.62rem 0.72rem;
-  border: 1px solid rgba(118, 96, 77, 0.1);
-  border-radius: 0.95rem;
-  background: rgba(255, 250, 244, 0.68);
+.trends-metric-strip dt {
   color: var(--text-muted);
-  font-size: 0.82rem;
-  line-height: 1.4;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
-.trends-snapshot-status strong {
-  color: var(--text-main);
+.trends-metric-strip dd {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
 }
 
-.trends-snapshot-status em {
-  padding: 0.18rem 0.42rem;
+.trends-metric-strip strong {
+  font-size: 1.15rem;
+  line-height: 1.15;
+}
+
+.trends-metric-strip small {
+  color: var(--text-subtle);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.trends-snapshot-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+}
+
+.trends-snapshot-line em {
+  padding: 0.12rem 0.42rem;
   border-radius: var(--radius-pill);
   background: var(--caution-soft);
   color: var(--caution);
@@ -1763,79 +1615,275 @@ h3 {
   font-weight: 800;
 }
 
-.trends-snapshot-status small {
+.trends-caption {
+  margin: 0.25rem 0 0;
+  color: var(--text-subtle);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.trends-period-switch {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 0.8rem;
+  background: var(--surface-muted);
+}
+
+.trends-period-switch button {
+  border: 0;
+  border-radius: 0.6rem;
+  padding: 0.4rem 0.7rem;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.trends-period-switch button.active {
+  background: var(--surface-strong);
+  color: var(--text-main);
+  box-shadow: var(--shadow-card);
+}
+
+.trends-period-headline > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+}
+
+.trends-period-headline span {
   flex-basis: 100%;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.trends-period-headline strong {
+  font-size: 1.6rem;
+  line-height: 1.1;
+}
+
+.trends-period-headline em {
+  font-style: normal;
+  font-weight: 800;
+}
+
+.trends-bridge {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.8rem;
+  margin: 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 0.8rem;
+  background: var(--surface-muted);
+}
+
+.trends-bridge > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.trends-bridge dt {
+  color: var(--text-subtle);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.trends-bridge dd {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.trends-bridge > span {
+  color: var(--text-subtle);
+  font-weight: 800;
+}
+
+.trends-month-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.trends-month-nav > button {
+  width: 2.2rem;
+  height: 2.2rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-strong);
+  color: var(--text-main);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.trends-month-nav > button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.trends-calendar-month-select {
+  position: relative;
+}
+
+.trends-calendar-month-select select {
+  min-height: 2.2rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--text-main);
+  padding: 0.38rem 2rem 0.38rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 800;
+  appearance: none;
+}
+
+.trends-calendar-month-select::after {
+  content: "⌄";
+  position: absolute;
+  right: 0.8rem;
+  top: 50%;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  font-weight: 900;
+  pointer-events: none;
+  transform: translateY(-54%);
+}
+
+.trends-calendar-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem 1rem;
+  margin: 0;
+}
+
+.trends-calendar-stats dt {
   color: var(--text-subtle);
   font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.trends-calendar-stats dd {
+  margin: 0.15rem 0 0;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.trends-calendar-stats small {
+  font-size: 0.78rem;
 }
 
 .trends-calendar-weekdays {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.45rem;
-  font-size: 0.78rem;
+  gap: 0.4rem;
+  color: var(--text-subtle);
+  font-size: 0.76rem;
   text-align: center;
 }
 
 .trends-calendar-grid {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0.45rem;
+  gap: 0.4rem;
 }
 
 .trends-calendar-cell {
-  min-height: 4.2rem;
-  padding: 0.58rem 0.35rem;
-  border-radius: 0.95rem;
-  border: 1px solid rgba(118, 96, 77, 0.08);
-  background: rgba(255, 255, 255, 0.44);
+  --heat: 0;
+  min-height: 3.9rem;
+  padding: 0.5rem 0.45rem;
+  border-radius: 0.7rem;
+  border: 1px solid transparent;
+  background: var(--surface-muted);
   display: flex;
   flex-direction: column;
-  gap: 0.34rem;
-  align-items: flex-start;
-  justify-content: flex-start;
-  text-align: left;
+  justify-content: space-between;
+  gap: 0.25rem;
   overflow: hidden;
 }
 
 .trends-calendar-cell strong {
-  font-size: 0.84rem;
   color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .trends-calendar-cell span {
-  width: 100%;
-  font-size: 0.76rem;
-  font-weight: 850;
-  line-height: 1.15;
-  word-break: keep-all;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: right;
 }
 
-.trends-calendar-cell.empty {
+.trends-calendar-cell.gain {
+  background: color-mix(in srgb, var(--gain) calc(8% + var(--heat) * 30%), var(--surface-strong));
+  color: var(--gain);
+}
+
+.trends-calendar-cell.loss {
+  background: color-mix(in srgb, var(--loss) calc(7% + var(--heat) * 26%), var(--surface-strong));
+  color: var(--loss);
+}
+
+.trends-calendar-cell.gain strong,
+.trends-calendar-cell.loss strong {
+  color: inherit;
+  opacity: 0.75;
+}
+
+.trends-calendar-cell.empty,
+.trends-calendar-cell.future {
+  background: transparent;
+  border-color: var(--border);
   border-style: dashed;
-  background: rgba(255, 255, 255, 0.22);
 }
 
-.trends-calendar-cell.positive {
-  background: rgba(15, 118, 110, 0.1);
-  border-color: rgba(15, 118, 110, 0.18);
-  color: var(--positive);
-}
-
-.trends-calendar-cell.caution {
-  background: rgba(166, 64, 36, 0.1);
-  border-color: rgba(166, 64, 36, 0.18);
-  color: var(--caution);
-}
-
-.trends-calendar-cell.neutral {
-  background: rgba(255, 255, 255, 0.44);
-  color: var(--text-subtle);
+.trends-calendar-cell.today {
+  border-color: var(--text-main);
+  border-style: solid;
 }
 
 .trends-calendar-no-data {
   color: var(--text-subtle);
   font-weight: 700;
+}
+
+.trends-heat-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  color: var(--text-subtle);
+  font-size: 0.74rem;
+}
+
+.trends-heat-legend i {
+  --heat: 0;
+  width: 1.1rem;
+  height: 0.7rem;
+  border-radius: 0.2rem;
+  background: var(--surface-muted);
+}
+
+.trends-heat-legend i.gain {
+  background: color-mix(in srgb, var(--gain) calc(8% + var(--heat) * 30%), var(--surface-strong));
+}
+
+.trends-heat-legend i.loss {
+  background: color-mix(in srgb, var(--loss) calc(7% + var(--heat) * 26%), var(--surface-strong));
+}
+
+.trends-heat-legend small {
+  margin-left: auto;
 }
 
 .trends-alert-stack:empty {
@@ -1849,6 +1897,7 @@ h3 {
 }
 
 .trends-system-note {
+  margin: 0;
   padding: 0.72rem 0.85rem;
   border: 1px solid rgba(118, 96, 77, 0.12);
   border-radius: 0.95rem;
@@ -1876,6 +1925,197 @@ h3 {
 
 .caution-text {
   color: var(--caution);
+}
+
+.gain-text {
+  color: var(--gain);
+}
+
+.loss-text {
+  color: var(--loss);
+}
+
+.flow-text {
+  color: var(--flow);
+}
+
+/* ── Finance charts (shared by 資產走勢 and Crypto 月結) ── */
+.fin-chart {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  outline: none;
+  --fin-line: var(--accent);
+  --fin-area: rgba(15, 118, 110, 0.18);
+}
+
+.fin-chart[data-tone='gain'] {
+  --fin-line: var(--gain);
+  --fin-area: rgba(21, 128, 61, 0.2);
+}
+
+.fin-chart[data-tone='loss'] {
+  --fin-line: var(--loss);
+  --fin-area: rgba(192, 38, 45, 0.16);
+}
+
+.fin-chart:focus-visible {
+  border-radius: 0.6rem;
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.fin-chart svg {
+  display: block;
+  overflow: visible;
+  touch-action: pan-y;
+}
+
+.fin-chart-grid {
+  stroke: rgba(118, 96, 77, 0.12);
+  stroke-width: 1;
+}
+
+.fin-chart-zero {
+  stroke: rgba(118, 96, 77, 0.38);
+  stroke-width: 1;
+}
+
+.fin-chart-axis {
+  fill: var(--text-subtle);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fin-chart-baseline {
+  stroke: var(--text-subtle);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+  opacity: 0.7;
+}
+
+.fin-chart-area-start {
+  stop-color: var(--fin-line);
+  stop-opacity: 0.22;
+}
+
+.fin-chart-area-end {
+  stop-color: var(--fin-line);
+  stop-opacity: 0;
+}
+
+.fin-chart-line {
+  fill: none;
+  stroke: var(--fin-line);
+  stroke-width: 2.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.fin-chart-reference {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 5;
+  opacity: 0.8;
+}
+
+.fin-chart-crosshair {
+  stroke: var(--text-subtle);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.fin-chart-dot {
+  fill: var(--surface-strong);
+  stroke: var(--fin-line);
+  stroke-width: 2.5;
+}
+
+.fin-chart-dot.reference {
+  stroke: var(--text-muted);
+}
+
+.fin-chart-overlay {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.fin-chart-bar {
+  transition: opacity 120ms ease;
+}
+
+.fin-chart-bar[data-tone='gain'] {
+  fill: var(--gain);
+}
+
+.fin-chart-bar[data-tone='loss'] {
+  fill: var(--loss);
+}
+
+.fin-chart-bar[data-dimmed] {
+  opacity: 0.35;
+}
+
+.fin-chart-bar[data-active] {
+  stroke: var(--text-main);
+  stroke-width: 1.5;
+}
+
+.fin-chart-tooltip {
+  position: absolute;
+  top: 0.25rem;
+  z-index: 2;
+  display: grid;
+  gap: 0.2rem;
+  min-width: 9rem;
+  max-width: 15rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--surface-strong);
+  box-shadow: var(--shadow-panel);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.fin-chart-tooltip-title {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.fin-chart-tooltip strong {
+  font-size: 0.92rem;
+  color: var(--text-main);
+}
+
+.fin-chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-muted);
+}
+
+.fin-chart-tooltip-row strong {
+  margin-left: auto;
+}
+
+.fin-chart-tooltip-row i {
+  width: 0.7rem;
+  height: 2px;
+  background: var(--fin-line);
+}
+
+.fin-chart-tooltip-row i[data-variant='reference'] {
+  background: repeating-linear-gradient(90deg, var(--text-muted) 0 3px, transparent 3px 5px);
+}
+
+.fin-chart-empty {
+  display: grid;
+  place-items: center;
+  min-height: 10rem;
+  color: var(--text-subtle);
+  font-size: 0.88rem;
 }
 
 .section-heading {
@@ -3836,43 +4076,46 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .trends-overview-grid {
+  .trends-metric-strip {
     grid-template-columns: 1fr;
   }
 
-  .trends-performance-grid {
-    grid-template-columns: 1fr;
+  .trends-metric-strip > div {
+    padding: 0.7rem 0.1rem;
   }
 
-  .trends-hero-stat {
-    padding: 0.8rem;
+  .trends-metric-strip > div + div {
+    border-left: 0;
+    border-top: 1px solid var(--border);
   }
 
-  .trends-hero-stat strong {
-    font-size: 1.36rem;
+  .trends-calendar-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trends-bridge {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trends-bridge > span {
+    display: none;
   }
 
   .trends-calendar-grid,
   .trends-calendar-weekdays {
-    gap: 0.3rem;
+    gap: 0.22rem;
   }
 
   .trends-calendar-cell {
-    min-height: 3.55rem;
-    padding: 0.45rem 0.18rem;
+    min-height: 3.3rem;
+    padding: 0.35rem 0.22rem;
+    border-radius: 0.5rem;
   }
 
   .trends-calendar-cell span {
-    font-size: 0.62rem;
-  }
-
-  .trends-chart-annotated {
-    padding-left: 3.7rem;
-  }
-
-  .trends-chart-y-labels {
-    width: 3.25rem;
-    font-size: 0.64rem;
+    font-size: 0.68rem;
+    letter-spacing: -0.02em;
   }
 
   .assets-filter-block {
@@ -5022,22 +5265,6 @@ h3 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .trends-toolbar {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .trends-overview-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .trends-kpi-grid,
-  .trends-performance-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .asset-change-layout {
     grid-template-columns: 1.05fr 1fr;
     align-items: start;
@@ -5296,57 +5523,8 @@ h3 {
   margin-bottom: 2px;
 }
 
-/* ── Trends chart annotations ── */
-.trends-chart-annotated {
-  display: flex;
-  flex-direction: column;
-  gap: 0.42rem;
-  position: relative;
-  padding-left: 4.6rem;
-}
-
-.trends-chart-y-labels {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  position: absolute;
-  left: 0;
-  top: 0.1rem;
-  bottom: 1.85rem;
-  width: 4.15rem;
-  font-size: 0.72rem;
-  color: var(--text-subtle);
-  pointer-events: none;
-  text-align: right;
-}
-
-.trends-chart-x-labels {
-  position: relative;
-  min-height: 1.15rem;
-  font-size: 0.72rem;
-  color: var(--text-subtle);
-}
-
-.trends-chart-x-labels span {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-  white-space: nowrap;
-}
-
-.trends-chart-x-labels span:first-child {
-  transform: translateX(0);
-}
-
-.trends-chart-x-labels span:last-child {
-  transform: translateX(-100%);
-}
-
 /* ── Crypto history ── */
 .crypto-history-page {
-  --crypto-chart-line: #0f766e;
-  --crypto-chart-area: rgba(15, 118, 110, 0.13);
-  --crypto-chart-grid: rgba(98, 90, 81, 0.14);
   --crypto-btc: #f59e0b;
   --crypto-eth: #6366f1;
   --crypto-ada: #2563eb;
@@ -5359,96 +5537,14 @@ h3 {
   gap: 0.75rem;
 }
 
-.crypto-history-toolbar,
-.crypto-filter-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 0.7rem;
-}
-
-.crypto-year-selector,
-.crypto-currency-toggle {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.crypto-year-selector .chip,
-.crypto-currency-toggle button {
-  cursor: pointer;
-}
-
-.crypto-year-selector .chip.active {
-  border-color: rgba(15, 118, 110, 0.34);
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.crypto-month-select {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--text-muted);
-  font-size: 0.86rem;
-}
-
-.crypto-month-select select {
-  min-width: 9rem;
-  border: 1px solid var(--border);
-  border-radius: 0.72rem;
-  padding: 0.48rem 0.65rem;
-  color: var(--text-main);
-  background: var(--surface-strong);
-}
-
-.crypto-kpi-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.55rem;
-}
-
-.crypto-kpi {
-  min-width: 0;
-  container-type: inline-size;
-}
-
-.crypto-kpi > strong {
-  font-family: var(--font-mono);
-  font-size: clamp(0.75rem, 10cqi, 1.32rem);
-  line-height: 1.15;
-  letter-spacing: -0.035em;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  word-break: normal;
-}
-
-.crypto-kpi > strong[data-tone='positive'] {
-  color: var(--positive);
-}
-
-.crypto-kpi > strong[data-tone='negative'] {
-  color: var(--danger);
-}
-
-.crypto-kpi small {
-  color: var(--text-subtle);
-  line-height: 1.35;
-}
-
-.crypto-chart-grid {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.crypto-chart-card,
-.crypto-allocation-card,
-.crypto-records-card,
-.crypto-detail-card,
 .crypto-import-card {
   min-width: 0;
 }
 
 .crypto-currency-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
   padding: 0.18rem;
   border: 1px solid var(--border);
   border-radius: 0.78rem;
@@ -5463,401 +5559,13 @@ h3 {
   background: transparent;
   font-size: 0.8rem;
   font-weight: 700;
+  cursor: pointer;
 }
 
 .crypto-currency-toggle button.active {
   color: var(--accent);
   background: var(--surface-strong);
   box-shadow: var(--shadow-card);
-}
-
-.crypto-trend-chart {
-  display: grid;
-  gap: 0.42rem;
-  margin-top: 0.6rem;
-}
-
-.crypto-chart-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.crypto-chart-summary > div:first-child {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-
-.crypto-chart-summary span {
-  color: var(--text-muted);
-  font-size: 0.82rem;
-}
-
-.crypto-chart-summary strong {
-  font-family: var(--font-mono);
-  font-size: 1rem;
-}
-
-.crypto-return-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.8rem;
-}
-
-.crypto-chart-stage {
-  position: relative;
-  min-height: 12rem;
-  border-radius: 0.9rem;
-  overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(15, 118, 110, 0.04), transparent 70%),
-    var(--surface-muted);
-}
-
-.crypto-chart-stage svg {
-  display: block;
-  width: 100%;
-  height: 12rem;
-  overflow: visible;
-}
-
-.crypto-chart-grid-line {
-  stroke: var(--crypto-chart-grid);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-
-.crypto-chart-zero-line {
-  stroke: rgba(166, 64, 36, 0.42);
-  stroke-width: 1;
-  stroke-dasharray: 5 5;
-  vector-effect: non-scaling-stroke;
-}
-
-.crypto-chart-line {
-  fill: none;
-  stroke: var(--crypto-chart-line);
-  stroke-width: 2.5;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
-}
-
-.crypto-chart-area {
-  fill: var(--crypto-chart-area);
-  stroke: none;
-}
-
-.crypto-chart-points {
-  position: absolute;
-  inset: 0;
-}
-
-.crypto-chart-point {
-  position: absolute;
-  width: 0.76rem;
-  height: 0.76rem;
-  padding: 0;
-  border: 2px solid var(--surface-strong);
-  border-radius: 50%;
-  background: var(--crypto-chart-line);
-  box-shadow: 0 0 0 1px rgba(15, 118, 110, 0.3);
-  transform: translate(-50%, -50%);
-  cursor: pointer;
-}
-
-.crypto-chart-point:hover,
-.crypto-chart-point:focus-visible,
-.crypto-chart-point.active {
-  width: 1rem;
-  height: 1rem;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.18);
-}
-
-.crypto-chart-axis {
-  display: grid;
-  grid-template-columns: 1fr auto auto 1fr;
-  gap: 0.5rem;
-  color: var(--text-subtle);
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-}
-
-.crypto-chart-axis span:nth-child(2),
-.crypto-chart-axis span:nth-child(3) {
-  text-align: center;
-}
-
-.crypto-chart-axis span:last-child {
-  text-align: right;
-}
-
-.crypto-allocation-panel {
-  display: grid;
-  gap: 0.7rem;
-}
-
-.crypto-allocation-pie {
-  width: min(12rem, 58vw);
-  aspect-ratio: 1;
-  justify-self: center;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.16),
-    0 0.65rem 1.5rem rgba(55, 48, 42, 0.1);
-}
-
-.allocation-btc {
-  background: var(--crypto-btc);
-}
-
-.allocation-eth {
-  background: var(--crypto-eth);
-}
-
-.allocation-ada {
-  background: var(--crypto-ada);
-}
-
-.allocation-usdt {
-  background: var(--crypto-usdt);
-}
-
-.allocation-other {
-  background: var(--crypto-other);
-}
-
-.crypto-allocation-legend {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.4rem;
-}
-
-.crypto-allocation-legend > span {
-  display: grid;
-  grid-template-columns: 0.68rem 1fr auto;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--text-muted);
-  font-size: 0.82rem;
-}
-
-.crypto-allocation-legend i {
-  width: 0.58rem;
-  height: 0.58rem;
-  border-radius: 50%;
-}
-
-.crypto-allocation-legend strong {
-  color: var(--text-main);
-  font-family: var(--font-mono);
-}
-
-.crypto-records-scroll {
-  margin-top: 0.55rem;
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.9rem;
-}
-
-.crypto-records-table {
-  width: 100%;
-  min-width: 58rem;
-  border-collapse: collapse;
-  font-size: 0.82rem;
-}
-
-.crypto-records-table th,
-.crypto-records-table td {
-  padding: 0.62rem 0.68rem;
-  border-bottom: 1px solid var(--border);
-  text-align: right;
-  white-space: nowrap;
-}
-
-.crypto-records-table th:first-child,
-.crypto-records-table td:first-child,
-.crypto-records-table th:nth-last-child(-n + 2),
-.crypto-records-table td:nth-last-child(-n + 2) {
-  text-align: left;
-}
-
-.crypto-records-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  color: var(--text-muted);
-  background: var(--surface-muted);
-  font-size: 0.72rem;
-  letter-spacing: 0.04em;
-}
-
-.crypto-records-table tr.active td {
-  background: var(--accent-soft);
-}
-
-.crypto-records-table tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.crypto-records-table td:first-child button {
-  border: 0;
-  padding: 0;
-  color: var(--accent);
-  background: transparent;
-  font-family: var(--font-mono);
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.crypto-detail-grid {
-  display: grid;
-  gap: 0.65rem;
-  margin-top: 0.65rem;
-}
-
-.crypto-detail-block,
-.crypto-source-panel,
-.crypto-warning-list {
-  min-width: 0;
-  padding: 0.72rem;
-  border: 1px solid var(--border);
-  border-radius: 0.9rem;
-  background: var(--surface-muted);
-}
-
-.crypto-detail-block h3,
-.crypto-warning-list h3 {
-  margin: 0 0 0.55rem;
-  font-size: 0.9rem;
-}
-
-.crypto-detail-list {
-  display: grid;
-}
-
-.crypto-detail-list > span {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.55rem;
-  padding: 0.4rem 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.82rem;
-}
-
-.crypto-detail-list > span:last-child {
-  border-bottom: 0;
-}
-
-.crypto-detail-list span > span {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.crypto-detail-list small {
-  color: var(--text-subtle);
-}
-
-.crypto-detail-list strong {
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-.crypto-price-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.6rem;
-}
-
-.crypto-price-chips span {
-  padding: 0.35rem 0.48rem;
-  border: 1px solid var(--border);
-  border-radius: 0.55rem;
-  background: var(--surface-strong);
-  font-size: 0.75rem;
-}
-
-.crypto-source-panel {
-  display: grid;
-  gap: 0.7rem;
-  margin-top: 0.65rem;
-}
-
-.crypto-source-panel > div {
-  display: flex;
-  flex-direction: column;
-  gap: 0.18rem;
-}
-
-.crypto-source-panel span,
-.crypto-source-panel small {
-  color: var(--text-subtle);
-  font-size: 0.78rem;
-}
-
-.crypto-source-panel strong {
-  font-family: var(--font-mono);
-  word-break: break-word;
-}
-
-.crypto-source-panel summary {
-  color: var(--accent);
-  cursor: pointer;
-  font-weight: 700;
-}
-
-.crypto-source-panel pre {
-  max-height: 18rem;
-  margin: 0.55rem 0 0;
-  padding: 0.65rem;
-  overflow: auto;
-  border-radius: 0.65rem;
-  color: var(--text-main);
-  background: var(--surface-strong);
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  line-height: 1.55;
-}
-
-.crypto-warning-list {
-  display: grid;
-  gap: 0.4rem;
-  margin-top: 0.65rem;
-}
-
-.crypto-warning-list > p {
-  display: grid;
-  gap: 0.18rem;
-  margin: 0;
-  padding: 0.52rem;
-  border-radius: 0.65rem;
-  color: var(--text-muted);
-  background: var(--surface-strong);
-  font-size: 0.8rem;
-}
-
-.crypto-warning-list > p[data-severity='error'] {
-  border-left: 3px solid var(--danger);
-}
-
-.crypto-warning-list > p[data-severity='warning'] {
-  border-left: 3px solid var(--caution);
-}
-
-.crypto-warning-list > p[data-severity='info'] {
-  border-left: 3px solid var(--accent-blue);
-}
-
-.crypto-warning-list strong {
-  color: var(--text-main);
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
 }
 
 .crypto-import-grid {
@@ -6146,30 +5854,6 @@ h3 {
 }
 
 @media (min-width: 720px) {
-  .crypto-history-toolbar,
-  .crypto-filter-controls,
-  .crypto-chart-summary {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .crypto-kpi-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .crypto-chart-stage,
-  .crypto-chart-stage svg {
-    height: 15rem;
-  }
-
-  .crypto-allocation-legend {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
-  .crypto-detail-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 
   .crypto-import-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -6191,49 +5875,6 @@ h3 {
 
   .crypto-shadow-totals {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1600px) {
-  .crypto-kpi-grid {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-  }
-}
-
-@media (min-width: 1180px) {
-  .crypto-chart-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  .crypto-history-page {
-    --text-main: #f5f4f1;
-    --text-muted: #c5c0ba;
-    --text-subtle: #96908a;
-    --surface: rgba(25, 30, 29, 0.96);
-    --surface-strong: rgba(31, 38, 36, 0.98);
-    --surface-muted: rgba(41, 49, 47, 0.94);
-    --border: rgba(220, 226, 223, 0.13);
-    --border-strong: rgba(220, 226, 223, 0.23);
-    --accent: #5eead4;
-    --accent-soft: rgba(45, 212, 191, 0.14);
-    --positive: #5eead4;
-    --danger: #fb9278;
-    --caution: #fbbf24;
-    --crypto-chart-line: #5eead4;
-    --crypto-chart-area: rgba(45, 212, 191, 0.14);
-    --crypto-chart-grid: rgba(226, 232, 240, 0.12);
-  }
-
-  .crypto-history-page .card,
-  .crypto-history-page .summary-card {
-    background: var(--surface);
-    color: var(--text-main);
-  }
-
-  .crypto-history-page .crypto-chart-point {
-    border-color: #1f2624;
   }
 }
 

@@ -1,20 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CryptoManagementPanel } from '../components/crypto/CryptoManagementPanel';
 
-import { CryptoAllocationPanel } from '../components/crypto/CryptoAllocationPanel';
-import { CryptoHistoryTrendChart } from '../components/crypto/CryptoHistoryTrendChart';
+import { FinanceBarChart, FinanceLineChart } from '../components/charts/FinanceChart';
+import { CryptoManagementPanel } from '../components/crypto/CryptoManagementPanel';
 import { EmptyState } from '../components/ui/EmptyState';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { StatusMessages } from '../components/ui/StatusMessages';
 import { useCryptoHistory } from '../hooks/useCryptoHistory';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
 import {
-  filterCryptoSnapshots,
   getCryptoHistoryYears,
   getCryptoSnapshotQualityLabel,
   getCryptoSnapshotQualityTone,
   getCryptoSourceLabel,
-  type CryptoHistoryYearFilter,
+  sortCryptoSnapshots,
 } from '../lib/cryptoHistory';
 import { callPortfolioFunction } from '../lib/api/vercelFunctions';
 import type { CryptoMonthlySnapshot } from '../types/cryptoHistory';
@@ -123,12 +121,32 @@ interface CryptoSyncPreview {
   } | null;
 }
 
+
+type ChartMode = 'asset' | 'return';
+type PeriodFilter = 'all' | 'last12' | string;
+
+const ARCHIVE_PAGE_SIZE = 12;
+
+const allocationConfig = [
+  { key: 'BTC', label: 'BTC', color: 'var(--crypto-btc)' },
+  { key: 'ETH', label: 'ETH', color: 'var(--crypto-eth)' },
+  { key: 'ADA', label: 'ADA', color: 'var(--crypto-ada)' },
+  { key: 'USDT', label: 'USDT', color: 'var(--crypto-usdt)' },
+  { key: 'OTHER', label: '其他', color: 'var(--crypto-other)' },
+] as const;
+
 function money(value: number, currency: TrendCurrency) {
   return new Intl.NumberFormat('zh-HK', {
     style: 'currency',
     currency,
     maximumFractionDigits: currency === 'USD' ? 2 : 0,
   }).format(value);
+}
+
+function signedMoney(value: number, currency: TrendCurrency) {
+  const formatted = money(Math.abs(value), currency);
+  if (value === 0) return formatted;
+  return `${value > 0 ? '+' : '-'}${formatted}`;
 }
 
 function percent(value: number | null) {
@@ -139,6 +157,10 @@ function percent(value: number | null) {
     maximumFractionDigits: 2,
     signDisplay: 'exceptZero',
   }).format(value);
+}
+
+function share(value: number) {
+  return new Intl.NumberFormat('zh-HK', { style: 'percent', maximumFractionDigits: 1 }).format(value);
 }
 
 function number(value: number | null, maximumFractionDigits = 4) {
@@ -159,141 +181,186 @@ function formatDateTime(value: string) {
   }).format(date);
 }
 
-function KpiCard({
-  label,
-  value,
-  hint,
-  tone = 'neutral',
-}: {
-  label: string;
-  value: string;
-  hint: string;
-  tone?: 'neutral' | 'positive' | 'negative';
-}) {
-  return (
-    <article className="summary-card crypto-kpi">
-      <span className="summary-label">{label}</span>
-      <strong data-tone={tone}>{value}</strong>
-      <small>{hint}</small>
-    </article>
-  );
+function formatMonthLabel(month: string) {
+  return `${month.slice(0, 4)}年${Number(month.slice(5, 7))}月`;
 }
 
-function SnapshotDetails({ snapshot }: { snapshot: CryptoMonthlySnapshot }) {
-  const hasLiabilities = snapshot.liabilities.length > 0;
+function toneClass(value: number | null) {
+  if (value == null || value === 0) return '';
+  return value > 0 ? 'gain-text' : 'loss-text';
+}
+
+const monthIndex = (month: string) => {
+  const [year, value] = month.split('-').map(Number);
+  return year * 12 + value;
+};
+
+const basisLabel = (snapshot: CryptoMonthlySnapshot) =>
+  snapshot.sourceType === 'system_management' ? '平台持倉淨值口徑' : '原表口徑';
+
+function MonthDetail({ snapshot }: { snapshot: CryptoMonthlySnapshot }) {
+  const isSystem = snapshot.sourceType === 'system_management';
+  const holdings = [...snapshot.historicalHoldings].sort((left, right) => right.valueUsd - left.valueUsd);
+  const holdingsTotal = holdings.reduce((sum, holding) => sum + Math.max(0, holding.valueUsd), 0);
+  const priceBySymbol = new Map(snapshot.prices.map((entry) => [entry.symbol, entry.priceUsd]));
+  const allocations = allocationConfig.map((item) => ({ ...item, value: snapshot.allocations[item.key] }));
+  const knownAllocations = allocations.filter((item): item is typeof item & { value: number } => typeof item.value === 'number');
+  const allocationComplete = knownAllocations.length === allocationConfig.length;
+  const largestAllocation = [...knownAllocations].sort((left, right) => right.value - left.value)[0];
+  let covered = 0;
+  const gradientStops = knownAllocations.flatMap((item) => {
+    const start = covered;
+    covered = Math.min(1, covered + Math.max(0, item.value));
+    return covered > start ? [`${item.color} ${start * 100}% ${covered * 100}%`] : [];
+  });
+  if (covered < 1) gradientStops.push(`var(--surface-muted) ${covered * 100}% 100%`);
+  const warningCodes = [...new Set(snapshot.warnings.map((warning) => warning.code))];
 
   return (
-    <section className="card crypto-detail-card" id="crypto-month-detail">
-      <div className="section-heading">
+    <section className="card monthly-detail-card" id="crypto-month-detail">
+      <div className="monthly-section-head">
         <div>
-          <h2>{snapshot.month}</h2>
-          {snapshot.sourceType === 'system_management' && <p className="status-message">月結日期：{snapshot.snapshotDate} · {snapshot.rawSourceValues.closingMode === 'manual' ? '按當時平台持倉手動建立' : '按當時平台持倉建立'}</p>}
+          <h2>{formatMonthLabel(snapshot.month)} 明細</h2>
+          <p className="cm-caption">
+            {isSystem ? '以當時平台持倉扣除負債計算，提取另外列示。' : '保留原表計算方式，與平台持倉淨值口徑分開比較。'}
+            {isSystem && snapshot.rawSourceValues.closingMode === 'manual' ? '按當時平台持倉手動建立。' : ''}
+          </p>
         </div>
-        <StatusBadge
-          label={getCryptoSnapshotQualityLabel(snapshot.dataQuality)}
-          tone={getCryptoSnapshotQualityTone(snapshot.dataQuality)}
-        />
       </div>
 
-      <div className="crypto-detail-grid">
-        <div className="crypto-detail-block">
-          <h3>平台及錢包</h3>
-          {snapshot.historicalHoldings.length > 0 ? (
-            <div className="crypto-detail-list">
-              {snapshot.historicalHoldings.map((holding) => (
-                <span key={holding.rawLabel}>
-                  <span>
-                    {holding.normalizedLabel}
-                    {holding.rawLabel !== holding.normalizedLabel ? (
-                      <small>原始：{holding.rawLabel}</small>
-                    ) : null}
-                  </span>
-                  <strong>{money(holding.valueUsd, 'USD')}</strong>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="status-message">原始月結沒有逐平台資料。</p>
-          )}
-        </div>
+      <dl className="monthly-facts">
+        <div><dt>月結總值 USD</dt><dd>{money(snapshot.performanceTotalUsd, 'USD')}</dd></div>
+        <div><dt>{isSystem ? '月結淨資產 USD' : '原表逐項持倉 USD'}</dt><dd>{money(snapshot.currentNetUsd, 'USD')}</dd></div>
+        <div><dt>累計提取／消費 USD</dt><dd>{money(snapshot.cumulativeWithdrawnUsd, 'USD')}</dd></div>
+        <div><dt>BTC 等值</dt><dd>{number(snapshot.btcEquivalent, 6)}</dd></div>
+        <div><dt>USD/HKD 匯率</dt><dd>{number(snapshot.usdHkdRate, 4)}</dd></div>
+        <div><dt>原紀錄累計回報率</dt><dd className={toneClass(snapshot.returnPct)}>{percent(snapshot.returnPct)}</dd></div>
+      </dl>
 
-        <div className="crypto-detail-block">
+      <div className="monthly-detail-grid">
+        <article className="monthly-panel">
+          <h3>平台及錢包</h3>
+          {holdings.length > 0 ? (
+            <ul className="monthly-bars">
+              {holdings.map((holding) => {
+                const ratio = holdingsTotal > 0 ? Math.max(0, holding.valueUsd) / holdingsTotal : 0;
+                return (
+                  <li key={holding.rawLabel}>
+                    <div className="monthly-bar-label">
+                      <span>
+                        {holding.normalizedLabel}
+                        {holding.rawLabel !== holding.normalizedLabel ? <small>原始：{holding.rawLabel}</small> : null}
+                      </span>
+                      <strong>{money(holding.valueUsd, 'USD')}</strong>
+                    </div>
+                    <div className="monthly-bar-track" aria-hidden="true"><i style={{ width: `${ratio * 100}%` }} /></div>
+                    <small>{share(ratio)}</small>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="cm-caption">原始月結沒有逐平台資料。</p>
+          )}
+        </article>
+
+        <article className="monthly-panel">
+          <h3>幣種分佈</h3>
+          <div className="monthly-allocation">
+            <div
+              className="monthly-donut"
+              role="img"
+              aria-label={`${snapshot.month} 幣種分佈：${knownAllocations.map((item) => `${item.label} ${share(item.value)}`).join('、') || '沒有可用比例'}`}
+              style={{ background: `conic-gradient(${gradientStops.join(', ')})` }}
+            >
+              {largestAllocation ? (
+                <span>
+                  <strong>{share(largestAllocation.value)}</strong>
+                  <small>{largestAllocation.label}</small>
+                </span>
+              ) : null}
+            </div>
+            <ul className="monthly-legend">
+              {allocations.map((item) => (
+                <li key={item.key}>
+                  <i style={{ background: item.color }} aria-hidden="true" />
+                  <span>{item.label}</span>
+                  <strong>{typeof item.value === 'number' ? share(item.value) : '—'}</strong>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {!allocationComplete ? (
+            <p className="cm-caption">部分資料：原始月結沒有完整五項分佈，空白項目不作推算。</p>
+          ) : null}
+        </article>
+
+        <article className="monthly-panel">
           <h3>貨幣數量及價格</h3>
           {snapshot.historicalQuantities.length > 0 ? (
-            <div className="crypto-detail-list">
+            <ul className="monthly-rows">
               {snapshot.historicalQuantities.map((entry) => (
-                <span key={entry.rawLabel}>
+                <li key={entry.rawLabel}>
                   <span>
-                    {entry.symbol}
+                    <strong>{entry.symbol}</strong>
                     {entry.platform ? <small>{[entry.platform, entry.status].filter(Boolean).join(' · ')}</small> : null}
                   </span>
-                  <strong>{number(entry.quantity, 8)}</strong>
-                </span>
+                  <span className="monthly-row-value">
+                    <strong>{number(entry.quantity, 8)}</strong>
+                    {priceBySymbol.has(entry.symbol) ? <small>單價 {money(priceBySymbol.get(entry.symbol) as number, 'USD')}</small> : null}
+                  </span>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : (
-            <p className="status-message">原始月結沒有可確認的貨幣數量。</p>
+            <p className="cm-caption">原始月結沒有可確認的貨幣數量。</p>
           )}
-          {snapshot.prices.length > 0 ? (
-            <div className="crypto-price-chips">
-              {snapshot.prices.map((entry) => (
-                <span key={entry.rawLabel}>
-                  {entry.symbol} <strong>{money(entry.priceUsd, 'USD')}</strong>
-                </span>
-              ))}
-            </div>
-          ) : null}
-        </div>
+        </article>
 
-        <div className="crypto-detail-block">
-          <h3>資產比例</h3>
-          <CryptoAllocationPanel snapshot={snapshot} />
-        </div>
-
-        <div className="crypto-detail-block">
+        <article className="monthly-panel">
           <h3>負債</h3>
-          {hasLiabilities ? (
-            <div className="crypto-detail-list">
+          {snapshot.liabilities.length > 0 ? (
+            <ul className="monthly-rows">
               {snapshot.liabilities.map((entry, index) => (
-                <span key={`${entry.symbol ?? 'liability'}-${index}`}>
-                  <span>{entry.symbol ?? '負債'}<small>{entry.platform ?? '未註明平台'}</small></span>
-                  <strong>{number(entry.quantity ?? null, 8)}</strong>
-                </span>
+                <li key={`${entry.symbol ?? 'liability'}-${index}`}>
+                  <span>
+                    <strong>{entry.symbol ?? '負債'}</strong>
+                    <small>{entry.platform ?? '未註明平台'}</small>
+                  </span>
+                  <span className="monthly-row-value loss-text"><strong>{number(entry.quantity ?? null, 8)}</strong></span>
+                </li>
               ))}
-            </div>
+            </ul>
           ) : (
-            <p className="status-message">
-              {snapshot.sourceType === 'system_management' ? '月結時沒有借貸負債。' : '原始月結沒有可獨立確認的負債明細；不會由平台總值自行推算。'}
+            <p className="cm-caption">
+              {isSystem ? '月結時沒有借貸負債。' : '原始月結沒有可獨立確認的負債明細；不會由平台總值自行推算。'}
             </p>
           )}
-        </div>
+        </article>
       </div>
 
-      <div className="crypto-source-panel">
-        <div>
-          <span>來源</span>
-          <strong>{snapshot.sourceType === 'system_management' ? '平台持倉、借貸及資金紀錄' : `${snapshot.sourceSheet}!${snapshot.sourceRange}`}</strong>
-          <small>{getCryptoSourceLabel(snapshot.sourceType)}{snapshot.importBatchId ? ` · 批次 ${snapshot.importBatchId}` : ''}</small>
+      {snapshot.warnings.length > 0 ? (
+        <div className="monthly-notes">
+          {snapshot.warnings.map((warning, index) => (
+            <p key={`${warning.code}-${index}`} data-severity={warning.severity}>{warning.message}</p>
+          ))}
         </div>
-        <details>
-          <summary>查看原始來源數值</summary>
-          <pre>{JSON.stringify(snapshot.rawSourceValues, null, 2)}</pre>
-        </details>
-      </div>
+      ) : null}
 
-      <div className="crypto-warning-list">
-        <h3>資料警告</h3>
-        {snapshot.warnings.length > 0 ? (
-          snapshot.warnings.map((warning, index) => (
-            <p key={`${warning.code}-${index}`} data-severity={warning.severity}>
-              <strong>{warning.code}</strong>
-              <span>{warning.message}</span>
-            </p>
-          ))
-        ) : (
-          <p className="compact-success-note">沒有資料警告。</p>
-        )}
-      </div>
+      <details className="monthly-audit">
+        <summary>審計資料：來源、批次及原始數值</summary>
+        <dl>
+          <div>
+            <dt>來源</dt>
+            <dd>{isSystem ? '平台持倉、借貸及資金紀錄' : `${snapshot.sourceSheet}!${snapshot.sourceRange}`}</dd>
+          </div>
+          <div><dt>來源類型</dt><dd>{getCryptoSourceLabel(snapshot.sourceType)}</dd></div>
+          {snapshot.importBatchId ? <div><dt>匯入批次</dt><dd>{snapshot.importBatchId}</dd></div> : null}
+          <div><dt>計算口徑</dt><dd>{basisLabel(snapshot)}</dd></div>
+          {warningCodes.length > 0 ? <div><dt>警告代碼</dt><dd>{warningCodes.join('、')}</dd></div> : null}
+        </dl>
+        <pre>{JSON.stringify(snapshot.rawSourceValues, null, 2)}</pre>
+      </details>
     </section>
   );
 }
@@ -304,48 +371,59 @@ export function CryptoHistoryPage() {
 
 function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
   const history = useCryptoHistory();
-  const [year, setYear] = useState<CryptoHistoryYearFilter>('all');
+  const [period, setPeriod] = useState<PeriodFilter>('all');
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
-  const [range, setRange] = useState('all');
   const [archiveSearch, setArchiveSearch] = useState('');
   const [archivePage, setArchivePage] = useState(0);
   const [trendCurrency, setTrendCurrency] = useState<TrendCurrency>('HKD');
+  const [chartMode, setChartMode] = useState<ChartMode>('asset');
   const [syncStatus, setSyncStatus] = useState<'idle' | 'previewing' | 'applying'>('idle');
   const [syncPreview, setSyncPreview] = useState<CryptoSyncPreview | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncMessageTone, setSyncMessageTone] = useState<'success' | 'warning'>('success');
-  const years = useMemo(
-    () => getCryptoHistoryYears(history.snapshots),
-    [history.snapshots],
+  const snapshots = useMemo(() => sortCryptoSnapshots(history.snapshots), [history.snapshots]);
+  const years = useMemo(() => getCryptoHistoryYears(snapshots), [snapshots]);
+  const periodSnapshots = useMemo(() => {
+    if (period === 'all') return snapshots;
+    if (period === 'last12') {
+      const latest = snapshots[snapshots.length - 1];
+      if (!latest) return [];
+      const cutoff = monthIndex(latest.month) - 12;
+      return snapshots.filter((snapshot) => monthIndex(snapshot.month) > cutoff);
+    }
+    return snapshots.filter((snapshot) => snapshot.month.startsWith(`${period}-`));
+  }, [period, snapshots]);
+  const periodOptions: Array<[PeriodFilter, string]> = [
+    ['all', '全部'],
+    ['last12', '近12個月'],
+    ...[...years].reverse().map((year): [PeriodFilter, string] => [year, `${year}年`]),
+  ];
+  const activeSnapshot = snapshots.find((snapshot) => snapshot.month === selectedMonth) ?? snapshots[snapshots.length - 1] ?? null;
+  const activeIndex = activeSnapshot ? snapshots.indexOf(activeSnapshot) : -1;
+  const chartActiveIndex = activeSnapshot ? periodSnapshots.findIndex((snapshot) => snapshot.id === activeSnapshot.id) : -1;
+  const chartLabels = periodSnapshots.map((snapshot) => snapshot.month);
+  const chartTitles = periodSnapshots.map((snapshot) => `${formatMonthLabel(snapshot.month)} · ${basisLabel(snapshot)}`);
+  const chartBreaks = periodSnapshots.map((snapshot, index) => {
+    const previous = periodSnapshots[index - 1];
+    return Boolean(previous) && (monthIndex(previous.month) + 1 !== monthIndex(snapshot.month) || basisLabel(previous) !== basisLabel(snapshot));
+  });
+  const totalValues = periodSnapshots.map((snapshot) => (trendCurrency === 'HKD' ? snapshot.totalHkd : snapshot.performanceTotalUsd));
+  const principalValues = periodSnapshots.map((snapshot) =>
+    trendCurrency === 'HKD' ? snapshot.principalHkd : snapshot.usdHkdRate > 0 ? snapshot.principalHkd / snapshot.usdHkdRate : null,
   );
-  const filteredSnapshots = useMemo(
-    () => filterCryptoSnapshots(history.snapshots, year),
-    [history.snapshots, year],
-  );
-  const chartSnapshots = useMemo(() => {
-    if (range === 'all') return filteredSnapshots;
-    if (range === 'year') return filteredSnapshots.filter(s => s.month.startsWith(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong', year: 'numeric' }).format(new Date())));
-    const latest = history.snapshots[history.snapshots.length - 1]?.month;
-    if (!latest) return [];
-    const [y, m] = latest.split('-').map(Number);
-    const cutoff = y * 12 + m - 12;
-    return filteredSnapshots.filter(s => { const [a, b] = s.month.split('-').map(Number); return a * 12 + b > cutoff; });
-  }, [filteredSnapshots, history.snapshots, range]);
-  const archiveRows = [...filteredSnapshots].reverse().filter(s => s.month.includes(archiveSearch.trim()));
-  const pageCount = Math.max(1, Math.ceil(archiveRows.length / 12));
+  const returnValues = periodSnapshots.map((snapshot) => snapshot.returnHkd);
+  const latestReturn = returnValues[returnValues.length - 1] ?? 0;
+  const archiveRows = [...periodSnapshots].reverse().filter((snapshot) => snapshot.month.includes(archiveSearch.trim()));
+  const pageCount = Math.max(1, Math.ceil(archiveRows.length / ARCHIVE_PAGE_SIZE));
   const currentPage = Math.min(archivePage, pageCount - 1);
   const exportHistory = () => {
     const url = URL.createObjectURL(new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), snapshots: history.snapshots, latestImport: history.latestImport, latestSync: history.latestSync }, null, 2)], { type: 'application/json' }));
     const a = document.createElement('a'); a.href = url; a.download = 'crypto-monthly-history.json'; a.click(); URL.revokeObjectURL(url);
   };
-  const activeSnapshot =
-    filteredSnapshots.find((snapshot) => snapshot.month === selectedMonth) ??
-    filteredSnapshots[filteredSnapshots.length - 1] ??
-    null;
   const topBarConfig = useMemo<TopBarConfig>(
     () => ({
-      title: '加密資產月結',
-      subtitle: managed ? '持倉在管理中心維護，以下保留各月份鎖定結果。' : 'Google Sheet 月結紀錄，不計入投資組合。',
+      title: managed ? '持倉管理中心' : '加密資產月結',
+      subtitle: managed ? '月結歷史：持倉在管理中心維護，以下保留各月份鎖定結果。' : 'Google Sheet 月結紀錄，不計入投資組合。',
       primaryStatus:
         history.status === 'ready'
           ? { label: `${history.snapshots.length} 個月份`, tone: 'success' }
@@ -508,6 +586,7 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
     }
   };
 
+
   if (history.status === 'loading' && history.snapshots.length === 0) {
     return (
       <div className="page-stack crypto-history-page">
@@ -534,151 +613,248 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
     <div className="page-stack crypto-history-page">
       <StatusMessages errors={history.errors} />
 
-      <section className="card monthly-intro"><div><span className="cm-eyebrow">MONTHLY STATEMENT</span><h2>月結總覽</h2><p className="cm-caption">{history.snapshots[0]?.month} — {history.snapshots[history.snapshots.length - 1]?.month} · {history.snapshots.length} 個月份 · 原始紀錄完整保留</p></div><button type="button" className="button button-secondary" onClick={exportHistory}>匯出全部月結</button></section>
-      <section className="card crypto-history-toolbar">
-        <div className="crypto-filter-controls">
-          <div className="crypto-year-selector" aria-label="年份篩選">
-            {['all', ...years].map((option) => (
-              <button
-                key={option}
-                type="button"
-                className={year === option ? 'chip active' : 'chip'}
-                aria-pressed={year === option}
-                onClick={() => {
-                  setYear(option);
-                  setSelectedMonth(null);
-                  setArchivePage(0);
-                }}
-              >
-                {option === 'all' ? '全部' : option}
-              </button>
-            ))}
-          </div>
-          <label className="crypto-month-select">
-            <span>月份</span>
-            <select
-              value={selectedMonth ?? ''}
-              onChange={(event) => setSelectedMonth(event.target.value || null)}
-            >
-              <option value="">最新月份</option>
-              {[...filteredSnapshots].reverse().map((snapshot) => (
-                <option key={snapshot.id} value={snapshot.month}>
-                  {snapshot.month}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </section>
-
       {activeSnapshot ? (
-        <section className="crypto-kpi-grid" aria-label={`${activeSnapshot.month} 主要指標`}>
-          <KpiCard
-            label="月結總資產 HKD"
-            value={money(activeSnapshot.totalHkd, 'HKD')}
-            hint={`${activeSnapshot.month} · ${activeSnapshot.sourceType === 'system_management' ? '淨資產口徑' : '原表口徑'}`}
-          />
-          <KpiCard
-            label="本金 HKD"
-            value={money(activeSnapshot.principalHkd, 'HKD')}
-            hint="月結本金"
-          />
-          <KpiCard
-            label="累計回報 HKD"
-            value={money(activeSnapshot.returnHkd, 'HKD')}
-            hint={`${percent(activeSnapshot.returnPct)} 回報率`}
-            tone={activeSnapshot.returnHkd >= 0 ? 'positive' : 'negative'}
-          />
-          <KpiCard label="月度資產變化" value={percent(activeSnapshot.monthOverMonthPct)} hint="原紀錄 USD 比較口徑 · 包含資金變化" />
+        <section className="card monthly-statement" aria-label={`${activeSnapshot.month} 月結概要`}>
+          <div className="monthly-statement-head">
+            <div>
+              <span className="cm-eyebrow">月結報表</span>
+              <h2>{formatMonthLabel(activeSnapshot.month)}</h2>
+              <div className="monthly-badges">
+                <StatusBadge label={activeSnapshot.locked ? '已鎖定' : '未鎖定'} tone={activeSnapshot.locked ? 'success' : 'warning'} />
+                <StatusBadge
+                  label={getCryptoSnapshotQualityLabel(activeSnapshot.dataQuality)}
+                  tone={getCryptoSnapshotQualityTone(activeSnapshot.dataQuality)}
+                />
+                <span>{basisLabel(activeSnapshot)}</span>
+                <span>結算日期 {activeSnapshot.snapshotDate || '未有資料'}</span>
+              </div>
+            </div>
+            <div className="monthly-statement-actions">
+              <div className="monthly-month-nav">
+                <button
+                  type="button"
+                  aria-label="上一個月結"
+                  disabled={activeIndex <= 0}
+                  onClick={() => setSelectedMonth(snapshots[activeIndex - 1].month)}
+                >
+                  ‹
+                </button>
+                <select
+                  aria-label="選擇月結月份"
+                  value={activeSnapshot.month}
+                  onChange={(event) => setSelectedMonth(event.target.value)}
+                >
+                  {[...snapshots].reverse().map((snapshot) => (
+                    <option key={snapshot.id} value={snapshot.month}>{formatMonthLabel(snapshot.month)}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  aria-label="下一個月結"
+                  disabled={activeIndex >= snapshots.length - 1}
+                  onClick={() => setSelectedMonth(snapshots[activeIndex + 1].month)}
+                >
+                  ›
+                </button>
+              </div>
+              <button type="button" className="button button-secondary" onClick={exportHistory}>匯出全部月結</button>
+            </div>
+          </div>
+
+          <dl className="monthly-kpis">
+            <div>
+              <dt>月結總資產 HKD</dt>
+              <dd><strong>{money(activeSnapshot.totalHkd, 'HKD')}</strong><small>{money(activeSnapshot.performanceTotalUsd, 'USD')}</small></dd>
+            </div>
+            <div>
+              <dt>累計本金 HKD</dt>
+              <dd><strong>{money(activeSnapshot.principalHkd, 'HKD')}</strong><small>月結時本金</small></dd>
+            </div>
+            <div>
+              <dt>累計回報 HKD</dt>
+              <dd>
+                <strong className={toneClass(activeSnapshot.returnHkd)}>{signedMoney(activeSnapshot.returnHkd, 'HKD')}</strong>
+                <small className={toneClass(activeSnapshot.returnPct)}>{percent(activeSnapshot.returnPct)} 回報率</small>
+              </dd>
+            </div>
+            <div>
+              <dt>月度資產變化</dt>
+              <dd>
+                <strong>{percent(activeSnapshot.monthOverMonthPct)}</strong>
+                <small>較上月 · 包含入金及提取，並非投資回報</small>
+              </dd>
+            </div>
+          </dl>
+
+          <p className="cm-caption">
+            {snapshots[0]?.month} 至 {snapshots[snapshots.length - 1]?.month} · 共 {snapshots.length} 個月份 · 原始紀錄完整保留
+          </p>
         </section>
       ) : null}
 
-      <div className="monthly-range" aria-label="走勢時間範圍">{[['all', '全部期間'], ['year', '今年'], ['12', '近 12 個月']].map(([id, label]) => <button type="button" key={id} className={range === id ? 'chip active' : 'chip'} aria-pressed={range === id} onClick={() => setRange(id)}>{label}</button>)}<span className="cm-caption">與年份篩選共同套用</span></div>
-      <section className="crypto-chart-grid monthly-charts">
-        <article className="card crypto-chart-card">
-          <div className="section-heading">
-            <div>
-              <h2>月結總值與累計本金</h2>
-            </div>
-            <div className="crypto-currency-toggle" aria-label="走勢顯示貨幣">
-              {(['HKD', 'USD'] as const).map((currency) => (
-                <button
-                  key={currency}
-                  type="button"
-                  className={trendCurrency === currency ? 'active' : ''}
-                  aria-pressed={trendCurrency === currency}
-                  onClick={() => setTrendCurrency(currency)}
-                >
-                  {currency}
+      <section className="card monthly-trend-card">
+        <div className="monthly-section-head">
+          <div>
+            <h2>月結走勢</h2>
+            <p className="cm-caption">點選圖表月份查看當月明細；缺漏月份及計算口徑轉變不連線。</p>
+          </div>
+          <div className="monthly-chart-controls">
+            <div className="crypto-currency-toggle" role="group" aria-label="走勢內容">
+              {([['asset', '總值與本金'], ['return', '累計回報']] as const).map(([mode, label]) => (
+                <button key={mode} type="button" className={chartMode === mode ? 'active' : ''} aria-pressed={chartMode === mode} onClick={() => setChartMode(mode)}>
+                  {label}
                 </button>
               ))}
             </div>
+            {chartMode === 'asset' ? (
+              <div className="crypto-currency-toggle" role="group" aria-label="走勢顯示貨幣">
+                {(['HKD', 'USD'] as const).map((currency) => (
+                  <button key={currency} type="button" className={trendCurrency === currency ? 'active' : ''} aria-pressed={trendCurrency === currency} onClick={() => setTrendCurrency(currency)}>
+                    {currency}
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </div>
-          <CryptoHistoryTrendChart
-            snapshots={chartSnapshots}
-            mode="asset"
-            currency={trendCurrency}
-            selectedMonth={activeSnapshot?.month}
-            onSelectMonth={selectMonth}
-          />
-        </article>
+        </div>
 
-        <article className="card crypto-chart-card">
-          <div className="section-heading">
-            <div>
-              <h2>累計回報走勢 · HKD</h2>
+        <div className="monthly-period" role="group" aria-label="走勢期間">
+          {periodOptions.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={period === value ? 'active' : ''}
+              aria-pressed={period === value}
+              onClick={() => {
+                setPeriod(value);
+                setArchivePage(0);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {chartMode === 'asset' ? (
+          <>
+            <div className="monthly-chart-legend" aria-hidden="true">
+              <span><i className="solid" />月結總值</span>
+              <span><i className="dashed" />累計本金{trendCurrency === 'USD' ? '（按各月匯率換算）' : ''}</span>
             </div>
-          </div>
-          <CryptoHistoryTrendChart
-            snapshots={chartSnapshots}
-            mode="return"
-            selectedMonth={activeSnapshot?.month}
-            onSelectMonth={selectMonth}
+            <FinanceLineChart
+              labels={chartLabels}
+              tooltipTitles={chartTitles}
+              breaks={chartBreaks}
+              series={[
+                { id: 'total', label: '月結總值', values: totalValues, variant: 'primary' },
+                { id: 'principal', label: '累計本金', values: principalValues, variant: 'reference' },
+              ]}
+              formatValue={(value) => money(value, trendCurrency)}
+              activeIndex={chartActiveIndex >= 0 ? chartActiveIndex : null}
+              onSelect={(index) => selectMonth(periodSnapshots[index].month)}
+              ariaLabel={`月結總值與累計本金 ${trendCurrency}`}
+              renderTooltip={(index) => {
+                const snapshot = periodSnapshots[index];
+                const principal = principalValues[index];
+                return (
+                  <>
+                    <strong>{money(totalValues[index] ?? 0, trendCurrency)}</strong>
+                    <span>累計本金 {principal == null ? '—' : money(principal, trendCurrency)}</span>
+                    <span className={toneClass(snapshot.returnHkd)}>累計回報 {signedMoney(snapshot.returnHkd, 'HKD')}（{percent(snapshot.returnPct)}）</span>
+                  </>
+                );
+              }}
+            />
+          </>
+        ) : (
+          <FinanceLineChart
+            labels={chartLabels}
+            tooltipTitles={chartTitles}
+            breaks={chartBreaks}
+            series={[{ id: 'return', label: '累計回報 HKD', values: returnValues, variant: 'primary' }]}
+            tone={latestReturn >= 0 ? 'gain' : 'loss'}
+            baseline={0}
+            formatValue={(value) => signedMoney(value, 'HKD')}
+            activeIndex={chartActiveIndex >= 0 ? chartActiveIndex : null}
+            onSelect={(index) => selectMonth(periodSnapshots[index].month)}
+            ariaLabel="累計回報 HKD"
+            renderTooltip={(index) => {
+              const snapshot = periodSnapshots[index];
+              return (
+                <>
+                  <strong className={toneClass(snapshot.returnHkd)}>{signedMoney(snapshot.returnHkd, 'HKD')}</strong>
+                  <span className={toneClass(snapshot.returnPct)}>回報率 {percent(snapshot.returnPct)}</span>
+                  <span>本金 {money(snapshot.principalHkd, 'HKD')}</span>
+                </>
+              );
+            }}
           />
-        </article>
+        )}
+
+        <div className="monthly-subchart">
+          <h3>月度資產變化</h3>
+          <p className="cm-caption">較上月 · USD 比較口徑 · 包含入金、提取及估值變動，並非扣除資金流後的投資回報</p>
+          <FinanceBarChart
+            labels={chartLabels}
+            tooltipTitles={chartTitles}
+            values={periodSnapshots.map((snapshot) => snapshot.monthOverMonthPct)}
+            formatValue={(value) => percent(value)}
+            formatAxis={(value) => `${Math.round(value * 100)}%`}
+            activeIndex={chartActiveIndex >= 0 ? chartActiveIndex : null}
+            onSelect={(index) => selectMonth(periodSnapshots[index].month)}
+            height={180}
+            ariaLabel="月度資產變化百分比"
+            renderTooltip={(index) => {
+              const value = periodSnapshots[index].monthOverMonthPct;
+              return (
+                <>
+                  <strong className={toneClass(value)}>{value == null ? '未有上月比較' : percent(value)}</strong>
+                  <span>包含資金變化</span>
+                </>
+              );
+            }}
+          />
+        </div>
       </section>
 
-      <article className="card crypto-chart-card"><h2>月度資產變化 · USD 比較口徑</h2><CryptoHistoryTrendChart snapshots={chartSnapshots} mode="change" selectedMonth={activeSnapshot?.month} onSelectMonth={selectMonth} /><p className="cm-caption">包含入金、提取及估值變動，並非扣除資金流後的投資回報。新舊計算口徑分段顯示，缺少月份不連線。</p></article>
-      {activeSnapshot ? <><section className="card monthly-context"><div className="section-heading"><h2>{activeSnapshot.month} 月結檔案</h2><StatusBadge label={activeSnapshot.locked ? '已鎖定' : '未鎖定'} tone={activeSnapshot.locked ? 'success' : 'warning'} /></div><p className="cm-caption">結算日期：{activeSnapshot.snapshotDate || '未有資料'} · {activeSnapshot.sourceType === 'system_management' ? '以當時平台持倉扣除負債，提取獨立列示' : '保留原表計算方式；與新平台持倉淨值口徑分開比較'}</p><dl className="crypto-import-grid"><div><dt>月結總值 USD</dt><dd>{money(activeSnapshot.performanceTotalUsd, 'USD')}</dd></div><div><dt>{activeSnapshot.sourceType === 'system_management' ? '月結淨資產 USD' : '原表逐項持倉 USD'}</dt><dd>{money(activeSnapshot.currentNetUsd, 'USD')}</dd></div><div><dt>累計提取／消費 USD</dt><dd>{money(activeSnapshot.cumulativeWithdrawnUsd, 'USD')}</dd></div><div><dt>BTC 等值</dt><dd>{number(activeSnapshot.btcEquivalent, 6)}</dd></div><div><dt>USD/HKD 匯率</dt><dd>{number(activeSnapshot.usdHkdRate, 4)}</dd></div><div><dt>原紀錄累計回報率</dt><dd>{percent(activeSnapshot.returnPct)}</dd></div></dl></section><SnapshotDetails snapshot={activeSnapshot} /></> : null}
-      <section className="card crypto-records-card">
-        <div className="section-heading">
+      {activeSnapshot ? <MonthDetail snapshot={activeSnapshot} /> : null}
+
+      <section className="card monthly-archive">
+        <div className="monthly-section-head">
           <div>
-            <h2>{year === 'all' ? '完整歷史檔案' : `${year} 年月結檔案`}</h2>
+            <h2>歷史月結</h2>
+            <p className="cm-caption">{periodOptions.find(([value]) => value === period)?.[1]} · {periodSnapshots.length} 個月份 · 點選月份查看明細</p>
           </div>
-          <span className="chip chip-soft">{filteredSnapshots.length} 筆</span>
+          <label className="monthly-search">
+            <span className="visually-hidden">搜尋月份</span>
+            <input type="search" placeholder="搜尋月份，例如 2025-10" value={archiveSearch} onChange={(event) => { setArchiveSearch(event.target.value); setArchivePage(0); }} />
+          </label>
         </div>
-        <label className="monthly-search">搜尋月份<input type="search" placeholder="例如 2025-10" value={archiveSearch} onChange={e => { setArchiveSearch(e.target.value); setArchivePage(0); }} /></label>
-        <div className="crypto-records-scroll">
-          <table className="crypto-records-table">
+        <div className="monthly-table-scroll">
+          <table className="monthly-table">
             <thead>
               <tr>
                 <th>月份</th>
-                <th>總值 HKD</th>
-                <th>本金</th>
-                <th>回報</th>
+                <th>月結總資產 HKD</th>
+                <th>本金 HKD</th>
+                <th>累計回報 HKD</th>
                 <th>回報率</th>
                 <th>月度資產變化</th>
                 <th>資料品質</th>
-                <th>來源</th>
               </tr>
             </thead>
             <tbody>
-              {archiveRows.slice(currentPage * 12, currentPage * 12 + 12).map((snapshot) => (
-                <tr
-                  key={snapshot.id}
-                  className={snapshot.id === activeSnapshot?.id ? 'active' : ''}
-                >
-                  <td>
-                    <button type="button" onClick={() => selectMonth(snapshot.month)}>
+              {archiveRows.slice(currentPage * ARCHIVE_PAGE_SIZE, currentPage * ARCHIVE_PAGE_SIZE + ARCHIVE_PAGE_SIZE).map((snapshot) => (
+                <tr key={snapshot.id} className={snapshot.id === activeSnapshot?.id ? 'active' : ''}>
+                  <th scope="row">
+                    <button type="button" onClick={() => selectMonth(snapshot.month)} aria-label={`查看 ${snapshot.month} 明細`}>
                       {snapshot.month}
                     </button>
-                  </td>
+                  </th>
                   <td>{money(snapshot.totalHkd, 'HKD')}</td>
                   <td>{money(snapshot.principalHkd, 'HKD')}</td>
-                  <td className={snapshot.returnHkd >= 0 ? 'positive-text' : 'caution-text'}>
-                    {money(snapshot.returnHkd, 'HKD')}
-                  </td>
-                  <td>{percent(snapshot.returnPct)}</td>
+                  <td className={toneClass(snapshot.returnHkd)}>{signedMoney(snapshot.returnHkd, 'HKD')}</td>
+                  <td className={toneClass(snapshot.returnPct)}>{percent(snapshot.returnPct)}</td>
                   <td>{percent(snapshot.monthOverMonthPct)}</td>
                   <td>
                     <StatusBadge
@@ -686,17 +862,20 @@ function CryptoMonthlyHistory({ managed = false }: { managed?: boolean }) {
                       tone={getCryptoSnapshotQualityTone(snapshot.dataQuality)}
                     />
                   </td>
-                  <td>{snapshot.sourceSheet}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         {archiveRows.length === 0 && <p className="cm-caption">沒有符合的月份。</p>}
-        <div className="monthly-pagination"><button type="button" className="button button-secondary" disabled={currentPage === 0} onClick={() => setArchivePage(currentPage - 1)}>上一頁</button><span>第 {currentPage + 1} / {pageCount} 頁 · {archiveRows.length} 筆</span><button type="button" className="button button-secondary" disabled={currentPage >= pageCount - 1} onClick={() => setArchivePage(currentPage + 1)}>下一頁</button></div>
+        {pageCount > 1 ? (
+          <div className="monthly-pagination">
+            <button type="button" className="button button-secondary" disabled={currentPage === 0} onClick={() => setArchivePage(currentPage - 1)}>上一頁</button>
+            <span>第 {currentPage + 1} / {pageCount} 頁 · {archiveRows.length} 筆</span>
+            <button type="button" className="button button-secondary" disabled={currentPage >= pageCount - 1} onClick={() => setArchivePage(currentPage + 1)}>下一頁</button>
+          </div>
+        ) : null}
       </section>
-
-
 
       {!managed && <section className="card crypto-import-card">
         <div className="section-heading">
