@@ -93,7 +93,7 @@ test('worker failure reports the actual error and leaves the previous report int
   const original = { result: '原有月報' };
   data.set('portfolio/app/analysisSessions/monthly-2026-09', original);
   const { job } = await startMonthlyAnalysisJob(firstId, { db, now: () => startedAt });
-  await runMonthlyAnalysisJob(job, { db, runAnalysis: async () => { throw new Error('模型未完成回應'); } });
+  await runMonthlyAnalysisJob(job, { db, now: () => startedAt, runAnalysis: async () => { throw new Error('模型未完成回應'); } });
   const result = await getMonthlyAnalysisJob(firstId, { db });
   assert.equal(result?.status, 'failed');
   assert.equal(result?.message, '模型未完成回應');
@@ -103,7 +103,7 @@ test('worker failure reports the actual error and leaves the previous report int
 test('a lost completion-status write does not falsely mark a saved report failed', async () => {
   const { db, data } = fakeFirestore(true);
   const { job } = await startMonthlyAnalysisJob(firstId, { db, now: () => startedAt });
-  await runMonthlyAnalysisJob(job, { db, runAnalysis: (async () => {
+  await runMonthlyAnalysisJob(job, { db, now: () => startedAt, runAnalysis: (async () => {
     data.set('portfolio/app/analysisSessions/monthly-2026-09', { generationJobId: firstId, result: '完整月報' });
     return { sessionDocId: 'monthly-2026-09', message: '完成' };
   }) as any });
