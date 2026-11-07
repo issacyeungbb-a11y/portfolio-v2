@@ -1,14 +1,44 @@
+import { timingSafeEqual } from "node:crypto";
 import { sendJson } from "./apiShared.js";
 const PUBLIC_PORTFOLIO_ROUTE = "/api/portfolio-public";
-function getConfiguredPublicPortfolioCode() {
-  return process.env.VITE_PORTFOLIO_ACCESS_CODE?.trim() || process.env.PORTFOLIO_ACCESS_CODE?.trim() || "";
+const PUBLIC_READ_TOKEN_MIN_LENGTH = 32;
+function getLoginAccessCodes() {
+  return [
+    process.env.PORTFOLIO_ACCESS_CODE?.trim() ?? "",
+    process.env.VITE_PORTFOLIO_ACCESS_CODE?.trim() ?? ""
+  ].filter((code) => code.length > 0);
 }
-function getPublicPortfolioQueryCode(request) {
+function getConfiguredPublicReadToken() {
+  const token = process.env.PORTFOLIO_PUBLIC_READ_TOKEN?.trim() ?? "";
+  if (token.length < PUBLIC_READ_TOKEN_MIN_LENGTH) {
+    return "";
+  }
+  if (getLoginAccessCodes().includes(token)) {
+    return "";
+  }
+  return token;
+}
+function getPublicReadTokenFromRequest(request) {
   try {
-    return new URL(request.url ?? PUBLIC_PORTFOLIO_ROUTE, "http://localhost").searchParams.get("code")?.trim() ?? "";
+    return new URL(request.url ?? PUBLIC_PORTFOLIO_ROUTE, "http://localhost").searchParams.get("token")?.trim() ?? "";
   } catch {
     return "";
   }
+}
+function hasLegacyCodeParam(request) {
+  try {
+    return new URL(request.url ?? PUBLIC_PORTFOLIO_ROUTE, "http://localhost").searchParams.has("code");
+  } catch {
+    return false;
+  }
+}
+function isValidPublicReadToken(provided, configured) {
+  if (!provided || !configured) {
+    return false;
+  }
+  const providedBuffer = Buffer.from(provided, "utf8");
+  const configuredBuffer = Buffer.from(configured, "utf8");
+  return providedBuffer.length === configuredBuffer.length && timingSafeEqual(providedBuffer, configuredBuffer);
 }
 const PUBLIC_ALLOWED_METHODS = "GET, HEAD, OPTIONS";
 function setPublicApiHeaders(response) {
@@ -45,16 +75,17 @@ function answerPublicRequestPreamble(request, response, route, startedAt) {
     logPublicApiRequest(request, route, 405, startedAt);
     return true;
   }
-  const configuredCode = getConfiguredPublicPortfolioCode();
-  const requestCode = getPublicPortfolioQueryCode(request);
-  if (!configuredCode || requestCode !== configuredCode) {
+  const configuredToken = getConfiguredPublicReadToken();
+  const requestToken = getPublicReadTokenFromRequest(request);
+  if (!isValidPublicReadToken(requestToken, configuredToken)) {
     sendJson(response, 401, {
       ok: false,
       message: "Unauthorized"
     });
     logPublicApiRequest(request, route, 401, startedAt, {
-      codeProvided: requestCode.length > 0,
-      codeConfigured: configuredCode.length > 0
+      tokenProvided: requestToken.length > 0,
+      tokenConfigured: configuredToken.length > 0,
+      legacyCodeParam: hasLegacyCodeParam(request)
     });
     return true;
   }
@@ -69,9 +100,11 @@ function answerPublicRequestPreamble(request, response, route, startedAt) {
 }
 export {
   PUBLIC_ALLOWED_METHODS,
+  PUBLIC_READ_TOKEN_MIN_LENGTH,
   answerPublicRequestPreamble,
-  getConfiguredPublicPortfolioCode,
-  getPublicPortfolioQueryCode,
+  getConfiguredPublicReadToken,
+  getPublicReadTokenFromRequest,
+  isValidPublicReadToken,
   logPublicApiRequest,
   setPublicApiHeaders
 };

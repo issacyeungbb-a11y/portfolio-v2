@@ -33,6 +33,7 @@
 | 變數名 | 說明 |
 |--------|------|
 | `PORTFOLIO_ACCESS_CODE` | Server 端共享存取碼 |
+| `PORTFOLIO_PUBLIC_READ_TOKEN` | 公開唯讀介面憑證（`?token=`），最少 32 位，不可與存取碼相同 |
 | `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON` | Firebase Admin SDK 憑證（JSON 字串） |
 | `GEMINI_API_KEY` | Google Gemini API Key |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API Key |

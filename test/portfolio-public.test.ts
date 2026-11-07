@@ -14,6 +14,7 @@ test('public portfolio reads protected documents through Firebase Admin', async 
   assert.doesNotMatch(source, /firestore\.googleapis\.com/);
   assert.match(source, /answerPublicRequestPreamble\(request, response, PUBLIC_PORTFOLIO_ROUTE/);
   const accessSource = await readFile(new URL('../server/publicApiAccess.ts', import.meta.url), 'utf8');
-  assert.match(accessSource, /requestCode !== configuredCode/);
+  assert.match(accessSource, /isValidPublicReadToken\(requestToken, configuredToken\)/);
+  assert.match(accessSource, /process\.env\.PORTFOLIO_PUBLIC_READ_TOKEN/);
   assert.match(source, /sendJson\(response, 200, \{\s*ok: true,\s*assets,/);
 });

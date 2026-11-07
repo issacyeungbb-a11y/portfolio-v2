@@ -31,6 +31,8 @@ frontend code reads `VITE_PORTFOLIO_ACCESS_CODE`, reads `import.meta.env` with a
 Server-side only (never prefix with `VITE_`):
 
 - `PORTFOLIO_ACCESS_CODE` — shared access code.
+- `PORTFOLIO_PUBLIC_READ_TOKEN` — read-only token for the public API (section 5); must differ
+  from the access code.
 - `CRON_SECRET` — Vercel Cron sends `Authorization: Bearer <secret>`; cron routes refuse to
   run when it is missing.
 - Firebase Admin credentials, one of:
@@ -59,9 +61,20 @@ of that:
 
 ## 5. Public read-only API
 
-`/api/portfolio-public` and `/api/portfolio-transactions-public` require the same access code
-as a `?code=` query parameter. Query strings can end up in logs, so share these URLs only with
-trusted tools and change the code if a URL leaks.
+`/api/portfolio-public` and `/api/portfolio-transactions-public` take a separate read-only
+token as a `?token=` query parameter, set in Vercel as `PORTFOLIO_PUBLIC_READ_TOKEN`.
+
+- The login access code (`PORTFOLIO_ACCESS_CODE`) does not open these routes. A leaked public
+  URL therefore exposes holdings and trades only: it cannot sign in or change data.
+- The token must be at least 32 characters and must differ from the login access code;
+  otherwise both routes answer 401 (they fail closed rather than open).
+- Generate one with `openssl rand -hex 24`.
+- Each request is logged as `[public-api]` with route, method, status, duration and user
+  agent. The token, the access code and the full URL are never logged. A request that still
+  uses the old `?code=` parameter is logged with `legacyCodeParam: true`.
+
+To rotate the token after a URL leaks: set a new `PORTFOLIO_PUBLIC_READ_TOKEN` in Vercel,
+redeploy, and hand out the new URLs. The login access code is unaffected.
 
 ## 6. Changing the access code
 

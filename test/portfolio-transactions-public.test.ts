@@ -129,7 +129,7 @@ test('the protected read-only route reuses health and preserves the 12-function 
   const accessSource = await readFile(new URL('../server/publicApiAccess.ts', import.meta.url), 'utf8');
 
   assert.match(apiSource, /answerPublicRequestPreamble\(request, response, PUBLIC_TRANSACTIONS_ROUTE/);
-  assert.match(accessSource, /requestCode !== configuredCode/);
+  assert.match(accessSource, /isValidPublicReadToken\(requestToken, configuredToken\)/);
   assert.match(accessSource, /message: 'Unauthorized'/);
   assert.match(accessSource, /Cache-Control', 'no-store'/);
   assert.match(accessSource, /Access-Control-Allow-Origin', '\*'/);
