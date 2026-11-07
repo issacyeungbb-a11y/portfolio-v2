@@ -28,6 +28,10 @@
   },
   "rewrites": [
     {
+      "source": "/api/mcp-test",
+      "destination": "/api/health?mcpTest=1"
+    },
+    {
       "source": "/assets",
       "destination": "/index.html"
     },

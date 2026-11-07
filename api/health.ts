@@ -33,6 +33,10 @@ import {
   answerPublicRequestPreamble,
   logPublicApiRequest,
 } from '../server/publicApiAccess.js';
+import {
+  handleMcpConnectivityTest,
+  isMcpConnectivityTestRequest,
+} from '../server/mcpConnectivityTest.js';
 
 const PUBLIC_PORTFOLIO_ROUTE = '/api/portfolio-public';
 const PUBLIC_TRANSACTIONS_ROUTE = '/api/portfolio-transactions-public';
@@ -936,6 +940,11 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
+  if (isMcpConnectivityTestRequest(request)) {
+    await handleMcpConnectivityTest(request, response);
+    return;
+  }
+
   if (isPublicTransactionsRequest(request)) {
     await handlePublicTransactionsRequest(request, response);
     return;
