@@ -126,11 +126,13 @@ test('the protected read-only route reuses health and preserves the 12-function 
     readdir(new URL('../api/', import.meta.url)),
   ]);
   const vercelConfig = JSON.parse(vercelConfigSource);
+  const accessSource = await readFile(new URL('../server/publicApiAccess.ts', import.meta.url), 'utf8');
 
-  assert.match(apiSource, /requestCode !== configuredCode/);
-  assert.match(apiSource, /message: 'Unauthorized'/);
-  assert.match(apiSource, /Cache-Control', 'no-store'/);
-  assert.match(apiSource, /Access-Control-Allow-Origin', '\*'/);
+  assert.match(apiSource, /answerPublicRequestPreamble\(request, response, PUBLIC_TRANSACTIONS_ROUTE/);
+  assert.match(accessSource, /requestCode !== configuredCode/);
+  assert.match(accessSource, /message: 'Unauthorized'/);
+  assert.match(accessSource, /Cache-Control', 'no-store'/);
+  assert.match(accessSource, /Access-Control-Allow-Origin', '\*'/);
   assert.match(apiSource, /readPublicPortfolioTransactions\(query\)/);
   assert.doesNotMatch(apiSource, /portfolioTransactionsPublic[\s\S]{0,500}\.(create|set|update|delete)\(/);
   assert.match(readerSource, /collection\('assetTransactions'\)[\s\S]*\.get\(\)/);

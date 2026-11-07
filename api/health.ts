@@ -29,6 +29,10 @@ import {
   getPortfolioAccessErrorResponse,
 } from '../server/requirePortfolioAccess.js';
 import { createPortfolioAccessToken } from '../server/portfolioUnlock.js';
+import {
+  answerPublicRequestPreamble,
+  logPublicApiRequest,
+} from '../server/publicApiAccess.js';
 
 const PUBLIC_PORTFOLIO_ROUTE = '/api/portfolio-public';
 const PUBLIC_TRANSACTIONS_ROUTE = '/api/portfolio-transactions-public';
@@ -85,22 +89,6 @@ function isPublicTransactionsRequest(request: ApiRequest) {
     );
   } catch {
     return false;
-  }
-}
-
-function getConfiguredPublicPortfolioCode() {
-  return (
-    process.env.VITE_PORTFOLIO_ACCESS_CODE?.trim() ||
-    process.env.PORTFOLIO_ACCESS_CODE?.trim() ||
-    ''
-  );
-}
-
-function getPublicPortfolioQueryCode(request: ApiRequest) {
-  try {
-    return new URL(request.url ?? PUBLIC_PORTFOLIO_ROUTE, 'http://localhost').searchParams.get('code')?.trim() ?? '';
-  } catch {
-    return '';
   }
 }
 
@@ -212,22 +200,9 @@ function recalculatePublicAsset(asset: PublicAssetRecord): PublicAssetRecord {
 }
 
 async function handlePublicPortfolioRequest(request: ApiRequest, response: ApiResponse) {
-  if (request.method !== 'GET') {
-    sendJson(response, 405, {
-      ok: false,
-      message: 'Method not allowed',
-    });
-    return;
-  }
+  const startedAt = Date.now();
 
-  const configuredCode = getConfiguredPublicPortfolioCode();
-  const requestCode = getPublicPortfolioQueryCode(request);
-
-  if (!configuredCode || requestCode !== configuredCode) {
-    sendJson(response, 401, {
-      ok: false,
-      message: 'Unauthorized',
-    });
+  if (answerPublicRequestPreamble(request, response, PUBLIC_PORTFOLIO_ROUTE, startedAt)) {
     return;
   }
 
@@ -243,61 +218,47 @@ async function handlePublicPortfolioRequest(request: ApiRequest, response: ApiRe
       .assets
       .map((asset) => recalculatePublicAsset(asset));
 
-    response.setHeader('Cache-Control', 'no-store');
     sendJson(response, 200, {
       ok: true,
       assets,
+      asOf: new Date().toISOString(),
     });
+    logPublicApiRequest(request, PUBLIC_PORTFOLIO_ROUTE, 200, startedAt, { assetCount: assets.length });
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to load portfolio assets';
     sendJson(response, 500, {
       ok: false,
-      message: error instanceof Error ? error.message : 'Failed to load portfolio assets',
+      message,
     });
+    logPublicApiRequest(request, PUBLIC_PORTFOLIO_ROUTE, 500, startedAt, { error: message });
   }
 }
 
 async function handlePublicTransactionsRequest(request: ApiRequest, response: ApiResponse) {
-  response.setHeader('Access-Control-Allow-Origin', '*');
-  response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  response.setHeader('Cache-Control', 'no-store');
+  const startedAt = Date.now();
 
-  if (request.method === 'OPTIONS') {
-    response.statusCode = 204;
-    response.end();
-    return;
-  }
-
-  if (request.method !== 'GET') {
-    sendJson(response, 405, {
-      ok: false,
-      message: 'Method not allowed',
-    });
-    return;
-  }
-
-  const configuredCode = getConfiguredPublicPortfolioCode();
-  const requestCode = getPublicPortfolioQueryCode(request);
-
-  if (!configuredCode || requestCode !== configuredCode) {
-    sendJson(response, 401, {
-      ok: false,
-      message: 'Unauthorized',
-    });
+  if (answerPublicRequestPreamble(request, response, PUBLIC_TRANSACTIONS_ROUTE, startedAt)) {
     return;
   }
 
   try {
     const query = parsePublicTransactionQuery(request.url ?? PUBLIC_TRANSACTIONS_ROUTE);
+    const result = await readPublicPortfolioTransactions(query);
     sendJson(response, 200, {
       ok: true,
       asOf: new Date().toISOString(),
-      ...(await readPublicPortfolioTransactions(query)),
+      ...result,
     });
-  } catch {
+    logPublicApiRequest(request, PUBLIC_TRANSACTIONS_ROUTE, 200, startedAt, {
+      transactionCount: result.transactionCount,
+    });
+  } catch (error) {
     sendJson(response, 500, {
       ok: false,
       message: 'Failed to load portfolio transactions',
+    });
+    logPublicApiRequest(request, PUBLIC_TRANSACTIONS_ROUTE, 500, startedAt, {
+      error: error instanceof Error ? error.message : 'unknown_error',
     });
   }
 }
