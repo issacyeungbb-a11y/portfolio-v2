@@ -72,6 +72,7 @@ function AppShellContent() {
           <ErrorBoundary key={location.pathname}>
             <Outlet />
           </ErrorBoundary>
+          <p><NavLink to="/connections">管理外部唯讀連接</NavLink></p>
         </main>
       </div>
       <BottomNav items={navItems} />

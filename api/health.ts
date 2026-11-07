@@ -32,7 +32,11 @@ import { createPortfolioAccessToken } from '../server/portfolioUnlock.js';
 import {
   answerPublicRequestPreamble,
   logPublicApiRequest,
+  getConfiguredPublicReadToken,
+  getPublicReadTokenFromRequest,
+  isValidPublicReadToken,
 } from '../server/publicApiAccess.js';
+import { handlePortfolioOAuth, portfolioOAuthPath } from '../server/portfolioOAuth.js';
 import {
   handleMcpConnectivityTest,
   isMcpConnectivityTestRequest,
@@ -203,24 +207,40 @@ function recalculatePublicAsset(asset: PublicAssetRecord): PublicAssetRecord {
   };
 }
 
+async function readPortfolioHoldings() {
+  const [documents, cryptoOverride] = await Promise.all([
+    fetchPublicAssetDocuments(), fetchPublicCryptoValuationOverride(),
+  ]);
+  const rawAssets = documents
+    .filter((entry) => !isArchivedAsset(entry.value))
+    .map((entry) => buildPublicAsset(entry.id, entry.value));
+  return applyAccountValuationOverride(rawAssets, cryptoOverride).assets.map(recalculatePublicAsset);
+}
+
+async function rejectRetiredPublicAccess(request: ApiRequest, response: ApiResponse) {
+  if (!isValidPublicReadToken(getPublicReadTokenFromRequest(request), getConfiguredPublicReadToken())) return false;
+  try {
+    const security = (await getFirebaseAdminDb().doc('portfolioSecurity/access').get()).data();
+    if (!security?.legacyPublicDisabled) return false;
+    response.setHeader('Cache-Control', 'no-store');
+    sendJson(response, 401, { ok: false, message: 'Unauthorized' });
+  } catch {
+    sendJson(response, 503, { ok: false, message: 'Access verification unavailable' });
+  }
+  return true;
+}
+
 async function handlePublicPortfolioRequest(request: ApiRequest, response: ApiResponse) {
   const startedAt = Date.now();
+
+  if (await rejectRetiredPublicAccess(request, response)) return;
 
   if (answerPublicRequestPreamble(request, response, PUBLIC_PORTFOLIO_ROUTE, startedAt)) {
     return;
   }
 
   try {
-    const [documents, cryptoOverride] = await Promise.all([
-      fetchPublicAssetDocuments(),
-      fetchPublicCryptoValuationOverride(),
-    ]);
-    const rawAssets = documents
-      .filter((entry) => !isArchivedAsset(entry.value))
-      .map((entry) => buildPublicAsset(entry.id, entry.value));
-    const assets = applyAccountValuationOverride(rawAssets, cryptoOverride)
-      .assets
-      .map((asset) => recalculatePublicAsset(asset));
+    const assets = await readPortfolioHoldings();
 
     sendJson(response, 200, {
       ok: true,
@@ -240,6 +260,8 @@ async function handlePublicPortfolioRequest(request: ApiRequest, response: ApiRe
 
 async function handlePublicTransactionsRequest(request: ApiRequest, response: ApiResponse) {
   const startedAt = Date.now();
+
+  if (await rejectRetiredPublicAccess(request, response)) return;
 
   if (answerPublicRequestPreamble(request, response, PUBLIC_TRANSACTIONS_ROUTE, startedAt)) {
     return;
@@ -940,6 +962,10 @@ async function runDiagnostics(includeAi = false): Promise<DiagnoseResponse> {
 }
 
 export default async function handler(request: ApiRequest, response: ApiResponse) {
+  if (portfolioOAuthPath(request)) {
+    await handlePortfolioOAuth(request, response, { readHoldings: readPortfolioHoldings });
+    return;
+  }
   if (isMcpConnectivityTestRequest(request)) {
     await handleMcpConnectivityTest(request, response);
     return;

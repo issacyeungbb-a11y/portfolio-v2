@@ -4,7 +4,9 @@ service cloud.firestore {
   match /databases/{database}/documents {
     // 只有經伺服器驗證共享存取碼、帶 portfolioAccess claim 嘅登入先可以讀寫。
     function hasPortfolioAccess() {
-      return request.auth != null && request.auth.token.portfolioAccess == true;
+      return request.auth != null && request.auth.token.portfolioAccess == true &&
+        (!exists(/databases/$(database)/documents/portfolioSecurity/access) ||
+         request.auth.token.get('portfolioAccessVersion', 0) == get(/databases/$(database)/documents/portfolioSecurity/access).data.version);
     }
 
     match /portfolio/{portfolioId} {

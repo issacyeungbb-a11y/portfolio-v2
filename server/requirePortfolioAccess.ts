@@ -1,4 +1,6 @@
 import type { IncomingMessage } from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { getFirebaseAdminDb } from './firebaseAdmin.js';
 
 class PortfolioAccessError extends Error {
   status: number;
@@ -51,8 +53,16 @@ export async function requirePortfolioAccess(request: IncomingMessage, route: st
     throw new PortfolioAccessError('缺少共享存取碼，請重新輸入後再試。', route, 401);
   }
 
-  if (requestCode !== configuredCode) {
+  const candidateHash = createHash('sha256').update(requestCode).digest();
+  const valid = [configuredCode, process.env.PORTFOLIO_NEXT_ACCESS_CODE?.trim()].filter(Boolean).some((code) =>
+    timingSafeEqual(candidateHash, createHash('sha256').update(code!).digest()),
+  );
+  if (!valid) {
     throw new PortfolioAccessError('共享存取碼不正確，請重新輸入後再試。', route, 401);
+  }
+  const security = (await getFirebaseAdminDb().doc('portfolioSecurity/access').get()).data();
+  if (security?.revokedCodeHashes?.includes(candidateHash.toString('hex'))) {
+    throw new PortfolioAccessError('登入碼已更新，請使用新登入碼。', route, 401);
   }
 }
 

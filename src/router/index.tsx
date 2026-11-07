@@ -17,6 +17,11 @@ const initialLoadFallback = (
 );
 
 export const router = createBrowserRouter([
+  {
+    path: '/connections',
+    hydrateFallbackElement: initialLoadFallback,
+    lazy: async () => ({ Component: (await import('../pages/ConnectionsPage')).ConnectionsPage }),
+  },
   // Standalone tool route — outside AppShell, no sidebar/topbar/bottomnav
   {
     path: '/system/diagnostics',

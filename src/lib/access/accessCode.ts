@@ -45,7 +45,11 @@ export async function hasPortfolioAccessSession() {
   const user = await getRestoredFirebaseUser();
   if (!user) return false;
   const token = await user.getIdTokenResult();
-  return token.claims[PORTFOLIO_ACCESS_CLAIM] === true;
+  if (token.claims[PORTFOLIO_ACCESS_CLAIM] !== true) return false;
+  const response = await fetch('/oauth/manage?session=1', {
+    headers: { Authorization: `Bearer ${token.token}`, 'x-portfolio-access-code': getCurrentPortfolioAccessCode() },
+  });
+  return response.ok;
 }
 
 export async function unlockPortfolio(input: string) {

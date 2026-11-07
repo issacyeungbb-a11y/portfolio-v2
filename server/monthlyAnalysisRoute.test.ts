@@ -12,6 +12,9 @@ async function request(method: string, headers: Record<string, string> = {}, url
 
 test('monthly status and generation both require portfolio authorization', async () => {
   const old = process.env.PORTFOLIO_ACCESS_CODE;
+  const adminKeys = ['FIREBASE_ADMIN_PROJECT_ID', 'FIREBASE_ADMIN_CLIENT_EMAIL', 'FIREBASE_ADMIN_PRIVATE_KEY', 'FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON'];
+  const adminValues = adminKeys.map((key) => process.env[key]);
+  adminKeys.forEach((key) => { delete process.env[key]; });
   process.env.PORTFOLIO_ACCESS_CODE = 'test-monthly-access';
   try {
     for (const method of ['GET', 'POST']) {
@@ -19,8 +22,12 @@ test('monthly status and generation both require portfolio authorization', async
       assert.equal((await request(method, { 'x-portfolio-access-code': 'wrong' })).status, 401);
     }
     const invalid = await request('GET', { 'x-portfolio-access-code': 'test-monthly-access' }, '/api/cron-monthly-analysis?jobId=invalid');
-    assert.equal(invalid.status, 400);
+    assert.equal(invalid.status, 500, 'Matching codes fail closed when the revocation store is unavailable');
   } finally {
+    adminKeys.forEach((key, index) => {
+      if (adminValues[index] === undefined) delete process.env[key];
+      else process.env[key] = adminValues[index];
+    });
     if (old === undefined) delete process.env.PORTFOLIO_ACCESS_CODE;
     else process.env.PORTFOLIO_ACCESS_CODE = old;
   }
