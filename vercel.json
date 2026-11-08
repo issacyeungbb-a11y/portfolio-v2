@@ -44,10 +44,6 @@
     { "source": "/.well-known/oauth-protected-resource", "destination": "/api/health?oauthEndpoint=/.well-known/oauth-protected-resource" },
     { "source": "/.well-known/oauth-protected-resource/api/mcp", "destination": "/api/health?oauthEndpoint=/.well-known/oauth-protected-resource/api/mcp" },
     {
-      "source": "/api/mcp-test",
-      "destination": "/api/health?mcpTest=1"
-    },
-    {
       "source": "/assets",
       "destination": "/index.html"
     },
