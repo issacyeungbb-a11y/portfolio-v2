@@ -24,6 +24,9 @@ export interface CryptoFunding {
   type: 'deposit' | 'withdrawal' | 'adjustment';
   hkd: number;
   usd: number;
+  positionId?: string;
+  quantity?: number;
+  destination?: { custodian: string; symbol: string; network: string };
 }
 export interface CryptoManagementState {
   version: number;
@@ -92,6 +95,7 @@ export interface CryptoMovementLeg {
   after: number;
 }
 export interface CryptoMovementEntry extends CryptoMovementInput {
+  fundingId?: string;
   id: string;
   createdAt: string;
   version: number;

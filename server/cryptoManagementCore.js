@@ -58,6 +58,14 @@ function validateState(state) {
     row.source = text(row.source, "\u8CC7\u91D1\u8AAA\u660E");
     number(row.hkd, "\u6E2F\u5143", row.type === "adjustment");
     number(row.usd, "\u7F8E\u5143", row.type === "adjustment");
+    if (row.positionId !== void 0 && (!/^[a-zA-Z0-9_-]{1,80}$/.test(row.positionId) || !state.positions.some((p) => p.id === row.positionId))) throw new Error("\u8CC7\u91D1\u4F4D\u7F6E\u7121\u6548\u3002");
+    if (row.quantity !== void 0 && number(row.quantity, "\u8CC7\u91D1\u5E63\u6578") <= 0) throw new Error("\u8CC7\u91D1\u5E63\u6578\u5FC5\u9808\u5927\u65BC\u96F6\u3002");
+    if (row.destination !== void 0) {
+      if (!row.destination || row.positionId || !symbols.has(row.destination.symbol)) throw new Error("\u8CC7\u91D1\u4F4D\u7F6E\u683C\u5F0F\u4E0D\u6B63\u78BA\u3002");
+      text(row.destination.custodian, "\u8CC7\u91D1\u5E73\u53F0");
+      text(row.destination.network, "\u8CC7\u91D1\u7DB2\u7D61", false);
+    }
+    if ((row.positionId !== void 0 || row.destination !== void 0) !== (row.quantity !== void 0) || row.type === "adjustment" && row.quantity !== void 0) throw new Error("\u8CC7\u91D1\u4F4D\u7F6E\u8207\u5BE6\u969B\u5E63\u6578\u5FC5\u9808\u4E00\u4F75\u586B\u5BEB\uFF0C\u4E14\u53EA\u9069\u7528\u65BC\u5165\u91D1\uFF0F\u63D0\u53D6\u3002");
   }
   if (principal(state.funding) < 0) throw new Error("\u672C\u91D1\u4E0D\u80FD\u4F4E\u65BC\u96F6\u3002");
   state.platforms = cryptoPlatforms(state);

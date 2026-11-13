@@ -60,6 +60,13 @@ export function validateState(state: CryptoManagementState) {
     row.source = text(row.source, '資金說明');
     number(row.hkd, '港元', row.type === 'adjustment');
     number(row.usd, '美元', row.type === 'adjustment');
+    if (row.positionId !== undefined && (!/^[a-zA-Z0-9_-]{1,80}$/.test(row.positionId) || !state.positions.some(p => p.id === row.positionId))) throw new Error('資金位置無效。');
+    if (row.quantity !== undefined && number(row.quantity, '資金幣數') <= 0) throw new Error('資金幣數必須大於零。');
+    if (row.destination !== undefined) {
+      if (!row.destination || row.positionId || !symbols.has(row.destination.symbol)) throw new Error('資金位置格式不正確。');
+      text(row.destination.custodian, '資金平台'); text(row.destination.network, '資金網絡', false);
+    }
+    if ((row.positionId !== undefined || row.destination !== undefined) !== (row.quantity !== undefined) || (row.type === 'adjustment' && row.quantity !== undefined)) throw new Error('資金位置與實際幣數必須一併填寫，且只適用於入金／提取。');
   }
   if (principal(state.funding) < 0) throw new Error('本金不能低於零。');
   state.platforms = cryptoPlatforms(state);

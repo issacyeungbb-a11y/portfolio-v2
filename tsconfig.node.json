@@ -17,6 +17,7 @@
     "src/lib/cryptoPlatforms.ts",
     "src/lib/cryptoClassification.ts",
     "src/lib/cryptoMovements.ts",
+    "src/lib/cryptoFunding.ts",
     "src/lib/dates.ts",
     "src/lib/holdings.ts",
     "src/lib/portfolio/reportAllocationSummary.ts",

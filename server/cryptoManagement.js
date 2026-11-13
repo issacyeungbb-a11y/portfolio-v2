@@ -4,10 +4,11 @@ import { getGoogleSheetsAccessToken, readSheetValues } from "./cryptoMonthlySync
 import { generatePriceUpdates, getCoinGeckoConfig } from "./updatePrices.js";
 import { aggregate, checksum, parseCryptoSheet, validateState, valueCrypto } from "./cryptoManagementCore.js";
 import { cryptoAssetQuotes, planCryptoAssetSync, commitCryptoAssetReconciliation, CryptoAssetSyncConflict } from "./cryptoAssetSync.js";
-import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from "./cryptoMovementStore.js";
+import { commitCryptoMovement, CryptoMovementConflict } from "./cryptoMovementStore.js";
 import { normalizeCryptoState } from "../src/lib/cryptoClassification.js";
 import { CryptoManagementError, validateCryptoInput } from "./cryptoManagementErrors.js";
 import { commitManualCryptoMonth } from "./cryptoMonthClose.js";
+import { commitCryptoManagementSave } from "./cryptoManagementSave.js";
 import { CryptoManagementError as CryptoManagementError2 } from "./cryptoManagementErrors.js";
 const SHEET = "1CrXqZtK2Qy2rivBTN1BZTSbNpAY0Y5P6Rzsg8_OaaI4";
 const metaRef = () => getSharedPortfolioDocRef().collection("cryptoManagement").doc("current");
@@ -169,15 +170,22 @@ async function runCryptoManagement(payload) {
   if (reason.length < 2 || reason.length > 300) throw new CryptoManagementError("\u8ACB\u586B\u5BEB\u4FEE\u6539\u539F\u56E0\uFF082 \u81F3 300 \u5B57\uFF09\u3002");
   const operationId = payload.operationId;
   if (typeof operationId !== "string" || !/^[a-zA-Z0-9_-]{8,80}$/.test(operationId)) throw new CryptoManagementError("\u64CD\u4F5C ID \u7121\u6548\u3002");
+  if (action === "save") {
+    try {
+      await getFirebaseAdminDb().runTransaction((tx) => commitCryptoManagementSave(tx, getSharedPortfolioDocRef(), payload, (next, stored, previous) => syncAssets(tx, next, stored, {}, previous)));
+    } catch (e) {
+      if (e instanceof CryptoMovementConflict) throw new CryptoManagementError(e.message, 409);
+      throw e;
+    }
+    return readCryptoManagement();
+  }
   const completed = await getSharedPortfolioDocRef().collection("cryptoManagementAudit").doc(operationId).get();
   if (completed.exists) {
     if (completed.data()?.requestChecksum !== checksum(payload)) throw new CryptoManagementError("\u64CD\u4F5C ID \u5DF2\u7528\u65BC\u53E6\u4E00\u500B\u64CD\u4F5C\u3002", 409);
     return readCryptoManagement();
   }
-  const migration = action === "migrate" ? await previewCryptoMigration() : null;
-  if (migration && migration.sourceChecksum !== payload.sourceChecksum) throw new CryptoManagementError("\u4F86\u6E90\u5DF2\u6539\u8B8A\uFF0C\u8ACB\u91CD\u65B0\u6838\u5C0D\u9077\u79FB\u9810\u89BD\u3002", 409);
-  const submitted = action === "save" ? validateCryptoInput(() => normalizeCryptoState(JSON.parse(JSON.stringify(payload.state)))) : null;
-  if (submitted) validateCryptoInput(() => validateState(submitted));
+  const migration = await previewCryptoMigration();
+  if (migration.sourceChecksum !== payload.sourceChecksum) throw new CryptoManagementError("\u4F86\u6E90\u5DF2\u6539\u8B8A\uFF0C\u8ACB\u91CD\u65B0\u6838\u5C0D\u9077\u79FB\u9810\u89BD\u3002", 409);
   const seedQuotes = {};
   if (migration) {
     const { baseUrl, headers } = getCoinGeckoConfig();
@@ -200,21 +208,11 @@ async function runCryptoManagement(payload) {
       return;
     }
     const previous = meta.data();
-    if (migration && previous) throw new CryptoManagementError("\u5DF2\u5B8C\u6210\u9077\u79FB\uFF0C\u4E0D\u80FD\u518D\u6B21\u8986\u84CB\u3002", 409);
-    if (!migration && (!previous || payload.expectedVersion !== previous.version)) throw new CryptoManagementError("\u8CC7\u6599\u5DF2\u88AB\u5176\u4ED6\u64CD\u4F5C\u66F4\u65B0\uFF0C\u8ACB\u91CD\u65B0\u6574\u7406\u518D\u4FEE\u6539\u3002", 409);
-    const next = migration ? { ...migration.parsed, version: 1, migratedAt: (/* @__PURE__ */ new Date()).toISOString(), sourceChecksum: migration.sourceChecksum } : { ...submitted, version: previous.version + 1, migratedAt: previous.migratedAt, sourceChecksum: previous.sourceChecksum };
+    if (previous) throw new CryptoManagementError("\u5DF2\u5B8C\u6210\u9077\u79FB\uFF0C\u4E0D\u80FD\u518D\u6B21\u8986\u84CB\u3002", 409);
+    const next = { ...migration.parsed, version: 1, migratedAt: (/* @__PURE__ */ new Date()).toISOString(), sourceChecksum: migration.sourceChecksum };
     validateCryptoInput(() => validateState(next));
-    if (previous && action === "save") validateCryptoInput(() => assertRecordedPositions(previous, next, payload.platformRename, payload.stakingRewardLink));
     tx.set(metaRef(), next);
     syncAssets(tx, next, stored, seedQuotes, previous);
-    if (previous) {
-      const imported = (id) => /^(funding_|opening_)/.test(id);
-      for (const row of next.funding.filter((r) => !imported(r.id))) {
-        const old = previous.funding.find((r) => r.id === row.id);
-        if (!old || checksum(old) !== checksum(row)) tx.set(ref.collection("accountCashFlows").doc(`crypto_funding_${row.id}`), { accountSource: "Crypto", type: row.type, amount: row.hkd || row.usd, currency: row.hkd ? "HKD" : "USD", date: row.date, note: row.source, managedCrypto: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      }
-      for (const old of previous.funding.filter((r) => !imported(r.id) && !next.funding.some((n) => n.id === r.id))) tx.delete(ref.collection("accountCashFlows").doc(`crypto_funding_${old.id}`));
-    }
     if (migration) migration.archive.forEach((a, i) => tx.create(ref.collection("cryptoSourceArchive").doc(`sheet_${i}`), { title: a.title, values: a.values.map((cells) => ({ cells })), spreadsheetId: SHEET, checksum: checksum(a), importedAt: next.migratedAt }));
     tx.create(auditRef, { action: String(action), reason, at: (/* @__PURE__ */ new Date()).toISOString(), version: next.version, previous: previous ?? null, next, requestChecksum: checksum(payload) });
   });

@@ -27,6 +27,7 @@ const SHARED_SRC_MODULES = [
   'src/lib/cryptoClassification.ts',
   'src/lib/cryptoPlatforms.ts',
   'src/lib/cryptoMovements.ts',
+  'src/lib/cryptoFunding.ts',
   'src/lib/currency.ts',
   'src/lib/holdings.ts',
   'src/lib/portfolio/assetChange.ts',

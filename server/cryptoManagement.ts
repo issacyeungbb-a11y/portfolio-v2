@@ -5,10 +5,11 @@ import { getGoogleSheetsAccessToken, readSheetValues } from './cryptoMonthlySync
 import { generatePriceUpdates, getCoinGeckoConfig } from './updatePrices.js';
 import { aggregate, checksum, parseCryptoSheet, validateState, valueCrypto } from './cryptoManagementCore.js';
 import { cryptoAssetQuotes, planCryptoAssetSync, commitCryptoAssetReconciliation, CryptoAssetSyncConflict } from './cryptoAssetSync.js';
-import { assertRecordedPositions, commitCryptoMovement, CryptoMovementConflict } from './cryptoMovementStore.js';
+import { commitCryptoMovement, CryptoMovementConflict } from './cryptoMovementStore.js';
 import { normalizeCryptoState } from '../src/lib/cryptoClassification.js';
 import { CryptoManagementError, validateCryptoInput } from './cryptoManagementErrors.js';
 import { commitManualCryptoMonth } from './cryptoMonthClose.js';
+import { commitCryptoManagementSave } from './cryptoManagementSave.js';
 export { CryptoManagementError } from './cryptoManagementErrors.js';
 import type { CryptoManagementState } from '../src/types/cryptoManagement';
 
@@ -152,15 +153,22 @@ export async function runCryptoManagement(payload: Record<string, unknown>) {
   if (reason.length < 2 || reason.length > 300) throw new CryptoManagementError('請填寫修改原因（2 至 300 字）。');
   const operationId = payload.operationId;
   if (typeof operationId !== 'string' || !/^[a-zA-Z0-9_-]{8,80}$/.test(operationId)) throw new CryptoManagementError('操作 ID 無效。');
+  if (action === 'save') {
+    try {
+      await getFirebaseAdminDb().runTransaction(tx => commitCryptoManagementSave(tx, getSharedPortfolioDocRef(), payload, (next, stored, previous) => syncAssets(tx, next, stored, {}, previous)));
+    } catch (e) {
+      if (e instanceof CryptoMovementConflict) throw new CryptoManagementError(e.message, 409);
+      throw e;
+    }
+    return readCryptoManagement();
+  }
   const completed = await getSharedPortfolioDocRef().collection('cryptoManagementAudit').doc(operationId).get();
   if (completed.exists) {
     if (completed.data()?.requestChecksum !== checksum(payload)) throw new CryptoManagementError('操作 ID 已用於另一個操作。', 409);
     return readCryptoManagement();
   }
-  const migration = action === 'migrate' ? await previewCryptoMigration() : null;
-  if (migration && migration.sourceChecksum !== payload.sourceChecksum) throw new CryptoManagementError('來源已改變，請重新核對遷移預覽。', 409);
-  const submitted = action === 'save' ? validateCryptoInput(() => normalizeCryptoState(JSON.parse(JSON.stringify(payload.state)) as CryptoManagementState)) : null;
-  if (submitted) validateCryptoInput(() => validateState(submitted));
+  const migration = await previewCryptoMigration();
+  if (migration.sourceChecksum !== payload.sourceChecksum) throw new CryptoManagementError('來源已改變，請重新核對遷移預覽。', 409);
   const seedQuotes: Record<string, { price: number; at: string }> = {};
   if (migration) {
     const { baseUrl, headers } = getCoinGeckoConfig();
@@ -182,21 +190,11 @@ export async function runCryptoManagement(payload: Record<string, unknown>) {
       return;
     }
     const previous = meta.data() as CryptoManagementState | undefined;
-    if (migration && previous) throw new CryptoManagementError('已完成遷移，不能再次覆蓋。', 409);
-    if (!migration && (!previous || payload.expectedVersion !== previous.version)) throw new CryptoManagementError('資料已被其他操作更新，請重新整理再修改。', 409);
-    const next: CryptoManagementState = migration ? { ...migration.parsed, version: 1, migratedAt: new Date().toISOString(), sourceChecksum: migration.sourceChecksum } : { ...submitted!, version: previous!.version + 1, migratedAt: previous!.migratedAt, sourceChecksum: previous!.sourceChecksum };
+    if (previous) throw new CryptoManagementError('已完成遷移，不能再次覆蓋。', 409);
+    const next: CryptoManagementState = { ...migration.parsed, version: 1, migratedAt: new Date().toISOString(), sourceChecksum: migration.sourceChecksum };
     validateCryptoInput(() => validateState(next));
-    if (previous && action === 'save') validateCryptoInput(() => assertRecordedPositions(previous, next, payload.platformRename, payload.stakingRewardLink));
     tx.set(metaRef(), next);
     syncAssets(tx, next, stored, seedQuotes, previous);
-    if (previous) {
-      const imported = (id: string) => /^(funding_|opening_)/.test(id);
-      for (const row of next.funding.filter(r => !imported(r.id))) {
-        const old = previous.funding.find(r => r.id === row.id);
-        if (!old || checksum(old) !== checksum(row)) tx.set(ref.collection('accountCashFlows').doc(`crypto_funding_${row.id}`), { accountSource: 'Crypto', type: row.type, amount: row.hkd || row.usd, currency: row.hkd ? 'HKD' : 'USD', date: row.date, note: row.source, managedCrypto: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-      }
-      for (const old of previous.funding.filter(r => !imported(r.id) && !next.funding.some(n => n.id === r.id))) tx.delete(ref.collection('accountCashFlows').doc(`crypto_funding_${old.id}`));
-    }
     if (migration) migration.archive.forEach((a, i) => tx.create(ref.collection('cryptoSourceArchive').doc(`sheet_${i}`), { title: a.title, values: a.values.map(cells => ({ cells })), spreadsheetId: SHEET, checksum: checksum(a), importedAt: next.migratedAt }));
     tx.create(auditRef, { action: String(action), reason, at: new Date().toISOString(), version: next.version, previous: previous ?? null, next, requestChecksum: checksum(payload) });
   });

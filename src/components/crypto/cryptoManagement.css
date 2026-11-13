@@ -291,3 +291,4 @@
   .monthly-statement-actions { width:100%; justify-content:space-between; }
   .monthly-pagination { justify-content:center; }
 }
+.cm-funding-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
