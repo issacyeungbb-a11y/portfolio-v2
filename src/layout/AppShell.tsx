@@ -14,6 +14,7 @@ const navItems = [
   { to: '/transactions', label: '交易', icon: 'transactions' as const },
   { to: '/funds', label: '資金', icon: 'funds' as const },
   { to: '/analysis', label: '分析', icon: 'analysis' as const },
+  { to: '/ai-cycle', label: '週期', sideLabel: '人工智能週期', icon: 'cycle' as const },
 ];
 
 interface RouteHandle {

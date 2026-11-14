@@ -1,4 +1,4 @@
-type NavIconName = 'dashboard' | 'assets' | 'trends' | 'crypto' | 'transactions' | 'funds' | 'analysis';
+type NavIconName = 'dashboard' | 'assets' | 'trends' | 'crypto' | 'transactions' | 'funds' | 'analysis' | 'cycle';
 
 interface NavIconProps {
   name: NavIconName;
@@ -81,6 +81,17 @@ function AnalysisIcon() {
   );
 }
 
+function CycleIcon() {
+  return (
+    <>
+      <path d="M18.5 12a6.5 6.5 0 0 1-11.6 4" />
+      <path d="M5.5 12a6.5 6.5 0 0 1 11.6-4" />
+      <path d="M17.2 5v3.2H14" />
+      <path d="M6.8 19v-3.2H10" />
+    </>
+  );
+}
+
 export function NavIcon({ name }: NavIconProps) {
   return (
     <svg
@@ -100,6 +111,7 @@ export function NavIcon({ name }: NavIconProps) {
       {name === 'transactions' ? <TransactionsIcon /> : null}
       {name === 'funds' ? <FundsIcon /> : null}
       {name === 'analysis' ? <AnalysisIcon /> : null}
+      {name === 'cycle' ? <CycleIcon /> : null}
     </svg>
   );
 }

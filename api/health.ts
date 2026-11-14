@@ -6,6 +6,7 @@ import {
 } from '../server/apiShared.js';
 import { buildHealthResponse } from '../src/lib/api/mockFunctionResponses.js';
 import { readCryptoHistory } from '../server/cryptoHistory.js';
+import { aiCycleErrorResponse, createAiCycleDependencies, runAiCycle } from '../server/aiCycle.js';
 import { runCryptoManagement } from '../server/cryptoManagement.js';
 import { cryptoManagementErrorResponse } from '../server/cryptoManagementErrors.js';
 import {
@@ -1012,6 +1013,20 @@ export default async function handler(request: ApiRequest, response: ApiResponse
     } catch (error) {
       if (isPortfolioAccessError(error)) { const formatted = getPortfolioAccessErrorResponse(error, '/api/health'); sendJson(response, formatted.status, formatted.body); }
       else { const formatted = cryptoManagementErrorResponse(error); sendJson(response, formatted.status, formatted.body); }
+    }
+    return;
+  }
+
+  if (mode === 'ai-cycle') {
+    response.setHeader('Cache-Control', 'private, no-store');
+    if (request.method !== 'POST') { sendJson(response, 405, { ok: false, route: '/api/health', mode: 'ai-cycle', message: 'Method not allowed' }); return; }
+    try {
+      await requirePortfolioAccess(request, '/api/health');
+      const body = await readJsonBody(request);
+      sendJson(response, 200, await runAiCycle(body, await createAiCycleDependencies(readPortfolioHoldings)));
+    } catch (error) {
+      if (isPortfolioAccessError(error)) { const formatted = getPortfolioAccessErrorResponse(error, '/api/health'); sendJson(response, formatted.status, { ...formatted.body, mode: 'ai-cycle' }); }
+      else { const formatted = aiCycleErrorResponse(error); sendJson(response, formatted.status, formatted.body); }
     }
     return;
   }

@@ -6,6 +6,7 @@ export type PortfolioFunctionKey =
   | 'crypto-history'
   | 'crypto-history-sync'
   | 'crypto-management'
+  | 'ai-cycle'
   | 'extract-assets'
   | 'extract-transactions'
   | 'manual-monthly-analysis'
@@ -27,6 +28,7 @@ export const portfolioFunctionConfig: Record<
   'crypto-history': { path: '/api/health?mode=crypto-history', method: 'GET' },
   'crypto-history-sync': { path: '/api/health?mode=crypto-sync', method: 'POST' },
   'crypto-management': { path: '/api/health?mode=crypto-management', method: 'POST' },
+  'ai-cycle': { path: '/api/health?mode=ai-cycle', method: 'POST' },
   'extract-assets': { path: '/api/extract-assets', method: 'POST' },
   'extract-transactions': { path: '/api/extract-transactions', method: 'POST' },
   'manual-monthly-analysis': { path: '/api/cron-monthly-analysis', method: 'POST' },
