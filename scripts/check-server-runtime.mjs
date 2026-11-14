@@ -58,6 +58,7 @@ try {
       ['health', 'POST', '/api/health?mode=crypto-management'],
       ['health', 'POST', '/api/health?mode=unlock'],
       ['health', 'GET', '/api/health?mode=diagnose'],
+      ['health', 'POST', '/api/health?mode=ai-cycle'],
       ['update-prices', 'POST', '/api/update-prices'],
       ['manual-capture-snapshot', 'POST', '/api/manual-capture-snapshot'],
       ['cron-daily-update', 'GET', '/api/cron-daily-update'],

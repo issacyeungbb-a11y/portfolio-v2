@@ -95,6 +95,15 @@ export const router = createBrowserRouter([
         },
       },
       {
+        path: 'ai-cycle',
+        lazy: async () => ({
+          Component: (await import('../pages/AiCyclePage')).AiCyclePage,
+        }),
+        handle: {
+          title: '人工智能週期',
+        },
+      },
+      {
         path: 'crypto-history',
         lazy: async () => ({
           Component: (await import('../pages/CryptoHistoryPage')).CryptoHistoryPage,

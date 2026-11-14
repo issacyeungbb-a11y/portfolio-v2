@@ -1,0 +1,82 @@
+/* 人工智能週期頁面。顏色只取自全站既有變數。 */
+.aic-page { min-width: 0; }
+/* 寬表格只可在自己的捲動框內橫向捲動，不可撐闊整頁。 */
+.aic-page .page-section, .aic-page .page-section-body, .aic-page .page-section-body > *, .aic-details { min-width: 0; max-width: 100%; }
+
+.aic-hero {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-start;
+  padding: 1.1rem 1.15rem; border-left: 4px solid var(--neutral);
+}
+.aic-hero[data-tone="success"] { border-left-color: var(--positive); }
+.aic-hero[data-tone="warning"] { border-left-color: var(--caution); }
+.aic-hero[data-tone="danger"] { border-left-color: var(--danger); }
+.aic-hero-main { flex: 1 1 20rem; min-width: 0; display: grid; gap: 0.55rem; }
+.aic-hero-side { display: grid; gap: 0.4rem; justify-items: start; }
+.aic-hero-stance { margin: 0; font-size: clamp(2rem, 6vw, 3rem); line-height: 1.1; letter-spacing: 0.02em; color: var(--text-main); }
+.aic-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.aic-reasons { margin: 0; padding-left: 1.15rem; color: var(--text-muted); font-size: 0.92rem; line-height: 1.6; }
+
+.aic-tiles { display: grid; gap: 0.72rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.aic-tile {
+  display: grid; gap: 0.5rem; align-content: start; padding: 0.9rem 0.95rem; min-width: 0;
+  border-radius: var(--radius-card); border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-card);
+}
+.aic-tile .summary-label { margin: 0; }
+.aic-tile-value { margin: 0; display: flex; align-items: baseline; gap: 0.55rem; flex-wrap: wrap; }
+.aic-tile-value strong { font-size: 2.1rem; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main); }
+.aic-tile-value span { font-size: 0.86rem; color: var(--text-muted); font-weight: 600; }
+.aic-tile-facts { margin: 0; display: grid; gap: 0.2rem; font-size: 0.84rem; }
+.aic-tile-facts div { display: flex; justify-content: space-between; gap: 0.75rem; }
+.aic-tile-facts dt { color: var(--text-muted); }
+.aic-tile-facts dd { margin: 0; font-variant-numeric: tabular-nums; color: var(--text-main); text-align: right; }
+
+/* 量表：底軌用同一色系的淺色，填色反映嚴重程度。 */
+.aic-meter { height: 8px; border-radius: var(--radius-pill); background: var(--positive-soft); overflow: hidden; }
+.aic-meter-fill { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--positive); }
+.aic-meter[data-severity="watch"] { background: var(--caution-soft); }
+.aic-meter[data-severity="watch"] .aic-meter-fill { background: var(--caution); }
+.aic-meter[data-severity="high"] { background: var(--danger-soft); }
+.aic-meter[data-severity="high"] .aic-meter-fill { background: var(--danger); }
+
+.aic-meter-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
+.aic-meter-list li { display: grid; gap: 0.3rem; min-width: 0; }
+.aic-meter-list-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
+.aic-meter-list-name { display: grid; gap: 0.1rem; font-weight: 600; font-size: 0.92rem; color: var(--text-main); min-width: 0; }
+.aic-meter-list-name small { font-weight: 500; font-size: 0.78rem; color: var(--text-subtle); }
+.aic-meter-list-figure { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--text-main); white-space: nowrap; }
+.aic-meter-list li[data-used="false"] .aic-meter-list-figure { font-weight: 600; color: var(--text-muted); font-size: 0.84rem; }
+.aic-meter-list-note { margin: 0; font-size: 0.82rem; color: var(--text-muted); line-height: 1.5; }
+.aic-layer-list { margin-bottom: 0.9rem; }
+
+.aic-pillar-grid { display: grid; gap: 1.2rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); }
+.aic-pillars h3 { margin: 0 0 0.7rem; font-size: 0.95rem; }
+
+.aic-guidance { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.aic-guidance li { padding: 0.7rem 0.85rem; border-radius: var(--radius-card); border: 1px solid var(--border); border-left: 4px solid var(--neutral); background: var(--surface); }
+.aic-guidance li[data-tone="positive"] { border-left-color: var(--positive); }
+.aic-guidance li[data-tone="caution"] { border-left-color: var(--caution); }
+.aic-guidance li[data-tone="danger"] { border-left-color: var(--danger); }
+.aic-guidance strong { display: block; font-size: 0.95rem; color: var(--text-main); }
+.aic-guidance p { margin: 0.25rem 0 0; color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; }
+
+.aic-stat-row { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); margin-bottom: 0.8rem; }
+.aic-stat { display: grid; gap: 0.15rem; padding: 0.6rem 0.75rem; border-radius: var(--radius-card); background: var(--surface-muted); }
+.aic-stat span { font-size: 0.8rem; color: var(--text-muted); }
+.aic-stat strong { font-size: 1.2rem; font-variant-numeric: tabular-nums; color: var(--text-main); }
+
+.aic-table-scroll { overflow-x: auto; width: 100%; margin-top: 0.5rem; }
+.aic-table { border-collapse: collapse; width: 100%; text-align: left; font-size: 0.86rem; }
+.aic-table th, .aic-table td { padding: 0.45rem 0.65rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.aic-table thead th { color: var(--text-muted); font-size: 0.78rem; font-weight: 600; background: var(--surface-muted); white-space: nowrap; }
+.aic-table tbody th { font-weight: 600; white-space: nowrap; }
+.aic-table-wide { min-width: 38rem; }
+.aic-table-wide td:nth-child(2) { min-width: 8rem; }
+.aic-numeric { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.aic-select { max-width: 15rem; min-width: 9rem; width: 100%; min-height: 2rem; padding: 0.25rem 0.4rem; border-radius: 0.5rem; border: 1px solid var(--border-strong); background: var(--surface-strong); color: var(--text-main); font: inherit; font-size: 0.84rem; }
+
+.aic-details { margin-top: 0.9rem; }
+.aic-details summary { cursor: pointer; font-weight: 600; font-size: 0.9rem; color: var(--text-muted); }
+
+.aic-analysis { margin-top: 0.8rem; }
+.aic-analysis-text { white-space: pre-wrap; line-height: 1.75; font-size: 0.94rem; color: var(--text-main); overflow-wrap: anywhere; }
+.aic-notes { margin: 0; padding-left: 1.15rem; display: grid; gap: 0.35rem; color: var(--text-muted); font-size: 0.88rem; line-height: 1.6; }

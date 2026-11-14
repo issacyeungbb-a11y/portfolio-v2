@@ -6,7 +6,7 @@ interface NavItem {
   to: string;
   label: string;
   sideLabel?: string;
-  icon: 'dashboard' | 'assets' | 'trends' | 'crypto' | 'transactions' | 'funds' | 'analysis';
+  icon: 'dashboard' | 'assets' | 'trends' | 'crypto' | 'transactions' | 'funds' | 'analysis' | 'cycle';
 }
 
 interface BottomNavProps {

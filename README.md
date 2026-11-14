@@ -38,6 +38,9 @@
 | `GEMINI_API_KEY` | Google Gemini API Key |
 | `ANTHROPIC_API_KEY` | Anthropic Claude API Key |
 | `CRON_SECRET` | Vercel Cron 驗證密鑰 |
+| `AI_CYCLE_SIGNAL_TOKEN` | 讀取人工智能週期訊號檔的權杖（只限讀取監察倉庫內容）；未設定時頁面顯示內置基準讀數 |
+| `AI_CYCLE_SIGNAL_REPO` | 選填，訊號檔所在倉庫，預設 `issacyeungbb-a11y/ai-cycle-monitor` |
+| `AI_CYCLE_SIGNAL_REF` | 選填，訊號檔所在分支，預設 `signal-data` |
 
 ## 本地開發
 
@@ -55,6 +58,10 @@ Push 到 main branch，Vercel 自動部署。
 ## Cron 任務
 
 詳見 [docs/cron-schedule.md](./docs/cron-schedule.md)
+
+## 人工智能週期頁面
+
+詳見 [docs/ai-cycle.md](./docs/ai-cycle.md)。此頁獨立運作，不參與每日排程、快照、月報或季報。
 
 ## Email 子專案
 
