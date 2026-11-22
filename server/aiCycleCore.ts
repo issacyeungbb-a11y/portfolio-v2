@@ -80,7 +80,12 @@ export function sanitizeOverrides(raw: unknown): Record<string, AiLayerCode> {
   return output;
 }
 
-export function classifyAiHolding(symbol: string, overrides: Record<string, AiLayerCode> = {}, currency = '') {
+// 分類表只針對上市股票及 ETF。加密貨幣、債券及現金即使代號相同（例如加密貨幣 NOW、ARM）也不是上市公司，
+// 套用同一張表會把它們誤計入人工智能佔比，所以一律不分類；自訂分類亦同樣不適用。
+const NON_EQUITY_ASSET_TYPES = new Set(['crypto', 'bond', 'cash']);
+
+export function classifyAiHolding(symbol: string, overrides: Record<string, AiLayerCode> = {}, currency = '', assetType = '') {
+  if (NON_EQUITY_ASSET_TYPES.has(assetType)) return { layer: 'none' as AiLayerCode, classifiedBy: 'unclassified' as const };
   const normalized = normalizeAiSymbol(symbol, currency);
   if (overrides[normalized]) return { layer: overrides[normalized], classifiedBy: 'override' as const };
   if (DEFAULT_LAYERS[normalized]) return { layer: DEFAULT_LAYERS[normalized], classifiedBy: 'default' as const };
@@ -97,24 +102,43 @@ export interface AiCycleHoldingInput {
   marketValue: number;
 }
 
+/** 同一隻股票分散在多個賬戶時合併為一項：分類按代號設定，單一持倉比重亦應按合計計算。 */
+function mergeBySymbol(rows: AiExposureHolding[], totalValueHKD: number): AiExposureHolding[] {
+  const merged = new Map<string, AiExposureHolding>();
+  for (const row of rows) {
+    const existing = merged.get(row.symbol);
+    if (!existing) {
+      merged.set(row.symbol, { ...row, accountSources: [...row.accountSources] });
+      continue;
+    }
+    existing.valueHKD += row.valueHKD;
+    for (const source of row.accountSources) {
+      if (!existing.accountSources.includes(source)) existing.accountSources.push(source);
+    }
+  }
+  const result = [...merged.values()];
+  for (const row of result) row.shareOfTotal = totalValueHKD > 0 ? row.valueHKD / totalValueHKD : 0;
+  return result.sort((a, b) => b.valueHKD - a.valueHKD);
+}
+
 export function computeAiExposure(
   holdings: AiCycleHoldingInput[],
   overrides: Record<string, AiLayerCode> = {},
   fxRates?: Record<string, number>,
 ): AiExposure {
   const rows = holdings.map((holding) => {
-    const { layer, classifiedBy } = classifyAiHolding(holding.symbol, overrides, holding.currency);
+    const { layer, classifiedBy } = classifyAiHolding(holding.symbol, overrides, holding.currency, holding.assetType);
     const symbol = normalizeAiSymbol(holding.symbol, holding.currency);
     return {
       id: holding.id, symbol: symbol || holding.symbol, name: holding.name, assetType: holding.assetType,
-      accountSource: holding.accountSource,
+      accountSources: holding.accountSource ? [holding.accountSource] : [],
       valueHKD: convertToHKDValue(Number(holding.marketValue) || 0, holding.currency, fxRates),
       shareOfTotal: 0, layer, layerLabel: LAYER_LABELS[layer], classifiedBy, monitored: MONITORED_SYMBOLS.has(symbol),
     } satisfies AiExposureHolding;
   });
   const totalValueHKD = rows.reduce((sum, row) => sum + row.valueHKD, 0);
   for (const row of rows) row.shareOfTotal = totalValueHKD > 0 ? row.valueHKD / totalValueHKD : 0;
-  const ai = rows.filter((row) => row.layer !== 'none' && row.valueHKD > 0).sort((a, b) => b.valueHKD - a.valueHKD);
+  const ai = mergeBySymbol(rows.filter((row) => row.layer !== 'none' && row.valueHKD > 0), totalValueHKD);
   const aiValueHKD = ai.reduce((sum, row) => sum + row.valueHKD, 0);
   const layers = AI_LAYER_OPTIONS.filter((option) => option.code !== 'none').map((option) => {
     const members = ai.filter((row) => row.layer === option.code);
@@ -126,9 +150,10 @@ export function computeAiExposure(
     };
   }).filter((layer) => layer.count > 0);
   // 未分類的股票及基金列為候選，讓使用者決定是否歸入人工智能相關。
-  const candidates = rows
-    .filter((row) => row.layer === 'none' && row.valueHKD > 0 && (row.assetType === 'stock' || row.assetType === 'etf'))
-    .sort((a, b) => b.valueHKD - a.valueHKD);
+  const candidates = mergeBySymbol(
+    rows.filter((row) => row.layer === 'none' && row.valueHKD > 0 && (row.assetType === 'stock' || row.assetType === 'etf')),
+    totalValueHKD,
+  );
   return {
     totalValueHKD, aiValueHKD, aiShare: totalValueHKD > 0 ? aiValueHKD / totalValueHKD : 0,
     fxSource: fxRates ? 'persisted' : 'default', layers, holdings: ai, candidates,
@@ -269,14 +294,70 @@ export function parseAiCycleSignal(raw: unknown): AiCycleSignal {
   }
   if (!isRecord(raw.freshness) || typeof raw.freshness.stale !== 'boolean') throw new Error('訊號檔缺少新鮮度資料。');
   if (!Array.isArray(raw.history)) throw new Error('訊號檔缺少歷史讀數。');
-  return raw as unknown as AiCycleSignal;
+  return normalizeForDisplay(raw);
 }
 
+/**
+ * 以上檢查決定訊號能否採用；這裏只整理「只供顯示」的欄位，令頁面及分析提示詞不會因缺欄位或壞資料而出錯：
+ * 缺少的清單補為空、格式不符的項目剔除、歷史讀數按日期排序。傾向、指數、新鮮度等影響判斷的欄位不在此補寫。
+ */
+function normalizeForDisplay(raw: Record<string, unknown>): AiCycleSignal {
+  const pulse = raw.pulse as Record<string, unknown>;
+  const keepRecords = (items: unknown) => (Array.isArray(items) ? items.filter(isRecord) : []);
+  const history = new Map<string, Record<string, unknown>>();
+  for (const row of keepRecords(raw.history)) {
+    if (typeof row.as_of_date === 'string' && ISO_DATE.test(row.as_of_date) && typeof row.period === 'string') history.set(row.as_of_date, row);
+  }
+  const index = (value: unknown) => {
+    const entry = value as Record<string, unknown>;
+    return { ...entry, pillars_not_used: keepRecords(entry.pillars_not_used) };
+  };
+  const universe = isRecord(raw.coverage_universe) ? raw.coverage_universe : {};
+  return {
+    ...raw,
+    ami: index(raw.ami),
+    abri: index(raw.abri),
+    pulse: {
+      ...pulse,
+      macro: keepRecords(pulse.macro).filter((item) =>
+        typeof item.code === 'string' && typeof item.label_zh === 'string' && typeof item.value === 'number' && Number.isFinite(item.value)),
+      flags: keepRecords(pulse.flags).filter((item) => typeof item.label_zh === 'string'),
+      failures: keepRecords(pulse.failures),
+    },
+    history: [...history.values()].sort((a, b) => String(a.as_of_date).localeCompare(String(b.as_of_date))),
+    coverage_universe: {
+      company_count: typeof universe.company_count === 'number' ? universe.company_count : 0,
+      note_zh: typeof universe.note_zh === 'string' ? universe.note_zh : '',
+    },
+  } as unknown as AiCycleSignal;
+}
+
+/** 正式指數的發布狀況。必須按訊號內容寫，不可假設正式分數永遠是空值。 */
+export function describeFormalIndexStatus(signal: AiCycleSignal): string {
+  const pct = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '—');
+  const coverage = `變現指數資料覆蓋 ${pct(signal.ami.formal_data_coverage)}、泡沫風險指數 ${pct(signal.abri.formal_data_coverage)}`;
+  const published = [
+    typeof signal.ami.formal_score === 'number' ? `變現指數 ${signal.ami.formal_score.toFixed(1)}` : null,
+    typeof signal.abri.formal_score === 'number' ? `泡沫風險指數 ${signal.abri.formal_score.toFixed(1)}` : null,
+  ].filter((item): item is string => item !== null);
+  if (published.length === 2) return `正式分數已發布：${published.join('、')}（${coverage}）。`;
+  if (published.length === 1) return `只有部分正式分數已發布：${published[0]}；另一項尚未達到發布條件（${coverage}）。`;
+  return `正式分數均尚未發布（${coverage}；正式指數須覆蓋率達六成才發布），以上均為暫定讀數。`;
+}
+
+// 每週紀錄只保留最近兩年：頁面只顯示最近十二週，同時令儲存的文件大小有上限。
+export const MAX_WEEKLY_RUNS = 104;
+
+/** 按日期由舊到新排列；同一日重複時以較後出現的為準；格式不符的紀錄剔除。 */
 export function parseAiCycleWeeklyRuns(raw: unknown): AiCycleWeeklyRun[] {
   if (!isRecord(raw) || !Array.isArray(raw.runs)) return [];
-  return raw.runs.filter((run): run is AiCycleWeeklyRun =>
-    isRecord(run) && typeof run.as_of_date === 'string' && ISO_DATE.test(run.as_of_date) && typeof run.stance_code === 'string',
-  );
+  const byDate = new Map<string, AiCycleWeeklyRun>();
+  for (const run of raw.runs) {
+    if (isRecord(run) && typeof run.as_of_date === 'string' && ISO_DATE.test(run.as_of_date) && typeof run.stance_code === 'string') {
+      byDate.set(run.as_of_date, run as unknown as AiCycleWeeklyRun);
+    }
+  }
+  return [...byDate.values()].sort((a, b) => a.as_of_date.localeCompare(b.as_of_date)).slice(-MAX_WEEKLY_RUNS);
 }
 
 /** 新訊號的產生時間不可早於已儲存的訊號，避免舊檔覆蓋新檔。 */
@@ -332,7 +413,7 @@ export function buildAiCycleAnalysisPrompt(signal: AiCycleSignal, exposure: AiEx
       未採用支柱: signal.abri.pillars_not_used.map((item) => `${item.label_zh}：${item.reason_zh ?? ''}`),
     },
     候選週期: signal.cycle.candidate_state_zh,
-    正式指數狀態: '覆蓋率未達六成，正式分數為空值；以上均為暫定讀數',
+    正式指數狀態: describeFormalIndexStatus(signal),
     支柱分數: [...signal.pillars.ami, ...signal.pillars.abri]
       .filter((pillar) => pillar.used_in_provisional)
       .map((pillar) => ({ 支柱: pillar.label_zh, 分數: pillar.score, 來源級別: pillar.source_tier })),

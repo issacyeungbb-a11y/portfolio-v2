@@ -132,7 +132,8 @@ export interface AiExposureHolding {
   symbol: string;
   name: string;
   assetType: string;
-  accountSource: string;
+  /** 同一隻股票分散在多個賬戶時合併為一項，這裏列出持有它的所有賬戶。 */
+  accountSources: string[];
   valueHKD: number;
   shareOfTotal: number;
   layer: AiLayerCode;
@@ -179,6 +180,8 @@ export interface AiCycleMeta {
 export interface AiCycleResponse {
   ok: true;
   signal: AiCycleSignal;
+  /** 按訊號內容寫成的正式指數發布狀況說明（頁面及分析提示詞共用，不可寫死）。 */
+  formalNote: string;
   weeklyRuns: AiCycleWeeklyRun[];
   meta: AiCycleMeta;
   exposure: AiExposure;

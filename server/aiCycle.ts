@@ -9,6 +9,7 @@ import {
   buildAiCycleAnalysisPrompt,
   buildAiCycleGuidance,
   computeAiExposure,
+  describeFormalIndexStatus,
   isNewerSignal,
   normalizeAiSymbol,
   parseAiCycleSignal,
@@ -29,7 +30,9 @@ import type {
 const DEFAULT_REPOSITORY = 'issacyeungbb-a11y/ai-cycle-monitor';
 const DEFAULT_REF = 'signal-data';
 const FETCH_TIMEOUT_MS = 8_000;
-const MAX_SIGNAL_BYTES = 1_000_000;
+// 以 UTF-8 位元組計算（中文每字佔三個位元組）。訊號連同每週紀錄存入同一份文件，
+// 必須留在 Firestore 單一文件 1 MiB 的上限之內；每週紀錄最多約 40 KB。
+const MAX_SIGNAL_BYTES = 900_000;
 // 訊號每週才更新一次；每六小時最多嘗試讀取一次，失敗亦不會連續重試。
 const REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const ANALYSIS_TIMEOUT_MS = 100_000;
@@ -92,7 +95,7 @@ async function fetchSignalFile(deps: AiCycleDependencies, file: string) {
     throw new AiCycleError(`讀取 ${file} 失敗（HTTP ${response.status}）。${hint}`, 502);
   }
   const text = await response.text();
-  if (text.length > MAX_SIGNAL_BYTES) throw new AiCycleError(`${file} 過大，已拒絕讀取。`, 502);
+  if (Buffer.byteLength(text, 'utf8') > MAX_SIGNAL_BYTES) throw new AiCycleError(`${file} 過大（超過 ${MAX_SIGNAL_BYTES / 1000} KB），已拒絕讀取。`, 502);
   try {
     return JSON.parse(text) as unknown;
   } catch {
@@ -184,7 +187,7 @@ async function buildResponse(deps: AiCycleDependencies, state: LatestState, refr
     lastFetchError: state.lastFetchError,
   };
   return {
-    ok: true, signal, weeklyRuns: state.weeklyRuns, meta, exposure,
+    ok: true, signal, formalNote: describeFormalIndexStatus(signal), weeklyRuns: state.weeklyRuns, meta, exposure,
     guidance: buildAiCycleGuidance(signal, exposure), overrides,
     layerOptions: AI_LAYER_OPTIONS, analysis: readAnalysis(analysisDocument),
   };

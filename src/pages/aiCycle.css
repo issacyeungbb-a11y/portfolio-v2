@@ -80,3 +80,11 @@
 .aic-analysis { margin-top: 0.8rem; }
 .aic-analysis-text { white-space: pre-wrap; line-height: 1.75; font-size: 0.94rem; color: var(--text-main); overflow-wrap: anywhere; }
 .aic-notes { margin: 0; padding-left: 1.15rem; display: grid; gap: 0.35rem; color: var(--text-muted); font-size: 0.88rem; line-height: 1.6; }
+
+.aic-classify { display: grid; gap: 0.2rem; justify-items: start; }
+.aic-classify-meta { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.76rem; color: var(--text-subtle); }
+.aic-classify-meta[data-source="override"] { color: var(--text-muted); font-weight: 600; }
+.aic-link-button { padding: 0.1rem 0; border: 0; background: none; color: var(--accent, var(--text-main)); font: inherit; font-size: 0.76rem; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; min-height: 1.5rem; }
+.aic-link-button:disabled { opacity: 0.5; cursor: not-allowed; }
+.aic-sub { display: block; margin-top: 0.1rem; font-size: 0.76rem; color: var(--text-subtle); font-weight: 500; }
+.aic-trend { margin: 0 0 0.9rem; display: grid; gap: 0.4rem; min-width: 0; }

@@ -9,8 +9,10 @@ import {
   buildAiCycleGuidance,
   classifyAiHolding,
   computeAiExposure,
+  describeFormalIndexStatus,
   normalizeAiSymbol,
   parseAiCycleSignal,
+  parseAiCycleWeeklyRuns,
   sanitizeOverrides,
   signalAgeDays,
 } from './aiCycleCore.js';
@@ -146,7 +148,7 @@ test('the analysis prompt carries the reading, its limits and the holdings', () 
   const prompt = buildAiCycleAnalysisPrompt(signal, exposure, buildAiCycleGuidance(signal, exposure), '應否加碼？');
   assert.match(prompt, /"人工智能佔總資產": 0\.3/);
   assert.match(prompt, /"已過期": true/);
-  assert.match(prompt, /正式分數為空值/);
+  assert.match(prompt, /正式分數均尚未發布/);
   assert.match(prompt, /我另外想知道：應否加碼？/);
   assert.match(prompt, /NVDA/);
   assert.doesNotMatch(prompt, /KO/);
@@ -282,4 +284,130 @@ test('the page is reachable only through the protected shared function and stays
   assert.doesNotMatch(cron, /aiCycle/);
   assert.doesNotMatch(scheduled, /aiCycle/);
   assert.equal(Object.keys(JSON.parse(vercel).functions).some((name) => /ai-cycle/i.test(name)), false);
+});
+
+// ---------------------------------------------------------------------------
+// 2026-11-22 全面檢視後補充：每項都對應一個已用實際輸出證實的問題。
+// ---------------------------------------------------------------------------
+
+test('only stocks and ETFs are classified: crypto, bonds and cash never count as AI even when the ticker collides', () => {
+  // NOW、ARM 同時是加密貨幣代號；MU 亦可能是債券代號。它們不是上市公司，不可套用股票分類表。
+  const exposure = computeAiExposure([
+    holding('NOW', 100, { assetType: 'crypto' }), holding('ARM', 100, { assetType: 'crypto' }),
+    holding('MU', 100, { assetType: 'bond' }), holding('AMD', 100, { assetType: 'cash' }),
+    holding('NOW', 100, { assetType: 'stock' }), holding('KO', 500),
+  ], {}, { HKD: 1, USD: 1, JPY: 1 });
+  assert.equal(exposure.totalValueHKD, 1000);
+  assert.equal(exposure.aiValueHKD, 100);
+  assert.deepEqual(exposure.holdings.map((row) => `${row.symbol}:${row.assetType}`), ['NOW:stock']);
+  assert.equal(exposure.monitoredCount, 1);
+  assert.deepEqual(classifyAiHolding('NOW', {}, 'USD', 'crypto'), { layer: 'none', classifiedBy: 'unclassified' });
+  // 自訂分類同樣不適用於非股票類資產，避免同代號的股票設定波及加密貨幣。
+  assert.deepEqual(classifyAiHolding('NOW', { NOW: 'cloud' }, 'USD', 'crypto'), { layer: 'none', classifiedBy: 'unclassified' });
+  assert.deepEqual(classifyAiHolding('NOW', { NOW: 'cloud' }, 'USD', 'stock'), { layer: 'cloud', classifiedBy: 'override' });
+});
+
+test('one stock held in several accounts is a single holding and concentration uses the combined size', () => {
+  const exposure = computeAiExposure([
+    holding('NVDA', 60, { name: 'NVIDIA' }), { ...holding('NVDA', 60, { name: 'NVIDIA' }), id: 'NVDA-2', accountSource: 'IBKR' },
+    holding('MSFT', 20), holding('KO', 860),
+  ], {}, { HKD: 1, USD: 1, JPY: 1 });
+  assert.deepEqual(exposure.holdings.map((row) => row.symbol), ['NVDA', 'MSFT']);
+  assert.equal(exposure.holdings[0].valueHKD, 120);
+  assert.equal(exposure.holdings[0].shareOfTotal, 0.12);
+  assert.deepEqual(exposure.holdings[0].accountSources, ['Futu', 'IBKR']);
+  assert.equal(exposure.layers.find((layer) => layer.code === 'semiconductor')?.count, 1);
+  assert.equal(exposure.monitoredCount, 2);
+  const titles = buildAiCycleGuidance(signalWith(0), exposure).map((item) => item.title);
+  assert.ok(titles.includes('單一持倉比重偏高'), '分散在兩個賬戶的合計 12% 應觸發單一持倉提示');
+  // 只有一隻股票時，不應再提示「集中在價值鏈的單一環節」。
+  const single = computeAiExposure([holding('NVDA', 30), { ...holding('NVDA', 30), id: 'NVDA-2', accountSource: 'IBKR' }, holding('KO', 940)], {}, { HKD: 1, USD: 1, JPY: 1 });
+  assert.ok(!buildAiCycleGuidance(signalWith(0), single).map((item) => item.title).includes('集中在價值鏈的單一環節'));
+});
+
+test('weekly runs are ordered by date, de-duplicated and capped', () => {
+  const runs = parseAiCycleWeeklyRuns({ runs: [
+    { as_of_date: '2026-11-21', stance_code: 'HOLD' }, { as_of_date: '2026-11-07', stance_code: 'HOLD' },
+    { as_of_date: '2026-11-21', stance_code: 'ADD' }, { as_of_date: 'bad', stance_code: 'ADD' }, null,
+  ] });
+  assert.deepEqual(runs.map((run) => `${run.as_of_date}:${run.stance_code}`), ['2026-11-07:HOLD', '2026-11-21:ADD']);
+  const dates = Array.from({ length: 150 }, (_, index) => new Date(Date.UTC(2024, 0, 1) + index * 7 * 86_400_000).toISOString().slice(0, 10));
+  const many = parseAiCycleWeeklyRuns({ runs: [...dates].reverse().map((date) => ({ as_of_date: date, stance_code: 'HOLD' })) });
+  assert.equal(many.length, 104);
+  assert.equal(many[0].as_of_date, dates[46], '保留最新的 104 週，並由舊到新排列');
+  assert.equal(many[many.length - 1].as_of_date, dates[149]);
+});
+
+test('display-only fields cannot crash the page: missing collections are filled and malformed rows dropped', () => {
+  const signal = clone(AI_CYCLE_BASELINE_SIGNAL) as any;
+  delete signal.pulse.failures;
+  delete signal.coverage_universe;
+  signal.pulse.macro.push(null, { code: 'X', label_zh: '壞數據', value: 'n/a', date: '2026-11-12', change_4w: null });
+  signal.pulse.flags.push({ code: 'NO_LABEL' });
+  const [older, middle, newer] = [signal.history[1], signal.history[3], signal.history[5]];
+  signal.history = [newer, null, { as_of_date: 'bad', period: 'x' }, older, middle];
+  signal.ami.pillars_not_used.push(null);
+  const parsed = parseAiCycleSignal(signal);
+  assert.deepEqual(parsed.pulse.failures, []);
+  assert.deepEqual(parsed.coverage_universe, { company_count: 0, note_zh: '' });
+  assert.equal(parsed.pulse.macro.length, AI_CYCLE_BASELINE_SIGNAL.pulse.macro.length);
+  assert.equal(parsed.pulse.flags.length, AI_CYCLE_BASELINE_SIGNAL.pulse.flags.length);
+  assert.deepEqual(parsed.history.map((row) => row.as_of_date), [older, middle, newer].map((row: any) => row.as_of_date));
+  assert.equal(parsed.ami.pillars_not_used.length, AI_CYCLE_BASELINE_SIGNAL.ami.pillars_not_used.length);
+  // 正規化後的訊號可以完整產生分析提示詞，不會因缺欄位而拋錯。
+  const exposure = computeAiExposure([holding('NVDA', 10)]);
+  assert.doesNotThrow(() => buildAiCycleAnalysisPrompt(parsed, exposure, buildAiCycleGuidance(parsed, exposure)));
+  // 原本已經必須具備的欄位仍然會被整體拒絕。
+  const broken = clone(AI_CYCLE_BASELINE_SIGNAL) as any;
+  delete broken.pulse.macro;
+  assert.throws(() => parseAiCycleSignal(broken), /每週脈搏/);
+});
+
+test('the formal-index note follows the data instead of assuming scores are unpublished', () => {
+  const unpublished = describeFormalIndexStatus(clone(AI_CYCLE_BASELINE_SIGNAL));
+  assert.match(unpublished, /尚未發布/);
+  assert.match(unpublished, /48\.3%.*44\.1%/);
+  const both = clone(AI_CYCLE_BASELINE_SIGNAL);
+  both.ami.formal_score = 66.2; both.abri.formal_score = 51.4;
+  both.ami.formal_data_coverage = 0.71; both.abri.formal_data_coverage = 0.64;
+  const published = describeFormalIndexStatus(both);
+  assert.match(published, /正式分數已發布.*變現指數 66\.2.*泡沫風險指數 51\.4/);
+  assert.doesNotMatch(published, /尚未發布|為空值/);
+  const partial = clone(AI_CYCLE_BASELINE_SIGNAL);
+  partial.ami.formal_score = 66.2;
+  assert.match(describeFormalIndexStatus(partial), /只有部分.*變現指數 66\.2/);
+  // 分析提示詞必須跟隨實際狀態，不可再向模型聲稱正式分數為空值。
+  const exposure = computeAiExposure([holding('NVDA', 10)]);
+  const prompt = buildAiCycleAnalysisPrompt(both, exposure, buildAiCycleGuidance(both, exposure));
+  assert.match(prompt, /正式分數已發布/);
+  assert.doesNotMatch(prompt, /為空值/);
+});
+
+test('the response carries the formal-index note and the page no longer hard-codes it', async () => {
+  const h = harness();
+  const result = await runAiCycle({ action: 'read' }, h.deps);
+  assert.match(result.formalNote, /正式分數/);
+  const page = await readFile(new URL('../src/pages/AiCyclePage.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(page, /正式分數均為空值/);
+  assert.match(page, /formalNote/);
+});
+
+test('the size limit counts bytes, so Chinese text cannot slip past a character count', async () => {
+  const padded = clone(AI_CYCLE_BASELINE_SIGNAL) as any;
+  padded.as_of_date = '2026-11-21';
+  padded.generated_at = '2026-11-21T01:20:00+00:00';
+  padded.padding = '中'.repeat(320_000); // 320,000 個字元，但 UTF-8 約 960,000 位元組
+  const h = harness();
+  h.files['signal.json'] = padded;
+  const result = await runAiCycle({ action: 'read' }, h.deps);
+  assert.equal(result.meta.source, 'baseline');
+  assert.match(result.meta.lastFetchError ?? '', /過大/);
+  assert.equal(h.documents.get('latest')?.signalJson, undefined);
+});
+
+test('the classification table can be reset from the page, and shows where each class comes from', async () => {
+  const page = await readFile(new URL('../src/pages/AiCyclePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /classify\(holding, 'default'\)/);
+  assert.match(page, /classifiedBy/);
+  assert.match(page, /accountSources/);
 });
