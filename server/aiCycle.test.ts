@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 
-import { AiCycleError, runAiCycle, type AiCycleDependencies } from './aiCycle.js';
+import { AiCycleError, describeSignalFetchFailure, runAiCycle, type AiCycleDependencies } from './aiCycle.js';
 import { AI_CYCLE_BASELINE_SIGNAL } from './aiCycleBaseline.js';
 import {
   AI_CYCLE_ANALYSIS_SYSTEM_PROMPT,
@@ -586,4 +586,30 @@ test('the page filters layer choices by asset class, sends the asset class, and 
   assert.doesNotMatch(page, /並非目前讀數/, '過期提示改由伺服器的過期原因提供');
   assert.match(page, /errorKind === 'analyze'/, '分析的錯誤要顯示在分析掣旁邊，不可只在頁頂');
   assert.match(page, /errorKind !== 'analyze'/);
+});
+
+test('fetch failures explain the likely cause for each GitHub status and name the source', async () => {
+  const source = { repository: 'owner/ai-cycle-monitor', ref: 'signal-data' };
+  const say = (status: number, token = true, remaining: string | null = null) => describeSignalFetchFailure(status, 'signal.json', source, token, remaining);
+  assert.match(say(404, false), /AI_CYCLE_SIGNAL_TOKEN/);
+  assert.match(say(404), /一律回應 404.*沒有包括 owner\/ai-cycle-monitor.*內容」唯讀.*repo 範圍.*重新部署.*signal-data 分支是否有 signal\.json/);
+  assert.match(say(401), /無效、已過期或已被撤銷/);
+  assert.match(say(403), /權限不足.*owner\/ai-cycle-monitor/);
+  assert.match(say(403, true, '0'), /次數已達上限/);
+  assert.match(say(500), /稍後再試/);
+  // 經伺服器流程：頁面看到的錯誤包含狀態碼及原因。
+  const h = harness();
+  h.deps.fetchImpl = (async () => new Response('Not Found', { status: 404 })) as unknown as typeof fetch;
+  const result = await runAiCycle({ action: 'read' }, h.deps);
+  assert.match(result.meta.lastFetchError ?? '', /HTTP 404.*沒有包括 issacyeungbb-a11y\/ai-cycle-monitor/);
+  h.deps.fetchImpl = (async () => new Response('Bad credentials', { status: 401 })) as unknown as typeof fetch;
+  assert.match((await runAiCycle({ action: 'refresh' }, h.deps)).meta.lastFetchError ?? '', /HTTP 401.*已過期/);
+});
+
+test('the page shows one banner for the baseline and its fetch error, and warns that the stance may have changed', async () => {
+  const page = await readFile(new URL('../src/pages/AiCyclePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /本週的板塊傾向可能已經不同，請勿據此操作/);
+  assert.match(page, /未能讀取每週訊號檔：\$\{meta\.lastFetchError\}/);
+  assert.equal((page.match(/meta\.lastFetchError\s*\?/g) ?? []).length, 2, '基準與已儲存訊號兩種情況各一個分支，不再重複顯示');
+  assert.doesNotMatch(page, /<p className="status-message status-message-warning">最近一次讀取訊號檔失敗：\{meta\.lastFetchError\}<\/p>/, '舊的獨立錯誤橫額已移除');
 });
