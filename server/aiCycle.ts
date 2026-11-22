@@ -74,12 +74,39 @@ export interface AiCycleDependencies {
   env: Record<string, string | undefined>;
 }
 
-function signalFileUrl(env: AiCycleDependencies['env'], file: string) {
+function signalSource(env: AiCycleDependencies['env']) {
   const repository = env.AI_CYCLE_SIGNAL_REPO?.trim() || DEFAULT_REPOSITORY;
   const ref = env.AI_CYCLE_SIGNAL_REF?.trim() || DEFAULT_REF;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !/^[\w./-]+$/.test(ref)) {
     throw new AiCycleError('訊號檔來源設定無效，請檢查 AI_CYCLE_SIGNAL_REPO 及 AI_CYCLE_SIGNAL_REF。', 500);
   }
+  return { repository, ref };
+}
+
+/**
+ * 按 GitHub 的回應說明最可能的原因。GitHub 對無效權杖回應 401；
+ * 對權杖有效但看不到的私有倉庫刻意回應 404（不是 403），以免洩露倉庫是否存在。
+ */
+export function describeSignalFetchFailure(
+  status: number, file: string, source: { repository: string; ref: string }, tokenConfigured: boolean, rateLimitRemaining: string | null,
+) {
+  const where = `${source.repository} 的 ${source.ref} 分支`;
+  if (!tokenConfigured && (status === 401 || status === 403 || status === 404)) {
+    return `監察倉庫屬私有，須先設定 AI_CYCLE_SIGNAL_TOKEN（只限讀取該倉庫內容的權杖）。`;
+  }
+  if (status === 401) return '權杖無效、已過期或已被撤銷，請重新產生並更新 AI_CYCLE_SIGNAL_TOKEN，然後重新部署。';
+  if (status === 403 && rateLimitRemaining === '0') return 'GitHub 讀取次數已達上限，稍後會自動再試。';
+  if (status === 403) return `權杖權限不足：須授予 ${source.repository} 倉庫「內容」唯讀權限。`;
+  if (status === 404) {
+    return `GitHub 對權杖看不到的私有倉庫一律回應 404。最可能是權杖沒有包括 ${source.repository}：`
+      + '細粒度權杖須在倉庫存取中選取該倉庫並授予「內容」唯讀，傳統權杖須有 repo 範圍；更新後須重新部署。'
+      + `如權限無誤，再檢查 ${where}是否有 ${file}。`;
+  }
+  return '請稍後再試。';
+}
+
+function signalFileUrl(env: AiCycleDependencies['env'], file: string) {
+  const { repository, ref } = signalSource(env);
   return `https://api.github.com/repos/${repository}/contents/${file}?ref=${encodeURIComponent(ref)}`;
 }
 
@@ -95,11 +122,9 @@ async function fetchSignalFile(deps: AiCycleDependencies, file: string) {
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
-    const hint = response.status === 404 || response.status === 401 || response.status === 403
-      ? token
-        ? '請確認權杖有權讀取監察倉庫的內容，而且每週工作已經建立 signal-data 分支。'
-        : '監察倉庫屬私有，須先設定 AI_CYCLE_SIGNAL_TOKEN（只限讀取該倉庫內容的權杖）。'
-      : '請稍後再試。';
+    const hint = describeSignalFetchFailure(
+      response.status, file, signalSource(deps.env), Boolean(token), response.headers.get('x-ratelimit-remaining'),
+    );
     throw new AiCycleError(`讀取 ${file} 失敗（HTTP ${response.status}）。${hint}`, 502);
   }
   const text = await response.text();

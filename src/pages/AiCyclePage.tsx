@@ -241,13 +241,17 @@ export function AiCyclePage() {
         </div>
       </section>
 
+      {/* 內置基準與讀取失敗是同一件事，合併成一個提示；並提醒傾向可能已經改變。 */}
       {meta.source === 'baseline' ? (
-        <p className="status-message status-message-warning">
-          現正顯示系統內置的基準讀數（{signal.as_of_date}），並非最新。
-          {meta.tokenConfigured ? '已設定讀取權杖，但尚未成功取得每週訊號檔。' : '尚未設定讀取每週訊號檔的權杖（AI_CYCLE_SIGNAL_TOKEN）。'}
+        <p className="status-message status-message-warning" role="status">
+          現正顯示系統內置的基準讀數（{signal.as_of_date}），並非最新，本週的板塊傾向可能已經不同，請勿據此操作。
+          {meta.lastFetchError
+            ? `未能讀取每週訊號檔：${meta.lastFetchError}`
+            : meta.tokenConfigured ? '已設定讀取權杖，但尚未成功取得每週訊號檔。' : '尚未設定讀取每週訊號檔的權杖（AI_CYCLE_SIGNAL_TOKEN）。'}
         </p>
+      ) : meta.lastFetchError ? (
+        <p className="status-message status-message-warning" role="status">最近一次讀取訊號檔失敗，以下為已儲存的訊號：{meta.lastFetchError}</p>
       ) : null}
-      {meta.lastFetchError ? <p className="status-message status-message-warning">最近一次讀取訊號檔失敗：{meta.lastFetchError}</p> : null}
       {meta.overdue ? <p className="status-message status-message-warning">訊號已有 {meta.signalAgeDays} 日沒有更新，每週工作可能已經停止，請勿當作本週讀數。</p> : null}
       {signal.freshness.stale ? <p className="status-message status-message-warning">基本面數據已過期：{signal.freshness.stale_reason_zh}。</p> : null}
 
