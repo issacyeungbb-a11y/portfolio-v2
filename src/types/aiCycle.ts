@@ -120,7 +120,7 @@ export interface AiCycleWeeklyRun {
   fundamentals_stale: boolean;
 }
 
-export type AiLayerCode = 'semiconductor' | 'infrastructure' | 'cloud' | 'application' | 'fund' | 'other' | 'none';
+export type AiLayerCode = 'semiconductor' | 'infrastructure' | 'cloud' | 'application' | 'fund' | 'other' | 'crypto' | 'none';
 
 export interface AiLayerOption {
   code: AiLayerCode;
@@ -129,10 +129,14 @@ export interface AiLayerOption {
 
 export interface AiExposureHolding {
   id: string;
+  /** 顯示用代號。 */
   symbol: string;
+  /** 分類及合併用的鍵：股票為標準化代號，加密貨幣為 `crypto:代號`，兩者即使代號相同也互不影響。 */
+  classKey: string;
   name: string;
   assetType: string;
-  accountSource: string;
+  /** 同一隻股票分散在多個賬戶時合併為一項，這裏列出持有它的所有賬戶。 */
+  accountSources: string[];
   valueHKD: number;
   shareOfTotal: number;
   layer: AiLayerCode;
@@ -142,7 +146,10 @@ export interface AiExposureHolding {
 }
 
 export interface AiExposure {
+  /** 淨資產：與總覽頁一致，借貸負債（負市值）已扣除。 */
   totalValueHKD: number;
+  /** 借貸負債合計（正數），已包含在 totalValueHKD 的扣減之內。 */
+  debtValueHKD: number;
   aiValueHKD: number;
   aiShare: number;
   fxSource: 'persisted' | 'default';
@@ -165,6 +172,8 @@ export interface AiCycleAnalysis {
   generatedAt: string;
   signalAsOf: string;
   question: string;
+  /** 分析之後訊號或持倉已有明顯變動的原因；空陣列表示仍然適用。 */
+  staleReasons: string[];
 }
 
 export interface AiCycleMeta {
@@ -179,6 +188,8 @@ export interface AiCycleMeta {
 export interface AiCycleResponse {
   ok: true;
   signal: AiCycleSignal;
+  /** 按訊號內容寫成的正式指數發布狀況說明（頁面及分析提示詞共用，不可寫死）。 */
+  formalNote: string;
   weeklyRuns: AiCycleWeeklyRun[];
   meta: AiCycleMeta;
   exposure: AiExposure;

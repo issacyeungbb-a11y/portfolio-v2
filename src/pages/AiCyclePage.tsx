@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { FinanceLineChart } from '../components/charts/FinanceChart';
 import { StatusBadge, type StatusBadgeTone } from '../components/ui/StatusBadge';
 import { DataCard, PageSection } from '../components/ui/DesignSystem';
 import { useTopBar, type TopBarConfig } from '../layout/TopBarContext';
@@ -45,6 +46,7 @@ function riskSeverity(value: number | null): Severity {
   return value >= 60 ? 'high' : value >= 40 ? 'watch' : 'good';
 }
 const RISK_LABEL: Record<Severity, string> = { good: '偏低', watch: '中等', high: '偏高' };
+const CLASS_SOURCE_LABEL: Record<AiExposureHolding['classifiedBy'], string> = { default: '預設分類', override: '自訂分類', unclassified: '未分類' };
 const STATE_LABEL: Record<string, string> = {
   INFRASTRUCTURE_BUILDOUT: '基建擴張期', COMMERCIALIZATION: '商業化期', HARVEST: '收成期', EUPHORIA: '亢奮期',
   OVERBUILD_BUBBLE: '過度建設／泡沫期', DELEVERAGING: '去槓桿期', RECOVERY: '復甦期', TRANSITION: '過渡期',
@@ -131,16 +133,20 @@ function GuidanceList({ items }: { items: AiCycleGuidanceItem[] }) {
 export function AiCyclePage() {
   const [data, setData] = useState<AiCycleResponse | null>(null);
   const [error, setError] = useState('');
+  // 錯誤要顯示在引發它的操作旁邊：分析掣在頁面底部，錯誤若只出現在頁頂，使用者按完會看不到任何回應。
+  const [errorKind, setErrorKind] = useState<'' | 'load' | 'refresh' | 'analyze' | 'classify'>('');
   const [busy, setBusy] = useState<'' | 'load' | 'refresh' | 'analyze' | 'classify'>('load');
   const [question, setQuestion] = useState('');
 
   const call = useCallback(async (payload: Record<string, unknown>, kind: 'load' | 'refresh' | 'analyze' | 'classify') => {
     setBusy(kind);
     setError('');
+    setErrorKind('');
     try {
       setData((await callPortfolioFunction('ai-cycle', payload)) as AiCycleResponse);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '讀取人工智能週期資料失敗。');
+      setError(caught instanceof Error ? caught.message : kind === 'analyze' ? '人工智能分析失敗。' : '讀取人工智能週期資料失敗。');
+      setErrorKind(kind);
     } finally {
       setBusy('');
     }
@@ -166,27 +172,52 @@ export function AiCyclePage() {
     );
   }
 
-  const { signal, meta, exposure, guidance, layerOptions, analysis, weeklyRuns } = data;
+  const { signal, formalNote, meta, exposure, guidance, layerOptions, analysis, weeklyRuns } = data;
   const sourceLabel = meta.source === 'baseline' ? '內置基準讀數' : meta.source === 'live' ? '剛剛更新' : '已儲存的訊號';
-  const quarters = [...signal.history].filter((row) => row.ami != null || row.abri != null).slice(-8).reverse();
+  const quarterRows = signal.history.filter((row) => row.ami != null || row.abri != null);
+  const quarters = quarterRows.slice(-8).reverse();
+  const trendRows = quarterRows.slice(-16);
   const basket = signal.pulse.basket;
 
   const classify = (holding: AiExposureHolding, layer: string) =>
-    void call({ action: 'classify', symbol: holding.symbol, layer }, 'classify');
+    void call({ action: 'classify', symbol: holding.symbol, assetType: holding.assetType === 'crypto' ? 'crypto' : 'stock', layer }, 'classify');
+  // 加密貨幣只可選「人工智能概念加密貨幣」或「非人工智能」；股票及基金不可選加密貨幣。
+  const optionsFor = (holding: AiExposureHolding) =>
+    layerOptions.filter((option) => (holding.assetType === 'crypto' ? option.code === 'crypto' || option.code === 'none' : option.code !== 'crypto'));
 
   const layerSelect = (holding: AiExposureHolding) => (
-    <select
-      className="aic-select" value={holding.layer} disabled={busy !== ''}
-      aria-label={`${holding.symbol} 的人工智能分類`}
-      onChange={(event) => classify(holding, event.target.value as AiLayerCode)}
-    >
-      {layerOptions.map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
-    </select>
+    <div className="aic-classify">
+      <select
+        className="aic-select" value={holding.layer} disabled={busy !== ''}
+        aria-label={`${holding.symbol} 的人工智能分類`}
+        onChange={(event) => classify(holding, event.target.value as AiLayerCode)}
+      >
+        {optionsFor(holding).map((option) => <option key={option.code} value={option.code}>{option.label}</option>)}
+      </select>
+      <span className="aic-classify-meta" data-source={holding.classifiedBy}>
+        {CLASS_SOURCE_LABEL[holding.classifiedBy]}
+        {holding.classifiedBy === 'override' ? (
+          <button
+            type="button" className="aic-link-button" disabled={busy !== ''}
+            aria-label={`取消 ${holding.symbol} 的自訂分類，改回預設`}
+            onClick={() => classify(holding, 'default')}
+          >取消自訂</button>
+        ) : null}
+      </span>
+    </div>
+  );
+  const holdingName = (holding: AiExposureHolding) => (
+    <>
+      {holding.name}
+      {holding.accountSources.length > 0 || holding.assetType === 'crypto'
+        ? <small className="aic-sub">{[holding.assetType === 'crypto' ? '加密貨幣' : '', ...holding.accountSources].filter(Boolean).join(' · ')}</small>
+        : null}
+    </>
   );
 
   return (
     <div className="page-stack aic-page">
-      {error ? <p className="status-message status-message-error" role="alert">{error}</p> : null}
+      {error && errorKind !== 'analyze' ? <p className="status-message status-message-error" role="alert">{error}</p> : null}
 
       <section className="card aic-hero" data-tone={stanceTone(stance!.level)}>
         <div className="aic-hero-main">
@@ -229,9 +260,11 @@ export function AiCyclePage() {
           <Meter value={exposure.aiShare * 100} label="人工智能持倉佔總資產" />
           <dl className="aic-tile-facts">
             <div><dt>人工智能持倉</dt><dd>{hkd(exposure.aiValueHKD)}</dd></div>
-            <div><dt>總資產</dt><dd>{hkd(exposure.totalValueHKD)}</dd></div>
+            <div><dt>{exposure.debtValueHKD > 0 ? '淨資產' : '總資產'}</dt><dd>{hkd(exposure.totalValueHKD)}</dd></div>
+            {exposure.debtValueHKD > 0 ? <div><dt>已扣除借貸負債</dt><dd>{hkd(exposure.debtValueHKD)}</dd></div> : null}
             <div><dt>項目</dt><dd>{exposure.holdings.length} 項</dd></div>
           </dl>
+          {exposure.debtValueHKD > 0 ? <p className="summary-hint">佔比以淨資產計（與總覽頁一致）；有借貸時，佔比會高於佔總投資額的比例。</p> : null}
           {exposure.fxSource === 'default' ? <p className="summary-hint">匯率使用系統預設值，佔比屬近似數。</p> : null}
         </article>
       </div>
@@ -240,7 +273,7 @@ export function AiCyclePage() {
         <GuidanceList items={guidance} />
       </PageSection>
 
-      <PageSection title="我的人工智能持倉" subtitle="分類可以更改；更改後佔比及提示會即時重算。">
+      <PageSection title="我的人工智能持倉" subtitle="計入股票、ETF 及人工智能概念加密貨幣；同一隻股票或同一種幣分散在多個賬戶會合併計算。分類可以更改，更改後佔比及提示會即時重算。">
         {exposure.layers.length > 0 ? (
           <ul className="aic-meter-list aic-layer-list">
             {exposure.layers.map((layer) => (
@@ -260,9 +293,9 @@ export function AiCyclePage() {
               <thead><tr><th>代號</th><th>名稱</th><th>所屬環節</th><th className="aic-numeric">市值</th><th className="aic-numeric">佔總資產</th><th>監察範圍</th></tr></thead>
               <tbody>
                 {exposure.holdings.map((holding) => (
-                  <tr key={holding.id}>
+                  <tr key={holding.classKey || holding.id}>
                     <th scope="row">{holding.symbol}</th>
-                    <td>{holding.name}</td>
+                    <td>{holdingName(holding)}</td>
                     <td>{layerSelect(holding)}</td>
                     <td className="aic-numeric">{hkd(holding.valueHKD)}</td>
                     <td className="aic-numeric">{percent(holding.shareOfTotal)}</td>
@@ -273,17 +306,20 @@ export function AiCyclePage() {
             </table>
           </div>
         ) : <p className="table-hint">未有被歸類為人工智能相關的持倉。</p>}
-        {exposure.candidates.length > 0 ? (
-          <details className="aic-details">
-            <summary>未分類的股票及基金（{exposure.candidates.length} 項）</summary>
+        {([
+          { title: '未分類的股票及基金', rows: exposure.candidates.filter((holding) => holding.assetType !== 'crypto') },
+          { title: '未分類的加密貨幣', rows: exposure.candidates.filter((holding) => holding.assetType === 'crypto') },
+        ]).filter((group) => group.rows.length > 0).map((group) => (
+          <details className="aic-details" key={group.title}>
+            <summary>{group.title}（{group.rows.length} 項）</summary>
             <div className="aic-table-scroll">
               <table className="aic-table aic-table-wide">
                 <thead><tr><th>代號</th><th>名稱</th><th>歸類為</th><th className="aic-numeric">佔總資產</th></tr></thead>
                 <tbody>
-                  {exposure.candidates.map((holding) => (
-                    <tr key={holding.id}>
+                  {group.rows.map((holding) => (
+                    <tr key={holding.classKey || holding.id}>
                       <th scope="row">{holding.symbol}</th>
-                      <td>{holding.name}</td>
+                      <td>{holdingName(holding)}</td>
                       <td>{layerSelect(holding)}</td>
                       <td className="aic-numeric">{percent(holding.shareOfTotal)}</td>
                     </tr>
@@ -292,7 +328,7 @@ export function AiCyclePage() {
               </table>
             </div>
           </details>
-        ) : null}
+        ))}
       </PageSection>
 
       <PageSection title="每週市場脈搏" subtitle={`十三間觀察公司的股價與信貸市場狀況；最多令傾向上調或下調一級。數據截至 ${basket?.as_of ?? signal.pulse.as_of}。`}>
@@ -341,6 +377,22 @@ export function AiCyclePage() {
       </PageSection>
 
       <PageSection title="歷史讀數" subtitle="季度讀數按當時已公開的資料計算；每週紀錄由每週更新累積。">
+        {trendRows.length >= 2 ? (
+          <figure className="aic-trend">
+            <FinanceLineChart
+              ariaLabel="變現指數與泡沫風險指數的季度走勢"
+              labels={trendRows.map((row) => row.period)}
+              series={[
+                { id: 'ami', label: signal.ami.label_zh, values: trendRows.map((row) => row.ami), variant: 'primary' },
+                { id: 'abri', label: signal.abri.label_zh, values: trendRows.map((row) => row.abri), variant: 'reference' },
+              ]}
+              formatValue={(value) => value.toFixed(1)}
+              formatAxis={(value) => String(Math.round(value))}
+              height={220}
+            />
+            <figcaption className="table-hint">實線：{signal.ami.label_zh}；虛線：{signal.abri.label_zh}。兩者都是暫定分數；覆蓋權重偏低的季度可能與現時口徑不同，只宜看大方向。</figcaption>
+          </figure>
+        ) : null}
         {quarters.length > 0 ? (
           <div className="aic-table-scroll">
             <table className="aic-table">
@@ -388,8 +440,12 @@ export function AiCyclePage() {
             {busy === 'analyze' ? '分析中，約需一分鐘…' : analysis ? '重新分析' : '開始分析'}
           </button>
         </div>
+        {error && errorKind === 'analyze' ? <p className="status-message status-message-error" role="alert">{error}</p> : null}
         {analysis ? (
-          <DataCard className="aic-analysis" description={`產生時間：${formatDateTime(analysis.generatedAt)} · 所用讀數日期：${analysis.signalAsOf}${analysis.signalAsOf !== signal.as_of_date ? '（並非目前讀數，建議重新分析）' : ''}`}>
+          <DataCard className="aic-analysis" description={`產生時間：${formatDateTime(analysis.generatedAt)} · 所用讀數日期：${analysis.signalAsOf}`}>
+            {analysis.staleReasons.length > 0 ? (
+              <p className="status-message status-message-warning">此分析所依據的資料已有變動，建議重新分析：{analysis.staleReasons.join('；')}。</p>
+            ) : null}
             {analysis.question ? <p className="table-hint">提問：{analysis.question}</p> : null}
             <div className="aic-analysis-text">{analysis.text}</div>
           </DataCard>
@@ -400,7 +456,7 @@ export function AiCyclePage() {
         <ul className="aic-notes">
           <li>{signal.disclaimer_zh}</li>
           <li>{signal.coverage_universe.note_zh}；不在名單內的持倉，訊號的代表性較低。</li>
-          <li>正式指數須覆蓋率達六成才發布；目前變現指數覆蓋 {percent(signal.ami.formal_data_coverage, 1)}、泡沫風險指數覆蓋 {percent(signal.abri.formal_data_coverage, 1)}，正式分數均為空值。</li>
+          <li>{formalNote}</li>
           <li>基本面最新季結日：{signal.freshness.fundamentals_latest_period_end ?? '未有'}；{signal.freshness.companies_total} 間公司中有 {signal.freshness.companies_current} 間屬現期數據。</li>
           <li>訊號產生時間：{formatDateTime(signal.generated_at)}（方法版本 {signal.methodology_version}）。</li>
         </ul>
