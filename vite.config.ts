@@ -26,7 +26,11 @@ export default defineConfig(({ mode }) => {
           server.middlewares.use(async (request, response, next) => {
             const pathname = request.url?.split('?')[0];
 
-            if (pathname === '/api/health' && new URL(request.url ?? '', 'http://localhost').searchParams.get('mode') === 'crypto-management') {
+            const healthMode = pathname === '/api/health'
+              ? new URL(request.url ?? '', 'http://localhost').searchParams.get('mode')
+              : null;
+            // 這兩個模式直接交給正式的 api/health.ts 處理，本機與部署環境行為一致。
+            if (healthMode === 'crypto-management' || healthMode === 'ai-cycle') {
               const { default: handler } = await server.ssrLoadModule('/api/health.ts');
               await handler(request, response);
               return;
