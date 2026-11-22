@@ -5,14 +5,18 @@ import { readFile } from 'node:fs/promises';
 import { AiCycleError, runAiCycle, type AiCycleDependencies } from './aiCycle.js';
 import { AI_CYCLE_BASELINE_SIGNAL } from './aiCycleBaseline.js';
 import {
+  AI_CYCLE_ANALYSIS_SYSTEM_PROMPT,
   buildAiCycleAnalysisPrompt,
   buildAiCycleGuidance,
+  buildAnalysisBasis,
   classifyAiHolding,
   computeAiExposure,
+  describeAnalysisStaleness,
   describeFormalIndexStatus,
   normalizeAiSymbol,
   parseAiCycleSignal,
   parseAiCycleWeeklyRuns,
+  parseAnalysisBasis,
   sanitizeOverrides,
   signalAgeDays,
 } from './aiCycleCore.js';
@@ -75,8 +79,8 @@ test('exposure converts to one currency and reconciles to the portfolio total', 
   assert.equal(Math.round(exposure.layers.reduce((sum, layer) => sum + layer.shareOfAi, 0) * 1e9), 1e9);
   assert.equal(exposure.monitoredCount, 2);
   assert.equal(exposure.unmonitoredCount, 1);
-  // 現金與加密貨幣不會被列為候選，只有未分類的股票及基金。
-  assert.deepEqual(exposure.candidates.map((row) => row.symbol), ['7203.T', 'KO']);
+  // 現金不會被列為候選；未分類的股票、基金及加密貨幣會列出，供使用者決定是否歸入人工智能相關。
+  assert.deepEqual(exposure.candidates.map((row) => row.symbol), ['7203.T', 'BTC', 'KO']);
   assert.equal(exposure.fxSource, 'persisted');
   assert.equal(computeAiExposure([holding('NVDA', 10)]).fxSource, 'default');
   const empty = computeAiExposure([]);
@@ -265,6 +269,7 @@ test('analysis is generated from the current reading and stored with its date', 
   assert.equal(result.analysis?.question, '應否加碼？');
   assert.match(result.analysis?.text ?? '', /【一句總結】/);
   assert.equal((await runAiCycle({}, h.deps)).analysis?.generatedAt, result.analysis?.generatedAt);
+  h.setNow('2026-11-21T02:01:00Z'); // 過了 30 秒冷卻
   h.deps.analyze = async () => ({ text: '   ', model: 'test-model' });
   await assert.rejects(runAiCycle({ action: 'analyze' }, h.deps), /未有回傳/);
 });
@@ -410,4 +415,175 @@ test('the classification table can be reset from the page, and shows where each 
   assert.match(page, /classify\(holding, 'default'\)/);
   assert.match(page, /classifiedBy/);
   assert.match(page, /accountSources/);
+});
+
+// ---------------------------------------------------------------------------
+// 人工智能概念加密貨幣、借貸負債、分析限流與過期判斷、預設表擴充
+// ---------------------------------------------------------------------------
+
+const USD1 = { HKD: 1, USD: 1, JPY: 1 };
+const crypto = (symbol: string, value: number, account = 'Binance') => ({ ...holding(symbol, value, { assetType: 'crypto' }), id: `${symbol}-c`, accountSource: account });
+
+test('AI-concept crypto is counted in its own layer and never mixes with a stock of the same ticker', () => {
+  const exposure = computeAiExposure([
+    crypto('TAO', 300), crypto('FET', 100), crypto('WLD', 200), crypto('NEAR', 50), crypto('USDT', 400), crypto('BTC', 900),
+    crypto('NOW', 100), holding('NOW', 200), holding('KO', 1000),
+  ], {}, USD1);
+  assert.equal(exposure.totalValueHKD, 3250);
+  assert.equal(exposure.aiValueHKD, 600);
+  assert.deepEqual(exposure.holdings.map((row) => row.classKey), ['crypto:TAO', 'NOW', 'crypto:FET']);
+  assert.deepEqual(exposure.layers.map((layer) => [layer.code, layer.valueHKD, layer.count]), [['application', 200, 1], ['crypto', 400, 2]]);
+  assert.equal(exposure.holdings.find((row) => row.classKey === 'crypto:TAO')?.monitored, false);
+  assert.equal(exposure.holdings.find((row) => row.classKey === 'NOW')?.monitored, true, '股票 NOW 屬監察範圍，加密貨幣 NOW 不是');
+  // 敘事性質的 WLD、NEAR 不替使用者決定；穩定幣不列為候選。
+  assert.deepEqual(exposure.candidates.map((row) => row.symbol), ['KO', 'BTC', 'WLD', 'NOW', 'NEAR']);
+  assert.ok(!exposure.candidates.some((row) => row.symbol === 'USDT'));
+  assert.deepEqual(classifyAiHolding('TAO', {}, 'USD', 'crypto'), { layer: 'crypto', classifiedBy: 'default' });
+  assert.deepEqual(classifyAiHolding('tao-usd', {}, 'USD', 'crypto'), { layer: 'crypto', classifiedBy: 'default' });
+  assert.deepEqual(classifyAiHolding('TAO', {}, 'USD', 'stock'), { layer: 'none', classifiedBy: 'unclassified' }, '同代號的股票不受加密貨幣表影響');
+  // 自訂分類各管各：加密貨幣 NOW 歸入後，股票 NOW 的分類不變；反之亦然。
+  const custom = computeAiExposure([crypto('NOW', 100), crypto('WLD', 200), holding('NOW', 200), holding('KO', 500)], { 'crypto:NOW': 'crypto', 'crypto:WLD': 'none', NOW: 'cloud' }, USD1);
+  assert.deepEqual(custom.holdings.map((row) => `${row.classKey}:${row.layer}`).sort(), ['NOW:cloud', 'crypto:NOW:crypto']);
+});
+
+test('overrides keep crypto and stock keys apart and refuse a layer that does not fit the asset class', () => {
+  assert.deepEqual(
+    sanitizeOverrides({ 'CRYPTO:wld-usd': 'crypto', 'crypto:KO': 'cloud', KO: 'crypto', WLD: 'other', 'crypto:': 'crypto' }),
+    { 'crypto:WLD': 'crypto', WLD: 'other' },
+  );
+});
+
+test('the classify action takes the asset class and enforces which layers are allowed', async () => {
+  const h = harness({ readHoldings: async () => [holding('NVDA', 300), crypto('WLD', 100), crypto('NOW', 50), holding('NOW', 50), holding('KO', 500)] });
+  await runAiCycle({ action: 'read' }, h.deps);
+  const added = await runAiCycle({ action: 'classify', symbol: 'wld', assetType: 'crypto', layer: 'crypto' }, h.deps);
+  assert.deepEqual(added.overrides, { 'crypto:WLD': 'crypto' });
+  assert.equal(added.exposure.holdings.find((row) => row.classKey === 'crypto:WLD')?.classifiedBy, 'override');
+  assert.equal(added.exposure.aiShare, (300 * 7.8 + 100 * 7.8 + 50 * 7.8) / (1000 * 7.8) , '只有 NVDA、加密貨幣 WLD、股票 NOW 計入');
+  await assert.rejects(runAiCycle({ action: 'classify', symbol: 'WLD', assetType: 'crypto', layer: 'cloud' }, h.deps), (e) => e instanceof AiCycleError && e.status === 400);
+  await assert.rejects(runAiCycle({ action: 'classify', symbol: 'KO', layer: 'crypto' }, h.deps), (e) => e instanceof AiCycleError && e.status === 400);
+  const stockNow = await runAiCycle({ action: 'classify', symbol: 'NOW', layer: 'none' }, h.deps);
+  assert.deepEqual(stockNow.overrides, { 'crypto:WLD': 'crypto', NOW: 'none' });
+  const reset = await runAiCycle({ action: 'classify', symbol: 'WLD', assetType: 'crypto', layer: 'default' }, h.deps);
+  assert.deepEqual(reset.overrides, { NOW: 'none' });
+});
+
+test('borrowing is deducted from the base like the dashboard, shown separately and passed to the model', () => {
+  const debt = { ...holding('CRYPTO-DEBT', -200, { assetType: 'cash' }), id: 'debt', accountSource: 'Crypto' };
+  const exposure = computeAiExposure([holding('NVDA', 500), debt, holding('KO', 700)], {}, USD1);
+  assert.equal(exposure.totalValueHKD, 1000);
+  assert.equal(exposure.debtValueHKD, 200);
+  assert.equal(exposure.aiShare, 0.5);
+  assert.equal(computeAiExposure([holding('NVDA', 500), holding('KO', 700)], {}, USD1).debtValueHKD, 0);
+  const signal = signalWith(0);
+  const prompt = buildAiCycleAnalysisPrompt(signal, exposure, buildAiCycleGuidance(signal, exposure));
+  assert.match(prompt, /已扣除借貸負債/);
+  assert.match(prompt, /"借貸負債佔淨資產": 0\.2/);
+});
+
+test('guidance explains that the signal does not describe AI crypto, and crypto never counts as a value-chain layer', () => {
+  const exposure = computeAiExposure([crypto('TAO', 60), crypto('FET', 60), holding('KO', 880)], {}, USD1);
+  const items = buildAiCycleGuidance(signalWith(0), exposure);
+  const note = items.find((item) => item.title === '人工智能概念加密貨幣不在訊號範圍');
+  assert.ok(note);
+  assert.equal(note.tone, 'caution', '佔總資產 12% 已達單一持倉門檻');
+  assert.match(note.text, /12\.0%/);
+  assert.ok(!items.some((item) => item.title === '集中在價值鏈的單一環節'));
+  const prompt = buildAiCycleAnalysisPrompt(signalWith(0), exposure, items);
+  assert.match(prompt, /"類別": "加密貨幣"/);
+  assert.match(AI_CYCLE_ANALYSIS_SYSTEM_PROMPT, /加密貨幣.*沒有代表性/);
+});
+
+test('the default tables cover the clear AI-chain names without guessing at ambiguous ones', () => {
+  const layer = (symbol: string, currency = 'USD', assetType = 'stock') => classifyAiHolding(symbol, {}, currency, assetType).layer;
+  assert.equal(layer('8035', 'JPY'), 'semiconductor');
+  assert.equal(layer('6857.T', 'JPY'), 'semiconductor');
+  assert.equal(layer('000660.KS', 'KRW'), 'semiconductor');
+  assert.equal(layer('ALAB'), 'semiconductor');
+  assert.equal(layer('COHR'), 'infrastructure');
+  assert.equal(layer('NBIS'), 'cloud');
+  assert.equal(layer('WTAI', 'USD', 'etf'), 'fund');
+  assert.equal(layer('SOXS', 'USD', 'etf'), 'none', '反向產品不計入');
+  assert.equal(layer('INTC'), 'none');
+  assert.equal(layer('TAO', 'USD', 'crypto'), 'crypto');
+  assert.equal(layer('RENDER', 'USD', 'crypto'), 'crypto');
+  assert.equal(layer('WLD', 'USD', 'crypto'), 'none');
+  assert.equal(layer('NEAR', 'USD', 'crypto'), 'none');
+  assert.equal(layer('8035', 'HKD'), 'none', '港元計價的 8035 是港股，不是東京電子');
+});
+
+test('analysis is rate limited: a cooldown after success, a lock while running, and failures release the lock', async () => {
+  const h = harness();
+  await runAiCycle({ action: 'read' }, h.deps);
+  const first = await runAiCycle({ action: 'analyze', question: 'a' }, h.deps);
+  await assert.rejects(runAiCycle({ action: 'analyze' }, h.deps), (e) => e instanceof AiCycleError && e.status === 429 && /30 秒/.test(e.message));
+  assert.equal(h.documents.get('analysis')?.text, first.analysis?.text, '被拒絕的請求不會動到已儲存的分析');
+
+  h.setNow('2026-11-21T02:00:31Z');
+  let calls = 0;
+  h.deps.analyze = async () => { calls += 1; if (calls === 1) throw new Error('model down'); return { text: '第二次分析', model: 'm' }; };
+  await assert.rejects(runAiCycle({ action: 'analyze' }, h.deps), /model down/);
+  assert.equal(h.documents.get('analysis')?.lockedAt, null, '失敗後解鎖');
+  assert.equal(h.documents.get('analysis')?.text, first.analysis?.text, '失敗不會覆蓋上一次成功的分析');
+  assert.equal((await runAiCycle({ action: 'analyze' }, h.deps)).analysis?.text, '第二次分析', '失敗後可以立即重試');
+
+  // 分析進行中：另一個請求被擋下；鎖逾時後可再分析。
+  h.setNow('2026-11-21T02:05:00Z');
+  let release: () => void = () => undefined;
+  h.deps.analyze = () => new Promise((resolve) => { release = () => resolve({ text: '慢速分析', model: 'm' }); });
+  const running = runAiCycle({ action: 'analyze' }, h.deps);
+  while (!h.documents.get('analysis')?.lockedAt) await new Promise((resolve) => setImmediate(resolve));
+  await assert.rejects(runAiCycle({ action: 'analyze' }, h.deps), (e) => e instanceof AiCycleError && e.status === 429 && /進行中/.test(e.message));
+  release();
+  assert.equal((await running).analysis?.text, '慢速分析');
+  h.documents.set('analysis', { ...h.documents.get('analysis'), generatedAt: undefined, lockedAt: '2026-11-21T02:05:00.000Z' });
+  h.setNow('2026-11-21T02:07:31Z'); // 鎖已超過 150 秒
+  h.deps.analyze = async () => ({ text: '鎖逾時後', model: 'm' });
+  assert.equal((await runAiCycle({ action: 'analyze' }, h.deps)).analysis?.text, '鎖逾時後');
+});
+
+test('a stored analysis is flagged when the signal or the holdings change meaningfully, not on price noise', async () => {
+  let nvda = 300;
+  const h = harness({ readHoldings: async () => [holding('NVDA', nvda), holding('KO', 700)] });
+  await runAiCycle({ action: 'read' }, h.deps);
+  const made = await runAiCycle({ action: 'analyze' }, h.deps);
+  assert.deepEqual(made.analysis?.staleReasons, []);
+  assert.deepEqual((await runAiCycle({}, h.deps)).analysis?.staleReasons, []);
+  nvda = 305; // 佔比 30.0% → 30.3%：日常價格波動，不算
+  assert.deepEqual((await runAiCycle({}, h.deps)).analysis?.staleReasons, []);
+  nvda = 450; // 30.0% → 39.1%
+  const moved = (await runAiCycle({}, h.deps)).analysis?.staleReasons ?? [];
+  assert.equal(moved.length, 1);
+  assert.match(moved[0], /人工智能佔比已由 30\.0% 變為 39\.1%/);
+  nvda = 300;
+  const reclassified = await runAiCycle({ action: 'classify', symbol: 'KO', layer: 'other' }, h.deps);
+  assert.match(reclassified.analysis?.staleReasons.join('；') ?? '', /名單或分類已有改變/);
+  await runAiCycle({ action: 'classify', symbol: 'KO', layer: 'default' }, h.deps);
+  // 訊號更新
+  const newer = clone(h.live);
+  newer.as_of_date = '2026-11-28';
+  newer.generated_at = '2026-11-28T01:20:00+00:00';
+  h.files['signal.json'] = newer;
+  const refreshed = await runAiCycle({ action: 'refresh' }, h.deps);
+  assert.deepEqual(refreshed.analysis?.staleReasons, ['訊號已由 2026-11-21 的讀數更新為 2026-11-28']);
+});
+
+test('an analysis saved before the basis was recorded is only compared by signal date', () => {
+  const exposure = computeAiExposure([holding('NVDA', 300), holding('KO', 700)], {}, USD1);
+  assert.deepEqual(describeAnalysisStaleness({ signalAsOf: '2026-11-21', basis: null }, { signalAsOf: '2026-11-21', exposure }), []);
+  assert.equal(describeAnalysisStaleness({ signalAsOf: '2026-11-14', basis: null }, { signalAsOf: '2026-11-21', exposure }).length, 1);
+  assert.equal(parseAnalysisBasis('not json'), null);
+  assert.equal(parseAnalysisBasis(undefined), null);
+  assert.deepEqual(parseAnalysisBasis(JSON.stringify(buildAnalysisBasis(exposure)))?.holdings.map((row) => row.key), ['NVDA']);
+});
+
+test('the page filters layer choices by asset class, sends the asset class, and shows debt and stale reasons', async () => {
+  const page = await readFile(new URL('../src/pages/AiCyclePage.tsx', import.meta.url), 'utf8');
+  assert.match(page, /assetType: holding\.assetType === 'crypto' \? 'crypto' : 'stock'/);
+  assert.match(page, /optionsFor\(holding\)/);
+  assert.match(page, /debtValueHKD/);
+  assert.match(page, /staleReasons/);
+  assert.doesNotMatch(page, /並非目前讀數/, '過期提示改由伺服器的過期原因提供');
+  assert.match(page, /errorKind === 'analyze'/, '分析的錯誤要顯示在分析掣旁邊，不可只在頁頂');
+  assert.match(page, /errorKind !== 'analyze'/);
 });
