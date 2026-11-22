@@ -5155,6 +5155,28 @@ h3 {
   flex: 0 0 auto;
 }
 
+/* 底部導覽有 8 項：窄螢幕（手機直向）要收窄邊距及字體，否則「Crypto」會撞入相鄰項目。 */
+@media (max-width: 430px) {
+  .bottom-nav {
+    gap: 0.1rem;
+    padding-left: 0.3rem;
+    padding-right: 0.3rem;
+  }
+
+  .bottom-nav-link {
+    padding-left: 0.05rem;
+    padding-right: 0.05rem;
+    font-size: 0.7rem;
+    letter-spacing: 0;
+  }
+}
+
+@media (max-width: 340px) {
+  .bottom-nav-link {
+    font-size: 0.64rem;
+  }
+}
+
 @media (min-width: 720px) {
   .shell-main {
     padding: 1.15rem;
